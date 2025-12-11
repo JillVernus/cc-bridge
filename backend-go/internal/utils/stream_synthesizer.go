@@ -16,6 +16,13 @@ type StreamSynthesizer struct {
 
 	// responses专用累积器
 	responsesText map[int]*strings.Builder
+
+	// Usage tracking for request logging
+	inputTokens              int
+	outputTokens             int
+	cacheCreationInputTokens int
+	cacheReadInputTokens     int
+	model                    string
 }
 
 // ToolCall 工具调用累积器
@@ -23,6 +30,15 @@ type ToolCall struct {
 	ID        string
 	Name      string
 	Arguments string
+}
+
+// StreamUsage represents usage data extracted from streaming response
+type StreamUsage struct {
+	InputTokens              int    `json:"inputTokens"`
+	OutputTokens             int    `json:"outputTokens"`
+	CacheCreationInputTokens int    `json:"cacheCreationInputTokens"`
+	CacheReadInputTokens     int    `json:"cacheReadInputTokens"`
+	Model                    string `json:"model"`
 }
 
 // NewStreamSynthesizer 创建新的流合成器
@@ -306,6 +322,25 @@ func (s *StreamSynthesizer) processClaude(data map[string]interface{}) {
 	eventType, _ := data["type"].(string)
 
 	switch eventType {
+	case "message_start":
+		// Extract initial usage and model from message_start event
+		if message, ok := data["message"].(map[string]interface{}); ok {
+			// Extract model
+			if model, ok := message["model"].(string); ok {
+				s.model = model
+			}
+			// Extract usage
+			if usage, ok := message["usage"].(map[string]interface{}); ok {
+				s.extractClaudeUsage(usage)
+			}
+		}
+
+	case "message_delta":
+		// Extract final usage from message_delta event (contains final output_tokens)
+		if usage, ok := data["usage"].(map[string]interface{}); ok {
+			s.extractClaudeUsage(usage)
+		}
+
 	case "content_block_delta":
 		delta, ok := data["delta"].(map[string]interface{})
 		if !ok {
@@ -359,6 +394,24 @@ func (s *StreamSynthesizer) processClaude(data map[string]interface{}) {
 				accumulated.Name = name
 			}
 		}
+	}
+}
+
+// extractClaudeUsage extracts usage data from Claude API response
+func (s *StreamSynthesizer) extractClaudeUsage(usage map[string]interface{}) {
+	// Only update inputTokens if the new value is > 0 (some providers send 0 in message_delta)
+	if inputTokens, ok := usage["input_tokens"].(float64); ok && int(inputTokens) > 0 {
+		s.inputTokens = int(inputTokens)
+	}
+	if outputTokens, ok := usage["output_tokens"].(float64); ok {
+		s.outputTokens = int(outputTokens)
+	}
+	// Only update cache tokens if the new value is > 0
+	if cacheCreation, ok := usage["cache_creation_input_tokens"].(float64); ok && int(cacheCreation) > 0 {
+		s.cacheCreationInputTokens = int(cacheCreation)
+	}
+	if cacheRead, ok := usage["cache_read_input_tokens"].(float64); ok && int(cacheRead) > 0 {
+		s.cacheReadInputTokens = int(cacheRead)
 	}
 }
 
@@ -441,4 +494,20 @@ func (s *StreamSynthesizer) IsParseFailed() bool {
 // HasToolCalls 检查是否有工具调用被处理
 func (s *StreamSynthesizer) HasToolCalls() bool {
 	return len(s.toolCallAccumulator) > 0
+}
+
+// GetUsage returns the usage data extracted from the stream
+func (s *StreamSynthesizer) GetUsage() *StreamUsage {
+	return &StreamUsage{
+		InputTokens:              s.inputTokens,
+		OutputTokens:             s.outputTokens,
+		CacheCreationInputTokens: s.cacheCreationInputTokens,
+		CacheReadInputTokens:     s.cacheReadInputTokens,
+		Model:                    s.model,
+	}
+}
+
+// GetModel returns the model name extracted from the stream
+func (s *StreamSynthesizer) GetModel() string {
+	return s.model
 }

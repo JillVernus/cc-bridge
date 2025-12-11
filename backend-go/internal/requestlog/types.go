@@ -1,0 +1,102 @@
+package requestlog
+
+import (
+	"time"
+)
+
+// Request status constants
+const (
+	StatusPending   = "pending"   // Request received, waiting for response
+	StatusCompleted = "completed" // Response received successfully
+	StatusError     = "error"     // Request failed with error
+)
+
+// RequestLog represents a single API request/response record
+type RequestLog struct {
+	ID                       string    `json:"id"`
+	Status                   string    `json:"status"` // pending, completed, error
+	InitialTime              time.Time `json:"initialTime"`
+	CompleteTime             time.Time `json:"completeTime"`
+	DurationMs               int64     `json:"durationMs"`
+	Type                     string    `json:"type"`         // claude, openai, gemini (service type)
+	ProviderName             string    `json:"providerName"` // actual provider/channel name
+	Model                    string    `json:"model"`
+	InputTokens              int       `json:"inputTokens"`
+	OutputTokens             int       `json:"outputTokens"`
+	CacheCreationInputTokens int       `json:"cacheCreationInputTokens"`
+	CacheReadInputTokens     int       `json:"cacheReadInputTokens"`
+	TotalTokens              int       `json:"totalTokens"`
+	Price                    float64   `json:"price"`
+	HTTPStatus               int       `json:"httpStatus"`
+	Stream                   bool      `json:"stream"`
+	ChannelID                int       `json:"channelId"`
+	ChannelName              string    `json:"channelName"`
+	Endpoint                 string    `json:"endpoint"` // /v1/messages or /v1/responses
+	UserID                   string    `json:"userId,omitempty"`
+	Error                    string    `json:"error,omitempty"`
+	CreatedAt                time.Time `json:"createdAt"`
+}
+
+// UsageData represents normalized usage data across all providers
+type UsageData struct {
+	InputTokens              int `json:"inputTokens"`
+	OutputTokens             int `json:"outputTokens"`
+	CacheCreationInputTokens int `json:"cacheCreationInputTokens"`
+	CacheReadInputTokens     int `json:"cacheReadInputTokens"`
+	TotalTokens              int `json:"totalTokens"`
+}
+
+// RequestLogFilter represents filter options for querying request logs
+type RequestLogFilter struct {
+	Provider   string     `json:"provider,omitempty"`
+	Model      string     `json:"model,omitempty"`
+	HTTPStatus int        `json:"httpStatus,omitempty"`
+	Endpoint   string     `json:"endpoint,omitempty"`
+	From       *time.Time `json:"from,omitempty"`
+	To         *time.Time `json:"to,omitempty"`
+	Limit      int        `json:"limit,omitempty"`
+	Offset     int        `json:"offset,omitempty"`
+}
+
+// RequestLogStats represents aggregated statistics
+type RequestLogStats struct {
+	TotalRequests int64                    `json:"totalRequests"`
+	TotalTokens   UsageData                `json:"totalTokens"`
+	TotalCost     float64                  `json:"totalCost"`
+	ByProvider    map[string]ProviderStats `json:"byProvider"`
+	ByModel       map[string]ModelStats    `json:"byModel"`
+	TimeRange     TimeRange                `json:"timeRange"`
+}
+
+// ProviderStats represents statistics for a single provider
+type ProviderStats struct {
+	Count                    int64   `json:"count"`
+	InputTokens              int     `json:"inputTokens"`
+	OutputTokens             int     `json:"outputTokens"`
+	CacheCreationInputTokens int     `json:"cacheCreationInputTokens"`
+	CacheReadInputTokens     int     `json:"cacheReadInputTokens"`
+	Cost                     float64 `json:"cost"`
+}
+
+// ModelStats represents statistics for a single model
+type ModelStats struct {
+	Count                    int64   `json:"count"`
+	InputTokens              int     `json:"inputTokens"`
+	OutputTokens             int     `json:"outputTokens"`
+	CacheCreationInputTokens int     `json:"cacheCreationInputTokens"`
+	CacheReadInputTokens     int     `json:"cacheReadInputTokens"`
+	Cost                     float64 `json:"cost"`
+}
+
+// TimeRange represents a time range for statistics
+type TimeRange struct {
+	From time.Time `json:"from"`
+	To   time.Time `json:"to"`
+}
+
+// RequestLogListResponse represents the API response for listing request logs
+type RequestLogListResponse struct {
+	Requests []RequestLog `json:"requests"`
+	Total    int64        `json:"total"`
+	HasMore  bool         `json:"hasMore"`
+}

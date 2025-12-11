@@ -3,8 +3,8 @@ package middleware
 import (
 	"strings"
 
+	"github.com/JillVernus/claude-proxy/internal/config"
 	"github.com/gin-gonic/gin"
-	"github.com/BenedictKing/claude-proxy/internal/config"
 )
 
 // CORSMiddleware CORS 中间件

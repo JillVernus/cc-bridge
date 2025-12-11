@@ -11,15 +11,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BenedictKing/claude-proxy/internal/config"
-	"github.com/BenedictKing/claude-proxy/internal/converters"
-	"github.com/BenedictKing/claude-proxy/internal/httpclient"
-	"github.com/BenedictKing/claude-proxy/internal/middleware"
-	"github.com/BenedictKing/claude-proxy/internal/providers"
-	"github.com/BenedictKing/claude-proxy/internal/scheduler"
-	"github.com/BenedictKing/claude-proxy/internal/session"
-	"github.com/BenedictKing/claude-proxy/internal/types"
-	"github.com/BenedictKing/claude-proxy/internal/utils"
+	"github.com/JillVernus/claude-proxy/internal/config"
+	"github.com/JillVernus/claude-proxy/internal/converters"
+	"github.com/JillVernus/claude-proxy/internal/httpclient"
+	"github.com/JillVernus/claude-proxy/internal/middleware"
+	"github.com/JillVernus/claude-proxy/internal/providers"
+	"github.com/JillVernus/claude-proxy/internal/scheduler"
+	"github.com/JillVernus/claude-proxy/internal/session"
+	"github.com/JillVernus/claude-proxy/internal/types"
+	"github.com/JillVernus/claude-proxy/internal/utils"
 	"github.com/gin-gonic/gin"
 )
 
@@ -162,7 +162,10 @@ func tryResponsesChannelWithAllKeys(
 	bodyBytes []byte,
 	responsesReq types.ResponsesRequest,
 	startTime time.Time,
-) (bool, *struct{ Status int; Body []byte }) {
+) (bool, *struct {
+	Status int
+	Body   []byte
+}) {
 	if len(upstream.APIKeys) == 0 {
 		return false, nil
 	}
@@ -171,7 +174,10 @@ func tryResponsesChannelWithAllKeys(
 
 	maxRetries := len(upstream.APIKeys)
 	failedKeys := make(map[string]bool)
-	var lastFailoverError *struct{ Status int; Body []byte }
+	var lastFailoverError *struct {
+		Status int
+		Body   []byte
+	}
 	deprioritizeCandidates := make(map[string]bool)
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
@@ -211,7 +217,10 @@ func tryResponsesChannelWithAllKeys(
 				cfgManager.MarkKeyAsFailed(apiKey)
 				log.Printf("⚠️ [Responses] API密钥失败 (状态: %d)，尝试下一个密钥", resp.StatusCode)
 
-				lastFailoverError = &struct{ Status int; Body []byte }{
+				lastFailoverError = &struct {
+					Status int
+					Body   []byte
+				}{
 					Status: resp.StatusCode,
 					Body:   respBodyBytes,
 				}

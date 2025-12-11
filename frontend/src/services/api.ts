@@ -392,6 +392,102 @@ class ApiService {
       body: JSON.stringify({ duration: durationSeconds })
     })
   }
+
+  // ============== 请求日志 API ==============
+
+  async getRequestLogs(filter?: RequestLogFilter): Promise<RequestLogListResponse> {
+    const params = new URLSearchParams()
+    if (filter?.provider) params.set('provider', filter.provider)
+    if (filter?.model) params.set('model', filter.model)
+    if (filter?.endpoint) params.set('endpoint', filter.endpoint)
+    if (filter?.httpStatus) params.set('httpStatus', String(filter.httpStatus))
+    if (filter?.limit) params.set('limit', String(filter.limit))
+    if (filter?.offset) params.set('offset', String(filter.offset))
+    if (filter?.from) params.set('from', filter.from)
+    if (filter?.to) params.set('to', filter.to)
+    const query = params.toString() ? `?${params.toString()}` : ''
+    return this.request(`/logs${query}`)
+  }
+
+  async getRequestLogStats(filter?: { from?: string; to?: string }): Promise<RequestLogStats> {
+    const params = new URLSearchParams()
+    if (filter?.from) params.set('from', filter.from)
+    if (filter?.to) params.set('to', filter.to)
+    const query = params.toString() ? `?${params.toString()}` : ''
+    return this.request(`/logs/stats${query}`)
+  }
+
+  // 清空所有日志
+  async clearRequestLogs(): Promise<{ message: string }> {
+    return this.request('/logs', { method: 'DELETE' })
+  }
+}
+
+// 请求日志类型
+export interface RequestLog {
+  id: string
+  status: 'pending' | 'completed' | 'error'
+  initialTime: string
+  completeTime: string
+  durationMs: number
+  type: string
+  providerName: string
+  model: string
+  inputTokens: number
+  outputTokens: number
+  cacheCreationInputTokens: number
+  cacheReadInputTokens: number
+  totalTokens: number
+  price: number
+  httpStatus: number
+  stream: boolean
+  channelId: number
+  channelName: string
+  endpoint: string
+  userId?: string
+  error?: string
+  createdAt: string
+}
+
+export interface RequestLogFilter {
+  provider?: string
+  model?: string
+  httpStatus?: number
+  endpoint?: string
+  from?: string
+  to?: string
+  limit?: number
+  offset?: number
+}
+
+export interface RequestLogListResponse {
+  requests: RequestLog[]
+  total: number
+  hasMore: boolean
+}
+
+export interface GroupStats {
+  count: number
+  inputTokens: number
+  outputTokens: number
+  cacheCreationInputTokens: number
+  cacheReadInputTokens: number
+  cost: number
+}
+
+export interface RequestLogStats {
+  totalRequests: number
+  totalTokens: {
+    inputTokens: number
+    outputTokens: number
+    cacheCreationInputTokens: number
+    cacheReadInputTokens: number
+    totalTokens: number
+  }
+  totalCost: number
+  byProvider: Record<string, GroupStats>
+  byModel: Record<string, GroupStats>
+  timeRange: { from: string; to: string }
 }
 
 export const api = new ApiService()

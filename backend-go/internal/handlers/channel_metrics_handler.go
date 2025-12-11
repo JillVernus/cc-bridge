@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BenedictKing/claude-proxy/internal/metrics"
-	"github.com/BenedictKing/claude-proxy/internal/scheduler"
+	"github.com/JillVernus/claude-proxy/internal/metrics"
+	"github.com/JillVernus/claude-proxy/internal/scheduler"
 	"github.com/gin-gonic/gin"
 )
 

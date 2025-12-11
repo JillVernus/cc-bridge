@@ -1,8 +1,8 @@
 package converters
 
 import (
-	"github.com/BenedictKing/claude-proxy/internal/session"
-	"github.com/BenedictKing/claude-proxy/internal/types"
+	"github.com/JillVernus/claude-proxy/internal/session"
+	"github.com/JillVernus/claude-proxy/internal/types"
 )
 
 // ============== Claude Messages API 转换器 ==============

@@ -1,8 +1,8 @@
 package converters
 
 import (
-	"github.com/BenedictKing/claude-proxy/internal/session"
-	"github.com/BenedictKing/claude-proxy/internal/types"
+	"github.com/JillVernus/claude-proxy/internal/session"
+	"github.com/JillVernus/claude-proxy/internal/types"
 )
 
 // ResponsesConverter 定义 Responses API 转换器接口

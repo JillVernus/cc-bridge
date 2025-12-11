@@ -10,19 +10,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BenedictKing/claude-proxy/internal/config"
-	"github.com/BenedictKing/claude-proxy/internal/httpclient"
-	"github.com/BenedictKing/claude-proxy/internal/middleware"
-	"github.com/BenedictKing/claude-proxy/internal/providers"
-	"github.com/BenedictKing/claude-proxy/internal/scheduler"
-	"github.com/BenedictKing/claude-proxy/internal/types"
-	"github.com/BenedictKing/claude-proxy/internal/utils"
+	"github.com/JillVernus/claude-proxy/internal/config"
+	"github.com/JillVernus/claude-proxy/internal/httpclient"
+	"github.com/JillVernus/claude-proxy/internal/middleware"
+	"github.com/JillVernus/claude-proxy/internal/providers"
+	"github.com/JillVernus/claude-proxy/internal/requestlog"
+	"github.com/JillVernus/claude-proxy/internal/scheduler"
+	"github.com/JillVernus/claude-proxy/internal/types"
+	"github.com/JillVernus/claude-proxy/internal/utils"
 	"github.com/gin-gonic/gin"
 )
 
 // ProxyHandler 代理处理器
 // 支持多渠道调度：当配置多个渠道时自动启用
-func ProxyHandler(envCfg *config.EnvConfig, cfgManager *config.ConfigManager, channelScheduler *scheduler.ChannelScheduler) gin.HandlerFunc {
+func ProxyHandler(envCfg *config.EnvConfig, cfgManager *config.ConfigManager, channelScheduler *scheduler.ChannelScheduler, reqLogManager *requestlog.Manager) gin.HandlerFunc {
 	return gin.HandlerFunc(func(c *gin.Context) {
 		// 先进行认证
 		middleware.ProxyAuthMiddleware(envCfg)(c)
@@ -50,15 +51,33 @@ func ProxyHandler(envCfg *config.EnvConfig, cfgManager *config.ConfigManager, ch
 		// 提取 user_id 用于 Trace 亲和性
 		userID := extractUserID(bodyBytes)
 
+		// 创建 pending 请求日志记录
+		var requestLogID string
+		if reqLogManager != nil {
+			pendingLog := &requestlog.RequestLog{
+				Status:      requestlog.StatusPending,
+				InitialTime: startTime,
+				Model:       claudeReq.Model,
+				Stream:      claudeReq.Stream,
+				Endpoint:    "/v1/messages",
+				UserID:      userID,
+			}
+			if err := reqLogManager.Add(pendingLog); err != nil {
+				log.Printf("⚠️ 创建 pending 请求日志失败: %v", err)
+			} else {
+				requestLogID = pendingLog.ID
+			}
+		}
+
 		// 检查是否为多渠道模式
 		isMultiChannel := channelScheduler.IsMultiChannelMode(false)
 
 		if isMultiChannel {
 			// 多渠道模式：使用调度器
-			handleMultiChannelProxy(c, envCfg, cfgManager, channelScheduler, bodyBytes, claudeReq, userID, startTime)
+			handleMultiChannelProxy(c, envCfg, cfgManager, channelScheduler, bodyBytes, claudeReq, userID, startTime, reqLogManager, requestLogID)
 		} else {
 			// 单渠道模式：使用现有逻辑
-			handleSingleChannelProxy(c, envCfg, cfgManager, bodyBytes, claudeReq, startTime)
+			handleSingleChannelProxy(c, envCfg, cfgManager, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID)
 		}
 	})
 }
@@ -86,6 +105,8 @@ func handleMultiChannelProxy(
 	claudeReq types.ClaudeRequest,
 	userID string,
 	startTime time.Time,
+	reqLogManager *requestlog.Manager,
+	requestLogID string,
 ) {
 	failedChannels := make(map[int]bool)
 	var lastError error
@@ -93,6 +114,7 @@ func handleMultiChannelProxy(
 		Status int
 		Body   []byte
 	}
+	var lastFailedUpstream *config.UpstreamConfig
 
 	// 获取活跃渠道数量作为最大重试次数
 	maxChannelAttempts := channelScheduler.GetActiveChannelCount(false)
@@ -114,7 +136,7 @@ func handleMultiChannelProxy(
 		}
 
 		// 尝试使用该渠道的所有 key
-		success, failoverErr := tryChannelWithAllKeys(c, envCfg, cfgManager, upstream, bodyBytes, claudeReq, startTime)
+		success, failoverErr := tryChannelWithAllKeys(c, envCfg, cfgManager, upstream, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID)
 
 		if success {
 			// 记录成功，更新 Trace 亲和
@@ -130,6 +152,7 @@ func handleMultiChannelProxy(
 		if failoverErr != nil {
 			lastFailoverError = failoverErr
 			lastError = fmt.Errorf("渠道 [%d] %s 失败", channelIndex, upstream.Name)
+			lastFailedUpstream = upstream
 		}
 
 		log.Printf("⚠️ [多渠道] 渠道 [%d] %s 所有密钥都失败，尝试下一个渠道", channelIndex, upstream.Name)
@@ -137,6 +160,31 @@ func handleMultiChannelProxy(
 
 	// 所有渠道都失败
 	log.Printf("💥 [多渠道] 所有渠道都失败了")
+
+	// 更新请求日志为错误状态
+	if reqLogManager != nil && requestLogID != "" {
+		httpStatus := 503
+		errMsg := "所有渠道都不可用"
+		if lastFailoverError != nil && lastFailoverError.Status != 0 {
+			httpStatus = lastFailoverError.Status
+		}
+		if lastError != nil {
+			errMsg = lastError.Error()
+		}
+		record := &requestlog.RequestLog{
+			Status:       requestlog.StatusError,
+			CompleteTime: time.Now(),
+			DurationMs:   time.Since(startTime).Milliseconds(),
+			Model:        claudeReq.Model,
+			HTTPStatus:   httpStatus,
+			Error:        errMsg,
+		}
+		if lastFailedUpstream != nil {
+			record.Type = lastFailedUpstream.ServiceType
+			record.ProviderName = lastFailedUpstream.Name
+		}
+		_ = reqLogManager.Update(requestLogID, record)
+	}
 
 	if lastFailoverError != nil {
 		status := lastFailoverError.Status
@@ -155,7 +203,7 @@ func handleMultiChannelProxy(
 			errMsg = lastError.Error()
 		}
 		c.JSON(503, gin.H{
-			"error": "所有渠道都不可用",
+			"error":   "所有渠道都不可用",
 			"details": errMsg,
 		})
 	}
@@ -171,7 +219,12 @@ func tryChannelWithAllKeys(
 	bodyBytes []byte,
 	claudeReq types.ClaudeRequest,
 	startTime time.Time,
-) (bool, *struct{ Status int; Body []byte }) {
+	reqLogManager *requestlog.Manager,
+	requestLogID string,
+) (bool, *struct {
+	Status int
+	Body   []byte
+}) {
 	if len(upstream.APIKeys) == 0 {
 		return false, nil
 	}
@@ -183,7 +236,10 @@ func tryChannelWithAllKeys(
 
 	maxRetries := len(upstream.APIKeys)
 	failedKeys := make(map[string]bool)
-	var lastFailoverError *struct{ Status int; Body []byte }
+	var lastFailoverError *struct {
+		Status int
+		Body   []byte
+	}
 	deprioritizeCandidates := make(map[string]bool)
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
@@ -227,7 +283,10 @@ func tryChannelWithAllKeys(
 				cfgManager.MarkKeyAsFailed(apiKey)
 				log.Printf("⚠️ API密钥失败 (状态: %d)，尝试下一个密钥", resp.StatusCode)
 
-				lastFailoverError = &struct{ Status int; Body []byte }{
+				lastFailoverError = &struct {
+					Status int
+					Body   []byte
+				}{
 					Status: resp.StatusCode,
 					Body:   respBodyBytes,
 				}
@@ -251,9 +310,9 @@ func tryChannelWithAllKeys(
 		}
 
 		if claudeReq.Stream {
-			handleStreamResponse(c, resp, provider, envCfg, startTime, upstream)
+			handleStreamResponse(c, resp, provider, envCfg, startTime, upstream, reqLogManager, requestLogID, claudeReq.Model)
 		} else {
-			handleNormalResponse(c, resp, provider, envCfg, startTime)
+			handleNormalResponse(c, resp, provider, envCfg, startTime, upstream, reqLogManager, requestLogID, claudeReq.Model)
 		}
 		return true, nil
 	}
@@ -269,6 +328,8 @@ func handleSingleChannelProxy(
 	bodyBytes []byte,
 	claudeReq types.ClaudeRequest,
 	startTime time.Time,
+	reqLogManager *requestlog.Manager,
+	requestLogID string,
 ) {
 	// 获取当前上游配置
 	upstream, err := cfgManager.GetCurrentUpstream()
@@ -433,15 +494,38 @@ func handleSingleChannelProxy(
 		}
 
 		if claudeReq.Stream {
-			handleStreamResponse(c, resp, provider, envCfg, startTime, upstream)
+			handleStreamResponse(c, resp, provider, envCfg, startTime, upstream, reqLogManager, requestLogID, claudeReq.Model)
 		} else {
-			handleNormalResponse(c, resp, provider, envCfg, startTime)
+			handleNormalResponse(c, resp, provider, envCfg, startTime, upstream, reqLogManager, requestLogID, claudeReq.Model)
 		}
 		return
 	}
 
 	// 所有密钥都失败了
 	log.Printf("💥 所有API密钥都失败了")
+
+	// 更新请求日志为错误状态
+	if reqLogManager != nil && requestLogID != "" {
+		httpStatus := 500
+		errMsg := "所有API密钥都不可用"
+		if lastFailoverError != nil && lastFailoverError.Status != 0 {
+			httpStatus = lastFailoverError.Status
+		}
+		if lastError != nil {
+			errMsg = lastError.Error()
+		}
+		record := &requestlog.RequestLog{
+			Status:       requestlog.StatusError,
+			CompleteTime: time.Now(),
+			DurationMs:   time.Since(startTime).Milliseconds(),
+			Model:        claudeReq.Model,
+			Type:         upstream.ServiceType,
+			ProviderName: upstream.Name,
+			HTTPStatus:   httpStatus,
+			Error:        errMsg,
+		}
+		_ = reqLogManager.Update(requestLogID, record)
+	}
 
 	if lastFailoverError != nil {
 		status := lastFailoverError.Status
@@ -519,7 +603,7 @@ func sendRequest(req *http.Request, upstream *config.UpstreamConfig, envCfg *con
 }
 
 // handleNormalResponse 处理非流式响应
-func handleNormalResponse(c *gin.Context, resp *http.Response, provider providers.Provider, envCfg *config.EnvConfig, startTime time.Time) {
+func handleNormalResponse(c *gin.Context, resp *http.Response, provider providers.Provider, envCfg *config.EnvConfig, startTime time.Time, upstream *config.UpstreamConfig, reqLogManager *requestlog.Manager, requestLogID string, requestModel string) {
 	defer resp.Body.Close()
 
 	bodyBytes, err := io.ReadAll(resp.Body)
@@ -528,9 +612,11 @@ func handleNormalResponse(c *gin.Context, resp *http.Response, provider provider
 		return
 	}
 
+	completeTime := time.Now()
+	durationMs := completeTime.Sub(startTime).Milliseconds()
+
 	if envCfg.EnableResponseLogs {
-		responseTime := time.Since(startTime).Milliseconds()
-		log.Printf("⏱️ 响应完成: %dms, 状态: %d", responseTime, resp.StatusCode)
+		log.Printf("⏱️ 响应完成: %dms, 状态: %d", durationMs, resp.StatusCode)
 		if envCfg.IsDevelopment() {
 			// 响应头(不需要脱敏)
 			respHeaders := make(map[string]string)
@@ -589,10 +675,56 @@ func handleNormalResponse(c *gin.Context, resp *http.Response, provider provider
 		responseTime := time.Since(startTime).Milliseconds()
 		log.Printf("⏱️ 响应发送完成: %dms, 状态: %d", responseTime, resp.StatusCode)
 	}
+
+	// 更新请求日志 (仅 Claude API 支持)
+	if reqLogManager != nil && upstream.ServiceType == "claude" && requestLogID != "" {
+		// 从非流式响应中提取 usage
+		var usage *types.Usage
+		var model string
+
+		if claudeResp != nil {
+			usage = claudeResp.Usage
+		}
+
+		if model == "" {
+			var claudeRespMap map[string]interface{}
+			if err := json.Unmarshal(bodyBytes, &claudeRespMap); err == nil {
+				if m, ok := claudeRespMap["model"].(string); ok {
+					model = m
+				}
+			}
+		}
+
+		if model == "" {
+			model = requestModel
+		}
+
+		record := &requestlog.RequestLog{
+			Status:       requestlog.StatusCompleted,
+			CompleteTime: completeTime,
+			DurationMs:   durationMs,
+			Type:         upstream.ServiceType,
+			ProviderName: upstream.Name,
+			Model:        model,
+			HTTPStatus:   resp.StatusCode,
+			ChannelName:  upstream.Name,
+		}
+
+		if usage != nil {
+			record.InputTokens = usage.InputTokens
+			record.OutputTokens = usage.OutputTokens
+			record.CacheCreationInputTokens = usage.CacheCreationInputTokens
+			record.CacheReadInputTokens = usage.CacheReadInputTokens
+		}
+
+		if err := reqLogManager.Update(requestLogID, record); err != nil {
+			log.Printf("⚠️ 请求日志更新失败: %v", err)
+		}
+	}
 }
 
 // handleStreamResponse 处理流式响应
-func handleStreamResponse(c *gin.Context, resp *http.Response, provider providers.Provider, envCfg *config.EnvConfig, startTime time.Time, upstream *config.UpstreamConfig) {
+func handleStreamResponse(c *gin.Context, resp *http.Response, provider providers.Provider, envCfg *config.EnvConfig, startTime time.Time, upstream *config.UpstreamConfig, reqLogManager *requestlog.Manager, requestLogID string, requestModel string) {
 	defer resp.Body.Close()
 
 	eventChan, errChan, err := provider.HandleStreamResponse(resp.Body)
@@ -614,8 +746,12 @@ func handleStreamResponse(c *gin.Context, resp *http.Response, provider provider
 
 	var logBuffer bytes.Buffer
 	var synthesizer *utils.StreamSynthesizer
+
+	// 对于 Claude，我们需要 synthesizer 来提取 usage，不论日志是否启用
+	needsSynthesizer := upstream.ServiceType == "claude" && reqLogManager != nil
 	streamLoggingEnabled := envCfg.IsDevelopment() && envCfg.EnableResponseLogs
-	if streamLoggingEnabled {
+
+	if streamLoggingEnabled || needsSynthesizer {
 		synthesizer = utils.NewStreamSynthesizer(upstream.ServiceType)
 	}
 
@@ -633,9 +769,11 @@ func handleStreamResponse(c *gin.Context, resp *http.Response, provider provider
 		case event, ok := <-eventChan:
 			if !ok {
 				// 通道关闭，流式传输结束
+				completeTime := time.Now()
+				durationMs := completeTime.Sub(startTime).Milliseconds()
+
 				if envCfg.EnableResponseLogs {
-					responseTime := time.Since(startTime).Milliseconds()
-					log.Printf("⏱️ 流式响应完成: %dms", responseTime)
+					log.Printf("⏱️ 流式响应完成: %dms", durationMs)
 
 					// 打印完整的响应内容
 					if envCfg.IsDevelopment() {
@@ -653,12 +791,42 @@ func handleStreamResponse(c *gin.Context, resp *http.Response, provider provider
 						}
 					}
 				}
+
+				// 更新请求日志 (仅 Claude API 支持)
+				if reqLogManager != nil && upstream.ServiceType == "claude" && requestLogID != "" && synthesizer != nil {
+					usage := synthesizer.GetUsage()
+					model := synthesizer.GetModel()
+					if model == "" {
+						model = requestModel
+					}
+
+					record := &requestlog.RequestLog{
+						Status:                   requestlog.StatusCompleted,
+						CompleteTime:             completeTime,
+						DurationMs:               durationMs,
+						Type:                     upstream.ServiceType,
+						ProviderName:             upstream.Name,
+						Model:                    model,
+						InputTokens:              usage.InputTokens,
+						OutputTokens:             usage.OutputTokens,
+						CacheCreationInputTokens: usage.CacheCreationInputTokens,
+						CacheReadInputTokens:     usage.CacheReadInputTokens,
+						HTTPStatus:               resp.StatusCode,
+						ChannelName:              upstream.Name,
+					}
+
+					if err := reqLogManager.Update(requestLogID, record); err != nil {
+						log.Printf("⚠️ 请求日志更新失败: %v", err)
+					}
+				}
 				return
 			}
 
-			// 缓存事件用于最后的日志输出
-			if streamLoggingEnabled {
-				logBuffer.WriteString(event)
+			// 缓存事件用于最后的日志输出和 usage 提取
+			if streamLoggingEnabled || needsSynthesizer {
+				if streamLoggingEnabled {
+					logBuffer.WriteString(event)
+				}
 				if synthesizer != nil {
 					lines := strings.Split(event, "\n")
 					for _, line := range lines {

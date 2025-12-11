@@ -78,6 +78,10 @@
           <span class="api-type-text" :class="{ active: activeTab === 'responses' }" @click="activeTab = 'responses'">
             Codex
           </span>
+          <span class="api-type-text separator">/</span>
+          <span class="api-type-text" :class="{ active: activeTab === 'logs' }" @click="activeTab = 'logs'">
+            Logs
+          </span>
           <span class="brand-text d-none d-sm-inline">API Proxy</span>
         </div>
       </div>
@@ -108,6 +112,11 @@
     <!-- 主要内容 -->
     <v-main>
       <v-container fluid class="pa-4 pa-md-6">
+        <!-- Logs 视图 -->
+        <RequestLogTable v-if="activeTab === 'logs'" />
+
+        <!-- 渠道管理视图 -->
+        <template v-if="activeTab !== 'logs'">
         <!-- 统计卡片 - 玻璃拟态风格 -->
         <v-row class="mb-6 stat-cards-row">
           <v-col cols="6" sm="4">
@@ -275,6 +284,7 @@
             添加第一个渠道
           </v-btn>
         </v-card>
+        </template>
       </v-container>
     </v-main>
 
@@ -336,6 +346,7 @@ import { useTheme } from 'vuetify'
 import { api, type Channel, type ChannelsResponse } from './services/api'
 import AddChannelModal from './components/AddChannelModal.vue'
 import ChannelOrchestration from './components/ChannelOrchestration.vue'
+import RequestLogTable from './components/RequestLogTable.vue'
 import { useAppTheme } from './composables/useTheme'
 
 // Vuetify主题
@@ -352,7 +363,7 @@ let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
 const AUTO_REFRESH_INTERVAL = 2000 // 2秒
 
 // 响应式数据
-const activeTab = ref<'messages' | 'responses'>('messages') // Tab 切换状态
+const activeTab = ref<'messages' | 'responses' | 'logs'>('messages') // Tab 切换状态
 const channelsData = ref<ChannelsResponse>({ channels: [], current: -1, loadBalance: 'round-robin' })
 const responsesChannelsData = ref<ChannelsResponse>({ channels: [], current: -1, loadBalance: 'round-robin' }) // Responses渠道数据
 const showAddChannelModal = ref(false)

@@ -3,8 +3,8 @@ package converters
 import (
 	"testing"
 
-	"github.com/BenedictKing/claude-proxy/internal/session"
-	"github.com/BenedictKing/claude-proxy/internal/types"
+	"github.com/JillVernus/claude-proxy/internal/session"
+	"github.com/JillVernus/claude-proxy/internal/types"
 )
 
 // ============== extractTextFromContent 测试 ==============

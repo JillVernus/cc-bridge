@@ -223,3 +223,4 @@ test-*.ts
 
 .snow/
 refs/
+request_samples/

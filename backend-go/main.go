@@ -6,13 +6,14 @@ import (
 	"log"
 	"time"
 
-	"github.com/BenedictKing/claude-proxy/internal/config"
-	"github.com/BenedictKing/claude-proxy/internal/handlers"
-	"github.com/BenedictKing/claude-proxy/internal/logger"
-	"github.com/BenedictKing/claude-proxy/internal/metrics"
-	"github.com/BenedictKing/claude-proxy/internal/middleware"
-	"github.com/BenedictKing/claude-proxy/internal/scheduler"
-	"github.com/BenedictKing/claude-proxy/internal/session"
+	"github.com/JillVernus/claude-proxy/internal/config"
+	"github.com/JillVernus/claude-proxy/internal/handlers"
+	"github.com/JillVernus/claude-proxy/internal/logger"
+	"github.com/JillVernus/claude-proxy/internal/metrics"
+	"github.com/JillVernus/claude-proxy/internal/middleware"
+	"github.com/JillVernus/claude-proxy/internal/requestlog"
+	"github.com/JillVernus/claude-proxy/internal/scheduler"
+	"github.com/JillVernus/claude-proxy/internal/session"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
@@ -66,6 +67,15 @@ func main() {
 	channelScheduler := scheduler.NewChannelScheduler(cfgManager, messagesMetricsManager, responsesMetricsManager, traceAffinityManager)
 	log.Printf("✅ 多渠道调度器已初始化 (失败率阈值: %.0f%%, 滑动窗口: %d)",
 		messagesMetricsManager.GetFailureThreshold()*100, messagesMetricsManager.GetWindowSize())
+
+	// 初始化请求日志管理器
+	reqLogManager, err := requestlog.NewManager(".config/request_logs.db")
+	if err != nil {
+		log.Printf("⚠️ 请求日志管理器初始化失败: %v (日志功能将被禁用)", err)
+		reqLogManager = nil
+	} else {
+		log.Printf("✅ 请求日志管理器已初始化")
+	}
 
 	// 设置 Gin 模式
 	if envCfg.IsProduction() {
@@ -137,10 +147,19 @@ func main() {
 		// Ping测试
 		apiGroup.GET("/ping/:id", handlers.PingChannel(cfgManager))
 		apiGroup.GET("/ping", handlers.PingAllChannels(cfgManager))
+
+		// 请求日志 API
+		if reqLogManager != nil {
+			reqLogHandler := handlers.NewRequestLogHandler(reqLogManager)
+			apiGroup.GET("/logs", reqLogHandler.GetLogs)
+			apiGroup.GET("/logs/stats", reqLogHandler.GetStats)
+			apiGroup.GET("/logs/:id", reqLogHandler.GetLogByID)
+			apiGroup.DELETE("/logs", reqLogHandler.ClearLogs)
+		}
 	}
 
 	// 代理端点 - 统一入口
-	r.POST("/v1/messages", handlers.ProxyHandler(envCfg, cfgManager, channelScheduler))
+	r.POST("/v1/messages", handlers.ProxyHandler(envCfg, cfgManager, channelScheduler, reqLogManager))
 
 	// Responses API 端点
 	r.POST("/v1/responses", handlers.ResponsesHandler(envCfg, cfgManager, sessionManager, channelScheduler))
