@@ -1,3 +1,7 @@
+2025-12-11 : 自用版本, 有需要自取, 比起原repo 新增了請求的log頁面, 以sqlite為db. 
+
+
+
 # Claude API 代理服务器
 
 [![CI](https://github.com/BenedictKing/claude-proxy/actions/workflows/ci.yml/badge.svg)](https://github.com/BenedictKing/claude-proxy/actions/workflows/ci.yml)
