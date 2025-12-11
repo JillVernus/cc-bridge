@@ -128,6 +128,12 @@ func (s *ChannelScheduler) SelectChannel(
 			continue
 		}
 
+		// 跳过非 active 状态的渠道（suspended 等）
+		if ch.Status != "active" {
+			log.Printf("⏸️ 跳过非活跃渠道: [%d] %s (状态: %s)", ch.Index, ch.Name, ch.Status)
+			continue
+		}
+
 		// 跳过失败率过高的渠道（已熔断或即将熔断）
 		if !metricsManager.IsChannelHealthy(ch.Index) {
 			log.Printf("⚠️ 跳过不健康渠道: [%d] %s (失败率: %.1f%%)",
@@ -181,6 +187,10 @@ func (s *ChannelScheduler) selectFallbackChannel(
 	for i := range activeChannels {
 		ch := &activeChannels[i]
 		if failedChannels[ch.Index] {
+			continue
+		}
+		// 跳过非 active 状态的渠道
+		if ch.Status != "active" {
 			continue
 		}
 
