@@ -78,6 +78,7 @@ func (m *Manager) initSchema() error {
 		endpoint TEXT,
 		user_id TEXT,
 		error TEXT,
+		upstream_error TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 
@@ -126,6 +127,48 @@ func (m *Manager) initSchema() error {
 		}
 	}
 
+	// Migration: Add upstream_error column if it doesn't exist
+	err = m.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('request_logs') WHERE name='upstream_error'`).Scan(&count)
+	if err != nil {
+		log.Printf("⚠️ Failed to check upstream_error column: %v", err)
+	} else if count == 0 {
+		_, err = m.db.Exec(`ALTER TABLE request_logs ADD COLUMN upstream_error TEXT`)
+		if err != nil {
+			log.Printf("⚠️ Failed to add upstream_error column: %v", err)
+		} else {
+			log.Printf("✅ Added upstream_error column to request_logs table")
+		}
+	}
+
+	// Migration: Add cost breakdown columns if they don't exist
+	costColumns := []string{"input_cost", "output_cost", "cache_creation_cost", "cache_read_cost"}
+	for _, col := range costColumns {
+		err = m.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('request_logs') WHERE name=?`, col).Scan(&count)
+		if err != nil {
+			log.Printf("⚠️ Failed to check %s column: %v", col, err)
+		} else if count == 0 {
+			_, err = m.db.Exec(fmt.Sprintf(`ALTER TABLE request_logs ADD COLUMN %s REAL DEFAULT 0`, col))
+			if err != nil {
+				log.Printf("⚠️ Failed to add %s column: %v", col, err)
+			} else {
+				log.Printf("✅ Added %s column to request_logs table", col)
+			}
+		}
+	}
+
+	// Migration: Add response_model column if it doesn't exist
+	err = m.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('request_logs') WHERE name='response_model'`).Scan(&count)
+	if err != nil {
+		log.Printf("⚠️ Failed to check response_model column: %v", err)
+	} else if count == 0 {
+		_, err = m.db.Exec(`ALTER TABLE request_logs ADD COLUMN response_model TEXT`)
+		if err != nil {
+			log.Printf("⚠️ Failed to add response_model column: %v", err)
+		} else {
+			log.Printf("✅ Added response_model column to request_logs table")
+		}
+	}
+
 	return nil
 }
 
@@ -150,11 +193,12 @@ func (m *Manager) Add(record *RequestLog) error {
 	query := `
 	INSERT INTO request_logs (
 		id, status, initial_time, complete_time, duration_ms,
-		provider, provider_name, model, input_tokens, output_tokens,
+		provider, provider_name, model, response_model, input_tokens, output_tokens,
 		cache_creation_input_tokens, cache_read_input_tokens, total_tokens,
-		price, http_status, stream, channel_id, channel_name,
-		endpoint, user_id, error, created_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		price, input_cost, output_cost, cache_creation_cost, cache_read_cost,
+		http_status, stream, channel_id, channel_name,
+		endpoint, user_id, error, upstream_error, created_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := m.db.Exec(query,
@@ -166,12 +210,17 @@ func (m *Manager) Add(record *RequestLog) error {
 		record.Type,
 		record.ProviderName,
 		record.Model,
+		record.ResponseModel,
 		record.InputTokens,
 		record.OutputTokens,
 		record.CacheCreationInputTokens,
 		record.CacheReadInputTokens,
 		record.TotalTokens,
 		record.Price,
+		record.InputCost,
+		record.OutputCost,
+		record.CacheCreationCost,
+		record.CacheReadCost,
 		record.HTTPStatus,
 		record.Stream,
 		record.ChannelID,
@@ -179,6 +228,7 @@ func (m *Manager) Add(record *RequestLog) error {
 		record.Endpoint,
 		record.UserID,
 		record.Error,
+		record.UpstreamError,
 		record.CreatedAt,
 	)
 
@@ -204,16 +254,21 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 		duration_ms = ?,
 		provider = ?,
 		provider_name = ?,
-		model = ?,
+		response_model = ?,
 		input_tokens = ?,
 		output_tokens = ?,
 		cache_creation_input_tokens = ?,
 		cache_read_input_tokens = ?,
 		total_tokens = ?,
 		price = ?,
+		input_cost = ?,
+		output_cost = ?,
+		cache_creation_cost = ?,
+		cache_read_cost = ?,
 		http_status = ?,
 		channel_name = ?,
-		error = ?
+		error = ?,
+		upstream_error = ?
 	WHERE id = ?
 	`
 
@@ -223,16 +278,21 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 		record.DurationMs,
 		record.Type,
 		record.ProviderName,
-		record.Model,
+		record.ResponseModel,
 		record.InputTokens,
 		record.OutputTokens,
 		record.CacheCreationInputTokens,
 		record.CacheReadInputTokens,
 		record.TotalTokens,
 		record.Price,
+		record.InputCost,
+		record.OutputCost,
+		record.CacheCreationCost,
+		record.CacheReadCost,
 		record.HTTPStatus,
 		record.ChannelName,
 		record.Error,
+		record.UpstreamError,
 		id,
 	)
 
@@ -311,10 +371,11 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 	// Get records
 	query := fmt.Sprintf(`
 		SELECT id, status, initial_time, complete_time, duration_ms,
-			   provider, provider_name, model, input_tokens, output_tokens,
+			   provider, provider_name, model, response_model, input_tokens, output_tokens,
 			   cache_creation_input_tokens, cache_read_input_tokens, total_tokens,
-			   price, http_status, stream, channel_id, channel_name,
-			   endpoint, user_id, error, created_at
+			   price, input_cost, output_cost, cache_creation_cost, cache_read_cost,
+			   http_status, stream, channel_id, channel_name,
+			   endpoint, user_id, error, upstream_error, created_at
 		FROM request_logs
 		%s
 		ORDER BY initial_time DESC
@@ -333,15 +394,16 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 	for rows.Next() {
 		var r RequestLog
 		var channelID sql.NullInt64
-		var channelName, endpoint, userID, errorStr, status, providerName sql.NullString
+		var channelName, endpoint, userID, errorStr, upstreamErrorStr, status, providerName, responseModel sql.NullString
 		var initialTime, completeTime, createdAt sql.NullString
 
 		err := rows.Scan(
 			&r.ID, &status, &initialTime, &completeTime, &r.DurationMs,
-			&r.Type, &providerName, &r.Model, &r.InputTokens, &r.OutputTokens,
+			&r.Type, &providerName, &r.Model, &responseModel, &r.InputTokens, &r.OutputTokens,
 			&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
-			&r.Price, &r.HTTPStatus, &r.Stream, &channelID, &channelName,
-			&endpoint, &userID, &errorStr, &createdAt,
+			&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
+			&r.HTTPStatus, &r.Stream, &channelID, &channelName,
+			&endpoint, &userID, &errorStr, &upstreamErrorStr, &createdAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan request log: %w", err)
@@ -354,6 +416,9 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		}
 		if providerName.Valid {
 			r.ProviderName = providerName.String
+		}
+		if responseModel.Valid {
+			r.ResponseModel = responseModel.String
 		}
 		if initialTime.Valid && initialTime.String != "" {
 			r.InitialTime = parseTimeString(initialTime.String)
@@ -378,6 +443,9 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		}
 		if errorStr.Valid {
 			r.Error = errorStr.String
+		}
+		if upstreamErrorStr.Valid {
+			r.UpstreamError = upstreamErrorStr.String
 		}
 
 		records = append(records, r)

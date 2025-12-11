@@ -15,7 +15,9 @@ import (
 	"github.com/JillVernus/claude-proxy/internal/converters"
 	"github.com/JillVernus/claude-proxy/internal/httpclient"
 	"github.com/JillVernus/claude-proxy/internal/middleware"
+	"github.com/JillVernus/claude-proxy/internal/pricing"
 	"github.com/JillVernus/claude-proxy/internal/providers"
+	"github.com/JillVernus/claude-proxy/internal/requestlog"
 	"github.com/JillVernus/claude-proxy/internal/scheduler"
 	"github.com/JillVernus/claude-proxy/internal/session"
 	"github.com/JillVernus/claude-proxy/internal/types"
@@ -30,6 +32,7 @@ func ResponsesHandler(
 	cfgManager *config.ConfigManager,
 	sessionManager *session.SessionManager,
 	channelScheduler *scheduler.ChannelScheduler,
+	reqLogManager *requestlog.Manager,
 ) gin.HandlerFunc {
 	return gin.HandlerFunc(func(c *gin.Context) {
 		// 先进行认证
@@ -59,15 +62,33 @@ func ResponsesHandler(
 		// 优先级: Conversation_id Header > Session_id Header > prompt_cache_key > metadata.user_id
 		userID := extractConversationID(c, bodyBytes)
 
+		// 创建 pending 请求日志记录
+		var requestLogID string
+		if reqLogManager != nil {
+			pendingLog := &requestlog.RequestLog{
+				Status:      requestlog.StatusPending,
+				InitialTime: startTime,
+				Model:       responsesReq.Model,
+				Stream:      responsesReq.Stream,
+				Endpoint:    "/v1/responses",
+				UserID:      userID,
+			}
+			if err := reqLogManager.Add(pendingLog); err != nil {
+				log.Printf("⚠️ 创建 pending 请求日志失败: %v", err)
+			} else {
+				requestLogID = pendingLog.ID
+			}
+		}
+
 		// 检查是否为多渠道模式
 		isMultiChannel := channelScheduler.IsMultiChannelMode(true) // true = isResponses
 
 		if isMultiChannel {
 			// 多渠道模式：使用调度器
-			handleMultiChannelResponses(c, envCfg, cfgManager, channelScheduler, sessionManager, bodyBytes, responsesReq, userID, startTime)
+			handleMultiChannelResponses(c, envCfg, cfgManager, channelScheduler, sessionManager, bodyBytes, responsesReq, userID, startTime, reqLogManager, requestLogID)
 		} else {
 			// 单渠道模式：使用现有逻辑
-			handleSingleChannelResponses(c, envCfg, cfgManager, sessionManager, bodyBytes, responsesReq, startTime)
+			handleSingleChannelResponses(c, envCfg, cfgManager, sessionManager, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID)
 		}
 	})
 }
@@ -83,6 +104,8 @@ func handleMultiChannelResponses(
 	responsesReq types.ResponsesRequest,
 	userID string,
 	startTime time.Time,
+	reqLogManager *requestlog.Manager,
+	requestLogID string,
 ) {
 	failedChannels := make(map[int]bool)
 	var lastError error
@@ -108,7 +131,7 @@ func handleMultiChannelResponses(
 				channelIndex, upstream.Name, selection.Reason, channelAttempt+1, maxChannelAttempts)
 		}
 
-		success, failoverErr := tryResponsesChannelWithAllKeys(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, startTime)
+		success, failoverErr := tryResponsesChannelWithAllKeys(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID)
 
 		if success {
 			channelScheduler.RecordSuccess(channelIndex, true)
@@ -162,6 +185,8 @@ func tryResponsesChannelWithAllKeys(
 	bodyBytes []byte,
 	responsesReq types.ResponsesRequest,
 	startTime time.Time,
+	reqLogManager *requestlog.Manager,
+	requestLogID string,
 ) (bool, *struct {
 	Status int
 	Body   []byte
@@ -241,7 +266,7 @@ func tryResponsesChannelWithAllKeys(
 			}
 		}
 
-		handleResponsesSuccess(c, resp, provider, upstream.ServiceType, envCfg, sessionManager, startTime, &responsesReq, bodyBytes)
+		handleResponsesSuccess(c, resp, provider, upstream, envCfg, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID)
 		return true, nil
 	}
 
@@ -257,6 +282,8 @@ func handleSingleChannelResponses(
 	bodyBytes []byte,
 	responsesReq types.ResponsesRequest,
 	startTime time.Time,
+	reqLogManager *requestlog.Manager,
+	requestLogID string,
 ) {
 	// 获取当前 Responses 上游配置
 	upstream, err := cfgManager.GetCurrentResponsesUpstream()
@@ -401,7 +428,7 @@ func handleSingleChannelResponses(
 			}
 		}
 
-		handleResponsesSuccess(c, resp, provider, upstream.ServiceType, envCfg, sessionManager, startTime, &responsesReq, bodyBytes)
+		handleResponsesSuccess(c, resp, provider, upstream, envCfg, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID)
 		return
 	}
 
@@ -436,8 +463,8 @@ func sendResponsesRequest(req *http.Request, upstream *config.UpstreamConfig, en
 
 	var client *http.Client
 	if isStream {
-		// 流式请求：使用无超时的流式客户端
-		client = clientManager.GetStreamClient(upstream.InsecureSkipVerify)
+		// 流式请求：使用无超时的流式客户端，但有响应头超时
+		client = clientManager.GetStreamClient(upstream.InsecureSkipVerify, upstream.GetResponseHeaderTimeout())
 	} else {
 		// 非流式请求：使用环境变量配置的超时时间
 		timeout := time.Duration(envCfg.RequestTimeout) * time.Millisecond
@@ -486,14 +513,18 @@ func handleResponsesSuccess(
 	c *gin.Context,
 	resp *http.Response,
 	provider *providers.ResponsesProvider,
-	upstreamType string,
+	upstream *config.UpstreamConfig,
 	envCfg *config.EnvConfig,
 	sessionManager *session.SessionManager,
 	startTime time.Time,
 	originalReq *types.ResponsesRequest,
 	originalRequestJSON []byte, // 原始请求 JSON，用于 Chat → Responses 转换
+	reqLogManager *requestlog.Manager,
+	requestLogID string,
 ) {
 	defer resp.Body.Close()
+
+	upstreamType := upstream.ServiceType
 
 	// 检查是否为流式响应
 	isStream := originalReq != nil && originalReq.Stream
@@ -518,7 +549,10 @@ func handleResponsesSuccess(
 		var synthesizer *utils.StreamSynthesizer
 		var logBuffer bytes.Buffer
 		streamLoggingEnabled := envCfg.IsDevelopment() && envCfg.EnableResponseLogs
-		if streamLoggingEnabled {
+
+		// 对于 responses 类型，我们需要 synthesizer 来提取 usage，不论日志是否启用
+		needsSynthesizer := upstreamType == "responses" && reqLogManager != nil
+		if streamLoggingEnabled || needsSynthesizer {
 			synthesizer = utils.NewStreamSynthesizer(upstreamType)
 		}
 
@@ -535,14 +569,29 @@ func handleResponsesSuccess(
 		const maxCapacity = 1024 * 1024 // 1MB
 		buf := make([]byte, 0, 64*1024) // 初始64KB
 		scanner.Buffer(buf, maxCapacity)
+
+		// 用于提取 Codex usage 的变量
+		var codexUsage *CodexUsage
+		var responseModel string
+
 		for scanner.Scan() {
 			line := scanner.Text()
 
 			// 记录日志（仅在开发模式下）
 			if streamLoggingEnabled {
 				logBuffer.WriteString(line + "\n")
-				if synthesizer != nil {
-					synthesizer.ProcessLine(line)
+			}
+			if synthesizer != nil {
+				synthesizer.ProcessLine(line)
+			}
+
+			// 对于 responses 类型，尝试从 response.completed 事件中提取 usage
+			if upstreamType == "responses" && reqLogManager != nil {
+				if usage, model := extractCodexUsageFromSSE(line); usage != nil {
+					codexUsage = usage
+					if model != "" {
+						responseModel = model
+					}
 				}
 			}
 
@@ -581,9 +630,11 @@ func handleResponsesSuccess(
 			log.Printf("⚠️ 流式响应读取错误: %v", err)
 		}
 
+		completeTime := time.Now()
+		durationMs := completeTime.Sub(startTime).Milliseconds()
+
 		if envCfg.EnableResponseLogs {
-			responseTime := time.Since(startTime).Milliseconds()
-			log.Printf("✅ Responses 流式响应完成: %dms", responseTime)
+			log.Printf("✅ Responses 流式响应完成: %dms", durationMs)
 
 			// 打印完整的响应内容
 			if envCfg.IsDevelopment() {
@@ -601,6 +652,71 @@ func handleResponsesSuccess(
 				}
 			}
 		}
+
+		// 更新请求日志（Responses API）
+		if reqLogManager != nil && requestLogID != "" {
+			// 用于定价计算的模型名（优先响应模型，若无定价配置则回退到请求模型）
+			pricingModel := responseModel
+			if pricingModel == "" {
+				pricingModel = originalReq.Model
+			} else if pm := pricing.GetManager(); pm != nil && !pm.HasPricing(pricingModel) && originalReq.Model != "" {
+				// 响应模型无定价配置，回退到请求模型
+				pricingModel = originalReq.Model
+			}
+
+			record := &requestlog.RequestLog{
+				Status:        requestlog.StatusCompleted,
+				CompleteTime:  completeTime,
+				DurationMs:    durationMs,
+				Type:          upstreamType,
+				ProviderName:  upstream.Name,
+				ResponseModel: responseModel,
+				HTTPStatus:    resp.StatusCode,
+				ChannelName:   upstream.Name,
+			}
+
+			if codexUsage != nil {
+				// Codex 的 input_tokens 已包含 cached_tokens，需要减去得到实际新输入
+				actualInput := codexUsage.InputTokens - codexUsage.CachedTokens
+				if actualInput < 0 {
+					actualInput = 0
+				}
+				record.InputTokens = actualInput
+				record.OutputTokens = codexUsage.OutputTokens
+				record.CacheReadInputTokens = codexUsage.CachedTokens
+				record.CacheCreationInputTokens = 0
+
+				// 计算成本：使用 pricingModel（优先响应模型，无定价配置则回退到请求模型）
+				if pm := pricing.GetManager(); pm != nil {
+					var multipliers *pricing.PriceMultipliers
+					if channelMult := upstream.GetPriceMultipliers(pricingModel); channelMult != nil {
+						multipliers = &pricing.PriceMultipliers{
+							InputMultiplier:         channelMult.GetEffectiveMultiplier("input"),
+							OutputMultiplier:        channelMult.GetEffectiveMultiplier("output"),
+							CacheCreationMultiplier: channelMult.GetEffectiveMultiplier("cacheCreation"),
+							CacheReadMultiplier:     channelMult.GetEffectiveMultiplier("cacheRead"),
+						}
+					}
+					breakdown := pm.CalculateCostWithBreakdown(
+						pricingModel,
+						actualInput,
+						codexUsage.OutputTokens,
+						0,
+						codexUsage.CachedTokens,
+						multipliers,
+					)
+					record.Price = breakdown.TotalCost
+					record.InputCost = breakdown.InputCost
+					record.OutputCost = breakdown.OutputCost
+					record.CacheCreationCost = 0
+					record.CacheReadCost = breakdown.CacheReadCost
+				}
+			}
+
+			if err := reqLogManager.Update(requestLogID, record); err != nil {
+				log.Printf("⚠️ 请求日志更新失败: %v", err)
+			}
+		}
 		return
 	}
 
@@ -611,9 +727,11 @@ func handleResponsesSuccess(
 		return
 	}
 
+	completeTime := time.Now()
+	durationMs := completeTime.Sub(startTime).Milliseconds()
+
 	if envCfg.EnableResponseLogs {
-		responseTime := time.Since(startTime).Milliseconds()
-		log.Printf("⏱️ Responses 响应完成: %dms, 状态: %d", responseTime, resp.StatusCode)
+		log.Printf("⏱️ Responses 响应完成: %dms, 状态: %d", durationMs, resp.StatusCode)
 		if envCfg.IsDevelopment() {
 			// 响应头(不需要脱敏)
 			respHeaders := make(map[string]string)
@@ -642,6 +760,74 @@ func handleResponsesSuccess(
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to convert response"})
 		return
+	}
+
+	// 更新请求日志（非流式 Responses API）
+	if reqLogManager != nil && requestLogID != "" && upstreamType == "responses" {
+		// 从非流式响应中提取 usage
+		codexUsage, responseModel := extractCodexUsageFromJSON(bodyBytes)
+
+		// 用于定价计算的模型名（优先响应模型，若无定价配置则回退到请求模型）
+		pricingModel := responseModel
+		if pricingModel == "" {
+			pricingModel = originalReq.Model
+		} else if pm := pricing.GetManager(); pm != nil && !pm.HasPricing(pricingModel) && originalReq.Model != "" {
+			// 响应模型无定价配置，回退到请求模型
+			pricingModel = originalReq.Model
+		}
+
+		record := &requestlog.RequestLog{
+			Status:        requestlog.StatusCompleted,
+			CompleteTime:  completeTime,
+			DurationMs:    durationMs,
+			Type:          upstreamType,
+			ProviderName:  upstream.Name,
+			ResponseModel: responseModel,
+			HTTPStatus:    resp.StatusCode,
+			ChannelName:   upstream.Name,
+		}
+
+		if codexUsage != nil {
+			// Codex 的 input_tokens 已包含 cached_tokens，需要减去得到实际新输入
+			actualInput := codexUsage.InputTokens - codexUsage.CachedTokens
+			if actualInput < 0 {
+				actualInput = 0
+			}
+			record.InputTokens = actualInput
+			record.OutputTokens = codexUsage.OutputTokens
+			record.CacheReadInputTokens = codexUsage.CachedTokens
+			record.CacheCreationInputTokens = 0
+
+			// 计算成本：使用 pricingModel（优先响应模型，无定价配置则回退到请求模型）
+			if pm := pricing.GetManager(); pm != nil {
+				var multipliers *pricing.PriceMultipliers
+				if channelMult := upstream.GetPriceMultipliers(pricingModel); channelMult != nil {
+					multipliers = &pricing.PriceMultipliers{
+						InputMultiplier:         channelMult.GetEffectiveMultiplier("input"),
+						OutputMultiplier:        channelMult.GetEffectiveMultiplier("output"),
+						CacheCreationMultiplier: channelMult.GetEffectiveMultiplier("cacheCreation"),
+						CacheReadMultiplier:     channelMult.GetEffectiveMultiplier("cacheRead"),
+					}
+				}
+				breakdown := pm.CalculateCostWithBreakdown(
+					pricingModel,
+					actualInput,
+					codexUsage.OutputTokens,
+					0,
+					codexUsage.CachedTokens,
+					multipliers,
+				)
+				record.Price = breakdown.TotalCost
+				record.InputCost = breakdown.InputCost
+				record.OutputCost = breakdown.OutputCost
+				record.CacheCreationCost = 0
+				record.CacheReadCost = breakdown.CacheReadCost
+			}
+		}
+
+		if err := reqLogManager.Update(requestLogID, record); err != nil {
+			log.Printf("⚠️ 请求日志更新失败: %v", err)
+		}
 	}
 
 	// 更新会话（如果需要）
@@ -677,6 +863,88 @@ func handleResponsesSuccess(
 	utils.ForwardResponseHeaders(resp.Header, c.Writer)
 
 	c.JSON(200, responsesResp)
+}
+
+// CodexUsage Codex API 的 usage 结构
+type CodexUsage struct {
+	InputTokens  int
+	OutputTokens int
+	CachedTokens int
+	TotalTokens  int
+}
+
+// extractCodexUsageFromSSE 从 SSE 事件行中提取 Codex usage 数据
+// 返回 usage 和 model，如果不是 response.completed 事件则返回 nil
+func extractCodexUsageFromSSE(line string) (*CodexUsage, string) {
+	// SSE 格式: "data: {...}" 或 "data:{...}"
+	var jsonStr string
+	if strings.HasPrefix(line, "data: ") {
+		jsonStr = strings.TrimPrefix(line, "data: ")
+	} else if strings.HasPrefix(line, "data:") {
+		jsonStr = strings.TrimPrefix(line, "data:")
+	} else {
+		return nil, ""
+	}
+	if jsonStr == "[DONE]" {
+		return nil, ""
+	}
+
+	var event struct {
+		Type     string `json:"type"`
+		Response struct {
+			Model string `json:"model"`
+			Usage struct {
+				InputTokens int `json:"input_tokens"`
+				InputTokensDetails struct {
+					CachedTokens int `json:"cached_tokens"`
+				} `json:"input_tokens_details"`
+				OutputTokens int `json:"output_tokens"`
+				TotalTokens  int `json:"total_tokens"`
+			} `json:"usage"`
+		} `json:"response"`
+	}
+
+	if err := json.Unmarshal([]byte(jsonStr), &event); err != nil {
+		return nil, ""
+	}
+
+	// 只处理 response.completed 事件
+	if event.Type != "response.completed" {
+		return nil, ""
+	}
+
+	return &CodexUsage{
+		InputTokens:  event.Response.Usage.InputTokens,
+		OutputTokens: event.Response.Usage.OutputTokens,
+		CachedTokens: event.Response.Usage.InputTokensDetails.CachedTokens,
+		TotalTokens:  event.Response.Usage.TotalTokens,
+	}, event.Response.Model
+}
+
+// extractCodexUsageFromJSON 从非流式 JSON 响应中提取 Codex usage 数据
+func extractCodexUsageFromJSON(body []byte) (*CodexUsage, string) {
+	var resp struct {
+		Model string `json:"model"`
+		Usage struct {
+			InputTokens int `json:"input_tokens"`
+			InputTokensDetails struct {
+				CachedTokens int `json:"cached_tokens"`
+			} `json:"input_tokens_details"`
+			OutputTokens int `json:"output_tokens"`
+			TotalTokens  int `json:"total_tokens"`
+		} `json:"usage"`
+	}
+
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, ""
+	}
+
+	return &CodexUsage{
+		InputTokens:  resp.Usage.InputTokens,
+		OutputTokens: resp.Usage.OutputTokens,
+		CachedTokens: resp.Usage.InputTokensDetails.CachedTokens,
+		TotalTokens:  resp.Usage.TotalTokens,
+	}, resp.Model
 }
 
 // parseInputToItems 解析 input 为 ResponsesItem 数组

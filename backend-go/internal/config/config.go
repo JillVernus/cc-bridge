@@ -15,6 +15,33 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
+// TokenPriceMultipliers 单个模型的价格乘数配置
+type TokenPriceMultipliers struct {
+	InputMultiplier         float64 `json:"inputMultiplier,omitempty"`         // 输入 token 价格乘数，默认 1.0
+	OutputMultiplier        float64 `json:"outputMultiplier,omitempty"`        // 输出 token 价格乘数，默认 1.0
+	CacheCreationMultiplier float64 `json:"cacheCreationMultiplier,omitempty"` // 缓存创建价格乘数，默认 1.0
+	CacheReadMultiplier     float64 `json:"cacheReadMultiplier,omitempty"`     // 缓存读取价格乘数，默认 1.0
+}
+
+// GetEffectiveMultiplier 获取有效乘数（0 或未设置时返回 1.0）
+func (t *TokenPriceMultipliers) GetEffectiveMultiplier(tokenType string) float64 {
+	var m float64
+	switch tokenType {
+	case "input":
+		m = t.InputMultiplier
+	case "output":
+		m = t.OutputMultiplier
+	case "cacheCreation":
+		m = t.CacheCreationMultiplier
+	case "cacheRead":
+		m = t.CacheReadMultiplier
+	}
+	if m == 0 {
+		return 1.0
+	}
+	return m
+}
+
 // UpstreamConfig 上游配置
 type UpstreamConfig struct {
 	BaseURL            string            `json:"baseUrl"`
@@ -23,12 +50,83 @@ type UpstreamConfig struct {
 	Name               string            `json:"name,omitempty"`
 	Description        string            `json:"description,omitempty"`
 	Website            string            `json:"website,omitempty"`
-	InsecureSkipVerify bool              `json:"insecureSkipVerify,omitempty"`
-	ModelMapping       map[string]string `json:"modelMapping,omitempty"`
+	InsecureSkipVerify        bool              `json:"insecureSkipVerify,omitempty"`
+	ModelMapping              map[string]string `json:"modelMapping,omitempty"`
+	ResponseHeaderTimeoutSecs int               `json:"responseHeaderTimeout,omitempty"` // 响应头超时（秒），默认30秒
 	// 多渠道调度相关字段
 	Priority       int        `json:"priority"`                 // 渠道优先级（数字越小优先级越高，默认按索引）
 	Status         string     `json:"status"`                   // 渠道状态：active（正常）, suspended（暂停）, disabled（备用池）
 	PromotionUntil *time.Time `json:"promotionUntil,omitempty"` // 促销期截止时间，在此期间内优先使用此渠道（忽略trace亲和）
+	// 价格乘数配置：key 为模型名称（支持前缀匹配），"_default" 为默认乘数
+	PriceMultipliers map[string]TokenPriceMultipliers `json:"priceMultipliers,omitempty"`
+}
+
+// GetResponseHeaderTimeout 获取响应头超时时间（秒），默认30秒
+func (u *UpstreamConfig) GetResponseHeaderTimeout() int {
+	if u.ResponseHeaderTimeoutSecs > 0 {
+		return u.ResponseHeaderTimeoutSecs
+	}
+	return 30 // 默认30秒
+}
+
+// GetPriceMultipliers 获取指定模型的价格乘数（累积模式：特定模型乘数 × _default 乘数）
+func (u *UpstreamConfig) GetPriceMultipliers(model string) *TokenPriceMultipliers {
+	if u.PriceMultipliers == nil {
+		return nil
+	}
+
+	// 获取 _default 乘数（如果存在）
+	defaultMult, hasDefault := u.PriceMultipliers["_default"]
+
+	// 查找特定模型乘数（精确匹配优先，然后前缀匹配）
+	var modelMult *TokenPriceMultipliers
+
+	// 精确匹配
+	if m, ok := u.PriceMultipliers[model]; ok {
+		modelMult = &m
+	} else {
+		// 前缀匹配
+		for pattern, multipliers := range u.PriceMultipliers {
+			if pattern != "_default" && strings.HasPrefix(model, pattern) {
+				m := multipliers
+				modelMult = &m
+				break
+			}
+		}
+	}
+
+	// 如果没有任何匹配，返回 _default（如果存在）
+	if modelMult == nil {
+		if hasDefault {
+			return &defaultMult
+		}
+		return nil
+	}
+
+	// 如果没有 _default，只返回模型乘数
+	if !hasDefault {
+		return modelMult
+	}
+
+	// 累积模式：特定模型乘数 × _default 乘数
+	combined := TokenPriceMultipliers{
+		InputMultiplier:         multiplyEffective(modelMult.InputMultiplier, defaultMult.InputMultiplier),
+		OutputMultiplier:        multiplyEffective(modelMult.OutputMultiplier, defaultMult.OutputMultiplier),
+		CacheCreationMultiplier: multiplyEffective(modelMult.CacheCreationMultiplier, defaultMult.CacheCreationMultiplier),
+		CacheReadMultiplier:     multiplyEffective(modelMult.CacheReadMultiplier, defaultMult.CacheReadMultiplier),
+	}
+	return &combined
+}
+
+// multiplyEffective 计算两个乘数的累积值（0 视为 1.0）
+func multiplyEffective(a, b float64) float64 {
+	if a == 0 {
+		a = 1.0
+	}
+	if b == 0 {
+		b = 1.0
+	}
+	return a * b
 }
 
 // UpstreamUpdate 用于部分更新 UpstreamConfig
@@ -39,12 +137,14 @@ type UpstreamUpdate struct {
 	APIKeys            []string          `json:"apiKeys"`
 	Description        *string           `json:"description"`
 	Website            *string           `json:"website"`
-	InsecureSkipVerify *bool             `json:"insecureSkipVerify"`
-	ModelMapping       map[string]string `json:"modelMapping"`
+	InsecureSkipVerify        *bool             `json:"insecureSkipVerify"`
+	ModelMapping              map[string]string `json:"modelMapping"`
+	ResponseHeaderTimeoutSecs *int              `json:"responseHeaderTimeout"`
 	// 多渠道调度相关字段
-	Priority       *int       `json:"priority"`
-	Status         *string    `json:"status"`
-	PromotionUntil *time.Time `json:"promotionUntil"`
+	Priority         *int                              `json:"priority"`
+	Status           *string                           `json:"status"`
+	PromotionUntil   *time.Time                        `json:"promotionUntil"`
+	PriceMultipliers map[string]TokenPriceMultipliers  `json:"priceMultipliers"`
 }
 
 // Config 配置结构
@@ -667,6 +767,12 @@ func (cm *ConfigManager) UpdateUpstream(index int, updates UpstreamUpdate) (shou
 	if updates.PromotionUntil != nil {
 		upstream.PromotionUntil = updates.PromotionUntil
 	}
+	if updates.ResponseHeaderTimeoutSecs != nil {
+		upstream.ResponseHeaderTimeoutSecs = *updates.ResponseHeaderTimeoutSecs
+	}
+	if updates.PriceMultipliers != nil {
+		upstream.PriceMultipliers = updates.PriceMultipliers
+	}
 
 	if err := cm.saveConfigLocked(cm.config); err != nil {
 		return false, err
@@ -1120,6 +1226,12 @@ func (cm *ConfigManager) UpdateResponsesUpstream(index int, updates UpstreamUpda
 	}
 	if updates.PromotionUntil != nil {
 		upstream.PromotionUntil = updates.PromotionUntil
+	}
+	if updates.ResponseHeaderTimeoutSecs != nil {
+		upstream.ResponseHeaderTimeoutSecs = *updates.ResponseHeaderTimeoutSecs
+	}
+	if updates.PriceMultipliers != nil {
+		upstream.PriceMultipliers = updates.PriceMultipliers
 	}
 
 	if err := cm.saveConfigLocked(cm.config); err != nil {

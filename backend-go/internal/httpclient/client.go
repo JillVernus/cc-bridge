@@ -68,8 +68,12 @@ func (cm *ClientManager) GetStandardClient(timeout time.Duration, insecure bool)
 }
 
 // GetStreamClient 获取流式客户端（无超时，用于 SSE 流式响应）
-func (cm *ClientManager) GetStreamClient(insecure bool) *http.Client {
-	key := fmt.Sprintf("stream-%t", insecure)
+// responseHeaderTimeout: 响应头超时（秒），0 表示使用默认值 30 秒
+func (cm *ClientManager) GetStreamClient(insecure bool, responseHeaderTimeout int) *http.Client {
+	if responseHeaderTimeout <= 0 {
+		responseHeaderTimeout = 30
+	}
+	key := fmt.Sprintf("stream-%t-%d", insecure, responseHeaderTimeout)
 
 	cm.mu.RLock()
 	if client, ok := cm.clients[key]; ok {
@@ -92,7 +96,7 @@ func (cm *ClientManager) GetStreamClient(insecure bool) *http.Client {
 		IdleConnTimeout:       120 * time.Second,
 		DisableCompression:    true, // 流式响应禁用压缩
 		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 30 * time.Second,
+		ResponseHeaderTimeout: time.Duration(responseHeaderTimeout) * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		ForceAttemptHTTP2:     true,
 	}

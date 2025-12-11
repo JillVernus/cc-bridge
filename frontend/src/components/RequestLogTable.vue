@@ -3,71 +3,97 @@
     <!-- 统计面板和日期筛选 -->
     <v-row class="mb-4">
       <!-- 模型统计 -->
-      <v-col cols="4">
+      <v-col cols="5">
         <v-card class="summary-card" density="compact">
           <v-card-title class="text-subtitle-2 pa-2">按模型统计</v-card-title>
           <v-table density="compact" class="summary-table">
             <thead>
               <tr>
-                <th>模型</th>
-                <th class="text-end">请求</th>
-                <th class="text-end">输入</th>
-                <th class="text-end">输出</th>
-                <th class="text-end">缓存创建</th>
-                <th class="text-end">缓存命中</th>
+                <th class="col-model">模型</th>
+                <th class="text-end col-small">请求</th>
+                <th class="text-end col-small">输入</th>
+                <th class="text-end col-small">输出</th>
+                <th class="text-end col-small">缓存创建</th>
+                <th class="text-end col-small">缓存命中</th>
+                <th class="text-end col-small">成本</th>
               </tr>
             </thead>
-            <tbody>
-              <tr v-for="(data, model) in stats?.byModel" :key="model">
-                <td class="text-caption">{{ truncateModel(String(model)) }}</td>
-                <td class="text-end text-caption">{{ data.count }}</td>
-                <td class="text-end text-caption">{{ formatNumber(data.inputTokens) }}</td>
-                <td class="text-end text-caption">{{ formatNumber(data.outputTokens) }}</td>
-                <td class="text-end text-caption text-success">{{ formatNumber(data.cacheCreationInputTokens) }}</td>
-                <td class="text-end text-caption text-warning">{{ formatNumber(data.cacheReadInputTokens) }}</td>
+            <tbody class="summary-table-body">
+              <tr v-for="[model, data] in sortedByModel" :key="model">
+                <td class="text-caption col-model">{{ truncateModel(String(model)) }}</td>
+                <td class="text-end text-caption col-small">{{ data.count }}</td>
+                <td class="text-end text-caption col-small">{{ formatNumber(data.inputTokens) }}</td>
+                <td class="text-end text-caption col-small">{{ formatNumber(data.outputTokens) }}</td>
+                <td class="text-end text-caption text-success col-small">{{ formatNumber(data.cacheCreationInputTokens) }}</td>
+                <td class="text-end text-caption text-warning col-small">{{ formatNumber(data.cacheReadInputTokens) }}</td>
+                <td class="text-end text-caption cost-cell col-small">{{ formatPriceSummary(data.cost) }}</td>
               </tr>
-              <tr v-if="!stats?.byModel || Object.keys(stats.byModel).length === 0">
-                <td colspan="6" class="text-center text-caption text-grey">暂无数据</td>
+              <tr v-if="sortedByModel.length === 0">
+                <td colspan="7" class="text-center text-caption text-grey">暂无数据</td>
               </tr>
             </tbody>
+            <tfoot class="summary-table-footer">
+              <tr class="total-row">
+                <td class="text-caption font-weight-bold col-model">Total</td>
+                <td class="text-end text-caption font-weight-bold col-small">{{ modelTotals.count }}</td>
+                <td class="text-end text-caption font-weight-bold col-small">{{ formatNumber(modelTotals.inputTokens) }}</td>
+                <td class="text-end text-caption font-weight-bold col-small">{{ formatNumber(modelTotals.outputTokens) }}</td>
+                <td class="text-end text-caption font-weight-bold text-success col-small">{{ formatNumber(modelTotals.cacheCreationInputTokens) }}</td>
+                <td class="text-end text-caption font-weight-bold text-warning col-small">{{ formatNumber(modelTotals.cacheReadInputTokens) }}</td>
+                <td class="text-end text-caption font-weight-bold cost-cell col-small">{{ formatPriceSummary(modelTotals.cost) }}</td>
+              </tr>
+            </tfoot>
           </v-table>
         </v-card>
       </v-col>
 
       <!-- 渠道统计 -->
-      <v-col cols="4">
+      <v-col cols="5">
         <v-card class="summary-card" density="compact">
           <v-card-title class="text-subtitle-2 pa-2">按渠道统计</v-card-title>
           <v-table density="compact" class="summary-table">
             <thead>
               <tr>
-                <th>渠道</th>
-                <th class="text-end">请求</th>
-                <th class="text-end">输入</th>
-                <th class="text-end">输出</th>
-                <th class="text-end">缓存创建</th>
-                <th class="text-end">缓存命中</th>
+                <th class="col-model">渠道</th>
+                <th class="text-end col-small">请求</th>
+                <th class="text-end col-small">输入</th>
+                <th class="text-end col-small">输出</th>
+                <th class="text-end col-small">缓存创建</th>
+                <th class="text-end col-small">缓存命中</th>
+                <th class="text-end col-small">成本</th>
               </tr>
             </thead>
-            <tbody>
-              <tr v-for="(data, provider) in stats?.byProvider" :key="provider">
-                <td class="text-caption">{{ provider }}</td>
-                <td class="text-end text-caption">{{ data.count }}</td>
-                <td class="text-end text-caption">{{ formatNumber(data.inputTokens) }}</td>
-                <td class="text-end text-caption">{{ formatNumber(data.outputTokens) }}</td>
-                <td class="text-end text-caption text-success">{{ formatNumber(data.cacheCreationInputTokens) }}</td>
-                <td class="text-end text-caption text-warning">{{ formatNumber(data.cacheReadInputTokens) }}</td>
+            <tbody class="summary-table-body">
+              <tr v-for="[provider, data] in sortedByProvider" :key="provider">
+                <td class="text-caption col-model">{{ provider }}</td>
+                <td class="text-end text-caption col-small">{{ data.count }}</td>
+                <td class="text-end text-caption col-small">{{ formatNumber(data.inputTokens) }}</td>
+                <td class="text-end text-caption col-small">{{ formatNumber(data.outputTokens) }}</td>
+                <td class="text-end text-caption text-success col-small">{{ formatNumber(data.cacheCreationInputTokens) }}</td>
+                <td class="text-end text-caption text-warning col-small">{{ formatNumber(data.cacheReadInputTokens) }}</td>
+                <td class="text-end text-caption cost-cell col-small">{{ formatPriceSummary(data.cost) }}</td>
               </tr>
-              <tr v-if="!stats?.byProvider || Object.keys(stats.byProvider).length === 0">
-                <td colspan="6" class="text-center text-caption text-grey">暂无数据</td>
+              <tr v-if="sortedByProvider.length === 0">
+                <td colspan="7" class="text-center text-caption text-grey">暂无数据</td>
               </tr>
             </tbody>
+            <tfoot class="summary-table-footer">
+              <tr class="total-row">
+                <td class="text-caption font-weight-bold col-model">Total</td>
+                <td class="text-end text-caption font-weight-bold col-small">{{ providerTotals.count }}</td>
+                <td class="text-end text-caption font-weight-bold col-small">{{ formatNumber(providerTotals.inputTokens) }}</td>
+                <td class="text-end text-caption font-weight-bold col-small">{{ formatNumber(providerTotals.outputTokens) }}</td>
+                <td class="text-end text-caption font-weight-bold text-success col-small">{{ formatNumber(providerTotals.cacheCreationInputTokens) }}</td>
+                <td class="text-end text-caption font-weight-bold text-warning col-small">{{ formatNumber(providerTotals.cacheReadInputTokens) }}</td>
+                <td class="text-end text-caption font-weight-bold cost-cell col-small">{{ formatPriceSummary(providerTotals.cost) }}</td>
+              </tr>
+            </tfoot>
           </v-table>
         </v-card>
       </v-col>
 
       <!-- 日期筛选 -->
-      <v-col cols="4">
+      <v-col cols="2">
         <v-card class="summary-card date-filter-card" density="compact">
           <v-card-title class="text-subtitle-2 pa-2">日期筛选</v-card-title>
           <div class="date-filter d-flex align-center justify-center pa-4">
@@ -84,13 +110,84 @@
     </v-row>
 
     <!-- 设置对话框 -->
-    <v-dialog v-model="showSettings" max-width="500">
+    <v-dialog v-model="showSettings" max-width="800">
       <v-card class="settings-card">
         <v-card-title class="d-flex align-center">
           <v-icon class="mr-2">mdi-cog</v-icon>
           设置
         </v-card-title>
         <v-card-text>
+          <!-- 定价配置 -->
+          <div class="settings-section mb-4">
+            <div class="d-flex align-center justify-space-between mb-2">
+              <div class="text-subtitle-2">模型定价配置</div>
+              <div class="d-flex ga-2">
+                <v-btn
+                  size="small"
+                  variant="tonal"
+                  color="primary"
+                  @click="showAddModelDialog = true"
+                >
+                  <v-icon class="mr-1">mdi-plus</v-icon>
+                  添加模型
+                </v-btn>
+                <v-btn
+                  size="small"
+                  variant="tonal"
+                  color="warning"
+                  @click="confirmResetPricing"
+                  :loading="resettingPricing"
+                >
+                  <v-icon class="mr-1">mdi-refresh</v-icon>
+                  重置默认
+                </v-btn>
+              </div>
+            </div>
+            <div class="text-caption text-grey mb-3">设置各模型的 token 价格（单位：$/1M tokens）</div>
+
+            <v-table density="compact" class="pricing-table" v-if="pricingConfig">
+              <thead>
+                <tr>
+                  <th>模型</th>
+                  <th class="text-end">输入价格</th>
+                  <th class="text-end">输出价格</th>
+                  <th class="text-end">缓存创建</th>
+                  <th class="text-end">缓存读取</th>
+                  <th class="text-center">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(pricing, model) in pricingConfig.models" :key="model">
+                  <td class="text-caption font-weight-medium">
+                    {{ model }}
+                    <span v-if="pricing.description" class="text-grey ml-1">({{ pricing.description }})</span>
+                  </td>
+                  <td class="text-end text-caption">${{ pricing.inputPrice }}</td>
+                  <td class="text-end text-caption">${{ pricing.outputPrice }}</td>
+                  <td class="text-end text-caption">${{ pricing.cacheCreationPrice || '-' }}</td>
+                  <td class="text-end text-caption">${{ pricing.cacheReadPrice || '-' }}</td>
+                  <td class="text-center">
+                    <v-btn icon size="x-small" variant="text" @click="editModel(String(model))">
+                      <v-icon size="16">mdi-pencil</v-icon>
+                    </v-btn>
+                    <v-btn icon size="x-small" variant="text" color="error" @click="confirmDeleteModel(String(model))">
+                      <v-icon size="16">mdi-delete</v-icon>
+                    </v-btn>
+                  </td>
+                </tr>
+                <tr v-if="!pricingConfig || Object.keys(pricingConfig.models).length === 0">
+                  <td colspan="6" class="text-center text-caption text-grey">暂无定价配置</td>
+                </tr>
+              </tbody>
+            </v-table>
+            <div v-else class="text-center pa-4 text-grey">
+              <v-progress-circular v-if="loadingPricing" indeterminate size="24" />
+              <span v-else>加载定价配置失败</span>
+            </div>
+          </div>
+
+          <v-divider class="my-4" />
+
           <div class="settings-section mb-4">
             <div class="text-subtitle-2 mb-2">列宽设置</div>
             <v-btn
@@ -127,6 +224,105 @@
       </v-card>
     </v-dialog>
 
+    <!-- 添加/编辑模型定价对话框 -->
+    <v-dialog v-model="showAddModelDialog" max-width="450">
+      <v-card>
+        <v-card-title>{{ editingModel ? '编辑模型定价' : '添加模型定价' }}</v-card-title>
+        <v-card-text>
+          <v-text-field
+            v-model="modelForm.name"
+            label="模型名称"
+            placeholder="例如: claude-3-5-sonnet"
+            :disabled="!!editingModel"
+            density="compact"
+            class="mb-2"
+          />
+          <v-text-field
+            v-model="modelForm.description"
+            label="描述 (可选)"
+            placeholder="模型描述"
+            density="compact"
+            class="mb-2"
+          />
+          <v-row>
+            <v-col cols="6">
+              <v-text-field
+                v-model.number="modelForm.inputPrice"
+                label="输入价格 ($/1M)"
+                type="number"
+                step="0.01"
+                density="compact"
+              />
+            </v-col>
+            <v-col cols="6">
+              <v-text-field
+                v-model.number="modelForm.outputPrice"
+                label="输出价格 ($/1M)"
+                type="number"
+                step="0.01"
+                density="compact"
+              />
+            </v-col>
+          </v-row>
+          <v-row>
+            <v-col cols="6">
+              <v-text-field
+                v-model.number="modelForm.cacheCreationPrice"
+                label="缓存创建价格 ($/1M)"
+                type="number"
+                step="0.01"
+                density="compact"
+                hint="默认为输入价格×1.25"
+                persistent-hint
+              />
+            </v-col>
+            <v-col cols="6">
+              <v-text-field
+                v-model.number="modelForm.cacheReadPrice"
+                label="缓存读取价格 ($/1M)"
+                type="number"
+                step="0.01"
+                density="compact"
+                hint="默认为输入价格×0.1"
+                persistent-hint
+              />
+            </v-col>
+          </v-row>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="cancelModelEdit">取消</v-btn>
+          <v-btn color="primary" variant="flat" @click="saveModelPricing" :loading="savingPricing">保存</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- 删除模型确认对话框 -->
+    <v-dialog v-model="showDeleteModelDialog" max-width="400">
+      <v-card>
+        <v-card-title class="text-error">确认删除</v-card-title>
+        <v-card-text>确定要删除模型 "{{ deletingModel }}" 的定价配置吗？</v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showDeleteModelDialog = false">取消</v-btn>
+          <v-btn color="error" variant="flat" @click="deleteModelPricing" :loading="deletingPricingModel">确认删除</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- 重置定价确认对话框 -->
+    <v-dialog v-model="showResetPricingDialog" max-width="400">
+      <v-card>
+        <v-card-title class="text-warning">确认重置</v-card-title>
+        <v-card-text>确定要将所有模型定价重置为默认值吗？当前配置将被覆盖。</v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showResetPricingDialog = false">取消</v-btn>
+          <v-btn color="warning" variant="flat" @click="resetPricing" :loading="resettingPricing">确认重置</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- 确认对话框 -->
     <v-dialog v-model="showConfirmClear" max-width="400">
       <v-card>
@@ -149,7 +345,7 @@
         :class="{ 'neo-btn-active': autoRefreshEnabled }"
         @click="toggleAutoRefresh"
       >
-        <v-icon size="18" class="mr-1">{{ autoRefreshEnabled ? 'mdi-sync' : 'mdi-sync-off' }}</v-icon>
+        <v-icon size="18" class="mr-1" :class="{ 'spin': autoRefreshEnabled }">{{ autoRefreshEnabled ? 'mdi-sync' : 'mdi-sync-off' }}</v-icon>
         {{ autoRefreshEnabled ? '自动刷新中...' : '自动刷新已关闭' }}
       </v-btn>
       <v-spacer />
@@ -214,6 +410,12 @@
             <div class="resize-handle" @mousedown="startResize($event, 'tokens')"></div>
           </div>
         </template>
+        <template v-slot:[`header.price`]="{ column }">
+          <div class="resizable-header">
+            {{ column.title }}
+            <div class="resize-handle" @mousedown="startResize($event, 'price')"></div>
+          </div>
+        </template>
         <template v-slot:[`header.httpStatus`]="{ column }">
           <div class="resizable-header-last">
             {{ column.title }}
@@ -269,7 +471,20 @@
         </template>
 
         <template v-slot:item.model="{ item }">
-          <span class="text-caption font-weight-medium">{{ item.model }}</span>
+          <v-tooltip v-if="item.responseModel && item.responseModel !== item.model" location="top" max-width="400">
+            <template v-slot:activator="{ props }">
+              <span v-bind="props" class="text-caption font-weight-medium model-with-mapping">
+                {{ item.model }}
+                <v-icon size="12" class="ml-1">mdi-swap-horizontal</v-icon>
+              </span>
+            </template>
+            <div class="model-mapping-tooltip">
+              <span class="request-model">{{ item.model }}</span>
+              <v-icon size="14" class="mx-1">mdi-arrow-right</v-icon>
+              <span class="response-model">{{ item.responseModel }}</span>
+            </div>
+          </v-tooltip>
+          <span v-else class="text-caption font-weight-medium">{{ item.model }}</span>
         </template>
 
         <template v-slot:item.tokens="{ item }">
@@ -288,6 +503,49 @@
           </div>
         </template>
 
+        <template v-slot:item.price="{ item }">
+          <v-progress-circular
+            v-if="item.status === 'pending'"
+            indeterminate
+            size="16"
+            width="2"
+            color="grey"
+          />
+          <v-tooltip v-else-if="hasCostBreakdown(item)" location="top" max-width="300">
+            <template v-slot:activator="{ props }">
+              <span v-bind="props" class="text-caption price-value price-with-tooltip" :class="{ 'price-zero': !item.price }">
+                {{ formatPriceDetailed(item.price) }}
+              </span>
+            </template>
+            <div class="cost-breakdown-tooltip">
+              <div class="cost-breakdown-title">Cost Breakdown</div>
+              <div class="cost-breakdown-row" v-if="item.inputCost">
+                <span class="cost-label">Input:</span>
+                <span class="cost-value">{{ formatPriceDetailed(item.inputCost) }}</span>
+              </div>
+              <div class="cost-breakdown-row" v-if="item.outputCost">
+                <span class="cost-label">Output:</span>
+                <span class="cost-value">{{ formatPriceDetailed(item.outputCost) }}</span>
+              </div>
+              <div class="cost-breakdown-row cache-create-row" v-if="item.cacheCreationCost">
+                <span class="cost-label">Cache Create:</span>
+                <span class="cost-value">{{ formatPriceDetailed(item.cacheCreationCost) }}</span>
+              </div>
+              <div class="cost-breakdown-row cache-hit-row" v-if="item.cacheReadCost">
+                <span class="cost-label">Cache Hit:</span>
+                <span class="cost-value">{{ formatPriceDetailed(item.cacheReadCost) }}</span>
+              </div>
+              <div class="cost-breakdown-total">
+                <span class="cost-label">Total:</span>
+                <span class="cost-value">{{ formatPriceDetailed(item.price) }}</span>
+              </div>
+            </div>
+          </v-tooltip>
+          <span v-else class="text-caption price-value" :class="{ 'price-zero': !item.price }">
+            {{ formatPriceDetailed(item.price) }}
+          </span>
+        </template>
+
         <template v-slot:item.httpStatus="{ item }">
           <v-progress-circular
             v-if="item.status === 'pending'"
@@ -296,13 +554,22 @@
             width="2"
             color="grey"
           />
-          <v-tooltip v-else-if="item.error" location="top">
+          <v-tooltip v-else-if="item.error || item.upstreamError" location="top" max-width="400">
             <template v-slot:activator="{ props }">
               <v-chip v-bind="props" size="x-small" :color="getStatusColor(item.httpStatus)" variant="tonal">
                 {{ item.httpStatus }}
               </v-chip>
             </template>
-            <span>{{ item.error }}</span>
+            <div class="error-tooltip">
+              <div v-if="item.error" class="error-line">
+                <span class="error-label">错误:</span>
+                <span>{{ item.error }}</span>
+              </div>
+              <div v-if="item.upstreamError" class="upstream-error-line">
+                <span class="error-label">上游响应:</span>
+                <span class="upstream-error-text">{{ item.upstreamError }}</span>
+              </div>
+            </div>
           </v-tooltip>
           <v-chip v-else size="x-small" :color="getStatusColor(item.httpStatus)" variant="tonal">
             {{ item.httpStatus }}
@@ -339,7 +606,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { api, type RequestLog, type RequestLogStats, type GroupStats } from '../services/api'
+import { api, type RequestLog, type RequestLogStats, type GroupStats, type PricingConfig, type ModelPricing } from '../services/api'
 
 const logs = ref<RequestLog[]>([])
 const stats = ref<RequestLogStats | null>(null)
@@ -355,6 +622,27 @@ const showSettings = ref(false)
 const showConfirmClear = ref(false)
 const clearing = ref(false)
 
+// Pricing configuration
+const pricingConfig = ref<PricingConfig | null>(null)
+const loadingPricing = ref(false)
+const showAddModelDialog = ref(false)
+const showDeleteModelDialog = ref(false)
+const showResetPricingDialog = ref(false)
+const editingModel = ref<string | null>(null)
+const deletingModel = ref<string | null>(null)
+const savingPricing = ref(false)
+const deletingPricingModel = ref(false)
+const resettingPricing = ref(false)
+
+const modelForm = ref({
+  name: '',
+  description: '',
+  inputPrice: 0,
+  outputPrice: 0,
+  cacheCreationPrice: 0,
+  cacheReadPrice: 0
+})
+
 // Date filter - use local date
 const getLocalDateString = (date: Date) => {
   const year = date.getFullYear()
@@ -364,6 +652,58 @@ const getLocalDateString = (date: Date) => {
 }
 const filterDate = ref(getLocalDateString(new Date()))
 const isToday = computed(() => filterDate.value === getLocalDateString(new Date()))
+
+// Sorted stats by cost (descending), then by total tokens (descending)
+const getTotalTokens = (data: GroupStats) => {
+  return data.inputTokens + data.outputTokens + data.cacheCreationInputTokens + data.cacheReadInputTokens
+}
+
+const sortedByModel = computed(() => {
+  if (!stats.value?.byModel) return []
+  return Object.entries(stats.value.byModel)
+    .sort(([, a], [, b]) => {
+      const costDiff = b.cost - a.cost
+      if (costDiff !== 0) return costDiff
+      return getTotalTokens(b) - getTotalTokens(a)
+    })
+})
+
+const sortedByProvider = computed(() => {
+  if (!stats.value?.byProvider) return []
+  return Object.entries(stats.value.byProvider)
+    .sort(([, a], [, b]) => {
+      const costDiff = b.cost - a.cost
+      if (costDiff !== 0) return costDiff
+      return getTotalTokens(b) - getTotalTokens(a)
+    })
+})
+
+// Totals for summary tables
+const modelTotals = computed(() => {
+  const totals = { count: 0, inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, cost: 0 }
+  for (const [, data] of sortedByModel.value) {
+    totals.count += data.count
+    totals.inputTokens += data.inputTokens
+    totals.outputTokens += data.outputTokens
+    totals.cacheCreationInputTokens += data.cacheCreationInputTokens
+    totals.cacheReadInputTokens += data.cacheReadInputTokens
+    totals.cost += data.cost
+  }
+  return totals
+})
+
+const providerTotals = computed(() => {
+  const totals = { count: 0, inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, cost: 0 }
+  for (const [, data] of sortedByProvider.value) {
+    totals.count += data.count
+    totals.inputTokens += data.inputTokens
+    totals.outputTokens += data.outputTokens
+    totals.cacheCreationInputTokens += data.cacheCreationInputTokens
+    totals.cacheReadInputTokens += data.cacheReadInputTokens
+    totals.cost += data.cost
+  }
+  return totals
+})
 
 const getDateRange = () => {
   // RFC3339 format with timezone offset
@@ -399,6 +739,7 @@ const defaultColumnWidths: Record<string, number> = {
   providerName: 120,
   model: 200,
   tokens: 400,
+  price: 80,
   httpStatus: 70
 }
 
@@ -438,6 +779,7 @@ const headers = computed(() => [
   { title: '渠道', key: 'providerName', sortable: false, width: `${columnWidths.value.providerName}px` },
   { title: '模型', key: 'model', sortable: false, width: `${columnWidths.value.model}px` },
   { title: 'Tokens', key: 'tokens', sortable: false, width: `${columnWidths.value.tokens}px` },
+  { title: '成本', key: 'price', sortable: false, width: `${columnWidths.value.price}px` },
   { title: 'HTTP', key: 'httpStatus', sortable: false, width: `${columnWidths.value.httpStatus}px` },
 ])
 
@@ -519,8 +861,6 @@ const nextPage = () => {
 const formatTime = (time: string) => {
   const d = new Date(time)
   return d.toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit'
@@ -531,6 +871,34 @@ const formatNumber = (n: number) => {
   if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'
   if (n >= 1000) return (n / 1000).toFixed(1) + 'K'
   return String(n)
+}
+
+const formatPrice = (price: number) => {
+  if (!price || price === 0) return '-'
+  if (price < 0.0001) return '<$0.0001'
+  if (price < 0.01) return '$' + price.toFixed(4)
+  if (price < 1) return '$' + price.toFixed(3)
+  return '$' + price.toFixed(2)
+}
+
+// Format price with 6 decimal places for detailed view
+const formatPriceDetailed = (price: number) => {
+  if (!price || price === 0) return '$0.000000'
+  return '$' + price.toFixed(6)
+}
+
+// Format price with 2 decimal places for summary tables
+const formatPriceSummary = (price: number) => {
+  if (!price || price === 0) return '$0.00'
+  return '$' + price.toFixed(2)
+}
+
+// Check if a request log has cost breakdown details
+const hasCostBreakdown = (item: RequestLog) => {
+  return (item.inputCost && item.inputCost > 0) ||
+         (item.outputCost && item.outputCost > 0) ||
+         (item.cacheCreationCost && item.cacheCreationCost > 0) ||
+         (item.cacheReadCost && item.cacheReadCost > 0)
 }
 
 const truncateModel = (model: string) => {
@@ -607,10 +975,112 @@ const clearLogs = async () => {
   }
 }
 
+// Pricing configuration functions
+const loadPricing = async () => {
+  loadingPricing.value = true
+  try {
+    pricingConfig.value = await api.getPricing()
+  } catch (error) {
+    console.error('Failed to load pricing:', error)
+  } finally {
+    loadingPricing.value = false
+  }
+}
+
+const editModel = (model: string) => {
+  editingModel.value = model
+  const pricing = pricingConfig.value?.models[model]
+  if (pricing) {
+    modelForm.value = {
+      name: model,
+      description: pricing.description || '',
+      inputPrice: pricing.inputPrice,
+      outputPrice: pricing.outputPrice,
+      cacheCreationPrice: pricing.cacheCreationPrice || 0,
+      cacheReadPrice: pricing.cacheReadPrice || 0
+    }
+  }
+  showAddModelDialog.value = true
+}
+
+const cancelModelEdit = () => {
+  showAddModelDialog.value = false
+  editingModel.value = null
+  modelForm.value = {
+    name: '',
+    description: '',
+    inputPrice: 0,
+    outputPrice: 0,
+    cacheCreationPrice: 0,
+    cacheReadPrice: 0
+  }
+}
+
+const saveModelPricing = async () => {
+  if (!modelForm.value.name) return
+
+  savingPricing.value = true
+  try {
+    const pricing: ModelPricing = {
+      inputPrice: modelForm.value.inputPrice,
+      outputPrice: modelForm.value.outputPrice,
+      cacheCreationPrice: modelForm.value.cacheCreationPrice || undefined,
+      cacheReadPrice: modelForm.value.cacheReadPrice || undefined,
+      description: modelForm.value.description || undefined
+    }
+    await api.setModelPricing(modelForm.value.name, pricing)
+    await loadPricing()
+    cancelModelEdit()
+  } catch (error) {
+    console.error('Failed to save model pricing:', error)
+  } finally {
+    savingPricing.value = false
+  }
+}
+
+const confirmDeleteModel = (model: string) => {
+  deletingModel.value = model
+  showDeleteModelDialog.value = true
+}
+
+const deleteModelPricing = async () => {
+  if (!deletingModel.value) return
+
+  deletingPricingModel.value = true
+  try {
+    await api.deleteModelPricing(deletingModel.value)
+    await loadPricing()
+    showDeleteModelDialog.value = false
+    deletingModel.value = null
+  } catch (error) {
+    console.error('Failed to delete model pricing:', error)
+  } finally {
+    deletingPricingModel.value = false
+  }
+}
+
+const confirmResetPricing = () => {
+  showResetPricingDialog.value = true
+}
+
+const resetPricing = async () => {
+  resettingPricing.value = true
+  try {
+    const result = await api.resetPricingToDefault()
+    pricingConfig.value = result.config
+    showResetPricingDialog.value = false
+  } catch (error) {
+    console.error('Failed to reset pricing:', error)
+  } finally {
+    resettingPricing.value = false
+  }
+}
+
 onMounted(() => {
   loadColumnWidths()
   refreshLogs()
   startAutoRefresh()
+  loadPricing()
 })
 
 onUnmounted(() => {
@@ -688,6 +1158,20 @@ const silentRefresh = async () => {
   padding: 0;
 }
 
+/* Spinning animation for sync icon */
+.spin {
+  animation: spin 1.5s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .summary-card {
   border: 2px solid rgb(var(--v-theme-on-surface));
   box-shadow: 4px 4px 0 0 rgb(var(--v-theme-on-surface));
@@ -712,6 +1196,52 @@ const silentRefresh = async () => {
 
 .summary-table td {
   padding: 4px 8px !important;
+}
+
+/* Scrollable tbody for summary tables - 4 rows max */
+.summary-table-body {
+  display: block;
+  max-height: 120px; /* approximately 4 rows */
+  overflow-y: auto;
+}
+
+.summary-table-body tr {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.summary-table thead,
+.summary-table tfoot {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.summary-table-footer {
+  border-top: 2px solid rgb(var(--v-theme-on-surface));
+  background: rgba(var(--v-theme-surface-variant), 0.3);
+}
+
+.v-theme--dark .summary-table-footer {
+  border-top-color: rgba(255, 255, 255, 0.5);
+}
+
+.total-row td {
+  padding: 6px 8px !important;
+}
+
+/* Column widths for summary tables */
+.col-model {
+  width: 35%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.col-small {
+  width: 10%;
+  white-space: nowrap;
 }
 
 .date-filter-card {
@@ -977,6 +1507,181 @@ const silentRefresh = async () => {
 
 .v-theme--dark .cache-hit-color {
   color: #FFB74D !important;
+}
+
+/* Error tooltip styles */
+.error-tooltip {
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.error-line {
+  margin-bottom: 8px;
+}
+
+.upstream-error-line {
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.error-label {
+  font-weight: 600;
+  margin-right: 4px;
+  color: #ff9800;
+}
+
+.upstream-error-text {
+  font-family: 'Courier New', monospace;
+  font-size: 0.8rem;
+  word-break: break-all;
+  white-space: pre-wrap;
+  display: block;
+  margin-top: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* Price column styles */
+.price-value {
+  font-family: 'Courier New', monospace;
+  font-weight: 600;
+  color: #4CAF50;
+}
+
+.price-zero {
+  color: #9e9e9e;
+  font-weight: 400;
+}
+
+.price-with-tooltip {
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.v-theme--dark .price-value {
+  color: #81C784;
+}
+
+.v-theme--dark .price-zero {
+  color: #757575;
+}
+
+/* Cost breakdown tooltip */
+.cost-breakdown-tooltip {
+  padding: 4px 0;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+}
+
+.cost-breakdown-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.cost-breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  margin: 2px 0;
+  gap: 16px;
+}
+
+.cost-breakdown-row .cost-label {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.cost-breakdown-row .cost-value {
+  font-weight: 500;
+}
+
+.cost-breakdown-row.cache-create-row .cost-value {
+  color: #e0f7fa; /* 青色调 */
+}
+
+.cost-breakdown-row.cache-hit-row .cost-value {
+  color: #fff9c4; /* 黄色调 */
+}
+
+.cost-breakdown-total {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  font-weight: 600;
+  gap: 16px;
+}
+
+.cost-breakdown-total .cost-value {
+  color: #81C784;
+}
+
+/* Cost cell in summary tables */
+.cost-cell {
+  font-family: 'Courier New', monospace;
+  font-weight: 600;
+  color: #4CAF50 !important;
+}
+
+.v-theme--dark .cost-cell {
+  color: #81C784 !important;
+}
+
+/* Model mapping tooltip styles */
+.model-with-mapping {
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.model-mapping-tooltip {
+  display: flex;
+  align-items: center;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.model-mapping-tooltip .request-model {
+  color: #64B5F6;
+  font-weight: 500;
+}
+
+.model-mapping-tooltip .response-model {
+  color: #81C784;
+  font-weight: 500;
+}
+
+/* Pricing table styles */
+.pricing-table {
+  font-size: 0.85rem;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.pricing-table th {
+  font-size: 0.8rem !important;
+  font-weight: 600 !important;
+  padding: 8px !important;
+  background: rgba(var(--v-theme-surface-variant), 0.5);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.pricing-table td {
+  padding: 6px 8px !important;
+}
+
+.pricing-table tbody tr:hover {
+  background: rgba(var(--v-theme-primary), 0.05);
+}
+
+.settings-card {
+  max-height: 80vh;
+  overflow-y: auto;
 }
 
 

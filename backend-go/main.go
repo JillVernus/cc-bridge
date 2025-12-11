@@ -11,6 +11,7 @@ import (
 	"github.com/JillVernus/claude-proxy/internal/logger"
 	"github.com/JillVernus/claude-proxy/internal/metrics"
 	"github.com/JillVernus/claude-proxy/internal/middleware"
+	"github.com/JillVernus/claude-proxy/internal/pricing"
 	"github.com/JillVernus/claude-proxy/internal/requestlog"
 	"github.com/JillVernus/claude-proxy/internal/scheduler"
 	"github.com/JillVernus/claude-proxy/internal/session"
@@ -75,6 +76,14 @@ func main() {
 		reqLogManager = nil
 	} else {
 		log.Printf("✅ 请求日志管理器已初始化")
+	}
+
+	// 初始化定价管理器
+	_, err = pricing.InitManager(".config/pricing.json")
+	if err != nil {
+		log.Printf("⚠️ 定价管理器初始化失败: %v (将使用默认定价)", err)
+	} else {
+		log.Printf("✅ 定价管理器已初始化")
 	}
 
 	// 设置 Gin 模式
@@ -156,13 +165,20 @@ func main() {
 			apiGroup.GET("/logs/:id", reqLogHandler.GetLogByID)
 			apiGroup.DELETE("/logs", reqLogHandler.ClearLogs)
 		}
+
+		// 定价配置 API
+		apiGroup.GET("/pricing", handlers.GetPricing())
+		apiGroup.PUT("/pricing", handlers.UpdatePricing())
+		apiGroup.PUT("/pricing/models/:model", handlers.AddModelPricing())
+		apiGroup.DELETE("/pricing/models/:model", handlers.DeleteModelPricing())
+		apiGroup.POST("/pricing/reset", handlers.ResetPricingToDefault())
 	}
 
 	// 代理端点 - 统一入口
 	r.POST("/v1/messages", handlers.ProxyHandler(envCfg, cfgManager, channelScheduler, reqLogManager))
 
 	// Responses API 端点
-	r.POST("/v1/responses", handlers.ResponsesHandler(envCfg, cfgManager, sessionManager, channelScheduler))
+	r.POST("/v1/responses", handlers.ResponsesHandler(envCfg, cfgManager, sessionManager, channelScheduler, reqLogManager))
 
 	// 静态文件服务 (嵌入的前端)
 	if envCfg.EnableWebUI {

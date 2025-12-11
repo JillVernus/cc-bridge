@@ -71,6 +71,7 @@ export interface Channel {
   description?: string
   website?: string
   insecureSkipVerify?: boolean
+  responseHeaderTimeout?: number  // 响应头超时（秒），默认30秒
   modelMapping?: Record<string, string>
   latency?: number
   status?: ChannelStatus | 'healthy' | 'error' | 'unknown'
@@ -80,6 +81,8 @@ export interface Channel {
   priority?: number          // 渠道优先级（数字越小优先级越高）
   metrics?: ChannelMetrics   // 实时指标
   suspendReason?: string     // 熔断原因
+  // 价格乘数配置：key 为模型名称（支持前缀匹配），"_default" 为默认乘数
+  priceMultipliers?: Record<string, TokenPriceMultipliers>
 }
 
 export interface ChannelsResponse {
@@ -421,6 +424,43 @@ class ApiService {
   async clearRequestLogs(): Promise<{ message: string }> {
     return this.request('/logs', { method: 'DELETE' })
   }
+
+  // ============== 定价配置 API ==============
+
+  // 获取定价配置
+  async getPricing(): Promise<PricingConfig> {
+    return this.request('/pricing')
+  }
+
+  // 更新整个定价配置
+  async updatePricing(config: PricingConfig): Promise<{ message: string; config: PricingConfig }> {
+    return this.request('/pricing', {
+      method: 'PUT',
+      body: JSON.stringify(config)
+    })
+  }
+
+  // 添加或更新单个模型的定价
+  async setModelPricing(model: string, pricing: ModelPricing): Promise<{ message: string; model: string; pricing: ModelPricing }> {
+    return this.request(`/pricing/models/${encodeURIComponent(model)}`, {
+      method: 'PUT',
+      body: JSON.stringify(pricing)
+    })
+  }
+
+  // 删除单个模型的定价
+  async deleteModelPricing(model: string): Promise<{ message: string; model: string }> {
+    return this.request(`/pricing/models/${encodeURIComponent(model)}`, {
+      method: 'DELETE'
+    })
+  }
+
+  // 重置定价配置为默认值
+  async resetPricingToDefault(): Promise<{ message: string; config: PricingConfig }> {
+    return this.request('/pricing/reset', {
+      method: 'POST'
+    })
+  }
 }
 
 // 请求日志类型
@@ -433,12 +473,19 @@ export interface RequestLog {
   type: string
   providerName: string
   model: string
+  responseModel?: string  // 响应中的模型名称（可能与请求不同）
   inputTokens: number
   outputTokens: number
   cacheCreationInputTokens: number
   cacheReadInputTokens: number
   totalTokens: number
   price: number
+  // 成本明细
+  inputCost?: number
+  outputCost?: number
+  cacheCreationCost?: number
+  cacheReadCost?: number
+  // 其他字段
   httpStatus: number
   stream: boolean
   channelId: number
@@ -446,6 +493,7 @@ export interface RequestLog {
   endpoint: string
   userId?: string
   error?: string
+  upstreamError?: string  // 上游服务原始错误信息
   createdAt: string
 }
 
@@ -488,6 +536,28 @@ export interface RequestLogStats {
   byProvider: Record<string, GroupStats>
   byModel: Record<string, GroupStats>
   timeRange: { from: string; to: string }
+}
+
+// 定价配置类型
+export interface ModelPricing {
+  inputPrice: number              // 输入 token 价格 ($/1M tokens)
+  outputPrice: number             // 输出 token 价格 ($/1M tokens)
+  cacheCreationPrice?: number     // 缓存创建价格 ($/1M tokens)
+  cacheReadPrice?: number         // 缓存读取价格 ($/1M tokens)
+  description?: string            // 模型描述
+}
+
+export interface PricingConfig {
+  models: Record<string, ModelPricing>
+  currency: string
+}
+
+// 渠道价格乘数配置（用于渠道级别的折扣）
+export interface TokenPriceMultipliers {
+  inputMultiplier?: number         // 输入 token 价格乘数，默认 1.0
+  outputMultiplier?: number        // 输出 token 价格乘数，默认 1.0
+  cacheCreationMultiplier?: number // 缓存创建价格乘数，默认 1.0
+  cacheReadMultiplier?: number     // 缓存读取价格乘数，默认 1.0
 }
 
 export const api = new ApiService()

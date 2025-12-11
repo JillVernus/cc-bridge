@@ -167,19 +167,36 @@
             </v-col>
 
             <!-- 跳过 TLS 证书验证 -->
-            <v-col cols="12">
+            <v-col cols="12" md="6">
               <div class="d-flex align-center justify-space-between">
                 <div class="d-flex align-center ga-2">
                   <v-icon color="warning">mdi-shield-alert</v-icon>
                   <div>
                     <div class="text-body-1 font-weight-medium">跳过 TLS 证书验证</div>
                     <div class="text-caption text-medium-emphasis">
-                      仅在自签名或域名不匹配时临时启用，生产环境请关闭
+                      仅在自签名或域名不匹配时临时启用
                     </div>
                   </div>
                 </div>
                 <v-switch inset color="warning" hide-details v-model="form.insecureSkipVerify" />
               </div>
+            </v-col>
+
+            <!-- 响应头超时 -->
+            <v-col cols="12" md="6">
+              <v-text-field
+                v-model.number="form.responseHeaderTimeout"
+                label="响应头超时 (秒)"
+                placeholder="30"
+                prepend-inner-icon="mdi-timer-outline"
+                variant="outlined"
+                density="comfortable"
+                type="number"
+                min="10"
+                max="300"
+                hint="上游开始响应的最大等待时间，默认30秒"
+                persistent-hint
+              />
             </v-col>
 
             <!-- 描述 -->
@@ -276,6 +293,135 @@
                     >
                       添加
                     </v-btn>
+                  </div>
+                </v-card-text>
+              </v-card>
+            </v-col>
+
+            <!-- 价格乘数配置（折扣） -->
+            <v-col cols="12" v-if="form.serviceType">
+              <v-card variant="outlined" rounded="lg">
+                <v-card-title class="d-flex align-center justify-space-between pa-4 pb-2">
+                  <div class="d-flex align-center ga-2">
+                    <v-icon color="success">mdi-percent</v-icon>
+                    <span class="text-body-1 font-weight-bold">价格乘数 (可选)</span>
+                  </div>
+                  <v-chip size="small" color="success" variant="tonal"> 渠道专属折扣 </v-chip>
+                </v-card-title>
+
+                <v-card-text class="pt-2">
+                  <div class="text-body-2 text-medium-emphasis mb-4">
+                    配置该渠道的价格乘数。例如：乘数 0.8 表示 8 折，0.5 表示 5 折。
+                    使用 "_default" 为所有模型设置默认乘数，或指定具体模型名（支持前缀匹配）。
+                  </div>
+
+                  <!-- 现有乘数列表 -->
+                  <div v-if="Object.keys(form.priceMultipliers).length" class="mb-4">
+                    <v-list density="compact" class="bg-transparent">
+                      <v-list-item
+                        v-for="[modelKey, mult] in Object.entries(form.priceMultipliers)"
+                        :key="modelKey"
+                        class="mb-2"
+                        rounded="lg"
+                        variant="tonal"
+                        color="surface-variant"
+                      >
+                        <template v-slot:prepend>
+                          <v-icon size="small" color="success">mdi-tag-outline</v-icon>
+                        </template>
+
+                        <v-list-item-title>
+                          <div class="d-flex align-center ga-2 flex-wrap">
+                            <code class="text-caption">{{ modelKey === '_default' ? '默认 (所有模型)' : modelKey }}</code>
+                            <span class="text-caption text-medium-emphasis mx-1">:</span>
+                            <span class="text-caption" v-if="mult.inputMultiplier && mult.inputMultiplier !== 1">输入 {{ mult.inputMultiplier }}x</span>
+                            <span class="text-caption" v-if="mult.outputMultiplier && mult.outputMultiplier !== 1">输出 {{ mult.outputMultiplier }}x</span>
+                            <span class="text-caption" v-if="mult.cacheCreationMultiplier && mult.cacheCreationMultiplier !== 1">缓存创建 {{ mult.cacheCreationMultiplier }}x</span>
+                            <span class="text-caption" v-if="mult.cacheReadMultiplier && mult.cacheReadMultiplier !== 1">缓存读取 {{ mult.cacheReadMultiplier }}x</span>
+                            <span class="text-caption text-medium-emphasis" v-if="!hasNonDefaultMultiplier(mult)">(无折扣)</span>
+                          </div>
+                        </v-list-item-title>
+
+                        <template v-slot:append>
+                          <v-btn size="small" color="error" icon variant="text" @click="removePriceMultiplier(modelKey)">
+                            <v-icon size="small" color="error">mdi-close</v-icon>
+                          </v-btn>
+                        </template>
+                      </v-list-item>
+                    </v-list>
+                  </div>
+
+                  <!-- 添加新乘数 -->
+                  <div class="price-multiplier-form">
+                    <div class="d-flex align-center ga-2 mb-3">
+                      <v-text-field
+                        v-model="newMultiplier.modelKey"
+                        label="模型名 (或 _default)"
+                        placeholder="claude-opus-4-5 或 _default"
+                        variant="outlined"
+                        density="comfortable"
+                        hide-details
+                        class="flex-grow-1"
+                      />
+                    </div>
+                    <div class="d-flex align-center ga-2 mb-3 flex-wrap">
+                      <v-text-field
+                        v-model.number="newMultiplier.inputMultiplier"
+                        label="输入乘数"
+                        placeholder="1.0"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        variant="outlined"
+                        density="comfortable"
+                        hide-details
+                        style="min-width: 100px; max-width: 120px;"
+                      />
+                      <v-text-field
+                        v-model.number="newMultiplier.outputMultiplier"
+                        label="输出乘数"
+                        placeholder="1.0"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        variant="outlined"
+                        density="comfortable"
+                        hide-details
+                        style="min-width: 100px; max-width: 120px;"
+                      />
+                      <v-text-field
+                        v-model.number="newMultiplier.cacheCreationMultiplier"
+                        label="缓存创建"
+                        placeholder="1.0"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        variant="outlined"
+                        density="comfortable"
+                        hide-details
+                        style="min-width: 100px; max-width: 120px;"
+                      />
+                      <v-text-field
+                        v-model.number="newMultiplier.cacheReadMultiplier"
+                        label="缓存读取"
+                        placeholder="1.0"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        variant="outlined"
+                        density="comfortable"
+                        hide-details
+                        style="min-width: 100px; max-width: 120px;"
+                      />
+                      <v-btn
+                        color="success"
+                        variant="elevated"
+                        @click="addPriceMultiplier"
+                        :disabled="!newMultiplier.modelKey.trim()"
+                      >
+                        添加
+                      </v-btn>
+                    </div>
                   </div>
                 </v-card-text>
               </v-card>
@@ -727,9 +873,11 @@ const form = reactive({
   baseUrl: '',
   website: '',
   insecureSkipVerify: false,
+  responseHeaderTimeout: undefined as number | undefined,
   description: '',
   apiKeys: [] as string[],
-  modelMapping: {} as Record<string, string>
+  modelMapping: {} as Record<string, string>,
+  priceMultipliers: {} as Record<string, { inputMultiplier?: number; outputMultiplier?: number; cacheCreationMultiplier?: number; cacheReadMultiplier?: number }>
 })
 
 // 原始密钥映射 (掩码密钥 -> 原始密钥)
@@ -755,6 +903,15 @@ const copiedKeyIndex = ref<number | null>(null)
 const newMapping = reactive({
   source: '',
   target: ''
+})
+
+// 新价格乘数输入
+const newMultiplier = reactive({
+  modelKey: '',
+  inputMultiplier: undefined as number | undefined,
+  outputMultiplier: undefined as number | undefined,
+  cacheCreationMultiplier: undefined as number | undefined,
+  cacheReadMultiplier: undefined as number | undefined
 })
 
 // 表单验证错误
@@ -849,12 +1006,19 @@ const resetForm = () => {
   form.baseUrl = ''
   form.website = ''
   form.insecureSkipVerify = false
+  form.responseHeaderTimeout = undefined
   form.description = ''
   form.apiKeys = []
   form.modelMapping = {}
+  form.priceMultipliers = {}
   newApiKey.value = ''
   newMapping.source = ''
   newMapping.target = ''
+  newMultiplier.modelKey = ''
+  newMultiplier.inputMultiplier = undefined
+  newMultiplier.outputMultiplier = undefined
+  newMultiplier.cacheCreationMultiplier = undefined
+  newMultiplier.cacheReadMultiplier = undefined
 
   // 清空原始密钥映射
   originalKeyMap.value.clear()
@@ -881,6 +1045,7 @@ const loadChannelData = (channel: Channel) => {
   form.baseUrl = channel.baseUrl
   form.website = channel.website || ''
   form.insecureSkipVerify = !!channel.insecureSkipVerify
+  form.responseHeaderTimeout = channel.responseHeaderTimeout
   form.description = channel.description || ''
 
   // 直接存储原始密钥，不需要映射关系
@@ -890,6 +1055,7 @@ const loadChannelData = (channel: Channel) => {
   originalKeyMap.value.clear()
 
   form.modelMapping = { ...(channel.modelMapping || {}) }
+  form.priceMultipliers = { ...(channel.priceMultipliers || {}) }
 }
 
 const addApiKey = () => {
@@ -1002,6 +1168,48 @@ const removeModelMapping = (source: string) => {
   delete form.modelMapping[source]
 }
 
+// Price multiplier methods
+const hasNonDefaultMultiplier = (mult: { inputMultiplier?: number; outputMultiplier?: number; cacheCreationMultiplier?: number; cacheReadMultiplier?: number }) => {
+  return (mult.inputMultiplier !== undefined && mult.inputMultiplier !== 1) ||
+         (mult.outputMultiplier !== undefined && mult.outputMultiplier !== 1) ||
+         (mult.cacheCreationMultiplier !== undefined && mult.cacheCreationMultiplier !== 1) ||
+         (mult.cacheReadMultiplier !== undefined && mult.cacheReadMultiplier !== 1)
+}
+
+const addPriceMultiplier = () => {
+  const modelKey = newMultiplier.modelKey.trim()
+  if (!modelKey || form.priceMultipliers[modelKey]) return
+
+  const mult: { inputMultiplier?: number; outputMultiplier?: number; cacheCreationMultiplier?: number; cacheReadMultiplier?: number } = {}
+
+  // Only include non-default values (undefined or 1.0 means default)
+  if (newMultiplier.inputMultiplier !== undefined && newMultiplier.inputMultiplier !== 1) {
+    mult.inputMultiplier = newMultiplier.inputMultiplier
+  }
+  if (newMultiplier.outputMultiplier !== undefined && newMultiplier.outputMultiplier !== 1) {
+    mult.outputMultiplier = newMultiplier.outputMultiplier
+  }
+  if (newMultiplier.cacheCreationMultiplier !== undefined && newMultiplier.cacheCreationMultiplier !== 1) {
+    mult.cacheCreationMultiplier = newMultiplier.cacheCreationMultiplier
+  }
+  if (newMultiplier.cacheReadMultiplier !== undefined && newMultiplier.cacheReadMultiplier !== 1) {
+    mult.cacheReadMultiplier = newMultiplier.cacheReadMultiplier
+  }
+
+  form.priceMultipliers[modelKey] = mult
+
+  // Reset form
+  newMultiplier.modelKey = ''
+  newMultiplier.inputMultiplier = undefined
+  newMultiplier.outputMultiplier = undefined
+  newMultiplier.cacheCreationMultiplier = undefined
+  newMultiplier.cacheReadMultiplier = undefined
+}
+
+const removePriceMultiplier = (modelKey: string) => {
+  delete form.priceMultipliers[modelKey]
+}
+
 const handleSubmit = async () => {
   if (!formRef.value) return
 
@@ -1018,9 +1226,12 @@ const handleSubmit = async () => {
     baseUrl: form.baseUrl.trim().replace(/\/$/, ''), // 移除末尾斜杠
     website: form.website.trim() || undefined,
     insecureSkipVerify: form.insecureSkipVerify || undefined,
+    responseHeaderTimeout: form.responseHeaderTimeout || undefined,
     description: form.description.trim(),
     apiKeys: processedApiKeys,
-    modelMapping: form.modelMapping
+    modelMapping: form.modelMapping,
+    // 始终发送 priceMultipliers，即使为空对象（用于清除已有配置）
+    priceMultipliers: form.priceMultipliers
   }
 
   emit('save', channelData)

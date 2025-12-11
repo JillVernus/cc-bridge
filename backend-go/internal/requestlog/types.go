@@ -18,23 +18,31 @@ type RequestLog struct {
 	InitialTime              time.Time `json:"initialTime"`
 	CompleteTime             time.Time `json:"completeTime"`
 	DurationMs               int64     `json:"durationMs"`
-	Type                     string    `json:"type"`         // claude, openai, gemini (service type)
-	ProviderName             string    `json:"providerName"` // actual provider/channel name
-	Model                    string    `json:"model"`
+	Type                     string    `json:"type"`          // claude, openai, gemini (service type)
+	ProviderName             string    `json:"providerName"`  // actual provider/channel name
+	Model                    string    `json:"model"`         // 请求的模型名称
+	ResponseModel            string    `json:"responseModel"` // 响应中的模型名称（可能与请求不同）
 	InputTokens              int       `json:"inputTokens"`
 	OutputTokens             int       `json:"outputTokens"`
 	CacheCreationInputTokens int       `json:"cacheCreationInputTokens"`
 	CacheReadInputTokens     int       `json:"cacheReadInputTokens"`
 	TotalTokens              int       `json:"totalTokens"`
 	Price                    float64   `json:"price"`
-	HTTPStatus               int       `json:"httpStatus"`
-	Stream                   bool      `json:"stream"`
-	ChannelID                int       `json:"channelId"`
-	ChannelName              string    `json:"channelName"`
-	Endpoint                 string    `json:"endpoint"` // /v1/messages or /v1/responses
-	UserID                   string    `json:"userId,omitempty"`
-	Error                    string    `json:"error,omitempty"`
-	CreatedAt                time.Time `json:"createdAt"`
+	// 成本明细
+	InputCost         float64 `json:"inputCost"`
+	OutputCost        float64 `json:"outputCost"`
+	CacheCreationCost float64 `json:"cacheCreationCost"`
+	CacheReadCost     float64 `json:"cacheReadCost"`
+	// 其他字段
+	HTTPStatus  int    `json:"httpStatus"`
+	Stream      bool   `json:"stream"`
+	ChannelID   int    `json:"channelId"`
+	ChannelName string `json:"channelName"`
+	Endpoint    string `json:"endpoint"` // /v1/messages or /v1/responses
+	UserID      string `json:"userId,omitempty"`
+	Error       string `json:"error,omitempty"`
+	UpstreamError string    `json:"upstreamError,omitempty"` // 上游服务原始错误信息
+	CreatedAt     time.Time `json:"createdAt"`
 }
 
 // UsageData represents normalized usage data across all providers

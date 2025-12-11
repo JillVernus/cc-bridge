@@ -13,6 +13,7 @@ import (
 	"github.com/JillVernus/claude-proxy/internal/config"
 	"github.com/JillVernus/claude-proxy/internal/httpclient"
 	"github.com/JillVernus/claude-proxy/internal/middleware"
+	"github.com/JillVernus/claude-proxy/internal/pricing"
 	"github.com/JillVernus/claude-proxy/internal/providers"
 	"github.com/JillVernus/claude-proxy/internal/requestlog"
 	"github.com/JillVernus/claude-proxy/internal/scheduler"
@@ -165,19 +166,22 @@ func handleMultiChannelProxy(
 	if reqLogManager != nil && requestLogID != "" {
 		httpStatus := 503
 		errMsg := "所有渠道都不可用"
+		upstreamErr := ""
 		if lastFailoverError != nil && lastFailoverError.Status != 0 {
 			httpStatus = lastFailoverError.Status
+			upstreamErr = string(lastFailoverError.Body)
 		}
 		if lastError != nil {
 			errMsg = lastError.Error()
 		}
 		record := &requestlog.RequestLog{
-			Status:       requestlog.StatusError,
-			CompleteTime: time.Now(),
-			DurationMs:   time.Since(startTime).Milliseconds(),
-			Model:        claudeReq.Model,
-			HTTPStatus:   httpStatus,
-			Error:        errMsg,
+			Status:        requestlog.StatusError,
+			CompleteTime:  time.Now(),
+			DurationMs:    time.Since(startTime).Milliseconds(),
+			Model:         claudeReq.Model,
+			HTTPStatus:    httpStatus,
+			Error:         errMsg,
+			UpstreamError: upstreamErr,
 		}
 		if lastFailedUpstream != nil {
 			record.Type = lastFailedUpstream.ServiceType
@@ -508,21 +512,24 @@ func handleSingleChannelProxy(
 	if reqLogManager != nil && requestLogID != "" {
 		httpStatus := 500
 		errMsg := "所有API密钥都不可用"
+		upstreamErr := ""
 		if lastFailoverError != nil && lastFailoverError.Status != 0 {
 			httpStatus = lastFailoverError.Status
+			upstreamErr = string(lastFailoverError.Body)
 		}
 		if lastError != nil {
 			errMsg = lastError.Error()
 		}
 		record := &requestlog.RequestLog{
-			Status:       requestlog.StatusError,
-			CompleteTime: time.Now(),
-			DurationMs:   time.Since(startTime).Milliseconds(),
-			Model:        claudeReq.Model,
-			Type:         upstream.ServiceType,
-			ProviderName: upstream.Name,
-			HTTPStatus:   httpStatus,
-			Error:        errMsg,
+			Status:        requestlog.StatusError,
+			CompleteTime:  time.Now(),
+			DurationMs:    time.Since(startTime).Milliseconds(),
+			Model:         claudeReq.Model,
+			Type:          upstream.ServiceType,
+			ProviderName:  upstream.Name,
+			HTTPStatus:    httpStatus,
+			Error:         errMsg,
+			UpstreamError: upstreamErr,
 		}
 		_ = reqLogManager.Update(requestLogID, record)
 	}
@@ -557,8 +564,8 @@ func sendRequest(req *http.Request, upstream *config.UpstreamConfig, envCfg *con
 
 	var client *http.Client
 	if isStream {
-		// 流式请求：使用无超时的客户端
-		client = clientManager.GetStreamClient(upstream.InsecureSkipVerify)
+		// 流式请求：使用无超时的客户端，但有响应头超时
+		client = clientManager.GetStreamClient(upstream.InsecureSkipVerify, upstream.GetResponseHeaderTimeout())
 	} else {
 		// 普通请求：使用有超时的客户端
 		timeout := time.Duration(envCfg.RequestTimeout) * time.Millisecond
@@ -680,34 +687,38 @@ func handleNormalResponse(c *gin.Context, resp *http.Response, provider provider
 	if reqLogManager != nil && upstream.ServiceType == "claude" && requestLogID != "" {
 		// 从非流式响应中提取 usage
 		var usage *types.Usage
-		var model string
+		var responseModel string
 
 		if claudeResp != nil {
 			usage = claudeResp.Usage
 		}
 
-		if model == "" {
-			var claudeRespMap map[string]interface{}
-			if err := json.Unmarshal(bodyBytes, &claudeRespMap); err == nil {
-				if m, ok := claudeRespMap["model"].(string); ok {
-					model = m
-				}
+		// 从响应中提取实际使用的模型名
+		var claudeRespMap map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &claudeRespMap); err == nil {
+			if m, ok := claudeRespMap["model"].(string); ok {
+				responseModel = m
 			}
 		}
 
-		if model == "" {
-			model = requestModel
+		// 用于定价计算的模型名（优先响应模型，若无定价配置则回退到请求模型）
+		pricingModel := responseModel
+		if pricingModel == "" {
+			pricingModel = requestModel
+		} else if pm := pricing.GetManager(); pm != nil && !pm.HasPricing(pricingModel) && requestModel != "" {
+			// 响应模型无定价配置，回退到请求模型
+			pricingModel = requestModel
 		}
 
 		record := &requestlog.RequestLog{
-			Status:       requestlog.StatusCompleted,
-			CompleteTime: completeTime,
-			DurationMs:   durationMs,
-			Type:         upstream.ServiceType,
-			ProviderName: upstream.Name,
-			Model:        model,
-			HTTPStatus:   resp.StatusCode,
-			ChannelName:  upstream.Name,
+			Status:        requestlog.StatusCompleted,
+			CompleteTime:  completeTime,
+			DurationMs:    durationMs,
+			Type:          upstream.ServiceType,
+			ProviderName:  upstream.Name,
+			ResponseModel: responseModel,
+			HTTPStatus:    resp.StatusCode,
+			ChannelName:   upstream.Name,
 		}
 
 		if usage != nil {
@@ -715,6 +726,32 @@ func handleNormalResponse(c *gin.Context, resp *http.Response, provider provider
 			record.OutputTokens = usage.OutputTokens
 			record.CacheCreationInputTokens = usage.CacheCreationInputTokens
 			record.CacheReadInputTokens = usage.CacheReadInputTokens
+
+			// 计算成本（带明细和渠道乘数）
+			if pm := pricing.GetManager(); pm != nil {
+				var multipliers *pricing.PriceMultipliers
+				if channelMult := upstream.GetPriceMultipliers(pricingModel); channelMult != nil {
+					multipliers = &pricing.PriceMultipliers{
+						InputMultiplier:         channelMult.GetEffectiveMultiplier("input"),
+						OutputMultiplier:        channelMult.GetEffectiveMultiplier("output"),
+						CacheCreationMultiplier: channelMult.GetEffectiveMultiplier("cacheCreation"),
+						CacheReadMultiplier:     channelMult.GetEffectiveMultiplier("cacheRead"),
+					}
+				}
+				breakdown := pm.CalculateCostWithBreakdown(
+					pricingModel,
+					usage.InputTokens,
+					usage.OutputTokens,
+					usage.CacheCreationInputTokens,
+					usage.CacheReadInputTokens,
+					multipliers,
+				)
+				record.Price = breakdown.TotalCost
+				record.InputCost = breakdown.InputCost
+				record.OutputCost = breakdown.OutputCost
+				record.CacheCreationCost = breakdown.CacheCreationCost
+				record.CacheReadCost = breakdown.CacheReadCost
+			}
 		}
 
 		if err := reqLogManager.Update(requestLogID, record); err != nil {
@@ -795,9 +832,15 @@ func handleStreamResponse(c *gin.Context, resp *http.Response, provider provider
 				// 更新请求日志 (仅 Claude API 支持)
 				if reqLogManager != nil && upstream.ServiceType == "claude" && requestLogID != "" && synthesizer != nil {
 					usage := synthesizer.GetUsage()
-					model := synthesizer.GetModel()
-					if model == "" {
-						model = requestModel
+					responseModel := synthesizer.GetModel()
+
+					// 用于定价计算的模型名（优先响应模型，若无定价配置则回退到请求模型）
+					pricingModel := responseModel
+					if pricingModel == "" {
+						pricingModel = requestModel
+					} else if pm := pricing.GetManager(); pm != nil && !pm.HasPricing(pricingModel) && requestModel != "" {
+						// 响应模型无定价配置，回退到请求模型
+						pricingModel = requestModel
 					}
 
 					record := &requestlog.RequestLog{
@@ -806,13 +849,39 @@ func handleStreamResponse(c *gin.Context, resp *http.Response, provider provider
 						DurationMs:               durationMs,
 						Type:                     upstream.ServiceType,
 						ProviderName:             upstream.Name,
-						Model:                    model,
+						ResponseModel:            responseModel,
 						InputTokens:              usage.InputTokens,
 						OutputTokens:             usage.OutputTokens,
 						CacheCreationInputTokens: usage.CacheCreationInputTokens,
 						CacheReadInputTokens:     usage.CacheReadInputTokens,
 						HTTPStatus:               resp.StatusCode,
 						ChannelName:              upstream.Name,
+					}
+
+					// 计算成本（带明细和渠道乘数）
+					if pm := pricing.GetManager(); pm != nil {
+						var multipliers *pricing.PriceMultipliers
+						if channelMult := upstream.GetPriceMultipliers(pricingModel); channelMult != nil {
+							multipliers = &pricing.PriceMultipliers{
+								InputMultiplier:         channelMult.GetEffectiveMultiplier("input"),
+								OutputMultiplier:        channelMult.GetEffectiveMultiplier("output"),
+								CacheCreationMultiplier: channelMult.GetEffectiveMultiplier("cacheCreation"),
+								CacheReadMultiplier:     channelMult.GetEffectiveMultiplier("cacheRead"),
+							}
+						}
+						breakdown := pm.CalculateCostWithBreakdown(
+							pricingModel,
+							usage.InputTokens,
+							usage.OutputTokens,
+							usage.CacheCreationInputTokens,
+							usage.CacheReadInputTokens,
+							multipliers,
+						)
+						record.Price = breakdown.TotalCost
+						record.InputCost = breakdown.InputCost
+						record.OutputCost = breakdown.OutputCost
+						record.CacheCreationCost = breakdown.CacheCreationCost
+						record.CacheReadCost = breakdown.CacheReadCost
 					}
 
 					if err := reqLogManager.Update(requestLogID, record); err != nil {

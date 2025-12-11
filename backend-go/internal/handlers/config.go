@@ -26,18 +26,20 @@ func GetUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			priority := config.GetChannelPriority(&up, i)
 
 			upstreams[i] = gin.H{
-				"index":              i,
-				"name":               up.Name,
-				"serviceType":        up.ServiceType,
-				"baseUrl":            up.BaseURL,
-				"apiKeys":            up.APIKeys,
-				"description":        up.Description,
-				"website":            up.Website,
-				"insecureSkipVerify": up.InsecureSkipVerify,
-				"modelMapping":       up.ModelMapping,
-				"latency":            nil,
-				"status":             status,
-				"priority":           priority,
+				"index":                 i,
+				"name":                  up.Name,
+				"serviceType":           up.ServiceType,
+				"baseUrl":               up.BaseURL,
+				"apiKeys":               up.APIKeys,
+				"description":           up.Description,
+				"website":               up.Website,
+				"insecureSkipVerify":    up.InsecureSkipVerify,
+				"responseHeaderTimeout": up.ResponseHeaderTimeoutSecs,
+				"modelMapping":          up.ModelMapping,
+				"priceMultipliers":      up.PriceMultipliers,
+				"latency":               nil,
+				"status":                status,
+				"priority":              priority,
 			}
 		}
 
@@ -379,18 +381,20 @@ func GetResponsesUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			priority := config.GetChannelPriority(&up, i)
 
 			upstreams[i] = gin.H{
-				"index":              i,
-				"name":               up.Name,
-				"serviceType":        up.ServiceType,
-				"baseUrl":            up.BaseURL,
-				"apiKeys":            up.APIKeys,
-				"description":        up.Description,
-				"website":            up.Website,
-				"insecureSkipVerify": up.InsecureSkipVerify,
-				"modelMapping":       up.ModelMapping,
-				"latency":            nil,
-				"status":             status,
-				"priority":           priority,
+				"index":                 i,
+				"name":                  up.Name,
+				"serviceType":           up.ServiceType,
+				"baseUrl":               up.BaseURL,
+				"apiKeys":               up.APIKeys,
+				"description":           up.Description,
+				"website":               up.Website,
+				"insecureSkipVerify":    up.InsecureSkipVerify,
+				"responseHeaderTimeout": up.ResponseHeaderTimeoutSecs,
+				"modelMapping":          up.ModelMapping,
+				"priceMultipliers":      up.PriceMultipliers,
+				"latency":               nil,
+				"status":                status,
+				"priority":              priority,
 			}
 		}
 
