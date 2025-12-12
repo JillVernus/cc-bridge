@@ -61,23 +61,23 @@ A high-performance multi-provider AI proxy server supporting OpenAI and Claude a
 - **🛠️ Tool Calling**: Full tool/function calling support
 - **💬 Session Management**: Multi-turn conversation tracking for Responses API
 
-## 🏗️ 架构设计
+## 🏗️ Architecture
 
-项目采用一体化架构，单容器部署，完全替代 Nginx：
+The project uses an all-in-one architecture with single container deployment, completely replacing Nginx:
 
 ```
-用户 → 后端:3000 →
-     ├─ / → 前端界面（需要密钥）
-     ├─ /api/* → 管理API（需要密钥）
-     ├─ /v1/messages → Claude Messages API 代理（需要密钥）
-     └─ /v1/responses → Codex Responses API 代理（需要密钥）
+User → Backend:3000 →
+     ├─ / → Frontend UI (requires key)
+     ├─ /api/* → Admin API (requires key)
+     ├─ /v1/messages → Claude Messages API Proxy (requires key)
+     └─ /v1/responses → Codex Responses API Proxy (requires key)
 ```
 
-**核心优势**: 单端口、统一认证、无跨域问题、资源占用低
+**Core Advantages**: Single port, unified authentication, no CORS issues, low resource usage
 
-> 📚 详细架构设计和技术选型请参考 [ARCHITECTURE.md](ARCHITECTURE.md)
+> 📚 For detailed architecture design and technical choices, see [ARCHITECTURE.md](ARCHITECTURE.md)
 
-## 🏁 快速开始
+## 🏁 Quick Start
 
 ### 📋 Prerequisites
 
@@ -126,25 +126,25 @@ scoop install go bun make
 
 ---
 
-### 📦 推荐部署方式
+### 📦 Recommended Deployment Methods
 
-| 部署方式       | 启动时间 | 内存占用 | 适用场景           |
-| -------------- | -------- | -------- | ------------------ |
-| **🐳 Docker**  | ~2s      | ~25MB    | 生产环境、一键部署（推荐） |
-| **🚀 源码构建** | <100ms   | ~20MB    | 开发调试、自定义   |
+| Method | Startup Time | Memory | Use Case |
+| ------ | ------------ | ------ | -------- |
+| **🐳 Docker** | ~2s | ~25MB | Production, one-click deploy (Recommended) |
+| **🚀 Source Build** | <100ms | ~20MB | Development, customization |
 
 > **Note**: Pre-built executables are not provided. Please use Docker or build from source.
 
 ---
 
-### 方式一：🐳 Docker 部署（推荐）
+### Option 1: 🐳 Docker Deployment (Recommended)
 
-**适合所有用户，无需安装依赖，一键启动**
+**Suitable for all users, no dependencies required, one-click start**
 
-#### 直接拉取镜像运行（最简单）
+#### Pull and Run Directly (Simplest)
 
 ```bash
-# 拉取并运行最新版本
+# Pull and run the latest version
 docker run -d \
   --name cc-bridge \
   -p 3000:3000 \
@@ -153,104 +153,104 @@ docker run -d \
   ghcr.io/jillvernus/cc-bridge:latest
 ```
 
-**可用镜像标签：**
+**Available Image Tags:**
 
-| 标签 | 说明 |
-|------|------|
-| `latest` | 最新稳定版本 |
-| `v1.0.0`, `v1.0.1`, ... | 特定版本号 |
+| Tag | Description |
+|-----|-------------|
+| `latest` | Latest stable version |
+| `v1.0.0`, `v1.0.1`, ... | Specific version number |
 
 ```bash
-# 使用特定版本
+# Use a specific version
 docker pull ghcr.io/jillvernus/cc-bridge:v1.0.1
 
-# 查看可用标签
+# View available tags
 # https://github.com/JillVernus/cc-bridge/pkgs/container/cc-bridge
 ```
 
-#### 使用 docker-compose
+#### Using docker-compose
 
 ```bash
-# 1. 创建 docker-compose.yml（或克隆项目获取）
+# 1. Create docker-compose.yml (or clone the project)
 git clone https://github.com/JillVernus/cc-bridge
 cd cc-bridge
 
-# 2. 修改 docker-compose.yml 中的 PROXY_ACCESS_KEY
+# 2. Edit PROXY_ACCESS_KEY in docker-compose.yml
 
-# 3. 启动服务
+# 3. Start the service
 docker-compose up -d
 ```
 
-访问地址：
+Access URLs:
 
-- **Web 管理界面**: http://localhost:3000
-- **Messages API 端点**: http://localhost:3000/v1/messages
-- **Responses API 端点**: http://localhost:3000/v1/responses
-- **健康检查**: http://localhost:3000/health
+- **Web Management Panel**: http://localhost:3000
+- **Messages API Endpoint**: http://localhost:3000/v1/messages
+- **Responses API Endpoint**: http://localhost:3000/v1/responses
+- **Health Check**: http://localhost:3000/health
 
 ---
 
-### 方式二：🚀 源码构建部署
+### Option 2: 🚀 Build from Source
 
-**适合追求极致性能或需要自定义的用户**
+**For users seeking maximum performance or customization**
 
 ```bash
-# 1. 克隆项目
+# 1. Clone the project
 git clone https://github.com/JillVernus/cc-bridge
 cd cc-bridge
 
-# 2. 配置环境变量
+# 2. Configure environment variables
 cp backend-go/.env.example backend-go/.env
-# 编辑 backend-go/.env 文件，设置你的配置
+# Edit backend-go/.env file to set your configuration
 
-# 3. 启动服务
-make run           # 普通用户运行（推荐）
-# 或 make dev       # 开发调试（热重载）
-# 或 make help      # 查看所有命令
+# 3. Start the service
+make run           # Normal run (recommended)
+# or make dev       # Development mode (hot reload)
+# or make help      # View all commands
 ```
 
-**快捷命令说明：**
+**Command Reference:**
 
 ```bash
-make run           # 普通用户运行（自动构建前端并启动后端）
-make dev           # 开发调试（后端热重载）
-make help          # 查看所有可用命令
+make run           # Normal run (auto-build frontend and start backend)
+make dev           # Development mode (backend hot reload)
+make help          # View all available commands
 ```
 
-> 📚 更多配置管理命令详见 `make help`
+> 📚 See `make help` for more configuration commands
 
-> 🪟 **Windows 用户**: 如果遇到 `make` 或 `vite` 命令找不到的问题，请参考 [DEVELOPMENT.md#windows-环境配置](DEVELOPMENT.md#-windows-环境配置)
+> 🪟 **Windows Users**: If you encounter issues with `make` or `vite` commands not found, see [DEVELOPMENT.md#windows-environment-setup](DEVELOPMENT.md#-windows-environment-setup)
 
 ---
 
-## 🐳 Docker 部署详细配置
+## 🐳 Docker Deployment Details
 
-### 镜像地址
+### Image Location
 
-预构建镜像托管在 GitHub Container Registry：
+Pre-built images are hosted on GitHub Container Registry:
 
 ```bash
-# 镜像地址
+# Image address
 ghcr.io/jillvernus/cc-bridge:latest
 
-# 拉取镜像
+# Pull image
 docker pull ghcr.io/jillvernus/cc-bridge:latest
 
-# 拉取特定版本
+# Pull specific version
 docker pull ghcr.io/jillvernus/cc-bridge:v1.0.1
 ```
 
-**可用标签：**
-- `latest` - 最新稳定版本（推荐）
-- `vX.Y.Z` - 特定版本号（如 `v1.0.0`, `v1.0.1`）
+**Available Tags:**
+- `latest` - Latest stable version (Recommended)
+- `vX.Y.Z` - Specific version number (e.g., `v1.0.0`, `v1.0.1`)
 
-**支持架构：** `linux/amd64`, `linux/arm64`
+**Supported Architectures:** `linux/amd64`, `linux/arm64`
 
-**镜像仓库：** https://github.com/JillVernus/cc-bridge/pkgs/container/cc-bridge
+**Image Repository:** https://github.com/JillVernus/cc-bridge/pkgs/container/cc-bridge
 
-### 自定义部署（本地构建）
+### Custom Deployment (Local Build)
 
-如需自定义或二次开发，可使用本地构建：
+For customization or development, use local build:
 
 ```yaml
 # docker-compose.yml
@@ -258,150 +258,150 @@ services:
   cc-bridge:
     build:
       context: .
-      dockerfile: Dockerfile  # 国内网络使用 Dockerfile_China
+      dockerfile: Dockerfile  # Use Dockerfile_China for China network
     container_name: cc-bridge
     ports:
-      - '3000:3000' # 统一端口
+      - '3000:3000' # Unified port
     environment:
       - ENV=production
-      - ENABLE_WEB_UI=true # true=一体化, false=纯API
+      - ENABLE_WEB_UI=true # true=all-in-one, false=API only
       - PROXY_ACCESS_KEY=your-super-strong-secret-key
       - LOG_LEVEL=info
     volumes:
-      - ./.config:/app/.config # 配置持久化
-      - ./logs:/app/logs # 日志持久化
+      - ./.config:/app/.config # Config persistence
+      - ./logs:/app/logs # Log persistence
     restart: unless-stopped
 ```
 
-### 云平台一键部署
+### Cloud Platform Deployment
 
-#### Railway 部署
+#### Railway Deployment
 
 ```bash
-# 1. 连接 GitHub 仓库到 Railway
-# 2. 设置环境变量
+# 1. Connect GitHub repository to Railway
+# 2. Set environment variables
 PROXY_ACCESS_KEY=your-super-strong-secret-key
 ENABLE_WEB_UI=true
 ENV=production
 PORT=3000
 
-# 3. 自动部署完成
-# 访问：https://your-app.railway.app
+# 3. Auto deployment complete
+# Access: https://your-app.railway.app
 ```
 
-#### Render 部署
+#### Render Deployment
 
 ```bash
-# 1. 选择 Docker 服务类型
-# 2. 连接 GitHub 仓库
-# 3. 设置环境变量：
+# 1. Select Docker service type
+# 2. Connect GitHub repository
+# 3. Set environment variables:
 #    PROXY_ACCESS_KEY=your-super-strong-secret-key
 #    ENABLE_WEB_UI=true
 #    ENV=production
-# 4. 自动构建和部署
+# 4. Auto build and deploy
 ```
 
-#### Fly.io 部署
+#### Fly.io Deployment
 
 ```bash
-# 快速部署
+# Quick deploy
 fly launch --dockerfile Dockerfile
 fly secrets set PROXY_ACCESS_KEY=your-super-strong-secret-key
 fly secrets set ENABLE_WEB_UI=true
 fly deploy
 
-# 查看状态
+# Check status
 fly status
 fly logs
 ```
 
-#### Zeabur 部署
+#### Zeabur Deployment
 
 ```bash
-# 1. 连接 GitHub 仓库
-# 2. 自动检测 Docker 项目
-# 3. 设置环境变量
-# 4. 一键部署
+# 1. Connect GitHub repository
+# 2. Auto-detect Docker project
+# 3. Set environment variables
+# 4. One-click deploy
 ```
 
-## 🔧 配置管理
+## 🔧 Configuration
 
-**两种配置方式**:
+**Two configuration methods**:
 
-1. **Web 界面** (推荐): 访问 `http://localhost:3000` → 输入密钥 → 可视化管理
-2. **命令行工具**: `cd backend-go && make help`
+1. **Web Interface** (Recommended): Visit `http://localhost:3000` → Enter key → Visual management
+2. **Command Line Tool**: `cd backend-go && make help`
 
-> 📚 环境变量配置详见 [ENVIRONMENT.md](ENVIRONMENT.md)
+> 📚 For environment variable configuration, see [ENVIRONMENT.md](ENVIRONMENT.md)
 
-## 🔐 安全配置
+## 🔐 Security Configuration
 
-### 统一访问控制
+### Unified Access Control
 
-所有访问入口均受 `PROXY_ACCESS_KEY` 保护：
+All access points are protected by `PROXY_ACCESS_KEY`:
 
-1. **前端管理界面** (`/`) - 通过查询参数或本地存储验证密钥
-2. **管理 API** (`/api/*`) - 需要 `x-api-key` 请求头
-3. **代理 API** (`/v1/messages`) - 需要 `x-api-key` 请求头
-4. **健康检查** (`/health`) - 公开访问，无需密钥
+1. **Frontend Management Panel** (`/`) - Validates key via query parameter or local storage
+2. **Admin API** (`/api/*`) - Requires `x-api-key` header
+3. **Proxy API** (`/v1/messages`) - Requires `x-api-key` header
+4. **Health Check** (`/health`) - Public access, no key required
 
-### 认证流程
+### Authentication Flow
 
 ```mermaid
 flowchart TD
-    A[用户访问] --> B{是否为健康检查?}
-    B -->|是| C[直接访问]
-    B -->|否| D{提供了密钥?}
-    D -->|否| E[显示认证页面]
-    D -->|是| F{密钥是否正确?}
-    F -->|否| G[返回401错误]
-    F -->|是| H[允许访问]
-    E --> I[用户输入密钥]
+    A[User Access] --> B{Is Health Check?}
+    B -->|Yes| C[Direct Access]
+    B -->|No| D{Key Provided?}
+    D -->|No| E[Show Auth Page]
+    D -->|Yes| F{Is Key Correct?}
+    F -->|No| G[Return 401 Error]
+    F -->|Yes| H[Allow Access]
+    E --> I[User Enters Key]
     I --> F
 ```
 
-### 生产环境安全清单
+### Production Security Checklist
 
 ```bash
-# 1. 生成强密钥 (必须!)
+# 1. Generate strong key (Required!)
 PROXY_ACCESS_KEY=$(openssl rand -base64 32)
-echo "生成的密钥: $PROXY_ACCESS_KEY"
+echo "Generated key: $PROXY_ACCESS_KEY"
 
-# 2. 生产环境配置
+# 2. Production configuration
 ENV=production
 ENABLE_REQUEST_LOGS=false
 ENABLE_RESPONSE_LOGS=false
 LOG_LEVEL=warn
 ENABLE_WEB_UI=true
 
-# 3. 网络安全
-# - 使用 HTTPS (推荐 Cloudflare CDN)
-# - 配置防火墙规则
-# - 定期轮换访问密钥
-# - 启用访问日志监控
+# 3. Network security
+# - Use HTTPS (Cloudflare CDN recommended)
+# - Configure firewall rules
+# - Rotate access keys regularly
+# - Enable access log monitoring
 ```
 
-### 密钥管理最佳实践
+### Key Management Best Practices
 
 ```bash
-# 密钥轮换
-echo "旧密钥: $OLD_PROXY_ACCESS_KEY"
-echo "新密钥: $NEW_PROXY_ACCESS_KEY"
+# Key rotation
+echo "Old key: $OLD_PROXY_ACCESS_KEY"
+echo "New key: $NEW_PROXY_ACCESS_KEY"
 
-# 更新环境变量
+# Update environment variable
 export PROXY_ACCESS_KEY=$NEW_PROXY_ACCESS_KEY
 
-# 重启服务
+# Restart service
 docker-compose restart cc-bridge
 ```
 
-## 📖 API 使用
+## 📖 API Usage
 
-本服务支持两种 API 格式：
+This service supports two API formats:
 
-1. **Messages API** (`/v1/messages`) - 标准的 Claude API 格式
-2. **Responses API** (`/v1/responses`) - Codex 格式，支持会话管理
+1. **Messages API** (`/v1/messages`) - Standard Claude API format
+2. **Responses API** (`/v1/responses`) - Codex format with session management
 
-### Messages API - 标准 Claude API 调用
+### Messages API - Standard Claude API Call
 
 ```bash
 curl -X POST http://localhost:3000/v1/messages \
@@ -416,7 +416,7 @@ curl -X POST http://localhost:3000/v1/messages \
   }'
 ```
 
-### 流式响应
+### Streaming Response
 
 ```bash
 curl -X POST http://localhost:3000/v1/messages \
@@ -432,7 +432,7 @@ curl -X POST http://localhost:3000/v1/messages \
   }'
 ```
 
-### 工具调用
+### Tool Calling
 
 ```bash
 curl -X POST http://localhost:3000/v1/messages \
@@ -444,27 +444,27 @@ curl -X POST http://localhost:3000/v1/messages \
     "tools": [
       {
         "name": "get_weather",
-        "description": "获取指定城市的天气信息",
+        "description": "Get weather info for a specified city",
         "input_schema": {
           "type": "object",
           "properties": {
-            "city": {"type": "string", "description": "城市名称"}
+            "city": {"type": "string", "description": "City name"}
           },
           "required": ["city"]
         }
       }
     ],
     "messages": [
-      {"role": "user", "content": "北京今天天气怎么样？"}
+      {"role": "user", "content": "What is the weather like in Beijing today?"}
     ]
   }'
 ```
 
-### Responses API - Codex 格式调用
+### Responses API - Codex Format Call
 
-Responses API 支持会话管理和多轮对话，自动跟踪上下文：
+Responses API supports session management and multi-turn conversations with automatic context tracking:
 
-#### 基础调用
+#### Basic Call
 
 ```bash
 curl -X POST http://localhost:3000/v1/responses \
@@ -473,36 +473,36 @@ curl -X POST http://localhost:3000/v1/responses \
   -d '{
     "model": "gpt-5",
     "max_tokens": 100,
-    "input": "你好！请介绍一下你自己。"
+    "input": "Hello! Please introduce yourself."
   }'
 ```
 
-#### 多轮对话（会话跟踪）
+#### Multi-turn Conversation (Session Tracking)
 
 ```bash
-# 第一轮对话
+# First turn
 RESPONSE_ID=$(curl -s -X POST http://localhost:3000/v1/responses \
   -H "x-api-key: your-proxy-access-key" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-5",
     "max_tokens": 100,
-    "input": "我的名字是张三"
+    "input": "My name is John"
   }' | jq -r '.id')
 
-# 第二轮对话（基于上一轮）
+# Second turn (based on previous)
 curl -X POST http://localhost:3000/v1/responses \
   -H "x-api-key: your-proxy-access-key" \
   -H "Content-Type: application/json" \
   -d "{
     \"model\": \"gpt-5\",
     \"max_tokens\": 100,
-    \"input\": \"你还记得我的名字吗？\",
+    \"input\": \"Do you remember my name?\",
     \"previous_response_id\": \"$RESPONSE_ID\"
   }"
 ```
 
-#### 流式响应
+#### Streaming Response
 
 ```bash
 curl -X POST http://localhost:3000/v1/responses \
@@ -512,54 +512,54 @@ curl -X POST http://localhost:3000/v1/responses \
     "model": "gpt-5",
     "stream": true,
     "max_tokens": 200,
-    "input": "从1数到10"
+    "input": "Count from 1 to 10"
   }'
 ```
 
-#### 会话参数说明
+#### Session Parameters
 
-- **`input`**: 用户输入（字符串或数组）
-- **`previous_response_id`**: 上一轮响应的 ID，用于多轮对话
-- **`store`**: 是否存储会话（默认 `true`）
-- **`stream`**: 是否启用流式响应（默认 `false`）
-- **响应字段**:
-  - `id`: 响应 ID（用于下一轮对话）
-  - `previous_id`: 上一轮响应 ID
-  - `output`: 模型输出内容
-  - `usage`: Token 使用统计
+- **`input`**: User input (string or array)
+- **`previous_response_id`**: Previous response ID for multi-turn conversations
+- **`store`**: Whether to store session (default `true`)
+- **`stream`**: Enable streaming response (default `false`)
+- **Response fields**:
+  - `id`: Response ID (for next turn)
+  - `previous_id`: Previous response ID
+  - `output`: Model output content
+  - `usage`: Token usage statistics
 
-### 管理 API
+### Admin API
 
 ```bash
-# 获取渠道列表
+# Get channel list
 curl -H "x-api-key: your-proxy-access-key" \
   http://localhost:3000/api/channels
 
-# 测试渠道连通性
+# Test channel connectivity
 curl -H "x-api-key: your-proxy-access-key" \
   http://localhost:3000/api/ping
 ```
 
-## 🔌 协议转换能力
+## 🔌 Protocol Conversion
 
-### Messages API 多协议支持
+### Messages API Multi-Protocol Support
 
-本代理服务器的 Messages API 端点 (`/v1/messages`) 支持多种上游协议转换：
+The Messages API endpoint (`/v1/messages`) of this proxy server supports multiple upstream protocol conversions:
 
-**支持的上游服务**:
+**Supported Upstream Services**:
 
-- ✅ **Claude API** (Anthropic) - 原生支持，直接透传
-- ✅ **OpenAI API** - 自动转换 Claude 格式 ↔ OpenAI 格式
-- ✅ **OpenAI 兼容 API** - 支持所有兼容 OpenAI 格式的服务
+- ✅ **Claude API** (Anthropic) - Native support, direct passthrough
+- ✅ **OpenAI API** - Auto-convert Claude format ↔ OpenAI format
+- ✅ **OpenAI Compatible APIs** - Support all OpenAI-compatible services
 
-**核心优势**:
+**Core Advantages**:
 
-- 🔄 **统一接口**: 客户端只需使用 Claude Messages API 格式
-- 🎯 **自动转换**: 代理自动处理不同上游的协议差异
-- 🔌 **即插即用**: 无需修改客户端代码即可切换上游服务
-- 💰 **成本优化**: 灵活切换不同价格的 AI 服务
+- 🔄 **Unified Interface**: Clients only need to use Claude Messages API format
+- 🎯 **Auto Conversion**: Proxy automatically handles protocol differences
+- 🔌 **Plug and Play**: Switch upstream services without modifying client code
+- 💰 **Cost Optimization**: Flexibly switch between different priced AI services
 
-**示例**: 使用 Claude API 格式调用 OpenAI GPT-4
+**Example**: Using Claude API format to call OpenAI GPT-4
 
 ```bash
 curl -X POST http://localhost:3000/v1/messages \
@@ -572,14 +572,14 @@ curl -X POST http://localhost:3000/v1/messages \
       {"role": "user", "content": "Hello!"}
     ]
   }'
-# 后端自动转换并发送到配置的 OpenAI 上游
+# Backend auto-converts and sends to configured OpenAI upstream
 ```
 
-## 🧪 测试验证
+## 🧪 Testing
 
-### 快速验证脚本
+### Quick Verification Script
 
-创建 `test-proxy.sh` 测试脚本：
+Create `test-proxy.sh` test script:
 
 ```bash
 #!/bin/bash
@@ -588,16 +588,16 @@ set -e
 PROXY_URL="http://localhost:3000"
 API_KEY="your-proxy-access-key"
 
-echo "🏥 测试健康检查..."
+echo "🏥 Testing health check..."
 curl -s "$PROXY_URL/health" | jq .
 
-echo "\n🔒 测试无密钥访问 (应该失败)..."
-curl -s "$PROXY_URL/api/channels" || echo "✅ 正确拒绝无密钥访问"
+echo "\n🔒 Testing access without key (should fail)..."
+curl -s "$PROXY_URL/api/channels" || echo "✅ Correctly rejected keyless access"
 
-echo "\n🔑 测试API访问 (应该成功)..."
+echo "\n🔑 Testing API access (should succeed)..."
 curl -s -H "x-api-key: $API_KEY" "$PROXY_URL/api/channels" | jq .
 
-echo "\n💬 测试Claude API代理..."
+echo "\n💬 Testing Claude API proxy..."
 curl -s -X POST "$PROXY_URL/v1/messages" \
   -H "x-api-key: $API_KEY" \
   -H "Content-Type: application/json" \
@@ -607,39 +607,39 @@ curl -s -X POST "$PROXY_URL/v1/messages" \
     "messages": [{"role": "user", "content": "Hello"}]
   }' | jq .
 
-echo "\n✅ 所有测试完成！"
+echo "\n✅ All tests completed!"
 ```
 
 ```bash
-# 运行测试
+# Run tests
 chmod +x test-proxy.sh
 ./test-proxy.sh
 ```
 
-### 集成测试
+### Integration Testing
 
 ```bash
-# Claude Code CLI 集成测试
-# 1. 配置 Claude Code 使用本地代理
+# Claude Code CLI integration test
+# 1. Configure Claude Code to use local proxy
 export ANTHROPIC_API_URL="http://localhost:3000"
 export ANTHROPIC_API_KEY="your-proxy-access-key"
 
-# 2. 测试基础对话
-echo "测试Claude Code集成..." | claude-code
+# 2. Test basic conversation
+echo "Testing Claude Code integration..." | claude-code
 
-# 3. 测试工具调用
-echo "请帮我查看当前目录的文件" | claude-code
+# 3. Test tool calling
+echo "Please list the files in the current directory" | claude-code
 ```
 
-## 📊 监控和日志
+## 📊 Monitoring and Logging
 
-### 健康检查
+### Health Check
 
 ```bash
-# 健康检查端点 (无需认证)
+# Health check endpoint (no auth required)
 GET /health
 
-# 返回示例
+# Response example
 {
   "status": "healthy",
   "timestamp": "2024-01-01T00:00:00.000Z",
@@ -652,156 +652,156 @@ GET /health
 }
 ```
 
-### 服务状态监控
+### Service Status Monitoring
 
 ```bash
-# Docker 容器状态
+# Docker container status
 docker-compose ps
 docker-compose logs -f cc-bridge
 
-# 性能监控
+# Performance monitoring
 docker stats cc-bridge
 
-# 存储使用
+# Storage usage
 du -sh .config/ logs/
 ```
 
-### 日志级别
+### Log Levels
 
 ```bash
 LOG_LEVEL=debug  # debug, info, warn, error
-ENABLE_REQUEST_LOGS=true   # 记录请求日志
-ENABLE_RESPONSE_LOGS=true  # 记录响应日志
+ENABLE_REQUEST_LOGS=true   # Enable request logging
+ENABLE_RESPONSE_LOGS=true  # Enable response logging
 ```
 
-## 🔧 故障排除
+## 🔧 Troubleshooting
 
-### 常见问题
+### Common Issues
 
-1. **认证失败**
+1. **Authentication Failed**
 
    ```bash
-   # 检查密钥设置
+   # Check key settings
    echo $PROXY_ACCESS_KEY
 
-   # 验证密钥格式
+   # Verify key format
    curl -H "x-api-key: $PROXY_ACCESS_KEY" http://localhost:3000/health
    ```
 
-2. **容器启动失败**
+2. **Container Startup Failed**
 
    ```bash
-   # 检查日志
+   # Check logs
    docker-compose logs cc-bridge
 
-   # 检查端口占用
+   # Check port usage
    lsof -i :3000
    ```
 
-3. **前端界面无法访问 - "前端资源未找到"**
+3. **Frontend Cannot Be Accessed - "Frontend resources not found"**
 
-   **原因**: 前端构建产物不存在或路径不正确
+   **Cause**: Frontend build artifacts don't exist or path is incorrect
 
-   **解决方案**:
+   **Solution**:
 
    ```bash
-   # 方案1: 重新构建（推荐）
+   # Option 1: Rebuild (recommended)
    make build-current
    cd backend-go && ./dist/cc-bridge
 
-   # 方案2: 验证构建产物是否存在
+   # Option 2: Verify build artifacts exist
    ls -la frontend/dist/index.html
 
-   # 方案3: 临时禁用Web UI
-   # 编辑 backend-go/.env 文件
+   # Option 3: Temporarily disable Web UI
+   # Edit backend-go/.env file
    ENABLE_WEB_UI=false
-   # 然后只使用API端点: /v1/messages
+   # Then only use API endpoint: /v1/messages
    ```
 
-4. **Docker 环境前端 404**
+4. **Docker Frontend 404**
 
    ```bash
-   # 检查 ENABLE_WEB_UI 设置
+   # Check ENABLE_WEB_UI setting
    docker-compose exec cc-bridge printenv ENABLE_WEB_UI
 
-   # 检查文件路径（Docker内部会自动复制到正确位置）
+   # Check file paths (Docker auto-copies to correct location)
    docker-compose exec cc-bridge ls -la /app/frontend/dist/
 
-   # 重新构建镜像
+   # Rebuild image
    docker-compose build --no-cache
    docker-compose up -d
    ```
 
-### 重置配置
+### Reset Configuration
 
 ```bash
-# 停止服务
+# Stop service
 docker-compose down
 
-# 清理配置文件
+# Clean config files
 rm -rf .config/*
 
-# 重新启动
+# Restart
 docker-compose up -d
 ```
 
-## 🔄 更新升级
+## 🔄 Updates and Upgrades
 
 ```bash
-# 获取最新代码
+# Get latest code
 git pull origin main
 
-# 重新构建并启动
+# Rebuild and start
 docker-compose up -d --build
 ```
 
-## 🔧 CI/CD 自动化
+## 🔧 CI/CD Automation
 
-项目配置了 GitHub Actions 自动化流程：
+The project has GitHub Actions automation workflows configured:
 
-### 自动发布 (推送 tag 触发)
+### Auto Release (Triggered by tag push)
 
-| Workflow | 说明 |
-|----------|------|
-| `docker-build.yml` | 构建多平台 Docker 镜像 (阿里云 ACR) |
+| Workflow | Description |
+|----------|-------------|
+| `docker-build.yml` | Build multi-platform Docker images (Aliyun ACR) |
 
 > **Note**: Pre-built executables are not provided. Only Docker images are automatically built.
 
-### 发布新版本
+### Release New Version
 
 ```bash
-# 1. 更新版本号
+# 1. Update version number
 echo "vX.Y.Z" > VERSION
 
-# 2. 提交并打 tag
+# 2. Commit and tag
 git add . && git commit -m "chore: bump version to vX.Y.Z"
 git tag vX.Y.Z
 git push origin main --tags
 ```
 
-## 📖 使用指南
+## 📖 Documentation
 
-### 命令行配置工具
+### Command Line Configuration Tool
 
 ```bash
 cd backend-go && make help
 ```
 
-### 相关文档
+### Related Documentation
 
-- **📐 架构设计**: [ARCHITECTURE.md](ARCHITECTURE.md) - 技术选型、设计模式、数据流
-- **⚙️ 环境配置**: [ENVIRONMENT.md](ENVIRONMENT.md) - 环境变量、配置场景、故障排除
-- **🔨 开发指南**: [DEVELOPMENT.md](DEVELOPMENT.md) - 开发流程、调试技巧、最佳实践
-- **🤝 贡献规范**: [CONTRIBUTING.md](CONTRIBUTING.md) - 提交规范、代码质量标准
-- **📝 版本历史**: [CHANGELOG.md](CHANGELOG.md) - 完整变更记录和升级指南
-- **🚀 发布流程**: [RELEASE.md](RELEASE.md) - 维护者发布流程
+- **📐 Architecture**: [ARCHITECTURE.md](ARCHITECTURE.md) - Technical choices, design patterns, data flow
+- **⚙️ Environment**: [ENVIRONMENT.md](ENVIRONMENT.md) - Environment variables, configuration scenarios, troubleshooting
+- **🔨 Development**: [DEVELOPMENT.md](DEVELOPMENT.md) - Development workflow, debugging tips, best practices
+- **🤝 Contributing**: [CONTRIBUTING.md](CONTRIBUTING.md) - Commit standards, code quality guidelines
+- **📝 Changelog**: [CHANGELOG.md](CHANGELOG.md) - Complete change history and upgrade guide
+- **🚀 Release**: [RELEASE.md](RELEASE.md) - Maintainer release process
 
-## 📄 许可证
+## 📄 License
 
-本项目基于 MIT 许可证开源 - 查看 [LICENSE](LICENSE) 文件了解详情。
+This project is open source under the MIT License - see [LICENSE](LICENSE) file for details.
 
-## 🙏 致谢
+## 🙏 Acknowledgments
 
-- [BenedictKing/claude-proxy](https://github.com/BenedictKing/claude-proxy) - 上游项目
+- [BenedictKing/claude-proxy](https://github.com/BenedictKing/claude-proxy) - Upstream project
 - [Anthropic](https://www.anthropic.com/) - Claude API
 - [OpenAI](https://openai.com/) - GPT API
