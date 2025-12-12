@@ -1,8 +1,8 @@
 package converters
 
 import (
-	"github.com/JillVernus/claude-proxy/internal/session"
-	"github.com/JillVernus/claude-proxy/internal/types"
+	"github.com/JillVernus/cc-bridge/internal/session"
+	"github.com/JillVernus/cc-bridge/internal/types"
 )
 
 // ============== Responses 透传转换器 ==============

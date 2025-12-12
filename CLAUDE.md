@@ -2,11 +2,15 @@
 
 ## 变更记录 (Changelog)
 
+### 2025-12-12 - 项目重命名
+- 项目从 `claude-proxy` 重命名为 `cc-bridge`
+- Go 模块路径: `github.com/JillVernus/cc-bridge`
+- 基于上游 [BenedictKing/claude-proxy v2.0.44](https://github.com/BenedictKing/claude-proxy/tree/v2.0.44) 分叉
+
 ### 2025-12-11 - 索引更新
 - 完成代码库全量索引扫描
 - 新增模块结构图和面包屑导航
 - 生成 backend-go 和 frontend 模块文档
-- 创建 .claude/index.json 索引文件
 
 ---
 
@@ -14,15 +18,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-Claude API 代理服务器 - 支持多上游 AI 服务（OpenAI/Gemini/Claude）的协议转换代理，提供 Web 管理界面和统一 API 入口。
+**CC-Bridge** - 多供应商 AI 代理服务器，支持 OpenAI/Claude 协议转换，提供 Web 管理界面和统一 API 入口。
 
-**技术栈**: Go 1.22 (后端) + Vue 3 + Vuetify (前端) + Docker
+> Fork 自 [BenedictKing/claude-proxy](https://github.com/BenedictKing/claude-proxy)，个人自用版本。
+
+**技术栈**: Go 1.22 (后端) + Vue 3 + Vuetify (前端) + SQLite (日志) + Docker
+
+## 新增功能（相比上游）
+
+- **📊 请求日志系统**: SQLite 存储，按模型/供应商统计，自动刷新，日期筛选
+- **💰 计费系统**: 基础价格、供应商倍率、模型倍率、Token 类型计费
+- **🎨 UI 改进**: 重构头部，改进渠道编排布局，Claude/Codex 图标区分
+- **🔧 Codex 支持**: 请求日志同时追踪 Messages API 和 Responses API
 
 ## 模块结构图
 
 ```mermaid
 graph TD
-    A["(根) claude-proxy"] --> B["backend-go"];
+    A["(根) cc-bridge"] --> B["backend-go"];
     A --> C["frontend"];
 
     B --> B1["internal/"];
@@ -34,14 +47,13 @@ graph TD
     B1 --> B16["middleware/"];
     B1 --> B17["scheduler/"];
     B1 --> B18["metrics/"];
+    B1 --> B19["requestlog/"];
+    B1 --> B20["pricing/"];
 
     C --> C1["src/"];
     C1 --> C11["components/"];
     C1 --> C12["services/"];
     C1 --> C13["composables/"];
-
-    click B "/Users/petaflops/projects/2api-collect/claude-proxy/backend-go/CLAUDE.md" "查看 backend-go 模块文档"
-    click C "/Users/petaflops/projects/2api-collect/claude-proxy/frontend/CLAUDE.md" "查看 frontend 模块文档"
 ```
 
 ## 常用命令
@@ -61,9 +73,9 @@ cd frontend
 bun install && bun run dev
 
 # 根目录快捷命令
-bun run dev           # 前后端联合开发
-bun run build         # 生产构建
-bun run start         # 启动生产服务
+make dev              # 前后端联合开发
+make build            # 生产构建
+make run              # 启动生产服务
 
 # Docker
 docker-compose up -d
@@ -72,21 +84,23 @@ docker-compose up -d
 ## 架构概览
 
 ```
-claude-proxy/
+cc-bridge/
 ├── backend-go/                 # Go 后端
 │   ├── main.go                # 入口
 │   └── internal/
-│       ├── handlers/          # HTTP 处理器 (proxy.go, responses.go, config.go)
-│       ├── providers/         # 上游适配器 (openai.go, gemini.go, claude.go)
+│       ├── handlers/          # HTTP 处理器 (proxy.go, responses.go, config.go, requestlog_handler.go, pricing.go)
+│       ├── providers/         # 上游适配器 (openai.go, claude.go)
 │       ├── converters/        # Responses API 协议转换器
 │       ├── config/            # 配置管理 + 热重载
 │       ├── session/           # Responses API 会话管理
 │       ├── middleware/        # 认证、CORS
 │       ├── scheduler/         # 多渠道调度器
-│       └── metrics/           # 渠道指标监控
+│       ├── metrics/           # 渠道指标监控
+│       ├── requestlog/        # 请求日志 (SQLite)
+│       └── pricing/           # 计费系统
 └── frontend/                   # Vue 3 + Vuetify 前端
     └── src/
-        ├── components/        # Vue 组件
+        ├── components/        # Vue 组件 (RequestLogTable.vue, PricingSettings.vue, etc.)
         ├── services/          # API 服务
         └── composables/       # 组合式函数
 ```
@@ -95,14 +109,13 @@ claude-proxy/
 
 | 模块 | 路径 | 语言 | 职责 | 文档 |
 |------|------|------|------|------|
-| **Go 后端** | `backend-go/` | Go 1.22 | 核心代理服务、API 路由、协议转换 | [CLAUDE.md](backend-go/CLAUDE.md) |
-| **Vue 前端** | `frontend/` | TypeScript/Vue 3 | Web 管理界面、渠道配置 | [CLAUDE.md](frontend/CLAUDE.md) |
+| **Go 后端** | `backend-go/` | Go 1.22 | 核心代理服务、API 路由、协议转换、日志、计费 | [CLAUDE.md](backend-go/CLAUDE.md) |
+| **Vue 前端** | `frontend/` | TypeScript/Vue 3 | Web 管理界面、渠道配置、日志查看 | [CLAUDE.md](frontend/CLAUDE.md) |
 
 ## 核心设计模式
 
 1. **Provider Pattern** - `internal/providers/`: 所有上游实现统一 `Provider` 接口
    - `openai.go` - OpenAI 协议适配器
-   - `gemini.go` - Gemini 协议适配器
    - `claude.go` - Claude 原生协议
    - `responses.go` - Responses API 专用 Provider
 
@@ -119,12 +132,16 @@ claude-proxy/
 4. **Scheduler Pattern** - `internal/scheduler/`: 多渠道智能调度
    - `channel_scheduler.go` - 优先级调度、健康检查、自动熔断
 
-5. **Metrics Pattern** - `internal/metrics/`: 渠道性能监控
-   - `channel_metrics.go` - 滑动窗口算法、失败率统计
+5. **Request Log** - `internal/requestlog/`: 请求日志系统
+   - `manager.go` - SQLite 存储、查询、统计
+   - `types.go` - 日志数据结构
+
+6. **Pricing** - `internal/pricing/`: 计费系统
+   - `pricing.go` - 基础价格、倍率计算
 
 ## 双 API 支持
 
-- `/v1/messages` - Claude Messages API（支持 OpenAI/Gemini 协议转换）
+- `/v1/messages` - Claude Messages API（支持 OpenAI 协议转换）
 - `/v1/responses` - Codex Responses API（支持会话管理）
 
 ## 运行与开发
@@ -195,11 +212,14 @@ docker-compose up -d
 2. **修改协议转换**: 编辑 `internal/converters/` 中的转换器
 3. **调整调度策略**: 修改 `internal/scheduler/channel_scheduler.go`
 4. **前端界面调整**: 编辑 `frontend/src/components/` 中的 Vue 组件
+5. **修改计费逻辑**: 编辑 `internal/pricing/pricing.go`
+6. **修改日志系统**: 编辑 `internal/requestlog/manager.go`
 
 ### 调试技巧
 - 后端日志: 查看 `logs/` 目录或控制台输出
 - 前端调试: 浏览器开发者工具 + Vue DevTools
 - 配置热重载: 修改 `backend-go/.config/config.json` 自动生效
+- SQLite 日志: 查看 `backend-go/.config/request_logs.db`
 
 ## 重要提示
 
@@ -212,7 +232,8 @@ docker-compose up -d
 
 | 文档 | 内容 |
 |------|------|
-| [README.md](README.md) | 项目介绍、快速开始、部署指南 |
+| [README.md](README.md) | 项目介绍（English）、快速开始、部署指南 |
+| [README_CN.md](README_CN.md) | 项目介绍（中文）|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 详细架构、设计模式、数据流 |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | 开发流程、调试技巧 |
 | [ENVIRONMENT.md](ENVIRONMENT.md) | 环境变量配置 |

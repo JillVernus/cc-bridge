@@ -169,6 +169,19 @@ func (m *Manager) initSchema() error {
 		}
 	}
 
+	// Migration: Add reasoning_effort column if it doesn't exist
+	err = m.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('request_logs') WHERE name='reasoning_effort'`).Scan(&count)
+	if err != nil {
+		log.Printf("⚠️ Failed to check reasoning_effort column: %v", err)
+	} else if count == 0 {
+		_, err = m.db.Exec(`ALTER TABLE request_logs ADD COLUMN reasoning_effort TEXT`)
+		if err != nil {
+			log.Printf("⚠️ Failed to add reasoning_effort column: %v", err)
+		} else {
+			log.Printf("✅ Added reasoning_effort column to request_logs table")
+		}
+	}
+
 	return nil
 }
 
@@ -193,12 +206,12 @@ func (m *Manager) Add(record *RequestLog) error {
 	query := `
 	INSERT INTO request_logs (
 		id, status, initial_time, complete_time, duration_ms,
-		provider, provider_name, model, response_model, input_tokens, output_tokens,
+		provider, provider_name, model, response_model, reasoning_effort, input_tokens, output_tokens,
 		cache_creation_input_tokens, cache_read_input_tokens, total_tokens,
 		price, input_cost, output_cost, cache_creation_cost, cache_read_cost,
 		http_status, stream, channel_id, channel_name,
 		endpoint, user_id, error, upstream_error, created_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := m.db.Exec(query,
@@ -211,6 +224,7 @@ func (m *Manager) Add(record *RequestLog) error {
 		record.ProviderName,
 		record.Model,
 		record.ResponseModel,
+		record.ReasoningEffort,
 		record.InputTokens,
 		record.OutputTokens,
 		record.CacheCreationInputTokens,
@@ -371,7 +385,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 	// Get records
 	query := fmt.Sprintf(`
 		SELECT id, status, initial_time, complete_time, duration_ms,
-			   provider, provider_name, model, response_model, input_tokens, output_tokens,
+			   provider, provider_name, model, response_model, reasoning_effort, input_tokens, output_tokens,
 			   cache_creation_input_tokens, cache_read_input_tokens, total_tokens,
 			   price, input_cost, output_cost, cache_creation_cost, cache_read_cost,
 			   http_status, stream, channel_id, channel_name,
@@ -394,12 +408,12 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 	for rows.Next() {
 		var r RequestLog
 		var channelID sql.NullInt64
-		var channelName, endpoint, userID, errorStr, upstreamErrorStr, status, providerName, responseModel sql.NullString
+		var channelName, endpoint, userID, errorStr, upstreamErrorStr, status, providerName, responseModel, reasoningEffort sql.NullString
 		var initialTime, completeTime, createdAt sql.NullString
 
 		err := rows.Scan(
 			&r.ID, &status, &initialTime, &completeTime, &r.DurationMs,
-			&r.Type, &providerName, &r.Model, &responseModel, &r.InputTokens, &r.OutputTokens,
+			&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort, &r.InputTokens, &r.OutputTokens,
 			&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 			&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
 			&r.HTTPStatus, &r.Stream, &channelID, &channelName,
@@ -419,6 +433,9 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		}
 		if responseModel.Valid {
 			r.ResponseModel = responseModel.String
+		}
+		if reasoningEffort.Valid {
+			r.ReasoningEffort = reasoningEffort.String
 		}
 		if initialTime.Valid && initialTime.String != "" {
 			r.InitialTime = parseTimeString(initialTime.String)
@@ -467,9 +484,13 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 		filter = &RequestLogFilter{}
 	}
 
-	// Build where clause
+	// Build where clause - exclude pending requests from statistics
 	var conditions []string
 	var args []interface{}
+
+	// Only count completed requests in statistics (exclude pending/loading requests)
+	conditions = append(conditions, "status != ?")
+	args = append(args, StatusPending)
 
 	if filter.From != nil {
 		conditions = append(conditions, "initial_time >= ?")
@@ -480,10 +501,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 		args = append(args, *filter.To)
 	}
 
-	whereClause := ""
-	if len(conditions) > 0 {
-		whereClause = "WHERE " + strings.Join(conditions, " AND ")
-	}
+	whereClause := "WHERE " + strings.Join(conditions, " AND ")
 
 	stats := &RequestLogStats{
 		ByProvider: make(map[string]ProviderStats),
@@ -680,6 +698,45 @@ func (m *Manager) Cleanup(retentionDays int) (int64, error) {
 	}
 
 	return deleted, nil
+}
+
+// CleanupStalePending marks pending requests older than timeoutSeconds as error with timeout message
+func (m *Manager) CleanupStalePending(timeoutSeconds int) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = 300 // Default 300 seconds (5 minutes)
+	}
+
+	cutoff := time.Now().Add(-time.Duration(timeoutSeconds) * time.Second)
+	now := time.Now()
+
+	query := `
+	UPDATE request_logs SET
+		status = ?,
+		complete_time = ?,
+		error = ?
+	WHERE status = ? AND initial_time < ?
+	`
+
+	result, err := m.db.Exec(query,
+		StatusError,
+		now,
+		"timeout",
+		StatusPending,
+		cutoff,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to cleanup stale pending requests: %w", err)
+	}
+
+	updated, _ := result.RowsAffected()
+	if updated > 0 {
+		log.Printf("⏰ Marked %d stale pending requests as timeout (older than %d seconds)", updated, timeoutSeconds)
+	}
+
+	return updated, nil
 }
 
 // Close closes the database connection

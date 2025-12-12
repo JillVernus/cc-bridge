@@ -15,7 +15,7 @@
                 <th class="text-end col-small">输出</th>
                 <th class="text-end col-small">缓存创建</th>
                 <th class="text-end col-small">缓存命中</th>
-                <th class="text-end col-small">成本</th>
+                <th class="text-end col-small">费用</th>
               </tr>
             </thead>
             <tbody class="summary-table-body">
@@ -60,7 +60,7 @@
                 <th class="text-end col-small">输出</th>
                 <th class="text-end col-small">缓存创建</th>
                 <th class="text-end col-small">缓存命中</th>
-                <th class="text-end col-small">成本</th>
+                <th class="text-end col-small">费用</th>
               </tr>
             </thead>
             <tbody class="summary-table-body">
@@ -110,84 +110,13 @@
     </v-row>
 
     <!-- 设置对话框 -->
-    <v-dialog v-model="showSettings" max-width="800">
+    <v-dialog v-model="showSettings" max-width="500">
       <v-card class="settings-card">
         <v-card-title class="d-flex align-center">
           <v-icon class="mr-2">mdi-cog</v-icon>
           设置
         </v-card-title>
         <v-card-text>
-          <!-- 定价配置 -->
-          <div class="settings-section mb-4">
-            <div class="d-flex align-center justify-space-between mb-2">
-              <div class="text-subtitle-2">模型定价配置</div>
-              <div class="d-flex ga-2">
-                <v-btn
-                  size="small"
-                  variant="tonal"
-                  color="primary"
-                  @click="showAddModelDialog = true"
-                >
-                  <v-icon class="mr-1">mdi-plus</v-icon>
-                  添加模型
-                </v-btn>
-                <v-btn
-                  size="small"
-                  variant="tonal"
-                  color="warning"
-                  @click="confirmResetPricing"
-                  :loading="resettingPricing"
-                >
-                  <v-icon class="mr-1">mdi-refresh</v-icon>
-                  重置默认
-                </v-btn>
-              </div>
-            </div>
-            <div class="text-caption text-grey mb-3">设置各模型的 token 价格（单位：$/1M tokens）</div>
-
-            <v-table density="compact" class="pricing-table" v-if="pricingConfig">
-              <thead>
-                <tr>
-                  <th>模型</th>
-                  <th class="text-end">输入价格</th>
-                  <th class="text-end">输出价格</th>
-                  <th class="text-end">缓存创建</th>
-                  <th class="text-end">缓存读取</th>
-                  <th class="text-center">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(pricing, model) in pricingConfig.models" :key="model">
-                  <td class="text-caption font-weight-medium">
-                    {{ model }}
-                    <span v-if="pricing.description" class="text-grey ml-1">({{ pricing.description }})</span>
-                  </td>
-                  <td class="text-end text-caption">${{ pricing.inputPrice }}</td>
-                  <td class="text-end text-caption">${{ pricing.outputPrice }}</td>
-                  <td class="text-end text-caption">${{ pricing.cacheCreationPrice || '-' }}</td>
-                  <td class="text-end text-caption">${{ pricing.cacheReadPrice || '-' }}</td>
-                  <td class="text-center">
-                    <v-btn icon size="x-small" variant="text" @click="editModel(String(model))">
-                      <v-icon size="16">mdi-pencil</v-icon>
-                    </v-btn>
-                    <v-btn icon size="x-small" variant="text" color="error" @click="confirmDeleteModel(String(model))">
-                      <v-icon size="16">mdi-delete</v-icon>
-                    </v-btn>
-                  </td>
-                </tr>
-                <tr v-if="!pricingConfig || Object.keys(pricingConfig.models).length === 0">
-                  <td colspan="6" class="text-center text-caption text-grey">暂无定价配置</td>
-                </tr>
-              </tbody>
-            </v-table>
-            <div v-else class="text-center pa-4 text-grey">
-              <v-progress-circular v-if="loadingPricing" indeterminate size="24" />
-              <span v-else>加载定价配置失败</span>
-            </div>
-          </div>
-
-          <v-divider class="my-4" />
-
           <div class="settings-section mb-4">
             <div class="text-subtitle-2 mb-2">列宽设置</div>
             <v-btn
@@ -220,105 +149,6 @@
         <v-card-actions>
           <v-spacer />
           <v-btn variant="text" @click="showSettings = false">关闭</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <!-- 添加/编辑模型定价对话框 -->
-    <v-dialog v-model="showAddModelDialog" max-width="450">
-      <v-card>
-        <v-card-title>{{ editingModel ? '编辑模型定价' : '添加模型定价' }}</v-card-title>
-        <v-card-text>
-          <v-text-field
-            v-model="modelForm.name"
-            label="模型名称"
-            placeholder="例如: claude-3-5-sonnet"
-            :disabled="!!editingModel"
-            density="compact"
-            class="mb-2"
-          />
-          <v-text-field
-            v-model="modelForm.description"
-            label="描述 (可选)"
-            placeholder="模型描述"
-            density="compact"
-            class="mb-2"
-          />
-          <v-row>
-            <v-col cols="6">
-              <v-text-field
-                v-model.number="modelForm.inputPrice"
-                label="输入价格 ($/1M)"
-                type="number"
-                step="0.01"
-                density="compact"
-              />
-            </v-col>
-            <v-col cols="6">
-              <v-text-field
-                v-model.number="modelForm.outputPrice"
-                label="输出价格 ($/1M)"
-                type="number"
-                step="0.01"
-                density="compact"
-              />
-            </v-col>
-          </v-row>
-          <v-row>
-            <v-col cols="6">
-              <v-text-field
-                v-model.number="modelForm.cacheCreationPrice"
-                label="缓存创建价格 ($/1M)"
-                type="number"
-                step="0.01"
-                density="compact"
-                hint="默认为输入价格×1.25"
-                persistent-hint
-              />
-            </v-col>
-            <v-col cols="6">
-              <v-text-field
-                v-model.number="modelForm.cacheReadPrice"
-                label="缓存读取价格 ($/1M)"
-                type="number"
-                step="0.01"
-                density="compact"
-                hint="默认为输入价格×0.1"
-                persistent-hint
-              />
-            </v-col>
-          </v-row>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="cancelModelEdit">取消</v-btn>
-          <v-btn color="primary" variant="flat" @click="saveModelPricing" :loading="savingPricing">保存</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <!-- 删除模型确认对话框 -->
-    <v-dialog v-model="showDeleteModelDialog" max-width="400">
-      <v-card>
-        <v-card-title class="text-error">确认删除</v-card-title>
-        <v-card-text>确定要删除模型 "{{ deletingModel }}" 的定价配置吗？</v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="showDeleteModelDialog = false">取消</v-btn>
-          <v-btn color="error" variant="flat" @click="deleteModelPricing" :loading="deletingPricingModel">确认删除</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <!-- 重置定价确认对话框 -->
-    <v-dialog v-model="showResetPricingDialog" max-width="400">
-      <v-card>
-        <v-card-title class="text-warning">确认重置</v-card-title>
-        <v-card-text>确定要将所有模型定价重置为默认值吗？当前配置将被覆盖。</v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="showResetPricingDialog = false">取消</v-btn>
-          <v-btn color="warning" variant="flat" @click="resetPricing" :loading="resettingPricing">确认重置</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -465,13 +295,30 @@
             width="2"
             color="grey"
           />
-          <v-chip v-else size="x-small" :color="getProviderColor(item.type)" variant="flat">
-            {{ item.providerName || item.type }}<span v-if="item.type" class="text-caption ml-1 opacity-60">({{ item.type }})</span>
+          <v-chip v-else size="x-small" variant="text" class="provider-chip">
+            <v-icon v-if="item.type === 'claude'" start size="14" icon="custom:claude" class="provider-icon mr-1" />
+            <v-icon v-else-if="item.type === 'openai' || item.type === 'codex' || item.type === 'responses'" start size="14" icon="custom:codex" class="provider-icon mr-1" />
+            <v-icon v-else-if="item.type === 'gemini'" start size="14" class="mr-1">mdi-google</v-icon>
+            {{ item.providerName || item.type }}
           </v-chip>
         </template>
 
         <template v-slot:item.model="{ item }">
-          <v-tooltip v-if="item.responseModel && item.responseModel !== item.model" location="top" max-width="400">
+          <!-- Model with reasoning effort tooltip -->
+          <v-tooltip v-if="item.reasoningEffort" location="top" max-width="300">
+            <template v-slot:activator="{ props }">
+              <span v-bind="props" class="text-caption font-weight-medium model-with-effort">
+                {{ item.model }}
+                <v-icon size="12" class="ml-1">mdi-lightbulb</v-icon>
+              </span>
+            </template>
+            <div class="reasoning-effort-tooltip">
+              <span class="effort-label">Reasoning Effort:</span>
+              <span class="effort-value">{{ item.reasoningEffort }}</span>
+            </div>
+          </v-tooltip>
+          <!-- Model with response model mapping tooltip -->
+          <v-tooltip v-else-if="item.responseModel && item.responseModel !== item.model" location="top" max-width="400">
             <template v-slot:activator="{ props }">
               <span v-bind="props" class="text-caption font-weight-medium model-with-mapping">
                 {{ item.model }}
@@ -488,13 +335,12 @@
         </template>
 
         <template v-slot:item.tokens="{ item }">
-          <v-progress-circular
-            v-if="item.status === 'pending'"
-            indeterminate
-            size="16"
-            width="2"
-            color="grey"
-          />
+          <div v-if="item.status === 'pending'" class="tokens-cell">
+            <span class="token-value"><v-progress-circular indeterminate size="14" width="2" color="grey" /></span>
+            <span class="token-value"><v-progress-circular indeterminate size="14" width="2" color="grey" /></span>
+            <span class="token-value"><v-progress-circular indeterminate size="14" width="2" color="grey" /></span>
+            <span class="token-value"><v-progress-circular indeterminate size="14" width="2" color="grey" /></span>
+          </div>
           <div v-else class="tokens-cell">
             <span class="token-value input-color">{{ formatNumber(item.inputTokens) }} (<v-icon size="12">mdi-arrow-up</v-icon>)</span>
             <span class="token-value output-color">{{ formatNumber(item.outputTokens) }} (<v-icon size="12">mdi-arrow-down</v-icon>)</span>
@@ -606,7 +452,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { api, type RequestLog, type RequestLogStats, type GroupStats, type PricingConfig, type ModelPricing } from '../services/api'
+import { api, type RequestLog, type RequestLogStats, type GroupStats } from '../services/api'
 
 const logs = ref<RequestLog[]>([])
 const stats = ref<RequestLogStats | null>(null)
@@ -621,27 +467,6 @@ const updatedIds = ref<Set<string>>(new Set())
 const showSettings = ref(false)
 const showConfirmClear = ref(false)
 const clearing = ref(false)
-
-// Pricing configuration
-const pricingConfig = ref<PricingConfig | null>(null)
-const loadingPricing = ref(false)
-const showAddModelDialog = ref(false)
-const showDeleteModelDialog = ref(false)
-const showResetPricingDialog = ref(false)
-const editingModel = ref<string | null>(null)
-const deletingModel = ref<string | null>(null)
-const savingPricing = ref(false)
-const deletingPricingModel = ref(false)
-const resettingPricing = ref(false)
-
-const modelForm = ref({
-  name: '',
-  description: '',
-  inputPrice: 0,
-  outputPrice: 0,
-  cacheCreationPrice: 0,
-  cacheReadPrice: 0
-})
 
 // Date filter - use local date
 const getLocalDateString = (date: Date) => {
@@ -779,7 +604,7 @@ const headers = computed(() => [
   { title: '渠道', key: 'providerName', sortable: false, width: `${columnWidths.value.providerName}px` },
   { title: '模型', key: 'model', sortable: false, width: `${columnWidths.value.model}px` },
   { title: 'Tokens', key: 'tokens', sortable: false, width: `${columnWidths.value.tokens}px` },
-  { title: '成本', key: 'price', sortable: false, width: `${columnWidths.value.price}px` },
+  { title: '费用', key: 'price', sortable: false, width: `${columnWidths.value.price}px` },
   { title: 'HTTP', key: 'httpStatus', sortable: false, width: `${columnWidths.value.httpStatus}px` },
 ])
 
@@ -975,112 +800,10 @@ const clearLogs = async () => {
   }
 }
 
-// Pricing configuration functions
-const loadPricing = async () => {
-  loadingPricing.value = true
-  try {
-    pricingConfig.value = await api.getPricing()
-  } catch (error) {
-    console.error('Failed to load pricing:', error)
-  } finally {
-    loadingPricing.value = false
-  }
-}
-
-const editModel = (model: string) => {
-  editingModel.value = model
-  const pricing = pricingConfig.value?.models[model]
-  if (pricing) {
-    modelForm.value = {
-      name: model,
-      description: pricing.description || '',
-      inputPrice: pricing.inputPrice,
-      outputPrice: pricing.outputPrice,
-      cacheCreationPrice: pricing.cacheCreationPrice || 0,
-      cacheReadPrice: pricing.cacheReadPrice || 0
-    }
-  }
-  showAddModelDialog.value = true
-}
-
-const cancelModelEdit = () => {
-  showAddModelDialog.value = false
-  editingModel.value = null
-  modelForm.value = {
-    name: '',
-    description: '',
-    inputPrice: 0,
-    outputPrice: 0,
-    cacheCreationPrice: 0,
-    cacheReadPrice: 0
-  }
-}
-
-const saveModelPricing = async () => {
-  if (!modelForm.value.name) return
-
-  savingPricing.value = true
-  try {
-    const pricing: ModelPricing = {
-      inputPrice: modelForm.value.inputPrice,
-      outputPrice: modelForm.value.outputPrice,
-      cacheCreationPrice: modelForm.value.cacheCreationPrice || undefined,
-      cacheReadPrice: modelForm.value.cacheReadPrice || undefined,
-      description: modelForm.value.description || undefined
-    }
-    await api.setModelPricing(modelForm.value.name, pricing)
-    await loadPricing()
-    cancelModelEdit()
-  } catch (error) {
-    console.error('Failed to save model pricing:', error)
-  } finally {
-    savingPricing.value = false
-  }
-}
-
-const confirmDeleteModel = (model: string) => {
-  deletingModel.value = model
-  showDeleteModelDialog.value = true
-}
-
-const deleteModelPricing = async () => {
-  if (!deletingModel.value) return
-
-  deletingPricingModel.value = true
-  try {
-    await api.deleteModelPricing(deletingModel.value)
-    await loadPricing()
-    showDeleteModelDialog.value = false
-    deletingModel.value = null
-  } catch (error) {
-    console.error('Failed to delete model pricing:', error)
-  } finally {
-    deletingPricingModel.value = false
-  }
-}
-
-const confirmResetPricing = () => {
-  showResetPricingDialog.value = true
-}
-
-const resetPricing = async () => {
-  resettingPricing.value = true
-  try {
-    const result = await api.resetPricingToDefault()
-    pricingConfig.value = result.config
-    showResetPricingDialog.value = false
-  } catch (error) {
-    console.error('Failed to reset pricing:', error)
-  } finally {
-    resettingPricing.value = false
-  }
-}
-
 onMounted(() => {
   loadColumnWidths()
   refreshLogs()
   startAutoRefresh()
-  loadPricing()
 })
 
 onUnmounted(() => {
@@ -1156,6 +879,16 @@ const silentRefresh = async () => {
 <style scoped>
 .request-log-container {
   padding: 0;
+}
+
+/* Provider chip with custom icon */
+.provider-chip :deep(.custom-icon) {
+  margin-right: 4px;
+}
+
+.provider-chip :deep(.custom-icon svg) {
+  width: 14px;
+  height: 14px;
 }
 
 /* Spinning animation for sync icon */
@@ -1478,35 +1211,35 @@ const silentRefresh = async () => {
 
 /* Token color coding */
 .input-color {
-  color: #2196F3 !important; /* Blue for input */
+  color: #4CAF50 !important; /* Green for input */
 }
 
 .output-color {
-  color: #4CAF50 !important; /* Green for output */
+  color: #2196F3 !important; /* Blue for output */
 }
 
 .cache-create-color {
-  color: #00BCD4 !important; /* Cyan for cache creation */
+  color: rgb(var(--v-theme-success)) !important; /* Same as text-success */
 }
 
 .cache-hit-color {
-  color: #FF9800 !important; /* Orange for cache hit */
+  color: rgb(var(--v-theme-warning)) !important; /* Same as text-warning */
 }
 
 .v-theme--dark .input-color {
-  color: #64B5F6 !important;
-}
-
-.v-theme--dark .output-color {
   color: #81C784 !important;
 }
 
+.v-theme--dark .output-color {
+  color: #64B5F6 !important;
+}
+
 .v-theme--dark .cache-create-color {
-  color: #4DD0E1 !important;
+  color: rgb(var(--v-theme-success)) !important;
 }
 
 .v-theme--dark .cache-hit-color {
-  color: #FFB74D !important;
+  color: rgb(var(--v-theme-warning)) !important;
 }
 
 /* Error tooltip styles */
@@ -1630,7 +1363,8 @@ const silentRefresh = async () => {
 }
 
 /* Model mapping tooltip styles */
-.model-with-mapping {
+.model-with-mapping,
+.model-with-effort {
   cursor: pointer;
   text-decoration: underline dotted;
   text-underline-offset: 3px;
@@ -1654,29 +1388,23 @@ const silentRefresh = async () => {
   font-weight: 500;
 }
 
-/* Pricing table styles */
-.pricing-table {
-  font-size: 0.85rem;
-  max-height: 300px;
-  overflow-y: auto;
+/* Reasoning effort tooltip styles */
+.reasoning-effort-tooltip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
 }
 
-.pricing-table th {
-  font-size: 0.8rem !important;
-  font-weight: 600 !important;
-  padding: 8px !important;
-  background: rgba(var(--v-theme-surface-variant), 0.5);
-  position: sticky;
-  top: 0;
-  z-index: 1;
+.reasoning-effort-tooltip .effort-label {
+  color: rgba(255, 255, 255, 0.7);
 }
 
-.pricing-table td {
-  padding: 6px 8px !important;
-}
-
-.pricing-table tbody tr:hover {
-  background: rgba(var(--v-theme-primary), 0.05);
+.reasoning-effort-tooltip .effort-value {
+  color: #FFB74D;
+  font-weight: 600;
+  text-transform: uppercase;
 }
 
 .settings-card {

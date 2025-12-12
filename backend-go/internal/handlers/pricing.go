@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"github.com/JillVernus/claude-proxy/internal/pricing"
+	"github.com/JillVernus/cc-bridge/internal/pricing"
 	"github.com/gin-gonic/gin"
 )
 

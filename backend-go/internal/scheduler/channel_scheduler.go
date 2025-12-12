@@ -7,9 +7,9 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/JillVernus/claude-proxy/internal/config"
-	"github.com/JillVernus/claude-proxy/internal/metrics"
-	"github.com/JillVernus/claude-proxy/internal/session"
+	"github.com/JillVernus/cc-bridge/internal/config"
+	"github.com/JillVernus/cc-bridge/internal/metrics"
+	"github.com/JillVernus/cc-bridge/internal/session"
 )
 
 // ChannelScheduler 多渠道调度器

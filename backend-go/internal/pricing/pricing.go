@@ -13,11 +13,11 @@ import (
 // ModelPricing 单个模型的定价配置
 // 价格单位：美元/百万tokens
 type ModelPricing struct {
-	InputPrice              float64 `json:"inputPrice"`              // 输入 token 价格 ($/1M tokens)
-	OutputPrice             float64 `json:"outputPrice"`             // 输出 token 价格 ($/1M tokens)
-	CacheCreationPrice      float64 `json:"cacheCreationPrice"`      // 缓存创建价格 ($/1M tokens)，默认等于 inputPrice * 1.25
-	CacheReadPrice          float64 `json:"cacheReadPrice"`          // 缓存读取价格 ($/1M tokens)，默认等于 inputPrice * 0.1
-	Description             string  `json:"description,omitempty"`   // 模型描述
+	InputPrice              float64  `json:"inputPrice"`              // 输入 token 价格 ($/1M tokens)
+	OutputPrice             float64  `json:"outputPrice"`             // 输出 token 价格 ($/1M tokens)
+	CacheCreationPrice      *float64 `json:"cacheCreationPrice"`      // 缓存创建价格 ($/1M tokens)，nil 时使用 inputPrice * 1.25
+	CacheReadPrice          *float64 `json:"cacheReadPrice"`          // 缓存读取价格 ($/1M tokens)，nil 时使用 inputPrice * 0.1
+	Description             string   `json:"description,omitempty"`   // 模型描述
 }
 
 // PricingConfig 定价配置
@@ -183,14 +183,18 @@ func (pm *PricingManager) CalculateCostWithBreakdown(model string, inputTokens, 
 	result.InputCost = float64(inputTokens) * pricing.InputPrice * inputMult / 1_000_000
 	result.OutputCost = float64(outputTokens) * pricing.OutputPrice * outputMult / 1_000_000
 
-	// 缓存价格，如果未配置则使用默认比例
-	cacheCreationPrice := pricing.CacheCreationPrice
-	if cacheCreationPrice == 0 {
+	// 缓存价格，如果未配置（nil）则使用默认比例，显式设置为 0 表示免费
+	var cacheCreationPrice float64
+	if pricing.CacheCreationPrice == nil {
 		cacheCreationPrice = pricing.InputPrice * 1.25 // 默认缓存创建价格是输入价格的 1.25 倍
+	} else {
+		cacheCreationPrice = *pricing.CacheCreationPrice
 	}
-	cacheReadPrice := pricing.CacheReadPrice
-	if cacheReadPrice == 0 {
+	var cacheReadPrice float64
+	if pricing.CacheReadPrice == nil {
 		cacheReadPrice = pricing.InputPrice * 0.1 // 默认缓存读取价格是输入价格的 0.1 倍
+	} else {
+		cacheReadPrice = *pricing.CacheReadPrice
 	}
 
 	result.CacheCreationCost = float64(cacheCreationTokens) * cacheCreationPrice * cacheCreationMult / 1_000_000
@@ -274,6 +278,11 @@ func GetDefaultPricingConfig() PricingConfig {
 	return getDefaultPricingConfig()
 }
 
+// floatPtr 辅助函数，用于创建 float64 指针
+func floatPtr(v float64) *float64 {
+	return &v
+}
+
 // getDefaultPricingConfig 获取默认定价配置
 func getDefaultPricingConfig() PricingConfig {
 	return PricingConfig{
@@ -283,22 +292,22 @@ func getDefaultPricingConfig() PricingConfig {
 			"claude-opus-4-5": {
 				InputPrice:         5.0,
 				OutputPrice:        25.0,
-				CacheCreationPrice: 6.25,
-				CacheReadPrice:     0.50,
+				CacheCreationPrice: floatPtr(6.25),
+				CacheReadPrice:     floatPtr(0.50),
 				Description:        "Claude Opus 4.5",
 			},
 			"claude-sonnet-4-5": {
 				InputPrice:         3.0,
 				OutputPrice:        15.0,
-				CacheCreationPrice: 3.75,
-				CacheReadPrice:     0.30,
+				CacheCreationPrice: floatPtr(3.75),
+				CacheReadPrice:     floatPtr(0.30),
 				Description:        "Claude Sonnet 4.5",
 			},
 			"claude-haiku-4-5": {
 				InputPrice:         1.0,
 				OutputPrice:        5.0,
-				CacheCreationPrice: 1.25,
-				CacheReadPrice:     0.10,
+				CacheCreationPrice: floatPtr(1.25),
+				CacheReadPrice:     floatPtr(0.10),
 				Description:        "Claude Haiku 4.5",
 			},
 			// GPT-5.1 系列

@@ -2,10 +2,41 @@ import { createVuetify } from 'vuetify'
 import { aliases, mdi } from 'vuetify/iconsets/mdi'
 import * as components from 'vuetify/components'
 import * as directives from 'vuetify/directives'
+import { h } from 'vue'
+import type { IconSet, IconProps } from 'vuetify'
 
 // 引入样式
 import 'vuetify/styles'
 import '@mdi/font/css/materialdesignicons.css'
+
+// 引入自定义 SVG 图标
+import claudeSvg from '@/assets/claude.svg?raw'
+import codexSvg from '@/assets/codex.svg?raw'
+
+// 自定义图标集
+const customSvgIcons: Record<string, string> = {
+  claude: claudeSvg,
+  codex: codexSvg
+}
+
+const custom: IconSet = {
+  component: (props: IconProps) => {
+    const iconName = props.icon as string
+    const svgContent = customSvgIcons[iconName]
+    if (!svgContent) {
+      return h('span', iconName)
+    }
+    return h('span', {
+      class: 'custom-icon',
+      innerHTML: svgContent,
+      style: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }
+    })
+  }
+}
 
 // 🎨 精心设计的现代化配色方案
 // Light Theme - 清新专业，柔和渐变
@@ -63,7 +94,8 @@ export default createVuetify({
     defaultSet: 'mdi',
     aliases,
     sets: {
-      mdi
+      mdi,
+      custom
     }
   },
   theme: {

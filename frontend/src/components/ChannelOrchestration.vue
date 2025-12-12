@@ -72,7 +72,9 @@
               >
                 <v-icon size="14">mdi-open-in-new</v-icon>
               </v-btn>
-              <span class="text-caption text-medium-emphasis ml-2">{{ element.serviceType }}</span>
+              <v-icon v-if="element.serviceType === 'claude'" size="14" icon="custom:claude" class="ml-2" />
+              <v-icon v-else size="14" icon="custom:codex" class="ml-2" />
+              <span class="text-caption text-medium-emphasis ml-1">{{ element.serviceType }}</span>
               <span v-if="element.description" class="text-caption text-disabled ml-3">{{ element.description }}</span>
             </div>
 
@@ -132,19 +134,70 @@
 
             <!-- 操作按钮 -->
             <div class="channel-actions">
-              <!-- suspended 状态显示恢复按钮 -->
-              <v-btn
-                v-if="element.status === 'suspended'"
-                icon
-                size="x-small"
-                variant="text"
-                color="warning"
-                @click="resumeChannel(element.index)"
-                title="恢复"
-              >
-                <v-icon size="small">mdi-refresh</v-icon>
-              </v-btn>
+              <!-- 内联操作按钮（宽屏显示） -->
+              <div class="inline-actions">
+                <!-- 编辑 -->
+                <v-btn
+                  icon
+                  size="x-small"
+                  variant="text"
+                  color="primary"
+                  @click="$emit('edit', element)"
+                  title="编辑"
+                >
+                  <v-icon size="small">mdi-pencil</v-icon>
+                </v-btn>
 
+                <!-- 测试延迟 -->
+                <v-btn
+                  icon
+                  size="x-small"
+                  variant="text"
+                  color="info"
+                  @click="$emit('ping', element.index)"
+                  title="测试延迟"
+                >
+                  <v-icon size="small">mdi-speedometer</v-icon>
+                </v-btn>
+
+                <!-- 暂停/恢复 -->
+                <v-btn
+                  v-if="element.status === 'suspended'"
+                  icon
+                  size="x-small"
+                  variant="text"
+                  color="success"
+                  @click="resumeChannel(element.index)"
+                  title="恢复"
+                >
+                  <v-icon size="small">mdi-play-circle</v-icon>
+                </v-btn>
+                <v-btn
+                  v-else
+                  icon
+                  size="x-small"
+                  variant="text"
+                  color="warning"
+                  @click="setChannelStatus(element.index, 'suspended')"
+                  title="暂停"
+                >
+                  <v-icon size="small">mdi-pause-circle</v-icon>
+                </v-btn>
+
+                <!-- 移至备用池 -->
+                <v-btn
+                  icon
+                  size="x-small"
+                  variant="text"
+                  color="error"
+                  @click="setChannelStatus(element.index, 'disabled')"
+                  title="移至备用池"
+                >
+                  <v-icon size="small">mdi-stop-circle</v-icon>
+                </v-btn>
+              </div>
+
+              <!-- 更多操作菜单（宽屏：只有抢优先级和删除；窄屏：所有操作） -->
               <v-menu>
                 <template #activator="{ props }">
                   <v-btn icon size="x-small" variant="text" v-bind="props">
@@ -152,26 +205,24 @@
                   </v-btn>
                 </template>
                 <v-list density="compact">
-                  <v-list-item @click="$emit('edit', element)">
+                  <!-- 窄屏时显示的额外选项 -->
+                  <v-list-item class="menu-item-narrow" @click="$emit('edit', element)">
                     <template #prepend>
                       <v-icon size="small">mdi-pencil</v-icon>
                     </template>
                     <v-list-item-title>编辑</v-list-item-title>
                   </v-list-item>
-                  <v-list-item @click="$emit('ping', element.index)">
+                  <v-list-item class="menu-item-narrow" @click="$emit('ping', element.index)">
                     <template #prepend>
                       <v-icon size="small">mdi-speedometer</v-icon>
                     </template>
                     <v-list-item-title>测试延迟</v-list-item-title>
                   </v-list-item>
-                  <v-list-item @click="setPromotion(element)">
-                    <template #prepend>
-                      <v-icon size="small" color="info">mdi-rocket-launch</v-icon>
-                    </template>
-                    <v-list-item-title>抢优先级 (5分钟)</v-list-item-title>
-                  </v-list-item>
-                  <v-divider />
-                  <v-list-item v-if="element.status === 'suspended'" @click="resumeChannel(element.index)">
+                  <v-list-item
+                    v-if="element.status === 'suspended'"
+                    class="menu-item-narrow"
+                    @click="resumeChannel(element.index)"
+                  >
                     <template #prepend>
                       <v-icon size="small" color="success">mdi-play-circle</v-icon>
                     </template>
@@ -179,6 +230,7 @@
                   </v-list-item>
                   <v-list-item
                     v-if="element.status !== 'suspended'"
+                    class="menu-item-narrow"
                     @click="setChannelStatus(element.index, 'suspended')"
                   >
                     <template #prepend>
@@ -186,12 +238,21 @@
                     </template>
                     <v-list-item-title>暂停</v-list-item-title>
                   </v-list-item>
-                  <v-list-item @click="setChannelStatus(element.index, 'disabled')">
+                  <v-list-item class="menu-item-narrow" @click="setChannelStatus(element.index, 'disabled')">
                     <template #prepend>
                       <v-icon size="small" color="error">mdi-stop-circle</v-icon>
                     </template>
                     <v-list-item-title>移至备用池</v-list-item-title>
                   </v-list-item>
+                  <v-divider class="menu-item-narrow" />
+                  <!-- 始终显示的选项 -->
+                  <v-list-item @click="setPromotion(element)">
+                    <template #prepend>
+                      <v-icon size="small" color="info">mdi-rocket-launch</v-icon>
+                    </template>
+                    <v-list-item-title>抢优先级 (5分钟)</v-list-item-title>
+                  </v-list-item>
+                  <v-divider />
                   <v-list-item @click="handleDeleteChannel(element)" :disabled="!canDeleteChannel(element)">
                     <template #prepend>
                       <v-icon size="small" :color="canDeleteChannel(element) ? 'error' : 'grey'">mdi-delete</v-icon>
@@ -237,7 +298,6 @@
           <div class="channel-info">
             <div class="channel-info-main">
               <span class="font-weight-medium">{{ channel.name }}</span>
-              <span class="text-caption text-disabled ml-2">{{ channel.serviceType }}</span>
             </div>
             <div v-if="channel.description" class="channel-info-desc text-caption text-disabled">
               {{ channel.description }}
@@ -564,7 +624,7 @@ defineExpose({
 
 .channel-row {
   display: grid;
-  grid-template-columns: 36px 36px 110px 1fr 130px 90px 80px;
+  grid-template-columns: 36px 36px 110px 1fr 130px 90px 140px;
   align-items: center;
   gap: 10px;
   padding: 12px 16px;
@@ -701,6 +761,43 @@ defineExpose({
   justify-content: flex-end;
 }
 
+/* 内联操作按钮容器 */
+.inline-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* 内联操作按钮 hover 效果增强 */
+.inline-actions :deep(.v-btn:hover) {
+  background-color: rgba(var(--v-theme-on-surface), 0.15) !important;
+}
+
+.inline-actions :deep(.v-btn[color="primary"]:hover) {
+  background-color: rgba(var(--v-theme-primary), 0.2) !important;
+}
+
+.inline-actions :deep(.v-btn[color="info"]:hover) {
+  background-color: rgba(var(--v-theme-info), 0.2) !important;
+}
+
+.inline-actions :deep(.v-btn[color="warning"]:hover) {
+  background-color: rgba(var(--v-theme-warning), 0.2) !important;
+}
+
+.inline-actions :deep(.v-btn[color="success"]:hover) {
+  background-color: rgba(var(--v-theme-success), 0.2) !important;
+}
+
+.inline-actions :deep(.v-btn[color="error"]:hover) {
+  background-color: rgba(var(--v-theme-error), 0.2) !important;
+}
+
+/* 窄屏时隐藏的菜单项（默认隐藏） */
+.menu-item-narrow {
+  display: none !important;
+}
+
 /* 备用资源池样式 */
 .inactive-pool-header {
   display: flex;
@@ -766,16 +863,19 @@ defineExpose({
 }
 
 .inactive-channel-row .channel-info-main {
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  word-break: break-word;
 }
 
 .inactive-channel-row .channel-info-desc {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 1.3;
+  display: none;
 }
 
 .inactive-channel-row .channel-actions {
@@ -794,6 +894,15 @@ defineExpose({
   .channel-metrics,
   .channel-keys {
     display: none;
+  }
+
+  /* 窄屏时隐藏内联按钮，显示菜单中的选项 */
+  .inline-actions {
+    display: none;
+  }
+
+  .menu-item-narrow {
+    display: flex !important;
   }
 }
 

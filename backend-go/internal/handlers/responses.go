@@ -11,18 +11,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JillVernus/claude-proxy/internal/config"
-	"github.com/JillVernus/claude-proxy/internal/converters"
-	"github.com/JillVernus/claude-proxy/internal/httpclient"
-	"github.com/JillVernus/claude-proxy/internal/middleware"
-	"github.com/JillVernus/claude-proxy/internal/pricing"
-	"github.com/JillVernus/claude-proxy/internal/providers"
-	"github.com/JillVernus/claude-proxy/internal/requestlog"
-	"github.com/JillVernus/claude-proxy/internal/scheduler"
-	"github.com/JillVernus/claude-proxy/internal/session"
-	"github.com/JillVernus/claude-proxy/internal/types"
-	"github.com/JillVernus/claude-proxy/internal/utils"
+	"github.com/JillVernus/cc-bridge/internal/config"
+	"github.com/JillVernus/cc-bridge/internal/converters"
+	"github.com/JillVernus/cc-bridge/internal/httpclient"
+	"github.com/JillVernus/cc-bridge/internal/middleware"
+	"github.com/JillVernus/cc-bridge/internal/pricing"
+	"github.com/JillVernus/cc-bridge/internal/providers"
+	"github.com/JillVernus/cc-bridge/internal/requestlog"
+	"github.com/JillVernus/cc-bridge/internal/scheduler"
+	"github.com/JillVernus/cc-bridge/internal/session"
+	"github.com/JillVernus/cc-bridge/internal/types"
+	"github.com/JillVernus/cc-bridge/internal/utils"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 // ResponsesHandler Responses API 代理处理器
@@ -62,16 +63,20 @@ func ResponsesHandler(
 		// 优先级: Conversation_id Header > Session_id Header > prompt_cache_key > metadata.user_id
 		userID := extractConversationID(c, bodyBytes)
 
+		// 提取 reasoning.effort 用于日志显示
+		reasoningEffort := gjson.GetBytes(bodyBytes, "reasoning.effort").String()
+
 		// 创建 pending 请求日志记录
 		var requestLogID string
 		if reqLogManager != nil {
 			pendingLog := &requestlog.RequestLog{
-				Status:      requestlog.StatusPending,
-				InitialTime: startTime,
-				Model:       responsesReq.Model,
-				Stream:      responsesReq.Stream,
-				Endpoint:    "/v1/responses",
-				UserID:      userID,
+				Status:          requestlog.StatusPending,
+				InitialTime:     startTime,
+				Model:           responsesReq.Model,
+				ReasoningEffort: reasoningEffort,
+				Stream:          responsesReq.Stream,
+				Endpoint:        "/v1/responses",
+				UserID:          userID,
 			}
 			if err := reqLogManager.Add(pendingLog); err != nil {
 				log.Printf("⚠️ 创建 pending 请求日志失败: %v", err)

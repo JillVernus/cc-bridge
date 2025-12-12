@@ -63,30 +63,33 @@
     <!-- 应用栏 - 毛玻璃效果 -->
     <v-app-bar elevation="0" :height="$vuetify.display.mobile ? 56 : 72" class="app-header">
       <template #prepend>
-        <div class="app-logo">
-          <v-icon :size="$vuetify.display.mobile ? 22 : 32" color="white"> mdi-rocket-launch </v-icon>
+        <div class="app-logo" @click="showPricingSettings = true" style="cursor: pointer;" title="定价设置">
+          <v-icon :size="$vuetify.display.mobile ? 22 : 32" color="white"> mdi-cog </v-icon>
         </div>
       </template>
 
       <!-- 自定义标题容器 - 替代 v-app-bar-title -->
       <div class="header-title">
-        <div :class="$vuetify.display.mobile ? 'text-body-2' : 'text-h6'" class="font-weight-bold d-flex align-center">
-          <span class="api-type-text" :class="{ active: activeTab === 'messages' }" @click="activeTab = 'messages'">
-            Claude
-          </span>
-          <span class="api-type-text separator">/</span>
-          <span class="api-type-text" :class="{ active: activeTab === 'responses' }" @click="activeTab = 'responses'">
-            Codex
-          </span>
-          <span class="api-type-text separator">/</span>
-          <span class="api-type-text" :class="{ active: activeTab === 'logs' }" @click="activeTab = 'logs'">
-            Logs
-          </span>
-          <span class="brand-text d-none d-sm-inline">API Proxy</span>
-        </div>
+        <v-btn-toggle v-model="activeTab" mandatory class="nav-toggle">
+          <v-btn value="messages" class="nav-btn" :size="$vuetify.display.mobile ? 'small' : 'default'">
+            <v-icon start :size="$vuetify.display.mobile ? 16 : 20" icon="custom:claude" />
+            <span>Claude</span>
+          </v-btn>
+          <v-btn value="responses" class="nav-btn" :size="$vuetify.display.mobile ? 'small' : 'default'">
+            <v-icon start :size="$vuetify.display.mobile ? 16 : 20" icon="custom:codex" />
+            <span>Codex</span>
+          </v-btn>
+          <v-btn value="logs" class="nav-btn" :size="$vuetify.display.mobile ? 'small' : 'default'">
+            <v-icon start :size="$vuetify.display.mobile ? 16 : 20">mdi-format-list-bulleted</v-icon>
+            <span>Logs</span>
+          </v-btn>
+        </v-btn-toggle>
       </div>
 
       <v-spacer></v-spacer>
+
+      <!-- 版本号 -->
+      <span v-if="appVersion" class="version-badge mr-2">{{ appVersion }}</span>
 
       <!-- 暗色模式切换 -->
       <v-btn icon variant="text" size="small" class="header-btn" @click="toggleDarkMode">
@@ -322,6 +325,9 @@
       </v-card>
     </v-dialog>
 
+    <!-- 定价设置对话框 -->
+    <PricingSettings v-model="showPricingSettings" />
+
     <!-- Toast通知 -->
     <v-snackbar
       v-for="toast in toasts"
@@ -347,6 +353,7 @@ import { api, type Channel, type ChannelsResponse } from './services/api'
 import AddChannelModal from './components/AddChannelModal.vue'
 import ChannelOrchestration from './components/ChannelOrchestration.vue'
 import RequestLogTable from './components/RequestLogTable.vue'
+import PricingSettings from './components/PricingSettings.vue'
 import { useAppTheme } from './composables/useTheme'
 
 // Vuetify主题
@@ -373,6 +380,8 @@ const selectedChannelForKey = ref<number>(-1)
 const newApiKey = ref('')
 const isPingingAll = ref(false)
 const darkModePreference = ref<'light' | 'dark' | 'auto'>('auto')
+const appVersion = ref('') // 应用版本号
+const showPricingSettings = ref(false) // 定价设置对话框
 
 // Toast通知系统
 interface Toast {
@@ -860,6 +869,13 @@ onMounted(async () => {
     await refreshChannels()
     // 启动自动刷新
     startAutoRefresh()
+    // 获取版本信息
+    try {
+      const versionInfo = await api.getVersion()
+      appVersion.value = versionInfo.version
+    } catch (e) {
+      console.warn('Failed to fetch version:', e)
+    }
   }
 })
 
@@ -979,11 +995,30 @@ onUnmounted(() => {
   border: 2px solid rgb(var(--v-theme-on-surface));
   box-shadow: 3px 3px 0 0 rgb(var(--v-theme-on-surface));
   margin-right: 8px;
+  transition: all 0.1s ease;
+}
+
+.app-logo:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 0 rgb(var(--v-theme-on-surface));
+}
+
+.app-logo:active {
+  transform: translate(2px, 2px);
+  box-shadow: none;
 }
 
 .v-theme--dark .app-logo {
   border-color: rgba(255, 255, 255, 0.8);
   box-shadow: 3px 3px 0 0 rgba(255, 255, 255, 0.8);
+}
+
+.v-theme--dark .app-logo:hover {
+  box-shadow: 4px 4px 0 0 rgba(255, 255, 255, 0.8);
+}
+
+.v-theme--dark .app-logo:active {
+  box-shadow: none;
 }
 
 /* 自定义标题容器 */
@@ -993,42 +1028,53 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-.api-type-text {
-  cursor: pointer;
-  opacity: 0.5;
-  transition: all 0.1s ease;
-  padding: 4px 8px;
-  position: relative;
+/* 导航按钮组 - 复古像素风格 */
+.nav-toggle {
+  border: 2px solid rgb(var(--v-theme-on-surface)) !important;
+  box-shadow: 3px 3px 0 0 rgb(var(--v-theme-on-surface)) !important;
+  border-radius: 0 !important;
+  background: rgb(var(--v-theme-surface)) !important;
 }
 
-.api-type-text:not(.separator):hover {
-  opacity: 0.8;
-  background: rgba(var(--v-theme-primary), 0.15);
+.v-theme--dark .nav-toggle {
+  border-color: rgba(255, 255, 255, 0.7) !important;
+  box-shadow: 3px 3px 0 0 rgba(255, 255, 255, 0.7) !important;
 }
 
-.api-type-text.active {
-  opacity: 1;
-  font-weight: 700;
-  color: rgb(var(--v-theme-primary));
-  background: rgba(var(--v-theme-primary), 0.1);
-  border: 1px solid rgb(var(--v-theme-on-surface));
+.nav-btn {
+  border-radius: 0 !important;
+  text-transform: none !important;
+  font-weight: 600 !important;
+  letter-spacing: 0 !important;
+  border: none !important;
+  min-width: 80px !important;
 }
 
-.v-theme--dark .api-type-text.active {
-  border-color: rgba(255, 255, 255, 0.6);
+.nav-btn:not(:last-child) {
+  border-right: 2px solid rgb(var(--v-theme-on-surface)) !important;
 }
 
-.separator {
-  opacity: 0.25;
-  margin: 0 2px;
-  cursor: default;
-  padding: 0;
+.v-theme--dark .nav-btn:not(:last-child) {
+  border-right-color: rgba(255, 255, 255, 0.5) !important;
 }
 
-.brand-text {
-  margin-left: 10px;
-  color: rgb(var(--v-theme-primary));
-  font-weight: 700;
+.nav-toggle .nav-btn.v-btn--active {
+  background: rgb(var(--v-theme-primary)) !important;
+  color: white !important;
+}
+
+.nav-toggle .nav-btn:not(.v-btn--active):hover {
+  background: rgba(var(--v-theme-primary), 0.1) !important;
+}
+
+.version-badge {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  padding: 2px 8px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.2);
+  font-family: 'Courier New', monospace;
 }
 
 .header-btn {
@@ -1487,17 +1533,18 @@ onUnmounted(() => {
     box-shadow: 2px 2px 0 0 rgba(255, 255, 255, 0.7);
   }
 
-  .api-type-text {
-    padding: 2px 6px;
+  /* 移动端导航按钮调整 */
+  .nav-toggle {
+    box-shadow: 2px 2px 0 0 rgb(var(--v-theme-on-surface)) !important;
   }
 
-  .api-type-text.active {
-    color: rgb(var(--v-theme-primary)) !important;
-    font-weight: 800 !important;
+  .v-theme--dark .nav-toggle {
+    box-shadow: 2px 2px 0 0 rgba(255, 255, 255, 0.7) !important;
   }
 
-  .brand-text {
-    display: none;
+  .nav-btn {
+    min-width: 70px !important;
+    padding: 0 8px !important;
   }
 
   /* --- 统计卡片优化 --- */

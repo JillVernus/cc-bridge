@@ -9,11 +9,11 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/JillVernus/claude-proxy/internal/config"
-	"github.com/JillVernus/claude-proxy/internal/converters"
-	"github.com/JillVernus/claude-proxy/internal/session"
-	"github.com/JillVernus/claude-proxy/internal/types"
-	"github.com/JillVernus/claude-proxy/internal/utils"
+	"github.com/JillVernus/cc-bridge/internal/config"
+	"github.com/JillVernus/cc-bridge/internal/converters"
+	"github.com/JillVernus/cc-bridge/internal/session"
+	"github.com/JillVernus/cc-bridge/internal/types"
+	"github.com/JillVernus/cc-bridge/internal/utils"
 	"github.com/gin-gonic/gin"
 )
 

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/JillVernus/claude-proxy/internal/types"
+	"github.com/JillVernus/cc-bridge/internal/types"
 )
 
 // Session 会话数据结构

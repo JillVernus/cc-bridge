@@ -22,6 +22,7 @@ type RequestLog struct {
 	ProviderName             string    `json:"providerName"`  // actual provider/channel name
 	Model                    string    `json:"model"`         // 请求的模型名称
 	ResponseModel            string    `json:"responseModel"` // 响应中的模型名称（可能与请求不同）
+	ReasoningEffort          string    `json:"reasoningEffort,omitempty"` // Codex reasoning effort (low/medium/high/xhigh)
 	InputTokens              int       `json:"inputTokens"`
 	OutputTokens             int       `json:"outputTokens"`
 	CacheCreationInputTokens int       `json:"cacheCreationInputTokens"`

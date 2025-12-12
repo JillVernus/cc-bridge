@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/JillVernus/claude-proxy/internal/session"
-	"github.com/JillVernus/claude-proxy/internal/types"
+	"github.com/JillVernus/cc-bridge/internal/session"
+	"github.com/JillVernus/cc-bridge/internal/types"
 )
 
 // ============== Responses → Claude Messages ==============

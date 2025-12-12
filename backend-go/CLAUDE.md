@@ -4,6 +4,10 @@
 
 ## 变更记录 (Changelog)
 
+### 2025-12-12 - 项目重命名
+- 项目从 `claude-proxy` 重命名为 `cc-bridge`
+- Go 模块路径: `github.com/JillVernus/cc-bridge`
+
 ### 2025-12-11 - 初始索引
 - 创建模块文档
 - 记录核心子模块结构
@@ -13,13 +17,15 @@
 
 ## 模块职责
 
-Go 语言实现的 Claude API 代理服务器核心后端，提供：
+Go 语言实现的 CC-Bridge 核心后端，提供：
 - HTTP API 路由和处理
-- 多上游服务适配（OpenAI/Gemini/Claude）
+- 多上游服务适配（OpenAI/Claude）
 - 协议转换（Messages API / Responses API）
 - 多渠道智能调度和负载均衡
 - 会话管理和 Trace 亲和性
 - 配置热重载和指标监控
+- 请求日志（SQLite 存储）
+- 计费系统
 
 ## 入口与启动
 

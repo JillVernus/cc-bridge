@@ -95,7 +95,7 @@ cd backend-go
 air
 
 # 替代 make build
-go build -o claude-proxy.exe .
+go build -o cc-bridge.exe .
 
 # 替代 make run
 go run main.go
@@ -164,8 +164,8 @@ git --version   # 应显示 git 版本
 
 ```powershell
 # 1. 克隆项目
-git clone https://github.com/BenedictKing/claude-proxy
-cd claude-proxy
+git clone https://github.com/BenedictKing/cc-bridge
+cd cc-bridge
 
 # 2. 安装前端依赖
 cd frontend
@@ -210,7 +210,7 @@ taskkill /PID <PID> /F
 
 #### 路径包含空格
 
-确保项目路径不包含空格和中文字符，推荐使用如 `C:\projects\claude-proxy` 这样的路径。
+确保项目路径不包含空格和中文字符，推荐使用如 `C:\projects\cc-bridge` 这样的路径。
 
 ---
 
@@ -612,7 +612,7 @@ export PORT=3000
 bun run start
 
 # 4. 设置进程管理 (推荐 PM2)
-pm2 start server.ts --name claude-proxy
+pm2 start server.ts --name cc-bridge
 pm2 save
 pm2 startup
 ```
@@ -638,7 +638,7 @@ CMD ["bun", "run", "start"]
 ```bash
 # 构建和运行
 docker build -t claude-api-proxy .
-docker run -p 3000:3000 -v $(pwd)/backend/.config:/app/.config -v $(pwd)/backend/.env:/app/.env --name claude-proxy-container claude-api-proxy
+docker run -p 3000:3000 -v $(pwd)/backend/.config:/app/.config -v $(pwd)/backend/.env:/app/.env --name cc-bridge-container claude-api-proxy
 ```
 
 ## 🤝 贡献与发布

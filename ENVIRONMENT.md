@@ -7,7 +7,7 @@
 ## 配置文件结构
 
 ```
-claude-proxy/
+cc-bridge/
 ├── frontend/
 │   ├── .env                    # 前端默认配置
 │   ├── .env.development        # 开发环境配置
@@ -495,7 +495,7 @@ ENABLE_RESPONSE_LOGS=true
 1. **日志轮转**：定期清理旧日志，避免磁盘空间耗尽
 2. **访问控制**：限制日志文件的访问权限
    ```bash
-   chmod 600 /var/log/claude-proxy/*.log
+   chmod 600 /var/log/cc-bridge/*.log
    ```
 3. **敏感数据**：即使有脱敏，也应定期审查日志内容
 4. **合规要求**：根据数据保护法规（GDPR、CCPA等）管理日志
@@ -564,8 +564,8 @@ curl -H "x-api-key: $PROXY_ACCESS_KEY" http://localhost:3000/health
    journalctl --vacuum-time=7d
 
    # 或使用 logrotate
-   # /etc/logrotate.d/claude-proxy
-   /var/log/claude-proxy/*.log {
+   # /etc/logrotate.d/cc-bridge
+   /var/log/cc-bridge/*.log {
        daily
        rotate 7
        compress

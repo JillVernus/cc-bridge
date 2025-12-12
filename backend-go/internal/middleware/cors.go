@@ -3,7 +3,7 @@ package middleware
 import (
 	"strings"
 
-	"github.com/JillVernus/claude-proxy/internal/config"
+	"github.com/JillVernus/cc-bridge/internal/config"
 	"github.com/gin-gonic/gin"
 )
 

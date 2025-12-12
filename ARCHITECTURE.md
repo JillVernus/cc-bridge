@@ -1,6 +1,6 @@
 # 项目架构与设计
 
-本文档详细介绍 Claude API 代理服务器的架构设计、技术选型和实现细节。
+本文档详细介绍 CC-Bridge的架构设计、技术选型和实现细节。
 
 ## 项目结构
 
@@ -9,7 +9,7 @@
 项目采用 Monorepo 架构，由 Bun workspaces 管理，主要包含两个核心模块：
 
 ```
-claude-proxy/
+cc-bridge/
 ├── backend-go/              # Go 后端服务 (当前活跃)
 │   ├── cmd/                # 主程序入口
 │   ├── internal/           # 内部实现

@@ -461,6 +461,22 @@ class ApiService {
       method: 'POST'
     })
   }
+
+  // ============== 系统信息 API ==============
+
+  // 获取版本信息（从 /health 端点）
+  async getVersion(): Promise<{ version: string; buildTime: string; gitCommit: string }> {
+    // health 端点不在 /api 路径下，需要直接访问
+    const baseUrl = import.meta.env.PROD ? '' : (import.meta.env.VITE_BACKEND_URL || '')
+    const response = await fetch(`${baseUrl}/health`, {
+      headers: this.apiKey ? { 'x-api-key': this.apiKey } : {}
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch version')
+    }
+    const data = await response.json()
+    return data.version || { version: 'unknown', buildTime: 'unknown', gitCommit: 'unknown' }
+  }
 }
 
 // 请求日志类型
@@ -474,6 +490,7 @@ export interface RequestLog {
   providerName: string
   model: string
   responseModel?: string  // 响应中的模型名称（可能与请求不同）
+  reasoningEffort?: string  // Codex reasoning effort (low/medium/high/xhigh)
   inputTokens: number
   outputTokens: number
   cacheCreationInputTokens: number
@@ -542,8 +559,8 @@ export interface RequestLogStats {
 export interface ModelPricing {
   inputPrice: number              // 输入 token 价格 ($/1M tokens)
   outputPrice: number             // 输出 token 价格 ($/1M tokens)
-  cacheCreationPrice?: number     // 缓存创建价格 ($/1M tokens)
-  cacheReadPrice?: number         // 缓存读取价格 ($/1M tokens)
+  cacheCreationPrice?: number | null  // 缓存创建价格 ($/1M tokens)，null/undefined 表示使用默认值，0 表示免费
+  cacheReadPrice?: number | null      // 缓存读取价格 ($/1M tokens)，null/undefined 表示使用默认值，0 表示免费
   description?: string            // 模型描述
 }
 

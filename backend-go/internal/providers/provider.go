@@ -4,8 +4,8 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/JillVernus/claude-proxy/internal/config"
-	"github.com/JillVernus/claude-proxy/internal/types"
+	"github.com/JillVernus/cc-bridge/internal/config"
+	"github.com/JillVernus/cc-bridge/internal/types"
 	"github.com/gin-gonic/gin"
 )
 

@@ -6,15 +6,15 @@ import (
 	"log"
 	"time"
 
-	"github.com/JillVernus/claude-proxy/internal/config"
-	"github.com/JillVernus/claude-proxy/internal/handlers"
-	"github.com/JillVernus/claude-proxy/internal/logger"
-	"github.com/JillVernus/claude-proxy/internal/metrics"
-	"github.com/JillVernus/claude-proxy/internal/middleware"
-	"github.com/JillVernus/claude-proxy/internal/pricing"
-	"github.com/JillVernus/claude-proxy/internal/requestlog"
-	"github.com/JillVernus/claude-proxy/internal/scheduler"
-	"github.com/JillVernus/claude-proxy/internal/session"
+	"github.com/JillVernus/cc-bridge/internal/config"
+	"github.com/JillVernus/cc-bridge/internal/handlers"
+	"github.com/JillVernus/cc-bridge/internal/logger"
+	"github.com/JillVernus/cc-bridge/internal/metrics"
+	"github.com/JillVernus/cc-bridge/internal/middleware"
+	"github.com/JillVernus/cc-bridge/internal/pricing"
+	"github.com/JillVernus/cc-bridge/internal/requestlog"
+	"github.com/JillVernus/cc-bridge/internal/scheduler"
+	"github.com/JillVernus/cc-bridge/internal/session"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
@@ -76,6 +76,25 @@ func main() {
 		reqLogManager = nil
 	} else {
 		log.Printf("✅ 请求日志管理器已初始化")
+
+		// 启动定期清理 stale pending 请求的 goroutine
+		go func() {
+			// 立即执行一次清理（处理服务重启前遗留的 pending 请求）
+			if updated, err := reqLogManager.CleanupStalePending(300); err != nil {
+				log.Printf("⚠️ 清理 stale pending 请求失败: %v", err)
+			} else if updated > 0 {
+				log.Printf("✅ 启动时清理了 %d 个 stale pending 请求", updated)
+			}
+
+			// 每 60 秒检查一次
+			ticker := time.NewTicker(60 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				if _, err := reqLogManager.CleanupStalePending(300); err != nil {
+					log.Printf("⚠️ 清理 stale pending 请求失败: %v", err)
+				}
+			}
+		}()
 	}
 
 	// 初始化定价管理器

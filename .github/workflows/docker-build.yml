@@ -7,7 +7,7 @@ on:
 
 env:
   REGISTRY: crpi-i19l8zl0ugidq97v.cn-hangzhou.personal.cr.aliyuncs.com
-  IMAGE_NAME: bene/claude-proxy
+  IMAGE_NAME: bene/cc-bridge
 
 jobs:
   build_docker_image:

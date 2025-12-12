@@ -1,7 +1,7 @@
-# Makefile for Claude Proxy Go Backend
+# Makefile for CC-Bridge Go Backend
 
 # 变量定义
-BINARY_NAME=claude-proxy-go
+BINARY_NAME=cc-bridge
 MAIN_PATH=.
 BUILD_DIR=../dist
 AIR_VERSION=v1.52.0
@@ -19,7 +19,7 @@ NC=\033[0m # No Color
 
 # 默认目标 - 显示帮助
 help:
-	@echo "$(GREEN)Claude Proxy Go Backend - 可用命令:$(NC)"
+	@echo "$(GREEN)CC-Bridge Go Backend - 可用命令:$(NC)"
 	@echo ""
 	@echo "$(YELLOW)开发命令:$(NC)"
 	@echo "  make dev          - 启动开发模式 (热重载)"

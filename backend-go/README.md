@@ -1,6 +1,6 @@
-# Claude Proxy - Go 版本
+# CC-Bridge - Go 版本
 
-> 🚀 高性能的 Claude API 代理服务器 - Go 语言实现，支持多种上游AI服务提供商，内置前端管理界面
+> 🚀 高性能的 CC-Bridge - Go 语言实现，支持多种上游AI服务提供商，内置前端管理界面
 
 ## 特性
 
@@ -42,7 +42,7 @@
 
 ### 方式1：下载预编译二进制文件（推荐）
 
-1. 从 [Releases](https://github.com/yourusername/claude-proxy/releases) 下载对应平台的二进制文件
+1. 从 [Releases](https://github.com/yourusername/cc-bridge/releases) 下载对应平台的二进制文件
 2. 创建 `.env` 文件：
 
 ```bash
@@ -57,10 +57,10 @@ nano .env
 
 ```bash
 # Linux / macOS
-./claude-proxy-linux-amd64
+./cc-bridge-linux-amd64
 
 # Windows
-claude-proxy-windows-amd64.exe
+cc-bridge-windows-amd64.exe
 ```
 
 ### 方式2：从源码构建
@@ -74,8 +74,8 @@ claude-proxy-windows-amd64.exe
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/yourusername/claude-proxy.git
-cd claude-proxy
+git clone https://github.com/yourusername/cc-bridge.git
+cd cc-bridge
 
 # 2. 构建前端
 cd frontend
@@ -468,4 +468,4 @@ MIT License
 
 ---
 
-**注意**: 这是 Claude Proxy 的 Go 语言重写版本，完整实现了原 TypeScript 版本的所有功能，并提供了更好的性能和部署体验。
+**注意**: 这是 CC-Bridge 的 Go 语言重写版本，完整实现了原 TypeScript 版本的所有功能，并提供了更好的性能和部署体验。

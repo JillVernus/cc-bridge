@@ -1,4 +1,4 @@
-module github.com/JillVernus/claude-proxy
+module github.com/JillVernus/cc-bridge
 
 go 1.22
 

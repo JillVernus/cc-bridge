@@ -1,38 +1,64 @@
-2025-12-11 : 自用版本, 有需要自取, 比起原repo 新增了請求的log頁面, 以sqlite為db. 
+# CC-Bridge
 
+[English](README.md) | [中文](README_CN.md)
 
-
-# Claude API 代理服务器
-
-[![GitHub release](https://img.shields.io/github/v/release/BenedictKing/claude-proxy)](https://github.com/BenedictKing/claude-proxy/releases/latest)
+[![GitHub release](https://img.shields.io/github/v/release/JillVernus/cc-bridge)](https://github.com/JillVernus/cc-bridge/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-一个高性能的 Claude API 代理服务器，支持多种上游 AI 服务提供商（OpenAI、Gemini、自定义 API），提供负载均衡、多 API 密钥管理和统一入口访问。
+> **Fork Notice**: This project is forked from [BenedictKing/claude-proxy v2.0.44](https://github.com/BenedictKing/claude-proxy/tree/v2.0.44) under MIT License.
+>
+> **Disclaimer**: This repository is developed for personal use. Features are added based on personal needs and may not be suitable for all use cases. Use at your own risk.
 
-## 🚀 功能特性
+A high-performance multi-provider AI proxy server supporting OpenAI and Claude and custom APIs with load balancing, multi-API key management, and unified API access.
 
-- **🖥️ 一体化架构**: 后端集成前端，单容器部署，完全替代 Nginx
-- **🔐 统一认证**: 一个密钥保护所有入口（前端界面、管理 API、代理 API）
-- **📱 Web 管理面板**: 现代化可视化界面，支持渠道管理、实时监控和配置
-- **双 API 支持**: 同时支持 Claude Messages API (`/v1/messages`) 和 Codex Responses API (`/v1/responses`)
-- **统一入口**: 通过统一端点访问不同的 AI 服务
-- **多上游支持**: 支持 OpenAI (及兼容 API)、Gemini 和 Claude 等多种上游服务
-- **🔌 协议转换**: Messages API 支持通过 OpenAI 兼容接口转接到其他 AI 服务
-- **🎯 智能调度**: 多渠道智能调度器，支持优先级排序、健康检查和自动熔断
-- **📊 渠道编排**: 可视化渠道管理，拖拽调整优先级，实时查看健康状态
-- **🔄 Trace 亲和**: 同一用户会话自动绑定到同一渠道，提升一致性体验
-- **负载均衡**: 支持轮询、随机、故障转移策略，Claude/Codex 负载均衡互不影响
-- **多 API 密钥**: 每个上游可配置多个 API 密钥，自动轮换使用（推荐 failover 策略以最大化利用 Prompt Caching）
-- **增强的稳定性**: 内置上游请求超时与重试机制，确保服务在网络波动时依然可靠
-- **自动重试与密钥降级**: 检测到额度/余额不足等错误时自动切换下一个可用密钥；若后续请求成功，再将失败密钥移动到末尾（降级）；所有密钥均失败时按上游原始错误返回
-- **⚡ 自动熔断**: 基于滑动窗口算法检测渠道健康度，失败率过高自动熔断，15 分钟后自动恢复
-- **双重配置**: 支持命令行工具和 Web 界面管理上游配置
-- **环境变量**: 通过 `.env` 文件灵活配置服务器参数
-- **健康检查**: 内置健康检查端点和实时状态监控
-- **日志系统**: 完整的请求/响应日志记录
-- **📡 支持流式和非流式响应**
-- **🛠️ 支持工具调用**
-- **💬 会话管理**: Responses API 支持多轮对话的会话跟踪和上下文保持
+---
+
+## ✨ New Features (Beyond Upstream)
+
+### 📊 Request Log System
+- **Request Log Page**: Full-featured log viewer with SQLite storage
+- **Summary Statistics**: View usage by model and by provider
+- **Auto-refresh**: Real-time log updates with configurable refresh interval
+- **Detailed Logs**: Includes timestamp, model, provider, tokens (input/output/cache read/cache write), cost, duration, status
+- **Date Filters**: Filter logs by date range
+- **Reset Database**: One-click SQLite reset button in Web UI
+
+### 💰 Pricing System
+- **Base Price Model**: Configure base prices for each model
+- **Provider Multiplier**: Set price multipliers per provider (e.g., 1.2x for premium providers)
+- **Model Multiplier**: Set price multipliers per model
+- **Token Type Pricing**: Separate pricing for input/output/cache tokens
+
+### 🎨 UI Improvements
+- **Refactored Header**: Gear icon for settings, separate buttons for Messages/Responses provider types, and Log page button
+- **Improved Channel Orchestration**: Better button arrangement in failover sequence (故障转移序列), resized provider name space in backup pool (备用资源池)
+- **Claude & Codex Icons**: Visual distinction between provider types
+
+### 🔧 Other Enhancements
+- **Codex Support in Request Logs**: Track both Claude Messages API and Codex Responses API requests
+- **Special Provider Types**: Support for additional provider configurations
+
+---
+
+## 🚀 Core Features (From Upstream)
+
+- **🖥️ All-in-One Architecture**: Backend + Frontend in single container, replaces Nginx
+- **🔐 Unified Authentication**: Single key protects all endpoints (Web UI, Admin API, Proxy API)
+- **📱 Web Management Panel**: Modern UI for channel management, real-time monitoring
+- **Dual API Support**: Claude Messages API (`/v1/messages`) and Codex Responses API (`/v1/responses`)
+- **Multi-Provider Support**: OpenAI (and compatible APIs) and Claude
+- **🔌 Protocol Conversion**: Automatic conversion between Claude/OpenAI formats
+- **🎯 Smart Scheduling**: Priority-based routing, health checks, auto circuit-breaker
+- **📊 Channel Orchestration**: Drag-and-drop priority, real-time health status
+- **🔄 Trace Affinity**: Same user session binds to same channel
+- **Load Balancing**: Round-robin, random, failover strategies
+- **Multi API Keys**: Multiple keys per upstream with auto-rotation
+- **Auto Retry & Key Degradation**: Auto-switch on quota/balance errors
+- **⚡ Auto Circuit-Breaker**: Sliding window health detection, 15-min auto-recovery
+- **Hot Reload**: Config changes apply without restart
+- **📡 Streaming & Non-streaming**: Full support for both modes
+- **🛠️ Tool Calling**: Full tool/function calling support
+- **💬 Session Management**: Multi-turn conversation tracking for Responses API
 
 ## 🏗️ 架构设计
 
@@ -52,54 +78,61 @@
 
 ## 🏁 快速开始
 
-### 📦 推荐部署方式
+### 📋 Prerequisites
 
-我们**强烈推荐**以下两种方式部署，它们经过充分测试，性能优异：
+**For Docker deployment (Recommended):**
+- Docker 20.10+
+- Docker Compose v2+ (optional)
 
-| 部署方式       | 启动时间 | 内存占用 | 适用场景           |
-| -------------- | -------- | -------- | ------------------ |
-| **📥 直接下载** | 即时     | ~20MB    | 最快上手、无需构建 |
-| **🐳 Docker**  | ~2s      | ~25MB    | 生产环境、一键部署 |
-| **🚀 源码构建** | <100ms   | ~20MB    | 开发调试、自定义   |
+**For source build:**
+- Go 1.22+
+- Bun 1.0+ (or Node.js 18+ with npm)
+- Make (optional, for using Makefile commands)
+- Git
+
+<details>
+<summary>📦 Installation Commands</summary>
+
+**macOS:**
+```bash
+# Install Homebrew first if not installed
+brew install go bun make
+```
+
+**Ubuntu/Debian:**
+```bash
+# Go
+wget https://go.dev/dl/go1.22.0.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.22.0.linux-amd64.tar.gz
+export PATH=$PATH:/usr/local/go/bin
+
+# Bun
+curl -fsSL https://bun.sh/install | bash
+
+# Make
+sudo apt install make
+```
+
+**Windows:**
+```powershell
+# Using Chocolatey
+choco install golang bun make
+
+# Or using Scoop
+scoop install go bun make
+```
+</details>
 
 ---
 
-### 方式零：📥 直接下载可执行文件（最快）
+### 📦 推荐部署方式
 
-**无需安装任何依赖，下载即用**
+| 部署方式       | 启动时间 | 内存占用 | 适用场景           |
+| -------------- | -------- | -------- | ------------------ |
+| **🐳 Docker**  | ~2s      | ~25MB    | 生产环境、一键部署（推荐） |
+| **🚀 源码构建** | <100ms   | ~20MB    | 开发调试、自定义   |
 
-前往 [Releases 页面](https://github.com/BenedictKing/claude-proxy/releases/latest) 下载适合您系统的版本：
-
-| 操作系统 | 架构 | 文件名 |
-|---------|------|--------|
-| **Windows** | x64 | `claude-proxy-windows-amd64.exe` |
-| **Windows** | ARM64 | `claude-proxy-windows-arm64.exe` |
-| **macOS** | Intel | `claude-proxy-darwin-amd64` |
-| **macOS** | Apple Silicon | `claude-proxy-darwin-arm64` |
-| **Linux** | x64 | `claude-proxy-linux-amd64` |
-| **Linux** | ARM64 | `claude-proxy-linux-arm64` |
-
-**快速启动：**
-
-```bash
-# Linux / macOS
-chmod +x claude-proxy-*
-./claude-proxy-linux-amd64  # 或对应的文件名
-
-# Windows (PowerShell)
-.\claude-proxy-windows-amd64.exe
-```
-
-**配置方式：**
-
-1. 创建 `.env` 文件（与可执行文件同目录）:
-```bash
-PROXY_ACCESS_KEY=your-super-strong-secret-key
-PORT=3000
-ENABLE_WEB_UI=true
-```
-
-2. 启动服务后访问 `http://localhost:3000`
+> **Note**: Pre-built executables are not provided. Please use Docker or build from source.
 
 ---
 
@@ -110,19 +143,19 @@ ENABLE_WEB_UI=true
 ```bash
 # 直接拉取预构建镜像并运行
 docker run -d \
-  --name claude-proxy \
+  --name cc-bridge \
   -p 3000:3000 \
   -e PROXY_ACCESS_KEY=your-super-strong-secret-key \
   -v $(pwd)/.config:/app/.config \
-  crpi-i19l8zl0ugidq97v.cn-hangzhou.personal.cr.aliyuncs.com/bene/claude-proxy:latest
+  crpi-i19l8zl0ugidq97v.cn-hangzhou.personal.cr.aliyuncs.com/bene/cc-bridge:latest
 ```
 
 或使用 docker-compose：
 
 ```bash
 # 1. 克隆项目（仅需 docker-compose.yml）
-git clone https://github.com/BenedictKing/claude-proxy
-cd claude-proxy
+git clone https://github.com/JillVernus/cc-bridge
+cd cc-bridge
 
 # 2. 修改 docker-compose.yml 中的 PROXY_ACCESS_KEY
 
@@ -145,8 +178,8 @@ docker-compose up -d
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/BenedictKing/claude-proxy
-cd claude-proxy
+git clone https://github.com/JillVernus/cc-bridge
+cd cc-bridge
 
 # 2. 配置环境变量
 cp backend-go/.env.example backend-go/.env
@@ -179,7 +212,7 @@ make help          # 查看所有可用命令
 预构建镜像托管在阿里云容器镜像服务：
 
 ```
-crpi-i19l8zl0ugidq97v.cn-hangzhou.personal.cr.aliyuncs.com/bene/claude-proxy:latest
+crpi-i19l8zl0ugidq97v.cn-hangzhou.personal.cr.aliyuncs.com/bene/cc-bridge:latest
 ```
 
 支持 `linux/amd64` 和 `linux/arm64` 架构。
@@ -191,11 +224,11 @@ crpi-i19l8zl0ugidq97v.cn-hangzhou.personal.cr.aliyuncs.com/bene/claude-proxy:lat
 ```yaml
 # docker-compose.yml
 services:
-  claude-proxy:
+  cc-bridge:
     build:
       context: .
       dockerfile: Dockerfile  # 国内网络使用 Dockerfile_China
-    container_name: claude-proxy
+    container_name: cc-bridge
     ports:
       - '3000:3000' # 统一端口
     environment:
@@ -327,7 +360,7 @@ echo "新密钥: $NEW_PROXY_ACCESS_KEY"
 export PROXY_ACCESS_KEY=$NEW_PROXY_ACCESS_KEY
 
 # 重启服务
-docker-compose restart claude-proxy
+docker-compose restart cc-bridge
 ```
 
 ## 📖 API 使用
@@ -487,7 +520,6 @@ curl -H "x-api-key: your-proxy-access-key" \
 - ✅ **Claude API** (Anthropic) - 原生支持，直接透传
 - ✅ **OpenAI API** - 自动转换 Claude 格式 ↔ OpenAI 格式
 - ✅ **OpenAI 兼容 API** - 支持所有兼容 OpenAI 格式的服务
-- ✅ **Gemini API** (Google) - 自动转换 Claude 格式 ↔ Gemini 格式
 
 **核心优势**:
 
@@ -594,10 +626,10 @@ GET /health
 ```bash
 # Docker 容器状态
 docker-compose ps
-docker-compose logs -f claude-proxy
+docker-compose logs -f cc-bridge
 
 # 性能监控
-docker stats claude-proxy
+docker stats cc-bridge
 
 # 存储使用
 du -sh .config/ logs/
@@ -629,7 +661,7 @@ ENABLE_RESPONSE_LOGS=true  # 记录响应日志
 
    ```bash
    # 检查日志
-   docker-compose logs claude-proxy
+   docker-compose logs cc-bridge
 
    # 检查端口占用
    lsof -i :3000
@@ -644,7 +676,7 @@ ENABLE_RESPONSE_LOGS=true  # 记录响应日志
    ```bash
    # 方案1: 重新构建（推荐）
    make build-current
-   cd backend-go && ./dist/claude-proxy
+   cd backend-go && ./dist/cc-bridge
 
    # 方案2: 验证构建产物是否存在
    ls -la frontend/dist/index.html
@@ -659,10 +691,10 @@ ENABLE_RESPONSE_LOGS=true  # 记录响应日志
 
    ```bash
    # 检查 ENABLE_WEB_UI 设置
-   docker-compose exec claude-proxy printenv ENABLE_WEB_UI
+   docker-compose exec cc-bridge printenv ENABLE_WEB_UI
 
    # 检查文件路径（Docker内部会自动复制到正确位置）
-   docker-compose exec claude-proxy ls -la /app/frontend/dist/
+   docker-compose exec cc-bridge ls -la /app/frontend/dist/
 
    # 重新构建镜像
    docker-compose build --no-cache
@@ -700,10 +732,9 @@ docker-compose up -d --build
 
 | Workflow | 说明 |
 |----------|------|
-| `release-linux.yml` | 构建 Linux amd64/arm64 版本 |
-| `release-macos.yml` | 构建 macOS amd64/arm64 版本 |
-| `release-windows.yml` | 构建 Windows amd64/arm64 版本 |
 | `docker-build.yml` | 构建多平台 Docker 镜像 (阿里云 ACR) |
+
+> **Note**: Pre-built executables are not provided. Only Docker images are automatically built.
 
 ### 发布新版本
 
@@ -716,8 +747,6 @@ git add . && git commit -m "chore: bump version to vX.Y.Z"
 git tag vX.Y.Z
 git push origin main --tags
 ```
-
-发布为 **draft** 模式，需在 GitHub Releases 页面手动确认发布。
 
 ## 📖 使用指南
 
@@ -742,6 +771,6 @@ cd backend-go && make help
 
 ## 🙏 致谢
 
+- [BenedictKing/claude-proxy](https://github.com/BenedictKing/claude-proxy) - 上游项目
 - [Anthropic](https://www.anthropic.com/) - Claude API
 - [OpenAI](https://openai.com/) - GPT API
-- [Google](https://cloud.google.com/vertex-ai) - Gemini API

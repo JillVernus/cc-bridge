@@ -7,9 +7,9 @@ import (
 	"sync" // 新增
 	"time" // 新增
 
-	"github.com/JillVernus/claude-proxy/internal/config"
-	"github.com/JillVernus/claude-proxy/internal/httpclient" // 新增
-	"github.com/JillVernus/claude-proxy/internal/scheduler"
+	"github.com/JillVernus/cc-bridge/internal/config"
+	"github.com/JillVernus/cc-bridge/internal/httpclient" // 新增
+	"github.com/JillVernus/cc-bridge/internal/scheduler"
 	"github.com/gin-gonic/gin"
 )
 

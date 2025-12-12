@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/JillVernus/claude-proxy/internal/requestlog"
+	"github.com/JillVernus/cc-bridge/internal/requestlog"
 	"github.com/gin-gonic/gin"
 )
 

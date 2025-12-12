@@ -198,9 +198,9 @@ git push origin v{新版本号}
 
 | Workflow | Runner | 产物 |
 |----------|--------|------|
-| `release-linux.yml` | ubuntu-latest | `claude-proxy-linux-amd64`, `claude-proxy-linux-arm64` |
-| `release-macos.yml` | macos-latest | `claude-proxy-darwin-amd64`, `claude-proxy-darwin-arm64` |
-| `release-windows.yml` | windows-latest | `claude-proxy-windows-amd64.exe`, `claude-proxy-windows-arm64.exe` |
+| `release-linux.yml` | ubuntu-latest | `cc-bridge-linux-amd64`, `cc-bridge-linux-arm64` |
+| `release-macos.yml` | macos-latest | `cc-bridge-darwin-amd64`, `cc-bridge-darwin-arm64` |
+| `release-windows.yml` | windows-latest | `cc-bridge-windows-amd64.exe`, `cc-bridge-windows-arm64.exe` |
 | `docker-build.yml` | ubuntu-latest | Docker 镜像 (ghcr.io, linux/amd64 + linux/arm64) |
 
 ### 发布内容
