@@ -106,11 +106,15 @@
       <v-col cols="2">
         <v-card class="summary-card date-filter-card" density="compact">
           <v-card-title class="text-subtitle-2 pa-2">{{ t('requestLog.dateFilter') }}</v-card-title>
-          <div class="date-filter d-flex align-center justify-center pa-4">
+          <div class="date-filter d-flex align-center justify-center pa-2">
             <v-btn icon variant="text" size="small" class="neo-btn" @click="prevDay">
               <v-icon size="20">mdi-chevron-left</v-icon>
             </v-btn>
-            <span class="date-display mx-4 text-h6">{{ filterDate }}</span>
+            <div class="date-display-vertical mx-2">
+              <div class="date-year">{{ filterYear }}</div>
+              <div class="date-month">{{ filterMonth }}</div>
+              <div class="date-day">{{ filterDay }}</div>
+            </div>
             <v-btn icon variant="text" size="small" class="neo-btn" @click="nextDay" :disabled="isToday">
               <v-icon size="20">mdi-chevron-right</v-icon>
             </v-btn>
@@ -493,6 +497,11 @@ const getLocalDateString = (date: Date) => {
 }
 const filterDate = ref(getLocalDateString(new Date()))
 const isToday = computed(() => filterDate.value === getLocalDateString(new Date()))
+
+// Separate date parts for vertical display
+const filterYear = computed(() => filterDate.value.split('-')[0])
+const filterMonth = computed(() => filterDate.value.split('-')[1])
+const filterDay = computed(() => filterDate.value.split('-')[2])
 
 // Sorted stats by cost (descending), then by total tokens (descending)
 const getTotalTokens = (data: GroupStats) => {
@@ -1082,6 +1091,29 @@ const silentRefresh = async () => {
   font-family: 'Courier New', monospace;
   min-width: 120px;
   text-align: center;
+}
+
+.date-display-vertical {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: 'Courier New', monospace;
+  line-height: 1.2;
+}
+
+.date-year {
+  font-size: 0.85rem;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
+
+.date-month {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.date-day {
+  font-size: 1.5rem;
+  font-weight: 700;
 }
 
 .action-bar {
