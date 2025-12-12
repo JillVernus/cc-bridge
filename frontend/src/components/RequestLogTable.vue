@@ -21,7 +21,7 @@
               </thead>
               <tbody class="summary-table-body">
                 <tr v-for="[model, data] in sortedByModel" :key="model" :class="{ 'summary-row-flash': updatedModels.has(String(model)) }">
-                  <td class="text-caption col-model">{{ truncateModel(String(model)) }}</td>
+                  <td class="text-caption col-model font-weight-bold">{{ truncateModel(String(model)) }}</td>
                   <td class="text-end text-caption col-small">{{ data.count }}</td>
                   <td class="text-end text-caption col-small">{{ formatNumber(data.inputTokens) }}</td>
                   <td class="text-end text-caption col-small">{{ formatNumber(data.outputTokens) }}</td>
@@ -71,7 +71,7 @@
               </thead>
               <tbody class="summary-table-body">
                 <tr v-for="[provider, data] in sortedByProvider" :key="provider" :class="{ 'summary-row-flash': updatedProviders.has(String(provider)) }">
-                  <td class="text-caption col-model">{{ provider }}</td>
+                  <td class="text-caption col-model font-weight-bold">{{ provider }}</td>
                   <td class="text-end text-caption col-small">{{ data.count }}</td>
                   <td class="text-end text-caption col-small">{{ formatNumber(data.inputTokens) }}</td>
                   <td class="text-end text-caption col-small">{{ formatNumber(data.outputTokens) }}</td>
@@ -106,18 +106,20 @@
       <v-col cols="2">
         <v-card class="summary-card date-filter-card" density="compact">
           <v-card-title class="text-subtitle-2 pa-2">{{ t('requestLog.dateFilter') }}</v-card-title>
-          <div class="date-filter d-flex align-center justify-center pa-2">
-            <v-btn icon variant="text" size="small" class="neo-btn" @click="prevDay">
-              <v-icon size="20">mdi-chevron-left</v-icon>
-            </v-btn>
-            <div class="date-display-vertical mx-2">
-              <div class="date-year">{{ filterYear }}</div>
-              <div class="date-month">{{ filterMonth }}</div>
-              <div class="date-day">{{ filterDay }}</div>
+          <div class="date-filter d-flex flex-column align-center justify-center pa-2">
+            <div class="date-year">{{ filterYear }}</div>
+            <div class="date-nav d-flex align-center">
+              <v-btn icon variant="text" size="small" class="neo-btn" @click="prevDay">
+                <v-icon size="20">mdi-chevron-left</v-icon>
+              </v-btn>
+              <div class="date-display-vertical mx-2">
+                <div class="date-month">{{ filterMonth }}</div>
+                <div class="date-day">{{ filterDay }}</div>
+              </div>
+              <v-btn icon variant="text" size="small" class="neo-btn" @click="nextDay" :disabled="isToday">
+                <v-icon size="20">mdi-chevron-right</v-icon>
+              </v-btn>
             </div>
-            <v-btn icon variant="text" size="small" class="neo-btn" @click="nextDay" :disabled="isToday">
-              <v-icon size="20">mdi-chevron-right</v-icon>
-            </v-btn>
           </div>
         </v-card>
       </v-col>
@@ -997,19 +999,22 @@ const silentRefresh = async () => {
 
 .summary-table {
   font-size: 0.75rem;
+  font-family: 'Courier New', monospace;
   flex: 1;
   display: flex;
   flex-direction: column;
 }
 
 .summary-table th {
-  font-size: 0.85rem !important;
+  font-size: 0.75rem !important;
   font-weight: 700 !important;
+  font-family: 'Courier New', monospace !important;
   padding: 6px 8px !important;
 }
 
 .summary-table td {
   padding: 4px 8px !important;
+  font-family: 'Courier New', monospace !important;
 }
 
 /* Scrollable tbody for summary tables - 4 rows max */
@@ -1049,6 +1054,7 @@ const silentRefresh = async () => {
 
 .summary-table-footer-fixed .total-row td {
   padding: 6px 8px;
+  font-family: 'Courier New', monospace;
 }
 
 /* Old tfoot styles - kept for backward compatibility */
@@ -1102,18 +1108,26 @@ const silentRefresh = async () => {
 }
 
 .date-year {
-  font-size: 0.85rem;
-  color: rgba(var(--v-theme-on-surface), 0.6);
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-family: 'Courier New', monospace;
+  color: rgba(var(--v-theme-on-surface), 0.7);
+  margin-bottom: 2px;
 }
 
 .date-month {
-  font-size: 1.5rem;
+  font-size: 1.25rem;
   font-weight: 700;
 }
 
 .date-day {
-  font-size: 1.5rem;
+  font-size: 1.25rem;
   font-weight: 700;
+}
+
+.date-nav {
+  display: flex;
+  align-items: center;
 }
 
 .action-bar {
