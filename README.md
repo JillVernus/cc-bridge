@@ -4,6 +4,7 @@
 
 [![GitHub release](https://img.shields.io/github/v/release/JillVernus/cc-bridge)](https://github.com/JillVernus/cc-bridge/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Docker Image](https://img.shields.io/badge/ghcr.io-jillvernus%2Fcc--bridge-blue?logo=docker)](https://github.com/JillVernus/cc-bridge/pkgs/container/cc-bridge)
 
 > **Fork Notice**: This project is forked from [BenedictKing/claude-proxy v2.0.44](https://github.com/BenedictKing/claude-proxy/tree/v2.0.44) under MIT License.
 >
@@ -140,8 +141,10 @@ scoop install go bun make
 
 **适合所有用户，无需安装依赖，一键启动**
 
+#### 直接拉取镜像运行（最简单）
+
 ```bash
-# 直接拉取预构建镜像并运行
+# 拉取并运行最新版本
 docker run -d \
   --name cc-bridge \
   -p 3000:3000 \
@@ -150,10 +153,25 @@ docker run -d \
   ghcr.io/jillvernus/cc-bridge:latest
 ```
 
-或使用 docker-compose：
+**可用镜像标签：**
+
+| 标签 | 说明 |
+|------|------|
+| `latest` | 最新稳定版本 |
+| `v1.0.0`, `v1.0.1`, ... | 特定版本号 |
 
 ```bash
-# 1. 克隆项目（仅需 docker-compose.yml）
+# 使用特定版本
+docker pull ghcr.io/jillvernus/cc-bridge:v1.0.1
+
+# 查看可用标签
+# https://github.com/JillVernus/cc-bridge/pkgs/container/cc-bridge
+```
+
+#### 使用 docker-compose
+
+```bash
+# 1. 创建 docker-compose.yml（或克隆项目获取）
 git clone https://github.com/JillVernus/cc-bridge
 cd cc-bridge
 
@@ -211,11 +229,24 @@ make help          # 查看所有可用命令
 
 预构建镜像托管在 GitHub Container Registry：
 
-```
+```bash
+# 镜像地址
 ghcr.io/jillvernus/cc-bridge:latest
+
+# 拉取镜像
+docker pull ghcr.io/jillvernus/cc-bridge:latest
+
+# 拉取特定版本
+docker pull ghcr.io/jillvernus/cc-bridge:v1.0.1
 ```
 
-支持 `linux/amd64` 和 `linux/arm64` 架构。
+**可用标签：**
+- `latest` - 最新稳定版本（推荐）
+- `vX.Y.Z` - 特定版本号（如 `v1.0.0`, `v1.0.1`）
+
+**支持架构：** `linux/amd64`, `linux/arm64`
+
+**镜像仓库：** https://github.com/JillVernus/cc-bridge/pkgs/container/cc-bridge
 
 ### 自定义部署（本地构建）
 
