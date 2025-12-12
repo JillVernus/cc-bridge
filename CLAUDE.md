@@ -2,6 +2,12 @@
 
 ## 变更记录 (Changelog)
 
+### 2025-12-12 - v1.1.0 国际化支持
+- 新增 i18n 国际化支持（English / 简体中文）
+- 使用 vue-i18n v11.2.2，支持语言切换和 localStorage 持久化
+- 新增文件: `src/locales/`, `src/plugins/i18n.ts`, `src/composables/useLocale.ts`
+- UI 改进: 更大的操作按钮，更宽的定价设置对话框
+
 ### 2025-12-12 - 项目重命名
 - 项目从 `claude-proxy` 重命名为 `cc-bridge`
 - Go 模块路径: `github.com/JillVernus/cc-bridge`
@@ -26,6 +32,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 新增功能（相比上游）
 
+- **🌐 国际化 (i18n)**: 支持 English / 简体中文，语言切换持久化
 - **📊 请求日志系统**: SQLite 存储，按模型/供应商统计，自动刷新，日期筛选
 - **💰 计费系统**: 基础价格、供应商倍率、模型倍率、Token 类型计费
 - **🎨 UI 改进**: 重构头部，改进渠道编排布局，Claude/Codex 图标区分
@@ -54,6 +61,8 @@ graph TD
     C1 --> C11["components/"];
     C1 --> C12["services/"];
     C1 --> C13["composables/"];
+    C1 --> C14["locales/"];
+    C1 --> C15["plugins/"];
 ```
 
 ## 常用命令
@@ -102,7 +111,9 @@ cc-bridge/
     └── src/
         ├── components/        # Vue 组件 (RequestLogTable.vue, PricingSettings.vue, etc.)
         ├── services/          # API 服务
-        └── composables/       # 组合式函数
+        ├── composables/       # 组合式函数 (useLocale.ts, useTheme.ts)
+        ├── locales/           # 国际化翻译文件 (en.ts, zh-CN.ts)
+        └── plugins/           # Vue 插件 (i18n.ts, vuetify.ts)
 ```
 
 ## 模块索引

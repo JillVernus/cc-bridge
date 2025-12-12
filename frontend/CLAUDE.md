@@ -4,6 +4,14 @@
 
 ## 变更记录 (Changelog)
 
+### 2025-12-12 - v1.1.0 国际化支持
+- 新增 i18n 国际化支持（English / 简体中文）
+- 使用 vue-i18n v11.2.2
+- 新增 `src/locales/` 目录存放翻译文件
+- 新增 `src/plugins/i18n.ts` 插件配置
+- 新增 `src/composables/useLocale.ts` 语言切换组合式函数
+- 所有组件已完成国际化改造
+
 ### 2025-12-12 - 项目重命名
 - 项目从 `claude-proxy` 重命名为 `cc-bridge`
 
@@ -25,6 +33,7 @@ Vue 3 + Vuetify 3 实现的 Web 管理界面，提供：
 - 渠道健康状态展示
 - 请求日志查看（按模型/供应商统计）
 - 计费设置管理
+- **国际化支持**（English / 简体中文）
 
 ## 入口与启动
 
@@ -33,7 +42,8 @@ Vue 3 + Vuetify 3 实现的 Web 管理界面，提供：
 初始化流程：
 1. 创建 Vue 应用实例
 2. 注册 Vuetify 插件 (`plugins/vuetify.ts`)
-3. 挂载到 `#app` DOM 节点
+3. 注册 i18n 插件 (`plugins/i18n.ts`)
+4. 挂载到 `#app` DOM 节点
 
 **启动命令**:
 ```bash
@@ -74,6 +84,7 @@ bun run preview
 {
   "vue": "^3.5.24",
   "vuetify": "^3.10.11",
+  "vue-i18n": "^11.2.2",
   "@mdi/font": "^7.4.47",
   "vuedraggable": "^4.1.0",
   "vite": "^7.2.2",
@@ -184,6 +195,18 @@ interface Theme {
 const { isDark, toggleTheme } = useTheme()
 ```
 
+### useLocale.ts
+**职责**: 国际化语言管理
+
+核心功能：
+- 语言切换（English / 简体中文）
+- 语言偏好持久化（localStorage）
+- vue-i18n locale 同步
+
+```typescript
+const { currentLocale, setLocale, availableLocales } = useLocale()
+```
+
 ## 样式和主题
 
 ### 主题配置 (plugins/vuetify.ts)
@@ -268,13 +291,20 @@ frontend/
 │   │   ├── ChannelOrchestration.vue  # 渠道编排主界面
 │   │   ├── ChannelCard.vue           # 渠道卡片
 │   │   ├── ChannelStatusBadge.vue    # 状态徽章
-│   │   └── AddChannelModal.vue       # 添加/编辑对话框
+│   │   ├── AddChannelModal.vue       # 添加/编辑对话框
+│   │   ├── RequestLogTable.vue       # 请求日志表格
+│   │   └── PricingSettings.vue       # 定价设置对话框
 │   ├── services/                     # API 服务
 │   │   └── api.ts                    # API 客户端
 │   ├── composables/                  # 组合式函数
-│   │   └── useTheme.ts               # 主题管理
+│   │   ├── useTheme.ts               # 主题管理
+│   │   └── useLocale.ts              # 语言管理
+│   ├── locales/                      # 国际化翻译
+│   │   ├── en.ts                     # 英文翻译
+│   │   └── zh-CN.ts                  # 简体中文翻译
 │   ├── plugins/                      # 插件
-│   │   └── vuetify.ts                # Vuetify 配置
+│   │   ├── vuetify.ts                # Vuetify 配置
+│   │   └── i18n.ts                   # vue-i18n 配置
 │   ├── styles/                       # 样式
 │   │   └── settings.scss             # Vuetify 自定义样式
 │   └── assets/                       # 静态资源
