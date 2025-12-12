@@ -6,33 +6,38 @@
       <v-col cols="5">
         <v-card class="summary-card" density="compact">
           <v-card-title class="text-subtitle-2 pa-2">按模型统计</v-card-title>
-          <v-table density="compact" class="summary-table">
-            <thead>
-              <tr>
-                <th class="col-model">模型</th>
-                <th class="text-end col-small">请求</th>
-                <th class="text-end col-small">输入</th>
-                <th class="text-end col-small">输出</th>
-                <th class="text-end col-small">缓存创建</th>
-                <th class="text-end col-small">缓存命中</th>
-                <th class="text-end col-small">费用</th>
-              </tr>
-            </thead>
-            <tbody class="summary-table-body">
-              <tr v-for="[model, data] in sortedByModel" :key="model">
-                <td class="text-caption col-model">{{ truncateModel(String(model)) }}</td>
-                <td class="text-end text-caption col-small">{{ data.count }}</td>
-                <td class="text-end text-caption col-small">{{ formatNumber(data.inputTokens) }}</td>
-                <td class="text-end text-caption col-small">{{ formatNumber(data.outputTokens) }}</td>
-                <td class="text-end text-caption text-success col-small">{{ formatNumber(data.cacheCreationInputTokens) }}</td>
-                <td class="text-end text-caption text-warning col-small">{{ formatNumber(data.cacheReadInputTokens) }}</td>
-                <td class="text-end text-caption cost-cell col-small">{{ formatPriceSummary(data.cost) }}</td>
-              </tr>
-              <tr v-if="sortedByModel.length === 0">
-                <td colspan="7" class="text-center text-caption text-grey">暂无数据</td>
-              </tr>
-            </tbody>
-            <tfoot class="summary-table-footer">
+          <div class="summary-table-wrapper">
+            <v-table density="compact" class="summary-table">
+              <thead>
+                <tr>
+                  <th class="col-model">模型</th>
+                  <th class="text-end col-small">请求</th>
+                  <th class="text-end col-small">输入</th>
+                  <th class="text-end col-small">输出</th>
+                  <th class="text-end col-small">缓存创建</th>
+                  <th class="text-end col-small">缓存命中</th>
+                  <th class="text-end col-small">费用</th>
+                </tr>
+              </thead>
+              <tbody class="summary-table-body">
+                <tr v-for="[model, data] in sortedByModel" :key="model">
+                  <td class="text-caption col-model">{{ truncateModel(String(model)) }}</td>
+                  <td class="text-end text-caption col-small">{{ data.count }}</td>
+                  <td class="text-end text-caption col-small">{{ formatNumber(data.inputTokens) }}</td>
+                  <td class="text-end text-caption col-small">{{ formatNumber(data.outputTokens) }}</td>
+                  <td class="text-end text-caption text-success col-small">{{ formatNumber(data.cacheCreationInputTokens) }}</td>
+                  <td class="text-end text-caption text-warning col-small">{{ formatNumber(data.cacheReadInputTokens) }}</td>
+                  <td class="text-end text-caption cost-cell col-small">{{ formatPriceSummary(data.cost) }}</td>
+                </tr>
+                <tr v-if="sortedByModel.length === 0">
+                  <td colspan="7" class="text-center text-caption text-grey">暂无数据</td>
+                </tr>
+              </tbody>
+            </v-table>
+          </div>
+          <!-- Fixed footer -->
+          <div class="summary-table-footer-fixed">
+            <table class="total-table">
               <tr class="total-row">
                 <td class="text-caption font-weight-bold col-model">Total</td>
                 <td class="text-end text-caption font-weight-bold col-small">{{ modelTotals.count }}</td>
@@ -42,8 +47,8 @@
                 <td class="text-end text-caption font-weight-bold text-warning col-small">{{ formatNumber(modelTotals.cacheReadInputTokens) }}</td>
                 <td class="text-end text-caption font-weight-bold cost-cell col-small">{{ formatPriceSummary(modelTotals.cost) }}</td>
               </tr>
-            </tfoot>
-          </v-table>
+            </table>
+          </div>
         </v-card>
       </v-col>
 
@@ -51,33 +56,38 @@
       <v-col cols="5">
         <v-card class="summary-card" density="compact">
           <v-card-title class="text-subtitle-2 pa-2">按渠道统计</v-card-title>
-          <v-table density="compact" class="summary-table">
-            <thead>
-              <tr>
-                <th class="col-model">渠道</th>
-                <th class="text-end col-small">请求</th>
-                <th class="text-end col-small">输入</th>
-                <th class="text-end col-small">输出</th>
-                <th class="text-end col-small">缓存创建</th>
-                <th class="text-end col-small">缓存命中</th>
-                <th class="text-end col-small">费用</th>
-              </tr>
-            </thead>
-            <tbody class="summary-table-body">
-              <tr v-for="[provider, data] in sortedByProvider" :key="provider">
-                <td class="text-caption col-model">{{ provider }}</td>
-                <td class="text-end text-caption col-small">{{ data.count }}</td>
-                <td class="text-end text-caption col-small">{{ formatNumber(data.inputTokens) }}</td>
-                <td class="text-end text-caption col-small">{{ formatNumber(data.outputTokens) }}</td>
-                <td class="text-end text-caption text-success col-small">{{ formatNumber(data.cacheCreationInputTokens) }}</td>
-                <td class="text-end text-caption text-warning col-small">{{ formatNumber(data.cacheReadInputTokens) }}</td>
-                <td class="text-end text-caption cost-cell col-small">{{ formatPriceSummary(data.cost) }}</td>
-              </tr>
-              <tr v-if="sortedByProvider.length === 0">
-                <td colspan="7" class="text-center text-caption text-grey">暂无数据</td>
-              </tr>
-            </tbody>
-            <tfoot class="summary-table-footer">
+          <div class="summary-table-wrapper">
+            <v-table density="compact" class="summary-table">
+              <thead>
+                <tr>
+                  <th class="col-model">渠道</th>
+                  <th class="text-end col-small">请求</th>
+                  <th class="text-end col-small">输入</th>
+                  <th class="text-end col-small">输出</th>
+                  <th class="text-end col-small">缓存创建</th>
+                  <th class="text-end col-small">缓存命中</th>
+                  <th class="text-end col-small">费用</th>
+                </tr>
+              </thead>
+              <tbody class="summary-table-body">
+                <tr v-for="[provider, data] in sortedByProvider" :key="provider">
+                  <td class="text-caption col-model">{{ provider }}</td>
+                  <td class="text-end text-caption col-small">{{ data.count }}</td>
+                  <td class="text-end text-caption col-small">{{ formatNumber(data.inputTokens) }}</td>
+                  <td class="text-end text-caption col-small">{{ formatNumber(data.outputTokens) }}</td>
+                  <td class="text-end text-caption text-success col-small">{{ formatNumber(data.cacheCreationInputTokens) }}</td>
+                  <td class="text-end text-caption text-warning col-small">{{ formatNumber(data.cacheReadInputTokens) }}</td>
+                  <td class="text-end text-caption cost-cell col-small">{{ formatPriceSummary(data.cost) }}</td>
+                </tr>
+                <tr v-if="sortedByProvider.length === 0">
+                  <td colspan="7" class="text-center text-caption text-grey">暂无数据</td>
+                </tr>
+              </tbody>
+            </v-table>
+          </div>
+          <!-- Fixed footer -->
+          <div class="summary-table-footer-fixed">
+            <table class="total-table">
               <tr class="total-row">
                 <td class="text-caption font-weight-bold col-model">Total</td>
                 <td class="text-end text-caption font-weight-bold col-small">{{ providerTotals.count }}</td>
@@ -87,8 +97,8 @@
                 <td class="text-end text-caption font-weight-bold text-warning col-small">{{ formatNumber(providerTotals.cacheReadInputTokens) }}</td>
                 <td class="text-end text-caption font-weight-bold cost-cell col-small">{{ formatPriceSummary(providerTotals.cost) }}</td>
               </tr>
-            </tfoot>
-          </v-table>
+            </table>
+          </div>
         </v-card>
       </v-col>
 
@@ -762,7 +772,8 @@ const getRequestStatusColor = (status: string) => {
   const colors: Record<string, string> = {
     pending: 'warning',
     completed: 'success',
-    error: 'error'
+    error: 'error',
+    timeout: 'grey'
   }
   return colors[status] || 'grey'
 }
@@ -771,7 +782,8 @@ const getRequestStatusLabel = (status: string) => {
   const labels: Record<string, string> = {
     pending: '进行中',
     completed: '完成',
-    error: '错误'
+    error: '错误',
+    timeout: '超时'
   }
   return labels[status] || status
 }
@@ -910,6 +922,8 @@ const silentRefresh = async () => {
   box-shadow: 4px 4px 0 0 rgb(var(--v-theme-on-surface));
   border-radius: 0 !important;
   height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .v-theme--dark .summary-card {
@@ -917,8 +931,18 @@ const silentRefresh = async () => {
   box-shadow: 4px 4px 0 0 rgba(255, 255, 255, 0.7);
 }
 
+.summary-table-wrapper {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
 .summary-table {
   font-size: 0.75rem;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .summary-table th {
@@ -944,13 +968,33 @@ const silentRefresh = async () => {
   table-layout: fixed;
 }
 
-.summary-table thead,
-.summary-table tfoot {
+.summary-table thead {
   display: table;
   width: 100%;
   table-layout: fixed;
 }
 
+/* Fixed footer outside table */
+.summary-table-footer-fixed {
+  border-top: 2px solid rgb(var(--v-theme-on-surface));
+  background: rgba(var(--v-theme-surface-variant), 0.3);
+}
+
+.v-theme--dark .summary-table-footer-fixed {
+  border-top-color: rgba(255, 255, 255, 0.5);
+}
+
+.summary-table-footer-fixed .total-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.summary-table-footer-fixed .total-row td {
+  padding: 6px 8px;
+}
+
+/* Old tfoot styles - kept for backward compatibility */
 .summary-table-footer {
   border-top: 2px solid rgb(var(--v-theme-on-surface));
   background: rgba(var(--v-theme-surface-variant), 0.3);

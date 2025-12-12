@@ -182,6 +182,15 @@ func (m *Manager) initSchema() error {
 		}
 	}
 
+	// Migration: Update old error records with timeout error message to use timeout status
+	// This fixes records created before the StatusTimeout constant was added
+	result, err := m.db.Exec(`UPDATE request_logs SET status = ? WHERE status = ? AND (error = 'request timed out' OR error = 'timeout')`, StatusTimeout, StatusError)
+	if err != nil {
+		log.Printf("⚠️ Failed to migrate timeout records: %v", err)
+	} else if rowsAffected, _ := result.RowsAffected(); rowsAffected > 0 {
+		log.Printf("✅ Migrated %d old timeout records to new status", rowsAffected)
+	}
+
 	return nil
 }
 
@@ -484,13 +493,13 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 		filter = &RequestLogFilter{}
 	}
 
-	// Build where clause - exclude pending requests from statistics
+	// Build where clause - exclude pending and timeout requests from statistics
 	var conditions []string
 	var args []interface{}
 
-	// Only count completed requests in statistics (exclude pending/loading requests)
-	conditions = append(conditions, "status != ?")
-	args = append(args, StatusPending)
+	// Only count completed requests in statistics (exclude pending/timeout requests)
+	conditions = append(conditions, "status NOT IN (?, ?)")
+	args = append(args, StatusPending, StatusTimeout)
 
 	if filter.From != nil {
 		conditions = append(conditions, "initial_time >= ?")
@@ -700,7 +709,7 @@ func (m *Manager) Cleanup(retentionDays int) (int64, error) {
 	return deleted, nil
 }
 
-// CleanupStalePending marks pending requests older than timeoutSeconds as error with timeout message
+// CleanupStalePending marks pending requests older than timeoutSeconds as timeout
 func (m *Manager) CleanupStalePending(timeoutSeconds int) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -721,9 +730,9 @@ func (m *Manager) CleanupStalePending(timeoutSeconds int) (int64, error) {
 	`
 
 	result, err := m.db.Exec(query,
-		StatusError,
+		StatusTimeout,
 		now,
-		"timeout",
+		"request timed out",
 		StatusPending,
 		cutoff,
 	)

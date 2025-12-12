@@ -9,12 +9,13 @@ const (
 	StatusPending   = "pending"   // Request received, waiting for response
 	StatusCompleted = "completed" // Response received successfully
 	StatusError     = "error"     // Request failed with error
+	StatusTimeout   = "timeout"   // Request timed out (stale pending)
 )
 
 // RequestLog represents a single API request/response record
 type RequestLog struct {
 	ID                       string    `json:"id"`
-	Status                   string    `json:"status"` // pending, completed, error
+	Status                   string    `json:"status"` // pending, completed, error, timeout
 	InitialTime              time.Time `json:"initialTime"`
 	CompleteTime             time.Time `json:"completeTime"`
 	DurationMs               int64     `json:"durationMs"`

@@ -147,7 +147,7 @@ docker run -d \
   -p 3000:3000 \
   -e PROXY_ACCESS_KEY=your-super-strong-secret-key \
   -v $(pwd)/.config:/app/.config \
-  crpi-i19l8zl0ugidq97v.cn-hangzhou.personal.cr.aliyuncs.com/bene/cc-bridge:latest
+  ghcr.io/jillvernus/cc-bridge:latest
 ```
 
 或使用 docker-compose：

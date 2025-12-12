@@ -1,7 +1,7 @@
 services:
   # CC-Bridge: Multi-provider AI proxy service (Backend + Frontend)
   cc-bridge:
-    image: crpi-i19l8zl0ugidq97v.cn-hangzhou.personal.cr.aliyuncs.com/bene/cc-bridge:latest
+    image: ghcr.io/jillvernus/cc-bridge:latest
     # 本地构建使用以下配置（注释掉 image 行）:
     # build:
     #   context: .
