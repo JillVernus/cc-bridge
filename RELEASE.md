@@ -48,22 +48,26 @@
     git log v1.0.0...HEAD --oneline
     ```
 
-### 步骤 3: 更新 `package.json` 中的版本号
+### 步骤 3: 更新版本号
 
-1.  打开 `package.json` 文件。
-2.  将 `version` 字段的值更新为新的版本号。
+1.  更新 `VERSION` 文件中的版本号。
 
-    例如，从 `1.0.0` 更新到 `1.0.1`:
-    ```diff
-    - "version": "1.0.0",
-    + "version": "1.0.1",
+    ```bash
+    # 将 X.Y.Z 替换为新版本号
+    echo "vX.Y.Z" > VERSION
+    ```
+
+2.  （可选）如需更新前端 package.json：
+    ```bash
+    cd frontend
+    npm version X.Y.Z --no-git-tag-version
     ```
 
 ### 步骤 4: 提交版本更新
 
-1.  将 `CHANGELOG.md` 和 `package.json` 的修改提交到暂存区。
+1.  将修改提交到暂存区。
     ```bash
-    git add CHANGELOG.md package.json
+    git add CHANGELOG.md VERSION
     ```
 
 2.  使用标准化的提交信息进行提交。

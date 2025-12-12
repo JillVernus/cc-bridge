@@ -91,7 +91,7 @@
 
 ## 安全与配置提示
 
--   **切勿提交敏感信息**: 永远不要将密钥或敏感配置提交到版本控制中。使用 `.env` 文件和 `backend/config.json` 进行管理。
+-   **切勿提交敏感信息**: 永远不要将密钥或敏感配置提交到版本控制中。使用 `.env` 文件和 `backend-go/.config/config.json` 进行管理。
 -   **访问密钥**: `PROXY_ACCESS_KEY` 是代理访问的必需密钥。避免在日志中记录完整的 API 密钥。
 
 ## Agent-Specific Notes

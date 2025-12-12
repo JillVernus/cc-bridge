@@ -1,50 +1,36 @@
 # 项目架构与设计
 
-本文档详细介绍 CC-Bridge的架构设计、技术选型和实现细节。
+本文档详细介绍 CC-Bridge 的架构设计、技术选型和实现细节。
 
 ## 项目结构
 
-### Monorepo 结构
-
-项目采用 Monorepo 架构，由 Bun workspaces 管理，主要包含两个核心模块：
-
 ```
 cc-bridge/
-├── backend-go/              # Go 后端服务 (当前活跃)
-│   ├── cmd/                # 主程序入口
+├── backend-go/              # Go 后端服务
+│   ├── main.go             # 主程序入口
 │   ├── internal/           # 内部实现
 │   │   ├── config/        # 配置管理
 │   │   ├── handlers/      # HTTP 处理器
 │   │   ├── middleware/    # 中间件
-│   │   └── providers/     # 上游服务适配器
+│   │   ├── providers/     # 上游服务适配器
+│   │   ├── session/       # 会话管理
+│   │   ├── scheduler/     # 多渠道调度
+│   │   ├── requestlog/    # 请求日志
+│   │   └── pricing/       # 计费系统
 │   ├── .config/           # 运行时配置
 │   │   ├── config.json    # 主配置文件
-│   │   └── backups/       # 配置备份 (保留最近10个)
+│   │   └── backups/       # 配置备份
 │   └── .env               # 环境变量
 ├── frontend/               # Vue 3 前端
 │   ├── src/
 │   │   ├── components/    # Vue 组件
 │   │   ├── services/      # API 服务
-│   │   └── styles/        # 样式文件
-│   ├── public/            # 静态资源
+│   │   └── composables/   # 组合式函数
 │   └── dist/              # 构建产物
-├── backend/                # Node.js/Bun 后端 (备用实现)
 ├── scripts/                # 构建和部署脚本
-└── docs/                   # 文档 (markdown 文件)
+├── *.md                    # 文档文件
+└── docker-compose.yml      # Docker 配置
 ```
-
-### TypeScript 路径别名
-
-项目配置了路径别名，方便跨模块导入：
-
-```typescript
-// 示例导入
-import { api } from '@frontend/services/api'
-import { ConfigManager } from '@backend/config/config-manager'
-```
-
-- `@frontend/*` → `frontend/src/*`
-- `@backend/*` → `backend/src/*`
 
 ## 核心技术栈
 

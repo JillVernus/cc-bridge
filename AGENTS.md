@@ -3,16 +3,15 @@
 ## Always respond in Chinese-simplified
 
 ## Project Structure & Module Organization
-- `backend-go/`: primary Go service (Gin), embeds built frontend, commands via `Makefile`; Go packages live under `internal/`.
-- `frontend/`: web UI (Vite-based). Built assets are embedded by the Go build; keep static assets in `frontend/public/`.
-- `backend/`: legacy TypeScript service kept for reference/compat; Bun workspaces span `frontend` and `backend`.
-- `dist/`: build artifacts (Go binary, bundled UI). Avoid manual edits.
-- Config and docs: `.env.example` variants in `backend-go/`, env guidance in `ENVIRONMENT.md`, architecture notes in `ARCHITECTURE.md`, dev flow in `DEVELOPMENT.md`.
+- `backend-go/`: Go service (Gin), embeds built frontend, commands via `Makefile`; Go packages live under `internal/`.
+- `frontend/`: web UI (Vite + Vue 3). Built assets are embedded by the Go build.
+- Config and docs: `.env.example` in `backend-go/`, env guidance in `ENVIRONMENT.md`, architecture notes in `ARCHITECTURE.md`, dev flow in `DEVELOPMENT.md`.
 
 ## Build, Test, and Development Commands
-- Go backend: `cd backend-go && make dev` (hot reload with Air), `make build` (release binary to `dist/`), `make build-local` (local binary), `make run` (go run), `make clean`.
+- Go backend: `cd backend-go && make dev` (hot reload with Air), `make build` (release binary), `make run` (go run), `make clean`.
 - Go testing: `cd backend-go && make test` (all packages), `make test-cover` (+ coverage artifacts).
-- JS/TS workspace: `bun install` (root) then `bun run dev` (frontend+backend dev), `bun run build` (bundle all), `bun run type-check` (TS types), `bun run start` (start Bun backend).
+- Frontend: `cd frontend && bun install && bun run dev` (dev server), `bun run build` (production build).
+- Full build: `make run` (from root, builds frontend + runs backend).
 - Docker: `docker-compose up -d` uses `Dockerfile`/`Dockerfile_China`; keep `.env` aligned first.
 
 ## Coding Style & Naming Conventions
