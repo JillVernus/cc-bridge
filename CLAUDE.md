@@ -2,6 +2,12 @@
 
 ## 变更记录 (Changelog)
 
+### 2025-12-12 - v1.1.1 Bug 修复和 UI 改进
+- 修复 `responseHeaderTimeout` 配置仅对流式请求生效的问题，现在非流式请求也会应用渠道配置的超时时间
+- 将 UI 标题从 "Claude API Proxy" 更新为 "CC-Bridge"
+- 修复请求日志表格中 tooltip 文字在深色背景上不可见的问题
+- 为统计表格（按模型/按渠道）添加行闪烁动画效果
+
 ### 2025-12-12 - v1.1.0 国际化支持
 - 新增 i18n 国际化支持（English / 简体中文）
 - 使用 vue-i18n v11.2.2，支持语言切换和 localStorage 持久化

@@ -20,7 +20,7 @@
                 </tr>
               </thead>
               <tbody class="summary-table-body">
-                <tr v-for="[model, data] in sortedByModel" :key="model">
+                <tr v-for="[model, data] in sortedByModel" :key="model" :class="{ 'summary-row-flash': updatedModels.has(String(model)) }">
                   <td class="text-caption col-model">{{ truncateModel(String(model)) }}</td>
                   <td class="text-end text-caption col-small">{{ data.count }}</td>
                   <td class="text-end text-caption col-small">{{ formatNumber(data.inputTokens) }}</td>
@@ -70,7 +70,7 @@
                 </tr>
               </thead>
               <tbody class="summary-table-body">
-                <tr v-for="[provider, data] in sortedByProvider" :key="provider">
+                <tr v-for="[provider, data] in sortedByProvider" :key="provider" :class="{ 'summary-row-flash': updatedProviders.has(String(provider)) }">
                   <td class="text-caption col-model">{{ provider }}</td>
                   <td class="text-end text-caption col-small">{{ data.count }}</td>
                   <td class="text-end text-caption col-small">{{ formatNumber(data.inputTokens) }}</td>
@@ -476,6 +476,8 @@ const hasMore = ref(false)
 const offset = ref(0)
 const pageSize = 50
 const updatedIds = ref<Set<string>>(new Set())
+const updatedModels = ref<Set<string>>(new Set())
+const updatedProviders = ref<Set<string>>(new Set())
 
 // Settings
 const showSettings = ref(false)
@@ -875,6 +877,34 @@ const silentRefresh = async () => {
       }
     }
 
+    // Detect updated models and providers in stats
+    const newUpdatedModels = new Set<string>()
+    const newUpdatedProviders = new Set<string>()
+
+    if (stats.value && statsRes) {
+      // Check models
+      const oldByModel = stats.value.byModel || {}
+      const newByModel = statsRes.byModel || {}
+      for (const model of Object.keys(newByModel)) {
+        const oldData = oldByModel[model]
+        const newData = newByModel[model]
+        if (!oldData || oldData.count !== newData.count || oldData.cost !== newData.cost) {
+          newUpdatedModels.add(model)
+        }
+      }
+
+      // Check providers
+      const oldByProvider = stats.value.byProvider || {}
+      const newByProvider = statsRes.byProvider || {}
+      for (const provider of Object.keys(newByProvider)) {
+        const oldData = oldByProvider[provider]
+        const newData = newByProvider[provider]
+        if (!oldData || oldData.count !== newData.count || oldData.cost !== newData.cost) {
+          newUpdatedProviders.add(provider)
+        }
+      }
+    }
+
     logs.value = logsRes.requests || []
     total.value = logsRes.total
     hasMore.value = logsRes.hasMore
@@ -884,6 +914,20 @@ const silentRefresh = async () => {
       updatedIds.value = newUpdatedIds
       setTimeout(() => {
         updatedIds.value = new Set()
+      }, 1000)
+    }
+
+    if (newUpdatedModels.size > 0) {
+      updatedModels.value = newUpdatedModels
+      setTimeout(() => {
+        updatedModels.value = new Set()
+      }, 1000)
+    }
+
+    if (newUpdatedProviders.size > 0) {
+      updatedProviders.value = newUpdatedProviders
+      setTimeout(() => {
+        updatedProviders.value = new Set()
       }, 1000)
     }
   } catch (error) {
@@ -1113,6 +1157,11 @@ const silentRefresh = async () => {
   animation: row-flash 1s ease-out;
 }
 
+/* Summary table row flash animation */
+.summary-table tr.summary-row-flash {
+  animation: row-flash 1s ease-out;
+}
+
 /* Neo-brutalist button style */
 .neo-btn {
   border: 2px solid rgb(var(--v-theme-on-surface)) !important;
@@ -1294,15 +1343,18 @@ const silentRefresh = async () => {
 .error-tooltip {
   font-size: 0.85rem;
   line-height: 1.4;
+  color: #fff;
 }
 
 .error-line {
   margin-bottom: 8px;
+  color: #fff;
 }
 
 .upstream-error-line {
   padding-top: 8px;
   border-top: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
 }
 
 .error-label {
@@ -1320,6 +1372,7 @@ const silentRefresh = async () => {
   margin-top: 4px;
   max-height: 200px;
   overflow-y: auto;
+  color: rgba(255, 255, 255, 0.9);
 }
 
 /* Price column styles */
@@ -1353,6 +1406,7 @@ const silentRefresh = async () => {
   padding: 4px 0;
   font-family: 'Courier New', monospace;
   font-size: 12px;
+  color: #fff;
 }
 
 .cost-breakdown-title {
@@ -1360,6 +1414,7 @@ const silentRefresh = async () => {
   margin-bottom: 6px;
   padding-bottom: 4px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
 }
 
 .cost-breakdown-row {
@@ -1375,6 +1430,7 @@ const silentRefresh = async () => {
 
 .cost-breakdown-row .cost-value {
   font-weight: 500;
+  color: #fff;
 }
 
 .cost-breakdown-row.cache-create-row .cost-value {
@@ -1393,6 +1449,11 @@ const silentRefresh = async () => {
   border-top: 1px solid rgba(255, 255, 255, 0.2);
   font-weight: 600;
   gap: 16px;
+  color: #fff;
+}
+
+.cost-breakdown-total .cost-label {
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .cost-breakdown-total .cost-value {
@@ -1424,11 +1485,16 @@ const silentRefresh = async () => {
   font-family: 'Courier New', monospace;
   font-size: 12px;
   white-space: nowrap;
+  color: #fff;
 }
 
 .model-mapping-tooltip .request-model {
   color: #64B5F6;
   font-weight: 500;
+}
+
+.model-mapping-tooltip .v-icon {
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .model-mapping-tooltip .response-model {
@@ -1443,6 +1509,7 @@ const silentRefresh = async () => {
   gap: 8px;
   font-family: 'Courier New', monospace;
   font-size: 12px;
+  color: #fff;
 }
 
 .reasoning-effort-tooltip .effort-label {

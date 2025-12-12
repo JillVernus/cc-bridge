@@ -471,9 +471,9 @@ func sendResponsesRequest(req *http.Request, upstream *config.UpstreamConfig, en
 		// 流式请求：使用无超时的流式客户端，但有响应头超时
 		client = clientManager.GetStreamClient(upstream.InsecureSkipVerify, upstream.GetResponseHeaderTimeout())
 	} else {
-		// 非流式请求：使用环境变量配置的超时时间
+		// 非流式请求：使用环境变量配置的超时时间，同时应用渠道的响应头超时设置
 		timeout := time.Duration(envCfg.RequestTimeout) * time.Millisecond
-		client = clientManager.GetStandardClient(timeout, upstream.InsecureSkipVerify)
+		client = clientManager.GetStandardClient(timeout, upstream.InsecureSkipVerify, upstream.GetResponseHeaderTimeout())
 	}
 
 	if upstream.InsecureSkipVerify && envCfg.EnableRequestLogs {

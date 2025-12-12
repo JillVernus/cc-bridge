@@ -284,7 +284,7 @@ func PingChannel(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		// 简化测试：只检查连通性，不关心HTTP状态码
 		testURL := strings.TrimSuffix(channel.BaseURL, "/")
 
-		client := httpclient.GetManager().GetStandardClient(5*time.Second, channel.InsecureSkipVerify)
+		client := httpclient.GetManager().GetStandardClient(5*time.Second, channel.InsecureSkipVerify, 0)
 		req, err := http.NewRequest("HEAD", testURL, nil)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{"success": false, "status": "error", "error": "Failed to create request"})
@@ -331,7 +331,7 @@ func PingAllChannels(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				// 简化测试：只检查连通性，不关心HTTP状态码
 				testURL := strings.TrimSuffix(ch.BaseURL, "/")
 
-				client := httpclient.GetManager().GetStandardClient(5*time.Second, ch.InsecureSkipVerify)
+				client := httpclient.GetManager().GetStandardClient(5*time.Second, ch.InsecureSkipVerify, 0)
 				req, err := http.NewRequest("HEAD", testURL, nil)
 				if err != nil {
 					results <- gin.H{"id": id, "name": ch.Name, "latency": 0, "status": "error", "error": "req_creation_failed"}

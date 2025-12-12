@@ -29,7 +29,7 @@ export default {
 
   // App
   app: {
-    title: 'Claude Proxy 管理界面',
+    title: 'CC-Bridge 管理界面',
     verifyingAccess: '正在验证访问权限',
     authenticatingWithSavedKey: '使用保存的访问密钥进行身份验证...',
     pricingSettings: '定价设置',

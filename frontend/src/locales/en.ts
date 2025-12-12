@@ -29,7 +29,7 @@ export default {
 
   // App
   app: {
-    title: 'Claude Proxy Management',
+    title: 'CC-Bridge Management',
     verifyingAccess: 'Verifying Access',
     authenticatingWithSavedKey: 'Authenticating with saved access key...',
     pricingSettings: 'Pricing Settings',
