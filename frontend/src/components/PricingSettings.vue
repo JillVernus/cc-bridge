@@ -1,13 +1,13 @@
 <template>
-  <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="800">
+  <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="1000">
     <v-card class="settings-card">
       <v-card-title class="d-flex align-center">
         <v-icon class="mr-2">mdi-currency-usd</v-icon>
-        模型定价配置
+        {{ t('pricing.title') }}
       </v-card-title>
       <v-card-text>
         <div class="d-flex align-center justify-space-between mb-3">
-          <div class="text-caption text-grey">设置各模型的 token 价格（单位：$/1M tokens）</div>
+          <div class="text-caption text-grey">{{ t('pricing.priceUnit') }}</div>
           <div class="d-flex ga-2">
             <v-btn
               size="small"
@@ -16,7 +16,7 @@
               @click="showAddModelDialog = true"
             >
               <v-icon class="mr-1">mdi-plus</v-icon>
-              添加模型
+              {{ t('pricing.addModel') }}
             </v-btn>
             <v-btn
               size="small"
@@ -26,7 +26,7 @@
               :loading="resettingPricing"
             >
               <v-icon class="mr-1">mdi-refresh</v-icon>
-              重置默认
+              {{ t('pricing.resetDefault') }}
             </v-btn>
           </div>
         </div>
@@ -34,12 +34,12 @@
         <v-table density="compact" class="pricing-table" v-if="pricingConfig">
           <thead>
             <tr>
-              <th>模型</th>
-              <th class="text-end">输入价格</th>
-              <th class="text-end">输出价格</th>
-              <th class="text-end">缓存创建</th>
-              <th class="text-end">缓存读取</th>
-              <th class="text-center">操作</th>
+              <th>{{ t('pricing.modelName') }}</th>
+              <th class="text-end">{{ t('pricing.inputPrice') }}</th>
+              <th class="text-end">{{ t('pricing.outputPrice') }}</th>
+              <th class="text-end">{{ t('pricing.cacheCreationPrice') }}</th>
+              <th class="text-end">{{ t('pricing.cacheReadPrice') }}</th>
+              <th class="text-center">{{ t('pricing.operation') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -62,18 +62,18 @@
               </td>
             </tr>
             <tr v-if="!pricingConfig || Object.keys(pricingConfig.models).length === 0">
-              <td colspan="6" class="text-center text-caption text-grey">暂无定价配置</td>
+              <td colspan="6" class="text-center text-caption text-grey">{{ t('pricing.noPricingConfig') }}</td>
             </tr>
           </tbody>
         </v-table>
         <div v-else class="text-center pa-4 text-grey">
           <v-progress-circular v-if="loadingPricing" indeterminate size="24" />
-          <span v-else>加载定价配置失败</span>
+          <span v-else>{{ t('pricing.loadPricingFailed') }}</span>
         </div>
       </v-card-text>
       <v-card-actions>
         <v-spacer />
-        <v-btn variant="text" @click="$emit('update:modelValue', false)">关闭</v-btn>
+        <v-btn variant="text" @click="$emit('update:modelValue', false)">{{ t('common.close') }}</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
@@ -81,20 +81,20 @@
   <!-- 添加/编辑模型定价对话框 -->
   <v-dialog v-model="showAddModelDialog" max-width="450">
     <v-card>
-      <v-card-title>{{ editingModel ? '编辑模型定价' : '添加模型定价' }}</v-card-title>
+      <v-card-title>{{ editingModel ? t('pricing.editModelPricing') : t('pricing.addModelPricing') }}</v-card-title>
       <v-card-text>
         <v-text-field
           v-model="modelForm.name"
-          label="模型名称"
-          placeholder="例如: claude-3-5-sonnet"
+          :label="t('pricing.modelName')"
+          :placeholder="t('pricing.modelNamePlaceholder')"
           :disabled="!!editingModel"
           density="compact"
           class="mb-2"
         />
         <v-text-field
           v-model="modelForm.description"
-          label="描述 (可选)"
-          placeholder="模型描述"
+          :label="t('pricing.descriptionOptional')"
+          :placeholder="t('pricing.modelDescription')"
           density="compact"
           class="mb-2"
         />
@@ -102,7 +102,7 @@
           <v-col cols="6">
             <v-text-field
               v-model.number="modelForm.inputPrice"
-              label="输入价格 ($/1M)"
+              :label="t('pricing.inputPriceLabel')"
               type="number"
               step="0.01"
               density="compact"
@@ -111,7 +111,7 @@
           <v-col cols="6">
             <v-text-field
               v-model.number="modelForm.outputPrice"
-              label="输出价格 ($/1M)"
+              :label="t('pricing.outputPriceLabel')"
               type="number"
               step="0.01"
               density="compact"
@@ -122,22 +122,22 @@
           <v-col cols="6">
             <v-text-field
               v-model.number="modelForm.cacheCreationPrice"
-              label="缓存创建价格 ($/1M)"
+              :label="t('pricing.cacheCreationLabel')"
               type="number"
               step="0.01"
               density="compact"
-              hint="默认为输入价格×1.25"
+              :hint="t('pricing.cacheCreationHint')"
               persistent-hint
             />
           </v-col>
           <v-col cols="6">
             <v-text-field
               v-model.number="modelForm.cacheReadPrice"
-              label="缓存读取价格 ($/1M)"
+              :label="t('pricing.cacheReadLabel')"
               type="number"
               step="0.01"
               density="compact"
-              hint="默认为输入价格×0.1"
+              :hint="t('pricing.cacheReadHint')"
               persistent-hint
             />
           </v-col>
@@ -145,8 +145,8 @@
       </v-card-text>
       <v-card-actions>
         <v-spacer />
-        <v-btn variant="text" @click="cancelModelEdit">取消</v-btn>
-        <v-btn color="primary" variant="flat" @click="saveModelPricing" :loading="savingPricing">保存</v-btn>
+        <v-btn variant="text" @click="cancelModelEdit">{{ t('common.cancel') }}</v-btn>
+        <v-btn color="primary" variant="flat" @click="saveModelPricing" :loading="savingPricing">{{ t('common.save') }}</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
@@ -154,12 +154,12 @@
   <!-- 删除模型确认对话框 -->
   <v-dialog v-model="showDeleteModelDialog" max-width="400">
     <v-card>
-      <v-card-title class="text-error">确认删除</v-card-title>
-      <v-card-text>确定要删除模型 "{{ deletingModel }}" 的定价配置吗？</v-card-text>
+      <v-card-title class="text-error">{{ t('common.confirm') }}</v-card-title>
+      <v-card-text>{{ t('pricing.confirmDeleteModel', { model: deletingModel }) }}</v-card-text>
       <v-card-actions>
         <v-spacer />
-        <v-btn variant="text" @click="showDeleteModelDialog = false">取消</v-btn>
-        <v-btn color="error" variant="flat" @click="deleteModelPricing" :loading="deletingPricingModel">确认删除</v-btn>
+        <v-btn variant="text" @click="showDeleteModelDialog = false">{{ t('common.cancel') }}</v-btn>
+        <v-btn color="error" variant="flat" @click="deleteModelPricing" :loading="deletingPricingModel">{{ t('common.confirm') }}</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
@@ -167,12 +167,12 @@
   <!-- 重置定价确认对话框 -->
   <v-dialog v-model="showResetPricingDialog" max-width="400">
     <v-card>
-      <v-card-title class="text-warning">确认重置</v-card-title>
-      <v-card-text>确定要将所有定价配置重置为默认值吗？自定义的定价将会丢失。</v-card-text>
+      <v-card-title class="text-warning">{{ t('pricing.confirmReset') }}</v-card-title>
+      <v-card-text>{{ t('pricing.confirmResetDesc') }}</v-card-text>
       <v-card-actions>
         <v-spacer />
-        <v-btn variant="text" @click="showResetPricingDialog = false">取消</v-btn>
-        <v-btn color="warning" variant="flat" @click="resetPricing" :loading="resettingPricing">确认重置</v-btn>
+        <v-btn variant="text" @click="showResetPricingDialog = false">{{ t('common.cancel') }}</v-btn>
+        <v-btn color="warning" variant="flat" @click="resetPricing" :loading="resettingPricing">{{ t('common.confirm') }}</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
@@ -180,7 +180,11 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api, type PricingConfig, type ModelPricing } from '../services/api'
+
+// i18n
+const { t } = useI18n()
 
 const props = defineProps<{
   modelValue: boolean

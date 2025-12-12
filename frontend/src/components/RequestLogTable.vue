@@ -5,18 +5,18 @@
       <!-- 模型统计 -->
       <v-col cols="5">
         <v-card class="summary-card" density="compact">
-          <v-card-title class="text-subtitle-2 pa-2">按模型统计</v-card-title>
+          <v-card-title class="text-subtitle-2 pa-2">{{ t('requestLog.byModel') }}</v-card-title>
           <div class="summary-table-wrapper">
             <v-table density="compact" class="summary-table">
               <thead>
                 <tr>
-                  <th class="col-model">模型</th>
-                  <th class="text-end col-small">请求</th>
-                  <th class="text-end col-small">输入</th>
-                  <th class="text-end col-small">输出</th>
-                  <th class="text-end col-small">缓存创建</th>
-                  <th class="text-end col-small">缓存命中</th>
-                  <th class="text-end col-small">费用</th>
+                  <th class="col-model">{{ t('requestLog.model') }}</th>
+                  <th class="text-end col-small">{{ t('requestLog.requests') }}</th>
+                  <th class="text-end col-small">{{ t('requestLog.input') }}</th>
+                  <th class="text-end col-small">{{ t('requestLog.output') }}</th>
+                  <th class="text-end col-small">{{ t('requestLog.cacheCreation') }}</th>
+                  <th class="text-end col-small">{{ t('requestLog.cacheHit') }}</th>
+                  <th class="text-end col-small">{{ t('requestLog.cost') }}</th>
                 </tr>
               </thead>
               <tbody class="summary-table-body">
@@ -30,7 +30,7 @@
                   <td class="text-end text-caption cost-cell col-small">{{ formatPriceSummary(data.cost) }}</td>
                 </tr>
                 <tr v-if="sortedByModel.length === 0">
-                  <td colspan="7" class="text-center text-caption text-grey">暂无数据</td>
+                  <td colspan="7" class="text-center text-caption text-grey">{{ t('common.noData') }}</td>
                 </tr>
               </tbody>
             </v-table>
@@ -55,18 +55,18 @@
       <!-- 渠道统计 -->
       <v-col cols="5">
         <v-card class="summary-card" density="compact">
-          <v-card-title class="text-subtitle-2 pa-2">按渠道统计</v-card-title>
+          <v-card-title class="text-subtitle-2 pa-2">{{ t('requestLog.byChannel') }}</v-card-title>
           <div class="summary-table-wrapper">
             <v-table density="compact" class="summary-table">
               <thead>
                 <tr>
-                  <th class="col-model">渠道</th>
-                  <th class="text-end col-small">请求</th>
-                  <th class="text-end col-small">输入</th>
-                  <th class="text-end col-small">输出</th>
-                  <th class="text-end col-small">缓存创建</th>
-                  <th class="text-end col-small">缓存命中</th>
-                  <th class="text-end col-small">费用</th>
+                  <th class="col-model">{{ t('requestLog.channel') }}</th>
+                  <th class="text-end col-small">{{ t('requestLog.requests') }}</th>
+                  <th class="text-end col-small">{{ t('requestLog.input') }}</th>
+                  <th class="text-end col-small">{{ t('requestLog.output') }}</th>
+                  <th class="text-end col-small">{{ t('requestLog.cacheCreation') }}</th>
+                  <th class="text-end col-small">{{ t('requestLog.cacheHit') }}</th>
+                  <th class="text-end col-small">{{ t('requestLog.cost') }}</th>
                 </tr>
               </thead>
               <tbody class="summary-table-body">
@@ -80,7 +80,7 @@
                   <td class="text-end text-caption cost-cell col-small">{{ formatPriceSummary(data.cost) }}</td>
                 </tr>
                 <tr v-if="sortedByProvider.length === 0">
-                  <td colspan="7" class="text-center text-caption text-grey">暂无数据</td>
+                  <td colspan="7" class="text-center text-caption text-grey">{{ t('common.noData') }}</td>
                 </tr>
               </tbody>
             </v-table>
@@ -105,7 +105,7 @@
       <!-- 日期筛选 -->
       <v-col cols="2">
         <v-card class="summary-card date-filter-card" density="compact">
-          <v-card-title class="text-subtitle-2 pa-2">日期筛选</v-card-title>
+          <v-card-title class="text-subtitle-2 pa-2">{{ t('requestLog.dateFilter') }}</v-card-title>
           <div class="date-filter d-flex align-center justify-center pa-4">
             <v-btn icon variant="text" size="small" class="neo-btn" @click="prevDay">
               <v-icon size="20">mdi-chevron-left</v-icon>
@@ -124,26 +124,26 @@
       <v-card class="settings-card">
         <v-card-title class="d-flex align-center">
           <v-icon class="mr-2">mdi-cog</v-icon>
-          设置
+          {{ t('requestLog.settings') }}
         </v-card-title>
         <v-card-text>
           <div class="settings-section mb-4">
-            <div class="text-subtitle-2 mb-2">列宽设置</div>
+            <div class="text-subtitle-2 mb-2">{{ t('requestLog.columnWidthSettings') }}</div>
             <v-btn
               color="primary"
               variant="tonal"
               @click="resetColumnWidths"
             >
               <v-icon class="mr-1">mdi-table-refresh</v-icon>
-              重置列宽
+              {{ t('requestLog.resetColumnWidth') }}
             </v-btn>
-            <div class="text-caption text-grey mt-2">将所有列宽恢复为默认值</div>
+            <div class="text-caption text-grey mt-2">{{ t('requestLog.resetColumnWidthDesc') }}</div>
           </div>
 
           <v-divider class="my-4" />
 
           <div class="settings-section">
-            <div class="text-subtitle-2 mb-2">数据库操作</div>
+            <div class="text-subtitle-2 mb-2">{{ t('requestLog.databaseOps') }}</div>
             <v-btn
               color="error"
               variant="tonal"
@@ -151,14 +151,14 @@
               :loading="clearing"
             >
               <v-icon class="mr-1">mdi-delete</v-icon>
-              清空日志数据
+              {{ t('requestLog.clearLogs') }}
             </v-btn>
-            <div class="text-caption text-grey mt-2">删除所有请求日志记录，此操作不可恢复</div>
+            <div class="text-caption text-grey mt-2">{{ t('requestLog.clearLogsDesc') }}</div>
           </div>
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn variant="text" @click="showSettings = false">关闭</v-btn>
+          <v-btn variant="text" @click="showSettings = false">{{ t('common.close') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -166,12 +166,12 @@
     <!-- 确认对话框 -->
     <v-dialog v-model="showConfirmClear" max-width="400">
       <v-card>
-        <v-card-title class="text-error">确认清空</v-card-title>
-        <v-card-text>确定要删除所有日志数据吗？此操作不可恢复。</v-card-text>
+        <v-card-title class="text-error">{{ t('requestLog.confirmClear') }}</v-card-title>
+        <v-card-text>{{ t('requestLog.confirmClearDesc') }}</v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn variant="text" @click="showConfirmClear = false">取消</v-btn>
-          <v-btn color="error" variant="flat" @click="clearLogs" :loading="clearing">确认删除</v-btn>
+          <v-btn variant="text" @click="showConfirmClear = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="error" variant="flat" @click="clearLogs" :loading="clearing">{{ t('requestLog.confirmDelete') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -186,11 +186,11 @@
         @click="toggleAutoRefresh"
       >
         <v-icon size="18" class="mr-1" :class="{ 'spin': autoRefreshEnabled }">{{ autoRefreshEnabled ? 'mdi-sync' : 'mdi-sync-off' }}</v-icon>
-        {{ autoRefreshEnabled ? '自动刷新中...' : '自动刷新已关闭' }}
+        {{ autoRefreshEnabled ? t('requestLog.autoRefreshing') : t('requestLog.autoRefreshOff') }}
       </v-btn>
       <v-spacer />
       <v-chip class="mr-2" size="small" variant="tonal">
-        共 {{ total }} 条记录
+        {{ t('requestLog.totalRecords', { count: total }) }}
       </v-chip>
       <v-btn icon variant="text" size="small" class="neo-btn" @click="showSettings = true">
         <v-icon size="20">mdi-cog</v-icon>
@@ -440,7 +440,7 @@
               :disabled="offset === 0"
               @click="prevPage"
             >
-              上一页
+              {{ t('requestLog.prevPage') }}
             </v-btn>
             <span class="mx-2 text-caption">
               {{ offset + 1 }} - {{ Math.min(offset + pageSize, total) }} / {{ total }}
@@ -451,7 +451,7 @@
               :disabled="!hasMore"
               @click="nextPage"
             >
-              下一页
+              {{ t('requestLog.nextPage') }}
             </v-btn>
           </div>
         </template>
@@ -462,7 +462,11 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api, type RequestLog, type RequestLogStats, type GroupStats } from '../services/api'
+
+// i18n
+const { t } = useI18n()
 
 const logs = ref<RequestLog[]>([])
 const stats = ref<RequestLogStats | null>(null)
@@ -608,14 +612,14 @@ const resetColumnWidths = () => {
 }
 
 const headers = computed(() => [
-  { title: '状态', key: 'status', sortable: false, width: `${columnWidths.value.status}px` },
-  { title: '时间', key: 'initialTime', sortable: false, width: `${columnWidths.value.initialTime}px` },
-  { title: '耗时', key: 'durationMs', sortable: false, width: `${columnWidths.value.durationMs}px` },
-  { title: '渠道', key: 'providerName', sortable: false, width: `${columnWidths.value.providerName}px` },
-  { title: '模型', key: 'model', sortable: false, width: `${columnWidths.value.model}px` },
-  { title: 'Tokens', key: 'tokens', sortable: false, width: `${columnWidths.value.tokens}px` },
-  { title: '费用', key: 'price', sortable: false, width: `${columnWidths.value.price}px` },
-  { title: 'HTTP', key: 'httpStatus', sortable: false, width: `${columnWidths.value.httpStatus}px` },
+  { title: t('requestLog.status'), key: 'status', sortable: false, width: `${columnWidths.value.status}px` },
+  { title: t('requestLog.time'), key: 'initialTime', sortable: false, width: `${columnWidths.value.initialTime}px` },
+  { title: t('requestLog.duration'), key: 'durationMs', sortable: false, width: `${columnWidths.value.durationMs}px` },
+  { title: t('requestLog.channel'), key: 'providerName', sortable: false, width: `${columnWidths.value.providerName}px` },
+  { title: t('requestLog.model'), key: 'model', sortable: false, width: `${columnWidths.value.model}px` },
+  { title: t('requestLog.tokens'), key: 'tokens', sortable: false, width: `${columnWidths.value.tokens}px` },
+  { title: t('requestLog.price'), key: 'price', sortable: false, width: `${columnWidths.value.price}px` },
+  { title: t('requestLog.http'), key: 'httpStatus', sortable: false, width: `${columnWidths.value.httpStatus}px` },
 ])
 
 // Column resize logic
@@ -780,10 +784,10 @@ const getRequestStatusColor = (status: string) => {
 
 const getRequestStatusLabel = (status: string) => {
   const labels: Record<string, string> = {
-    pending: '进行中',
-    completed: '完成',
-    error: '错误',
-    timeout: '超时'
+    pending: t('requestLog.pending'),
+    completed: t('requestLog.completed'),
+    error: t('requestLog.error'),
+    timeout: t('requestLog.timeout')
   }
   return labels[status] || status
 }

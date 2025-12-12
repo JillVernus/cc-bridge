@@ -9,15 +9,15 @@
     >
       <v-card class="pa-6 text-center" max-width="400" rounded="lg">
         <v-progress-circular indeterminate :size="64" :width="6" color="primary" class="mb-4" />
-        <div class="text-h6 mb-2">正在验证访问权限</div>
-        <div class="text-body-2 text-medium-emphasis">使用保存的访问密钥进行身份验证...</div>
+        <div class="text-h6 mb-2">{{ t('app.verifyingAccess') }}</div>
+        <div class="text-body-2 text-medium-emphasis">{{ t('app.authenticatingWithSavedKey') }}</div>
       </v-card>
     </v-overlay>
 
     <!-- 认证界面 -->
     <v-dialog v-model="showAuthDialog" persistent max-width="500">
       <v-card class="pa-4">
-        <v-card-title class="text-h5 text-center mb-4"> 🔐 Claude Proxy 管理界面 </v-card-title>
+        <v-card-title class="text-h5 text-center mb-4"> 🔐 {{ t('app.title') }} </v-card-title>
 
         <v-card-text>
           <v-alert v-if="authError" type="error" variant="tonal" class="mb-4">
@@ -27,18 +27,18 @@
           <v-form @submit.prevent="handleAuthSubmit">
             <v-text-field
               v-model="authKeyInput"
-              label="访问密钥 (PROXY_ACCESS_KEY)"
+              :label="t('auth.accessKey')"
               type="password"
               variant="outlined"
               prepend-inner-icon="mdi-key"
-              :rules="[v => !!v || '请输入访问密钥']"
+              :rules="[v => !!v || t('auth.enterAccessKey')]"
               required
               autofocus
               @keyup.enter="handleAuthSubmit"
             />
 
             <v-btn type="submit" color="primary" block size="large" class="mt-4" :loading="authLoading">
-              访问管理界面
+              {{ t('auth.accessManagement') }}
             </v-btn>
           </v-form>
 
@@ -46,13 +46,13 @@
 
           <v-alert type="info" variant="tonal" density="compact" class="mb-0">
             <div class="text-body-2">
-              <p class="mb-2"><strong>🔒 安全提示：</strong></p>
+              <p class="mb-2"><strong>🔒 {{ t('auth.securityTips') }}</strong></p>
               <ul class="ml-4 mb-0">
-                <li>访问密钥在服务器的 <code>PROXY_ACCESS_KEY</code> 环境变量中设置</li>
-                <li>密钥将安全保存在本地，下次访问将自动验证登录</li>
-                <li>请勿与他人分享您的访问密钥</li>
-                <li>如果怀疑密钥泄露，请立即更改服务器配置</li>
-                <li>连续 {{ MAX_AUTH_ATTEMPTS }} 次认证失败将锁定 5 分钟</li>
+                <li>{{ t('auth.tip1') }}</li>
+                <li>{{ t('auth.tip2') }}</li>
+                <li>{{ t('auth.tip3') }}</li>
+                <li>{{ t('auth.tip4') }}</li>
+                <li>{{ t('auth.tip5', { count: MAX_AUTH_ATTEMPTS }) }}</li>
               </ul>
             </div>
           </v-alert>
@@ -63,7 +63,7 @@
     <!-- 应用栏 - 毛玻璃效果 -->
     <v-app-bar elevation="0" :height="$vuetify.display.mobile ? 56 : 72" class="app-header">
       <template #prepend>
-        <div class="app-logo" @click="showPricingSettings = true" style="cursor: pointer;" title="定价设置">
+        <div class="app-logo" @click="showPricingSettings = true" style="cursor: pointer;" :title="t('app.pricingSettings')">
           <v-icon :size="$vuetify.display.mobile ? 22 : 32" color="white"> mdi-cog </v-icon>
         </div>
       </template>
@@ -91,6 +91,11 @@
       <!-- 版本号 -->
       <span v-if="appVersion" class="version-badge mr-2">{{ appVersion }}</span>
 
+      <!-- 语言切换 -->
+      <v-btn icon variant="text" size="small" class="header-btn" @click="toggleLocale" :title="currentLocale === 'zh-CN' ? 'English' : '中文'">
+        <span style="font-size: 14px; font-weight: 600;">{{ currentLocale === 'zh-CN' ? 'EN' : '中' }}</span>
+      </v-btn>
+
       <!-- 暗色模式切换 -->
       <v-btn icon variant="text" size="small" class="header-btn" @click="toggleDarkMode">
         <v-icon size="20">{{
@@ -106,7 +111,7 @@
         class="header-btn"
         @click="handleLogout"
         v-if="isAuthenticated"
-        title="注销"
+        :title="t('app.logout')"
       >
         <v-icon size="20">mdi-logout</v-icon>
       </v-btn>
@@ -129,8 +134,8 @@
               </div>
               <div class="stat-card-content">
                 <div class="stat-card-value">{{ currentChannelsData.channels?.length || 0 }}</div>
-                <div class="stat-card-label">总渠道数</div>
-                <div class="stat-card-desc">已配置的API渠道</div>
+                <div class="stat-card-label">{{ t('stats.totalChannels') }}</div>
+                <div class="stat-card-desc">{{ t('stats.configuredChannels') }}</div>
               </div>
               <div class="stat-card-glow"></div>
             </div>
@@ -145,8 +150,8 @@
                 <div class="stat-card-value">
                   {{ activeChannelCount }}<span class="stat-card-total">/{{ failoverChannelCount }}</span>
                 </div>
-                <div class="stat-card-label">活跃渠道</div>
-                <div class="stat-card-desc">参与故障转移调度</div>
+                <div class="stat-card-label">{{ t('stats.activeChannels') }}</div>
+                <div class="stat-card-desc">{{ t('stats.failoverScheduling') }}</div>
               </div>
               <div class="stat-card-glow"></div>
             </div>
@@ -158,9 +163,9 @@
                 <v-icon size="28">mdi-heart-pulse</v-icon>
               </div>
               <div class="stat-card-content">
-                <div class="stat-card-value">运行中</div>
-                <div class="stat-card-label">系统状态</div>
-                <div class="stat-card-desc">服务正常运行</div>
+                <div class="stat-card-value">{{ t('stats.running') }}</div>
+                <div class="stat-card-label">{{ t('stats.systemStatus') }}</div>
+                <div class="stat-card-desc">{{ t('stats.serviceNormal') }}</div>
               </div>
               <div class="stat-card-glow"></div>
             </div>
@@ -177,7 +182,7 @@
               prepend-icon="mdi-plus"
               class="action-btn action-btn-primary"
             >
-              添加渠道
+              {{ t('actions.addChannel') }}
             </v-btn>
 
             <v-btn
@@ -189,11 +194,11 @@
               :loading="isPingingAll"
               class="action-btn"
             >
-              测试延迟
+              {{ t('actions.testLatency') }}
             </v-btn>
 
             <v-btn size="large" @click="refreshChannels" prepend-icon="mdi-refresh" variant="text" class="action-btn">
-              刷新
+              {{ t('common.refresh') }}
             </v-btn>
           </div>
 
@@ -213,7 +218,7 @@
                 </v-btn>
               </template>
               <v-list class="load-balance-menu" rounded="lg" elevation="8">
-                <v-list-subheader>API密钥分配策略</v-list-subheader>
+                <v-list-subheader>{{ t('loadBalance.title') }}</v-list-subheader>
                 <v-list-item
                   @click="updateLoadBalance('round-robin')"
                   :active="currentChannelsData.loadBalance === 'round-robin'"
@@ -224,8 +229,8 @@
                       <v-icon size="20">mdi-rotate-right</v-icon>
                     </v-avatar>
                   </template>
-                  <v-list-item-title class="font-weight-medium">轮询 (Round Robin)</v-list-item-title>
-                  <v-list-item-subtitle>按顺序依次使用API密钥</v-list-item-subtitle>
+                  <v-list-item-title class="font-weight-medium">{{ t('loadBalance.roundRobin') }}</v-list-item-title>
+                  <v-list-item-subtitle>{{ t('loadBalance.roundRobinDesc') }}</v-list-item-subtitle>
                 </v-list-item>
                 <v-list-item
                   @click="updateLoadBalance('random')"
@@ -237,8 +242,8 @@
                       <v-icon size="20">mdi-dice-6</v-icon>
                     </v-avatar>
                   </template>
-                  <v-list-item-title class="font-weight-medium">随机 (Random)</v-list-item-title>
-                  <v-list-item-subtitle>随机选择API密钥</v-list-item-subtitle>
+                  <v-list-item-title class="font-weight-medium">{{ t('loadBalance.random') }}</v-list-item-title>
+                  <v-list-item-subtitle>{{ t('loadBalance.randomDesc') }}</v-list-item-subtitle>
                 </v-list-item>
                 <v-list-item
                   @click="updateLoadBalance('failover')"
@@ -250,8 +255,8 @@
                       <v-icon size="20">mdi-backup-restore</v-icon>
                     </v-avatar>
                   </template>
-                  <v-list-item-title class="font-weight-medium">故障转移 (Failover)</v-list-item-title>
-                  <v-list-item-subtitle>优先第一个，失败时切换</v-list-item-subtitle>
+                  <v-list-item-title class="font-weight-medium">{{ t('loadBalance.failover') }}</v-list-item-title>
+                  <v-list-item-subtitle>{{ t('loadBalance.failoverDesc') }}</v-list-item-subtitle>
                 </v-list-item>
               </v-list>
             </v-menu>
@@ -264,7 +269,7 @@
           ref="channelOrchestrationRef"
           :channels="currentChannelsData.channels"
           :current-channel-index="currentChannelsData.current"
-          :channel-type="activeTab"
+          :channel-type="channelTypeForComponents"
           @edit="editChannel"
           @delete="deleteChannel"
           @ping="pingChannel"
@@ -279,12 +284,12 @@
           <v-avatar size="120" color="primary" class="mb-6">
             <v-icon size="60" color="white">mdi-rocket-launch</v-icon>
           </v-avatar>
-          <div class="text-h4 mb-4 font-weight-bold">暂无渠道配置</div>
+          <div class="text-h4 mb-4 font-weight-bold">{{ t('channel.noChannels') }}</div>
           <div class="text-subtitle-1 text-medium-emphasis mb-8">
-            还没有配置任何API渠道，请添加第一个渠道来开始使用代理服务
+            {{ t('channel.noChannelsDesc') }}
           </div>
           <v-btn color="primary" size="x-large" @click="openAddChannelModal" prepend-icon="mdi-plus" variant="elevated">
-            添加第一个渠道
+            {{ t('actions.addFirstChannel') }}
           </v-btn>
         </v-card>
         </template>
@@ -295,7 +300,7 @@
     <AddChannelModal
       v-model:show="showAddChannelModal"
       :channel="editingChannel"
-      :channel-type="activeTab"
+      :channel-type="channelTypeForComponents"
       @save="saveChannel"
     />
 
@@ -304,23 +309,23 @@
       <v-card rounded="lg">
         <v-card-title class="d-flex align-center">
           <v-icon class="mr-3">mdi-key-plus</v-icon>
-          添加API密钥
+          {{ t('channel.addApiKey') }}
         </v-card-title>
         <v-card-text>
           <v-text-field
             v-model="newApiKey"
-            label="API密钥"
+            :label="t('channel.apiKeyLabel')"
             type="password"
             variant="outlined"
             density="comfortable"
             @keyup.enter="addApiKey"
-            placeholder="输入API密钥"
+            :placeholder="t('channel.enterApiKey')"
           ></v-text-field>
         </v-card-text>
         <v-card-actions>
           <v-spacer></v-spacer>
-          <v-btn @click="showAddKeyModalRef = false" variant="text">取消</v-btn>
-          <v-btn @click="addApiKey" :disabled="!newApiKey.trim()" color="primary" variant="elevated">添加</v-btn>
+          <v-btn @click="showAddKeyModalRef = false" variant="text">{{ t('common.cancel') }}</v-btn>
+          <v-btn @click="addApiKey" :disabled="!newApiKey.trim()" color="primary" variant="elevated">{{ t('common.add') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -349,12 +354,20 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useTheme } from 'vuetify'
+import { useI18n } from 'vue-i18n'
 import { api, type Channel, type ChannelsResponse } from './services/api'
 import AddChannelModal from './components/AddChannelModal.vue'
 import ChannelOrchestration from './components/ChannelOrchestration.vue'
 import RequestLogTable from './components/RequestLogTable.vue'
 import PricingSettings from './components/PricingSettings.vue'
 import { useAppTheme } from './composables/useTheme'
+import { useLocale } from './composables/useLocale'
+
+// i18n
+const { t } = useI18n()
+
+// Locale management
+const { currentLocale, toggleLocale, init: initLocale } = useLocale()
 
 // Vuetify主题
 const theme = useTheme()
@@ -382,6 +395,11 @@ const isPingingAll = ref(false)
 const darkModePreference = ref<'light' | 'dark' | 'auto'>('auto')
 const appVersion = ref('') // 应用版本号
 const showPricingSettings = ref(false) // 定价设置对话框
+
+// 用于传递给子组件的 channelType (排除 'logs')
+const channelTypeForComponents = computed(() => {
+  return activeTab.value === 'logs' ? 'messages' : activeTab.value
+})
 
 // Toast通知系统
 interface Toast {
@@ -481,14 +499,14 @@ const saveChannel = async (channel: Omit<Channel, 'index' | 'latency' | 'status'
       } else {
         await api.updateChannel(editingChannel.value.index, channel)
       }
-      showToast('渠道更新成功', 'success')
+      showToast(t('channel.updateSuccess'), 'success')
     } else {
       if (isResponses) {
         await api.addResponsesChannel(channel)
       } else {
         await api.addChannel(channel)
       }
-      showToast('渠道添加成功', 'success')
+      showToast(t('channel.addSuccess'), 'success')
 
       // 快速添加模式：将新渠道设为第一优先级并设置5分钟促销期
       if (options?.isQuickAdd) {
@@ -522,7 +540,7 @@ const saveChannel = async (channel: Omit<Channel, 'index' | 'latency' | 'status'
               await api.setChannelPromotion(newChannel.index, 300)
             }
 
-            showToast(`渠道 ${channel.name} 已设为最高优先级，5分钟内优先使用`, 'info')
+            showToast(t('channel.prioritySet', { name: channel.name }), 'info')
           } catch (err) {
             console.warn('设置快速添加优先级失败:', err)
             // 不影响主流程，只是提示
@@ -544,7 +562,7 @@ const editChannel = (channel: Channel) => {
 }
 
 const deleteChannel = async (channelId: number) => {
-  if (!confirm('确定要删除这个渠道吗？')) return
+  if (!confirm(t('channel.deleteConfirm'))) return
 
   try {
     if (activeTab.value === 'responses') {
@@ -552,7 +570,7 @@ const deleteChannel = async (channelId: number) => {
     } else {
       await api.deleteChannel(channelId)
     }
-    showToast('渠道删除成功', 'success')
+    showToast(t('channel.deleteSuccess'), 'success')
     await refreshChannels()
   } catch (error) {
     handleAuthError(error)
@@ -579,17 +597,17 @@ const addApiKey = async () => {
     } else {
       await api.addApiKey(selectedChannelForKey.value, newApiKey.value.trim())
     }
-    showToast('API密钥添加成功', 'success')
+    showToast(t('channel.apiKeyAddSuccess'), 'success')
     showAddKeyModalRef.value = false
     newApiKey.value = ''
     await refreshChannels()
   } catch (error) {
-    showToast(`添加API密钥失败: ${error instanceof Error ? error.message : '未知错误'}`, 'error')
+    showToast(t('channel.apiKeyAddFailed', { error: error instanceof Error ? error.message : 'Unknown error' }), 'error')
   }
 }
 
 const removeApiKey = async (channelId: number, apiKey: string) => {
-  if (!confirm('确定要删除这个API密钥吗？')) return
+  if (!confirm(t('channel.apiKeyDeleteConfirm'))) return
 
   try {
     if (activeTab.value === 'responses') {
@@ -597,10 +615,10 @@ const removeApiKey = async (channelId: number, apiKey: string) => {
     } else {
       await api.removeApiKey(channelId, apiKey)
     }
-    showToast('API密钥删除成功', 'success')
+    showToast(t('channel.apiKeyDeleteSuccess'), 'success')
     await refreshChannels()
   } catch (error) {
-    showToast(`删除API密钥失败: ${error instanceof Error ? error.message : '未知错误'}`, 'error')
+    showToast(t('channel.apiKeyDeleteFailed', { error: error instanceof Error ? error.message : 'Unknown error' }), 'error')
   }
 }
 
@@ -613,9 +631,9 @@ const pingChannel = async (channelId: number) => {
       channel.latency = result.latency
       channel.status = result.success ? 'healthy' : 'error'
     }
-    showToast(`延迟测试完成: ${result.latency}ms`, result.success ? 'success' : 'warning')
+    showToast(t('channel.latencyTestComplete', { latency: result.latency }), result.success ? 'success' : 'warning')
   } catch (error) {
-    showToast(`延迟测试失败: ${error instanceof Error ? error.message : '未知错误'}`, 'error')
+    showToast(t('channel.latencyTestFailed', { error: error instanceof Error ? error.message : 'Unknown error' }), 'error')
   }
 }
 
@@ -633,9 +651,9 @@ const pingAllChannels = async () => {
         channel.status = result.status as 'healthy' | 'error'
       }
     })
-    showToast('全部渠道延迟测试完成', 'success')
+    showToast(t('channel.allLatencyTestComplete'), 'success')
   } catch (error) {
-    showToast(`批量延迟测试失败: ${error instanceof Error ? error.message : '未知错误'}`, 'error')
+    showToast(t('channel.batchLatencyTestFailed', { error: error instanceof Error ? error.message : 'Unknown error' }), 'error')
   } finally {
     isPingingAll.value = false
   }
@@ -650,9 +668,9 @@ const updateLoadBalance = async (strategy: string) => {
       await api.updateResponsesLoadBalance(strategy)
       responsesChannelsData.value.loadBalance = strategy
     }
-    showToast(`负载均衡策略已更新为: ${strategy}`, 'success')
+    showToast(t('loadBalance.updated', { strategy }), 'success')
   } catch (error) {
-    showToast(`更新负载均衡策略失败: ${error instanceof Error ? error.message : '未知错误'}`, 'error')
+    showToast(t('loadBalance.updateFailed', { error: error instanceof Error ? error.message : 'Unknown error' }), 'error')
   }
 }
 
@@ -711,7 +729,7 @@ const autoAuthenticate = async () => {
   const savedKey = initializeAuth()
   if (!savedKey) {
     // 没有保存的密钥，显示登录对话框
-    authError.value = '请输入访问密钥以继续'
+    authError.value = t('auth.enterKeyToContinue')
     isAutoAuthenticating.value = false
     isInitialized.value = true
     return false
@@ -729,14 +747,14 @@ const autoAuthenticate = async () => {
     return true
   } catch (error: any) {
     // 密钥无效或过期
-    console.warn('自动认证失败:', error.message)
+    console.warn('Auto auth failed:', error.message)
 
     // 清除无效的密钥
     api.clearAuth()
 
     // 显示登录对话框，提示用户重新输入
     isAuthenticated.value = false
-    authError.value = '保存的访问密钥已失效，请重新输入'
+    authError.value = t('auth.savedKeyInvalid')
 
     return false
   } finally {
@@ -758,14 +776,14 @@ const setAuthKey = (key: string) => {
 // 处理认证提交
 const handleAuthSubmit = async () => {
   if (!authKeyInput.value.trim()) {
-    authError.value = '请输入访问密钥'
+    authError.value = t('auth.enterAccessKey')
     return
   }
 
   // 检查是否被锁定
   if (authLockoutTime.value && new Date() < authLockoutTime.value) {
     const remainingSeconds = Math.ceil((authLockoutTime.value.getTime() - Date.now()) / 1000)
-    authError.value = `认证尝试次数过多，请在 ${remainingSeconds} 秒后重试`
+    authError.value = t('auth.waitAndRetry', { seconds: remainingSeconds })
     return
   }
 
@@ -789,20 +807,20 @@ const handleAuthSubmit = async () => {
     authKeyInput.value = ''
 
     // 记录认证成功(前端日志)
-    console.info('✅ 认证成功 - 时间:', new Date().toISOString())
+    console.info('✅ Auth success - time:', new Date().toISOString())
   } catch (error: any) {
     // 认证失败
     authAttempts.value++
 
     // 记录认证失败(前端日志)
-    console.warn('🔒 认证失败 - 尝试次数:', authAttempts.value, '时间:', new Date().toISOString())
+    console.warn('🔒 Auth failed - attempts:', authAttempts.value, 'time:', new Date().toISOString())
 
     // 如果尝试次数过多，锁定5分钟
     if (authAttempts.value >= MAX_AUTH_ATTEMPTS) {
       authLockoutTime.value = new Date(Date.now() + 5 * 60 * 1000)
-      authError.value = '认证尝试次数过多，请在5分钟后重试'
+      authError.value = t('auth.tooManyAttempts')
     } else {
-      authError.value = `访问密钥验证失败 (剩余尝试次数: ${MAX_AUTH_ATTEMPTS - authAttempts.value})`
+      authError.value = t('auth.authFailed', { remaining: MAX_AUTH_ATTEMPTS - authAttempts.value })
     }
 
     isAuthenticated.value = false
@@ -816,18 +834,18 @@ const handleAuthSubmit = async () => {
 const handleLogout = () => {
   api.clearAuth()
   isAuthenticated.value = false
-  authError.value = '请输入访问密钥以继续'
+  authError.value = t('auth.enterKeyToContinue')
   channelsData.value = { channels: [], current: 0, loadBalance: 'failover' }
-  showToast('已安全注销', 'info')
+  showToast(t('app.loggedOut'), 'info')
 }
 
 // 处理认证失败
 const handleAuthError = (error: any) => {
   if (error.message && error.message.includes('认证失败')) {
     isAuthenticated.value = false
-    authError.value = '访问密钥无效或已过期，请重新输入'
+    authError.value = t('auth.savedKeyInvalid')
   } else {
-    showToast(`操作失败: ${error instanceof Error ? error.message : '未知错误'}`, 'error')
+    showToast(`${t('common.error')}: ${error instanceof Error ? error.message : t('common.unknown')}`, 'error')
   }
 }
 
@@ -836,6 +854,7 @@ onMounted(async () => {
   // 初始化复古像素主题
   document.documentElement.dataset.theme = 'retro'
   initTheme()
+  initLocale()
 
   // 加载保存的暗色模式偏好
   const savedMode = (localStorage.getItem('theme') as 'light' | 'dark' | 'auto') || 'auto'
