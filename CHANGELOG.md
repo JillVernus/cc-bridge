@@ -4,6 +4,22 @@
 
 ---
 
+## [v1.1.4] - 2025-12-13
+
+### 🔒 安全加固
+
+- **修复时序攻击漏洞**：API 密钥验证改用 `crypto/subtle.ConstantTimeCompare`，防止通过响应时间差推断密钥
+- **启用默认速率限制**：`ENABLE_RATE_LIMIT` 默认值改为 `true`（100 请求/分钟），防止暴力破解
+- **收紧 CORS 默认配置**：`CORS_ORIGIN` 默认值从 `*` 改为空字符串，阻止跨站请求
+- **添加安全响应头**：Web UI 响应现在包含 `X-Content-Type-Options`、`X-Frame-Options`、`X-XSS-Protection`、`Referrer-Policy`
+- **InsecureSkipVerify 警告**：启用 TLS 证书跳过验证的渠道会在启动时打印安全警告日志
+
+### 🐛 Bug 修复
+
+- **修复渠道 ID 解析错误**：`MoveApiKeyToTop/Bottom` 等接口现在正确处理无效 ID 参数，返回 400 错误而非静默失败
+
+---
+
 ## [v1.1.3] - 2025-12-13
 
 ### 🔒 安全加固

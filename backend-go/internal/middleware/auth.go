@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"crypto/subtle"
 	"log"
 	"strings"
 	"time"
@@ -8,6 +9,16 @@ import (
 	"github.com/JillVernus/cc-bridge/internal/config"
 	"github.com/gin-gonic/gin"
 )
+
+// secureCompare performs a constant-time comparison of two strings
+// to prevent timing attacks
+func secureCompare(a, b string) bool {
+	// Both strings must be non-empty and equal length for constant-time comparison
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
 
 // WebAuthMiddleware Web 访问控制中间件
 func WebAuthMiddleware(envCfg *config.EnvConfig, cfgManager *config.ConfigManager) gin.HandlerFunc {
@@ -25,7 +36,7 @@ func WebAuthMiddleware(envCfg *config.EnvConfig, cfgManager *config.ConfigManage
 			providedKey := getAPIKey(c)
 			expectedKey := envCfg.ProxyAccessKey
 
-			if providedKey == "" || providedKey != expectedKey {
+			if !secureCompare(providedKey, expectedKey) {
 				if envCfg.ShouldLog("warn") {
 					log.Printf("🔒 管理端点访问密钥验证失败 - IP: %s | Path: %s", c.ClientIP(), path)
 				}
@@ -45,7 +56,7 @@ func WebAuthMiddleware(envCfg *config.EnvConfig, cfgManager *config.ConfigManage
 			providedKey := getAPIKey(c)
 			expectedKey := envCfg.ProxyAccessKey
 
-			if providedKey == "" || providedKey != expectedKey {
+			if !secureCompare(providedKey, expectedKey) {
 				if envCfg.ShouldLog("warn") {
 					log.Printf("🔒 管理端点访问密钥验证失败 - IP: %s | Path: %s", c.ClientIP(), path)
 				}
@@ -98,7 +109,7 @@ func WebAuthMiddleware(envCfg *config.EnvConfig, cfgManager *config.ConfigManage
 			clientIP := c.ClientIP()
 			timestamp := time.Now().Format(time.RFC3339)
 
-			if providedKey == "" || providedKey != expectedKey {
+			if !secureCompare(providedKey, expectedKey) {
 				// 认证失败 - 记录详细日志
 				reason := "密钥无效"
 				if providedKey == "" {
@@ -162,7 +173,7 @@ func ProxyAuthMiddleware(envCfg *config.EnvConfig) gin.HandlerFunc {
 		providedKey := getAPIKey(c)
 		expectedKey := envCfg.ProxyAccessKey
 
-		if providedKey == "" || providedKey != expectedKey {
+		if !secureCompare(providedKey, expectedKey) {
 			if envCfg.ShouldLog("warn") {
 				log.Printf("🔒 代理访问密钥验证失败 - IP: %s", c.ClientIP())
 			}

@@ -339,6 +339,9 @@ func (cm *ConfigManager) loadConfig() error {
 		}
 	}
 
+	// 安全警告：检查 insecureSkipVerify 选项
+	cm.warnInsecureChannels()
+
 	return nil
 }
 
@@ -381,6 +384,25 @@ func (cm *ConfigManager) validateChannelKeys() bool {
 	}
 
 	return modified
+}
+
+// warnInsecureChannels 警告使用了 insecureSkipVerify 的渠道
+func (cm *ConfigManager) warnInsecureChannels() {
+	// 检查 Messages 渠道
+	for i, upstream := range cm.config.Upstream {
+		if upstream.InsecureSkipVerify {
+			log.Printf("⚠️ [安全警告] Messages 渠道 [%d] %s 已启用 insecureSkipVerify - TLS 证书验证已禁用，存在中间人攻击风险",
+				i, upstream.Name)
+		}
+	}
+
+	// 检查 Responses 渠道
+	for i, upstream := range cm.config.ResponsesUpstream {
+		if upstream.InsecureSkipVerify {
+			log.Printf("⚠️ [安全警告] Responses 渠道 [%d] %s 已启用 insecureSkipVerify - TLS 证书验证已禁用，存在中间人攻击风险",
+				i, upstream.Name)
+		}
+	}
 }
 
 // saveConfigLocked 保存配置（已加锁）

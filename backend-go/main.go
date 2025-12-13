@@ -113,6 +113,9 @@ func main() {
 	// 创建路由器
 	r := gin.Default()
 
+	// 配置安全响应头（仅影响 Web UI）
+	r.Use(middleware.SecurityHeadersMiddleware())
+
 	// 配置 CORS
 	r.Use(middleware.CORSMiddleware(envCfg))
 
