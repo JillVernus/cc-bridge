@@ -148,6 +148,34 @@
 
           <v-divider class="my-4" />
 
+          <div class="settings-section mb-4">
+            <div class="text-subtitle-2 mb-2">{{ t('requestLog.retentionCleanup') }}</div>
+            <div class="d-flex align-center ga-2">
+              <v-select
+                v-model="retentionDays"
+                :items="retentionOptions"
+                item-title="label"
+                item-value="value"
+                density="compact"
+                variant="outlined"
+                hide-details
+                style="max-width: 180px"
+              />
+              <v-btn
+                color="warning"
+                variant="tonal"
+                @click="confirmCleanupLogs"
+                :loading="cleaning"
+              >
+                <v-icon class="mr-1">mdi-broom</v-icon>
+                {{ t('requestLog.cleanup') }}
+              </v-btn>
+            </div>
+            <div class="text-caption text-grey mt-2">{{ t('requestLog.retentionCleanupDesc') }}</div>
+          </div>
+
+          <v-divider class="my-4" />
+
           <div class="settings-section">
             <div class="text-subtitle-2 mb-2">{{ t('requestLog.databaseOps') }}</div>
             <v-btn
@@ -178,6 +206,38 @@
           <v-spacer />
           <v-btn variant="text" @click="showConfirmClear = false">{{ t('common.cancel') }}</v-btn>
           <v-btn color="error" variant="flat" @click="clearLogs" :loading="clearing">{{ t('requestLog.confirmDelete') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- 确认清理对话框 -->
+    <v-dialog v-model="showConfirmCleanup" max-width="400">
+      <v-card>
+        <v-card-title class="text-warning">{{ t('requestLog.confirmCleanup') }}</v-card-title>
+        <v-card-text>{{ t('requestLog.confirmCleanupDesc', { days: retentionDays }) }}</v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showConfirmCleanup = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="warning" variant="flat" @click="cleanupLogs" :loading="cleaning">{{ t('requestLog.confirmCleanupBtn') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- 清理结果对话框 -->
+    <v-dialog v-model="showCleanupResult" max-width="400">
+      <v-card>
+        <v-card-title class="text-success d-flex align-center">
+          <v-icon class="mr-2" color="success">mdi-check-circle</v-icon>
+          {{ t('requestLog.cleanupComplete') }}
+        </v-card-title>
+        <v-card-text>
+          <div class="text-body-1">
+            {{ t('requestLog.cleanupResultDesc', { count: cleanupResultCount, days: cleanupResultDays }) }}
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn color="primary" variant="flat" @click="showCleanupResult = false">{{ t('common.close') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -489,6 +549,21 @@ const updatedProviders = ref<Set<string>>(new Set())
 const showSettings = ref(false)
 const showConfirmClear = ref(false)
 const clearing = ref(false)
+
+// Cleanup
+const showConfirmCleanup = ref(false)
+const showCleanupResult = ref(false)
+const cleaning = ref(false)
+const retentionDays = ref(30)
+const cleanupResultCount = ref(0)
+const cleanupResultDays = ref(0)
+const retentionOptions = computed(() => [
+  { label: t('requestLog.retention30'), value: 30 },
+  { label: t('requestLog.retention60'), value: 60 },
+  { label: t('requestLog.retention90'), value: 90 },
+  { label: t('requestLog.retention180'), value: 180 },
+  { label: t('requestLog.retention365'), value: 365 },
+])
 
 // Date filter - use local date
 const getLocalDateString = (date: Date) => {
@@ -826,6 +901,26 @@ const clearLogs = async () => {
     console.error('Failed to clear logs:', error)
   } finally {
     clearing.value = false
+  }
+}
+
+const confirmCleanupLogs = () => {
+  showConfirmCleanup.value = true
+}
+
+const cleanupLogs = async () => {
+  cleaning.value = true
+  try {
+    const result = await api.cleanupRequestLogs(retentionDays.value)
+    showConfirmCleanup.value = false
+    cleanupResultCount.value = result.deletedCount
+    cleanupResultDays.value = result.retentionDays
+    showCleanupResult.value = true
+    refreshLogs()
+  } catch (error) {
+    console.error('Failed to cleanup logs:', error)
+  } finally {
+    cleaning.value = false
   }
 }
 

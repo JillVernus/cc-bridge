@@ -121,3 +121,37 @@ func (h *RequestLogHandler) GetLogByID(c *gin.Context) {
 
 	c.JSON(http.StatusOK, record)
 }
+
+// CleanupLogs 清理指定天数之前的日志
+func (h *RequestLogHandler) CleanupLogs(c *gin.Context) {
+	daysStr := c.Query("days")
+	if daysStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "days parameter is required"})
+		return
+	}
+
+	days, err := strconv.Atoi(daysStr)
+	if err != nil || days <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "days must be a positive integer"})
+		return
+	}
+
+	// Validate allowed retention periods
+	allowedDays := map[int]bool{30: true, 60: true, 90: true, 180: true, 365: true}
+	if !allowedDays[days] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "days must be one of: 30, 60, 90, 180, 365"})
+		return
+	}
+
+	deleted, err := h.manager.Cleanup(days)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":      "Cleanup completed",
+		"deletedCount": deleted,
+		"retentionDays": days,
+	})
+}

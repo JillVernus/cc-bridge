@@ -413,6 +413,11 @@ class ApiService {
     return this.request('/logs', { method: 'DELETE' })
   }
 
+  // 清理指定天数前的日志
+  async cleanupRequestLogs(days: number): Promise<{ message: string; deletedCount: number; retentionDays: number }> {
+    return this.request(`/logs/cleanup?days=${days}`, { method: 'POST' })
+  }
+
   // ============== 定价配置 API ==============
 
   // 获取定价配置
