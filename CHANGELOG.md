@@ -4,6 +4,72 @@
 
 ---
 
+## [v1.1.3] - 2025-12-13
+
+### 🔒 安全加固
+
+- **修复管理端点未认证问题**：`/admin/config/reload` 现在需要访问密钥认证
+- **修复开发端点安全风险**：`/admin/dev/info` 在开发模式下也需要访问密钥
+- **移除 Query 参数认证**：后端不再接受 `?key=` 查询参数传递访问密钥，仅支持请求头认证
+- **前端密钥存储优化**：访问密钥从 `localStorage` 迁移到 `sessionStorage`，并移除 URL `?key=` 导入功能
+
+### 🛡️ 稳定性改进
+
+- **添加请求体大小限制**：代理端点新增可配置的请求体大小限制（`MAX_REQUEST_BODY_MB`，默认 20MB），超限返回 `413`
+- **增大 SSE 流解析缓冲区**：Provider 流式解析器的 `bufio.Scanner` 缓冲区从默认 64KB 增大到 4MB，修复大型 SSE 行（如工具调用）导致的 "token too long" 错误
+- **修复 Responses 会话链接错误**：`previous_id` 现在正确链接到前一个响应，不再错误指向当前响应
+- **修复 Token 统计重复计算**：Responses API 的 token 使用量现在每个响应只计算一次，不再按输出项重复累加
+
+### 🔧 CORS 配置改进
+
+- **严格化 CORS 行为**：CORS 现在由 `ENABLE_CORS` 和 `CORS_ORIGIN` 严格控制
+- **修复开发模式 origin 匹配**：移除不安全的 `strings.Contains(origin, "localhost")` 子串匹配
+
+### 📝 文档更新
+
+- **环境变量文档**：未实现的环境变量（如 rate limit）现在标注为 "(planning)" 避免误导
+
+---
+
+## [v1.1.2] - 2025-12-12
+
+### 🐛 Bug 修复
+
+- **修复 responseHeaderTimeout 配置**：非流式请求现在也会应用渠道配置的超时时间（此前仅对流式请求生效）
+- **修复请求日志 Tooltip 颜色**：深色背景上的 tooltip 文字现在可见
+
+### 🎨 UI 改进
+
+- **标题更新**：UI 标题从 "Claude API Proxy" 更新为 "CC-Bridge"
+- **表格动画**：为统计表格（按模型/按渠道）添加行闪烁动画效果
+
+---
+
+## [v1.1.1] - 2025-12-12
+
+### 🌐 国际化支持
+
+- **i18n 框架**：新增 vue-i18n v11.2.2 国际化支持
+- **语言切换**：支持 English / 简体中文，语言偏好持久化到 localStorage
+- **新增文件**：`src/locales/`, `src/plugins/i18n.ts`, `src/composables/useLocale.ts`
+
+### 🎨 UI 改进
+
+- **操作按钮**：更大的操作按钮尺寸，提升可点击性
+- **定价对话框**：更宽的定价设置对话框
+
+---
+
+## [v1.1.0] - 2025-12-12
+
+### 🔄 项目重命名
+
+- **项目名称**：从 `claude-proxy` 重命名为 `cc-bridge`
+- **Go 模块路径**：`github.com/JillVernus/cc-bridge`
+- **Fork 来源**：基于上游 [BenedictKing/claude-proxy v2.0.44](https://github.com/BenedictKing/claude-proxy/tree/v2.0.44) 分叉
+
+---
+
 ## [v2.0.20-go] - 2025-12-08
 
 ### 🐛 Bug 修复

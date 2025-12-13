@@ -1,31 +1,5 @@
 # CLAUDE.md
 
-## 变更记录 (Changelog)
-
-### 2025-12-12 - v1.1.1 Bug 修复和 UI 改进
-- 修复 `responseHeaderTimeout` 配置仅对流式请求生效的问题，现在非流式请求也会应用渠道配置的超时时间
-- 将 UI 标题从 "Claude API Proxy" 更新为 "CC-Bridge"
-- 修复请求日志表格中 tooltip 文字在深色背景上不可见的问题
-- 为统计表格（按模型/按渠道）添加行闪烁动画效果
-
-### 2025-12-12 - v1.1.0 国际化支持
-- 新增 i18n 国际化支持（English / 简体中文）
-- 使用 vue-i18n v11.2.2，支持语言切换和 localStorage 持久化
-- 新增文件: `src/locales/`, `src/plugins/i18n.ts`, `src/composables/useLocale.ts`
-- UI 改进: 更大的操作按钮，更宽的定价设置对话框
-
-### 2025-12-12 - 项目重命名
-- 项目从 `claude-proxy` 重命名为 `cc-bridge`
-- Go 模块路径: `github.com/JillVernus/cc-bridge`
-- 基于上游 [BenedictKing/claude-proxy v2.0.44](https://github.com/BenedictKing/claude-proxy/tree/v2.0.44) 分叉
-
-### 2025-12-11 - 索引更新
-- 完成代码库全量索引扫描
-- 新增模块结构图和面包屑导航
-- 生成 backend-go 和 frontend 模块文档
-
----
-
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## 项目概述
