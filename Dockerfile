@@ -4,6 +4,9 @@ FROM oven/bun:alpine AS bun-runtime
 # --- 阶段 2: 构建阶段 (Go + Bun) ---
 FROM golang:1.22-alpine AS builder
 
+# 接收版本参数（从 GitHub Actions 传入）
+ARG VERSION=v0.0.0-dev
+
 WORKDIR /src
 
 # 安装必要的构建工具和 bun 依赖（libstdc++ libgcc 是 bun:alpine 运行所需）
@@ -20,6 +23,9 @@ ENV PATH="/usr/local/bin:${PATH}"
 COPY Makefile VERSION ./
 COPY frontend/ ./frontend/
 COPY backend-go/ ./backend-go/
+
+# 写入版本号（优先使用 ARG 传入的版本，确保 CI 构建版本正确）
+RUN if [ "$VERSION" != "v0.0.0-dev" ]; then echo "$VERSION" > VERSION; fi
 
 # 使用 bun 安装前端依赖（比 npm 快 10-100 倍）
 RUN cd frontend && bun install
