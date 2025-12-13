@@ -195,6 +195,12 @@ func main() {
 		apiGroup.PUT("/pricing/models/:model", handlers.AddModelPricing())
 		apiGroup.DELETE("/pricing/models/:model", handlers.DeleteModelPricing())
 		apiGroup.POST("/pricing/reset", handlers.ResetPricingToDefault())
+
+		// 备份/恢复 API
+		apiGroup.POST("/config/backup", handlers.CreateBackup(cfgManager))
+		apiGroup.GET("/config/backups", handlers.ListBackups())
+		apiGroup.POST("/config/restore/:filename", handlers.RestoreBackup(cfgManager))
+		apiGroup.DELETE("/config/backups/:filename", handlers.DeleteBackup())
 	}
 
 	// 代理端点 - 统一入口

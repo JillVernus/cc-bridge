@@ -153,17 +153,6 @@ interface Theme {
 - 实时指标刷新
 - 负载均衡策略切换
 
-### ChannelCard.vue
-**职责**: 单个渠道卡片展示
-
-核心功能：
-- 渠道基本信息展示
-- API 密钥管理（添加/删除/置顶/置底）
-- 渠道状态切换（active/suspended/disabled）
-- 单个渠道 Ping 测试
-- 促销期设置
-- 指标数据展示（成功率、请求数）
-
 ### ChannelStatusBadge.vue
 **职责**: 渠道状态徽章
 
@@ -289,7 +278,6 @@ frontend/
 │   ├── App.vue                       # 根组件
 │   ├── components/                   # Vue 组件
 │   │   ├── ChannelOrchestration.vue  # 渠道编排主界面
-│   │   ├── ChannelCard.vue           # 渠道卡片
 │   │   ├── ChannelStatusBadge.vue    # 状态徽章
 │   │   ├── AddChannelModal.vue       # 添加/编辑对话框
 │   │   ├── RequestLogTable.vue       # 请求日志表格

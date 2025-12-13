@@ -63,9 +63,27 @@
     <!-- 应用栏 - 毛玻璃效果 -->
     <v-app-bar elevation="0" :height="$vuetify.display.mobile ? 56 : 72" class="app-header">
       <template #prepend>
-        <div class="app-logo" @click="showPricingSettings = true" style="cursor: pointer;" :title="t('app.pricingSettings')">
-          <v-icon :size="$vuetify.display.mobile ? 22 : 32" color="white"> mdi-cog </v-icon>
-        </div>
+        <v-menu>
+          <template #activator="{ props }">
+            <div class="app-logo" v-bind="props" style="cursor: pointer;" :title="t('common.settings')">
+              <v-icon :size="$vuetify.display.mobile ? 22 : 32" color="white"> mdi-cog </v-icon>
+            </div>
+          </template>
+          <v-list density="compact">
+            <v-list-item @click="showPricingSettings = true">
+              <template #prepend>
+                <v-icon size="small">mdi-currency-usd</v-icon>
+              </template>
+              <v-list-item-title>{{ t('app.pricingSettings') }}</v-list-item-title>
+            </v-list-item>
+            <v-list-item @click="openBackupRestore">
+              <template #prepend>
+                <v-icon size="small">mdi-backup-restore</v-icon>
+              </template>
+              <v-list-item-title>{{ t('backup.title') }}</v-list-item-title>
+            </v-list-item>
+          </v-list>
+        </v-menu>
       </template>
 
       <!-- 自定义标题容器 - 替代 v-app-bar-title -->
@@ -330,8 +348,136 @@
       </v-card>
     </v-dialog>
 
+    <!-- 删除渠道确认对话框 -->
+    <v-dialog v-model="showDeleteChannelConfirm" max-width="400">
+      <v-card>
+        <v-card-title class="text-error d-flex align-center">
+          <v-icon class="mr-2" color="error">mdi-alert-circle</v-icon>
+          {{ t('confirm.deleteChannel') }}
+        </v-card-title>
+        <v-card-text>{{ t('channel.deleteConfirm') }}</v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showDeleteChannelConfirm = false" :disabled="isDeleting">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="error" variant="flat" @click="confirmDeleteChannel" :loading="isDeleting">{{ t('common.delete') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- 删除API密钥确认对话框 -->
+    <v-dialog v-model="showDeleteApiKeyConfirm" max-width="400">
+      <v-card>
+        <v-card-title class="text-warning d-flex align-center">
+          <v-icon class="mr-2" color="warning">mdi-key-remove</v-icon>
+          {{ t('confirm.deleteApiKey') }}
+        </v-card-title>
+        <v-card-text>{{ t('channel.apiKeyDeleteConfirm') }}</v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showDeleteApiKeyConfirm = false" :disabled="isDeleting">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="warning" variant="flat" @click="confirmDeleteApiKey" :loading="isDeleting">{{ t('common.delete') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- 定价设置对话框 -->
     <PricingSettings v-model="showPricingSettings" />
+
+    <!-- 备份恢复对话框 -->
+    <v-dialog v-model="showBackupRestore" max-width="600">
+      <v-card>
+        <v-card-title class="d-flex align-center">
+          <v-icon class="mr-3">mdi-backup-restore</v-icon>
+          {{ t('backup.title') }}
+        </v-card-title>
+        <v-card-text>
+          <!-- 创建备份按钮 -->
+          <v-btn
+            color="primary"
+            variant="elevated"
+            block
+            size="large"
+            class="mb-4"
+            :loading="isCreatingBackup"
+            @click="createBackup"
+            prepend-icon="mdi-content-save"
+          >
+            {{ t('backup.createBackup') }}
+          </v-btn>
+
+          <v-divider class="mb-4" />
+
+          <!-- 备份列表 -->
+          <div class="text-subtitle-1 font-weight-medium mb-2">{{ t('backup.backupList') }}</div>
+
+          <v-progress-linear v-if="isLoadingBackups" indeterminate color="primary" class="mb-4" />
+
+          <v-alert v-else-if="backupList.length === 0" type="info" variant="tonal" density="compact" class="mb-0">
+            {{ t('backup.noBackups') }}
+          </v-alert>
+
+          <v-list v-else density="compact" class="backup-list">
+            <v-list-item
+              v-for="backup in backupList"
+              :key="backup.filename"
+              class="backup-item mb-2"
+            >
+              <template #prepend>
+                <v-icon color="primary">mdi-file-document</v-icon>
+              </template>
+              <v-list-item-title class="text-body-2 font-weight-medium">
+                {{ formatBackupDate(backup.createdAt) }}
+              </v-list-item-title>
+              <v-list-item-subtitle class="text-caption">
+                {{ formatFileSize(backup.size) }}
+              </v-list-item-subtitle>
+              <template #append>
+                <v-btn
+                  icon
+                  variant="text"
+                  size="small"
+                  color="success"
+                  :title="t('backup.restore')"
+                  @click="confirmRestore(backup.filename)"
+                >
+                  <v-icon>mdi-restore</v-icon>
+                </v-btn>
+                <v-btn
+                  icon
+                  variant="text"
+                  size="small"
+                  color="error"
+                  :title="t('common.delete')"
+                  @click="deleteBackup(backup.filename)"
+                >
+                  <v-icon>mdi-delete</v-icon>
+                </v-btn>
+              </template>
+            </v-list-item>
+          </v-list>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showBackupRestore = false">{{ t('common.close') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- 恢复备份确认对话框 -->
+    <v-dialog v-model="showRestoreConfirm" max-width="400">
+      <v-card>
+        <v-card-title class="text-warning d-flex align-center">
+          <v-icon class="mr-2" color="warning">mdi-alert-circle</v-icon>
+          {{ t('backup.confirmRestore') }}
+        </v-card-title>
+        <v-card-text>{{ t('backup.confirmRestoreDesc') }}</v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showRestoreConfirm = false" :disabled="isRestoringBackup">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="warning" variant="flat" @click="executeRestore" :loading="isRestoringBackup">{{ t('backup.restore') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- Toast通知 -->
     <v-snackbar
@@ -395,6 +541,22 @@ const isPingingAll = ref(false)
 const darkModePreference = ref<'light' | 'dark' | 'auto'>('auto')
 const appVersion = ref('') // 应用版本号
 const showPricingSettings = ref(false) // 定价设置对话框
+const showBackupRestore = ref(false) // 备份恢复对话框
+
+// 备份恢复相关状态
+const backupList = ref<Array<{ filename: string; createdAt: string; size: number }>>([])
+const isLoadingBackups = ref(false)
+const isCreatingBackup = ref(false)
+const isRestoringBackup = ref(false)
+const showRestoreConfirm = ref(false)
+const pendingRestoreFilename = ref<string | null>(null)
+
+// 确认对话框状态
+const showDeleteChannelConfirm = ref(false)
+const showDeleteApiKeyConfirm = ref(false)
+const pendingDeleteChannelId = ref<number | null>(null)
+const pendingDeleteApiKey = ref<{ channelId: number; apiKey: string } | null>(null)
+const isDeleting = ref(false)
 
 // 用于传递给子组件的 channelType (排除 'logs')
 const channelTypeForComponents = computed(() => {
@@ -561,19 +723,29 @@ const editChannel = (channel: Channel) => {
   showAddChannelModal.value = true
 }
 
-const deleteChannel = async (channelId: number) => {
-  if (!confirm(t('channel.deleteConfirm'))) return
+const deleteChannel = (channelId: number) => {
+  pendingDeleteChannelId.value = channelId
+  showDeleteChannelConfirm.value = true
+}
 
+const confirmDeleteChannel = async () => {
+  if (pendingDeleteChannelId.value === null) return
+
+  isDeleting.value = true
   try {
     if (activeTab.value === 'responses') {
-      await api.deleteResponsesChannel(channelId)
+      await api.deleteResponsesChannel(pendingDeleteChannelId.value)
     } else {
-      await api.deleteChannel(channelId)
+      await api.deleteChannel(pendingDeleteChannelId.value)
     }
     showToast(t('channel.deleteSuccess'), 'success')
     await refreshChannels()
   } catch (error) {
     handleAuthError(error)
+  } finally {
+    isDeleting.value = false
+    showDeleteChannelConfirm.value = false
+    pendingDeleteChannelId.value = null
   }
 }
 
@@ -606,10 +778,17 @@ const addApiKey = async () => {
   }
 }
 
-const removeApiKey = async (channelId: number, apiKey: string) => {
-  if (!confirm(t('channel.apiKeyDeleteConfirm'))) return
+const removeApiKey = (channelId: number, apiKey: string) => {
+  pendingDeleteApiKey.value = { channelId, apiKey }
+  showDeleteApiKeyConfirm.value = true
+}
 
+const confirmDeleteApiKey = async () => {
+  if (!pendingDeleteApiKey.value) return
+
+  isDeleting.value = true
   try {
+    const { channelId, apiKey } = pendingDeleteApiKey.value
     if (activeTab.value === 'responses') {
       await api.removeResponsesApiKey(channelId, apiKey)
     } else {
@@ -619,6 +798,10 @@ const removeApiKey = async (channelId: number, apiKey: string) => {
     await refreshChannels()
   } catch (error) {
     showToast(t('channel.apiKeyDeleteFailed', { error: error instanceof Error ? error.message : 'Unknown error' }), 'error')
+  } finally {
+    isDeleting.value = false
+    showDeleteApiKeyConfirm.value = false
+    pendingDeleteApiKey.value = null
   }
 }
 
@@ -849,8 +1032,133 @@ const handleAuthError = (error: any) => {
   }
 }
 
+// ============== 备份恢复功能 ==============
+
+// 打开备份恢复对话框
+const openBackupRestore = async () => {
+  showBackupRestore.value = true
+  await loadBackupList()
+}
+
+// 加载备份列表
+const loadBackupList = async () => {
+  isLoadingBackups.value = true
+  try {
+    const response = await api.listBackups()
+    backupList.value = response.backups || []
+  } catch (error) {
+    showToast(t('backup.loadFailed'), 'error')
+    console.error('Failed to load backups:', error)
+  } finally {
+    isLoadingBackups.value = false
+  }
+}
+
+// 创建备份
+const createBackup = async () => {
+  isCreatingBackup.value = true
+  try {
+    const result = await api.createBackup()
+    showToast(t('backup.createSuccess'), 'success')
+    // 刷新列表
+    await loadBackupList()
+  } catch (error) {
+    showToast(t('backup.createFailed'), 'error')
+    console.error('Failed to create backup:', error)
+  } finally {
+    isCreatingBackup.value = false
+  }
+}
+
+// 确认恢复备份
+const confirmRestore = (filename: string) => {
+  pendingRestoreFilename.value = filename
+  showRestoreConfirm.value = true
+}
+
+// 执行恢复备份
+const executeRestore = async () => {
+  if (!pendingRestoreFilename.value) return
+
+  isRestoringBackup.value = true
+  try {
+    await api.restoreBackup(pendingRestoreFilename.value)
+    showToast(t('backup.restoreSuccess'), 'success')
+    showRestoreConfirm.value = false
+    showBackupRestore.value = false
+    // 刷新渠道数据
+    await refreshChannels()
+  } catch (error) {
+    showToast(t('backup.restoreFailed'), 'error')
+    console.error('Failed to restore backup:', error)
+  } finally {
+    isRestoringBackup.value = false
+    pendingRestoreFilename.value = null
+  }
+}
+
+// 删除备份
+const deleteBackup = async (filename: string) => {
+  try {
+    await api.deleteBackup(filename)
+    showToast(t('backup.deleteSuccess'), 'success')
+    await loadBackupList()
+  } catch (error) {
+    showToast(t('backup.deleteFailed'), 'error')
+    console.error('Failed to delete backup:', error)
+  }
+}
+
+// 格式化文件大小
+const formatFileSize = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// 格式化日期
+const formatBackupDate = (dateString: string): string => {
+  const date = new Date(dateString)
+  return date.toLocaleString()
+}
+
+// 键盘快捷键处理
+const handleKeydown = (event: KeyboardEvent) => {
+  // 如果正在输入框中，忽略快捷键
+  const target = event.target as HTMLElement
+  if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+    return
+  }
+
+  // Esc 关闭所有对话框
+  if (event.key === 'Escape') {
+    showAddChannelModal.value = false
+    showAddKeyModalRef.value = false
+    showDeleteChannelConfirm.value = false
+    showDeleteApiKeyConfirm.value = false
+    showPricingSettings.value = false
+    showBackupRestore.value = false
+    showRestoreConfirm.value = false
+    return
+  }
+
+  // 数字键切换 Tab（仅在已认证时）
+  if (isAuthenticated.value) {
+    if (event.key === '1') {
+      activeTab.value = 'messages'
+    } else if (event.key === '2') {
+      activeTab.value = 'responses'
+    } else if (event.key === '3') {
+      activeTab.value = 'logs'
+    }
+  }
+}
+
 // 初始化
 onMounted(async () => {
+  // 注册键盘快捷键
+  window.addEventListener('keydown', handleKeydown)
+
   // 初始化复古像素主题
   document.documentElement.dataset.theme = 'retro'
   initTheme()
@@ -948,12 +1256,13 @@ watch(isAuthenticated, newValue => {
   }
 })
 
-// 在组件卸载时清除定时器
+// 在组件卸载时清除定时器和事件监听
 onUnmounted(() => {
   if (autoRefreshTimer) {
     clearInterval(autoRefreshTimer)
     autoRefreshTimer = null
   }
+  window.removeEventListener('keydown', handleKeydown)
 })
 </script>
 
@@ -1564,6 +1873,13 @@ onUnmounted(() => {
   .nav-btn {
     min-width: 70px !important;
     padding: 0 8px !important;
+    min-height: 44px !important; /* Touch-friendly */
+  }
+
+  /* Touch-friendly header buttons */
+  .header-btn {
+    min-width: 44px !important;
+    min-height: 44px !important;
   }
 
   /* --- 统计卡片优化 --- */
@@ -1639,6 +1955,7 @@ onUnmounted(() => {
   .action-bar-left .action-btn {
     width: 100%;
     justify-content: center;
+    min-height: 44px !important; /* Touch-friendly */
   }
 
   /* 刷新按钮独占一行 */
@@ -1815,5 +2132,53 @@ onUnmounted(() => {
 
 .v-theme--dark .status-badge .badge-content {
   border-color: rgba(255, 255, 255, 0.6);
+}
+
+/* 备份列表复古像素风格 */
+.v-dialog .backup-list {
+  background: transparent !important;
+}
+
+.v-dialog .backup-list .v-list-item {
+  border: 2px solid rgb(var(--v-theme-on-surface)) !important;
+  box-shadow: 3px 3px 0 0 rgb(var(--v-theme-on-surface)) !important;
+  border-radius: 0 !important;
+  margin-bottom: 8px !important;
+  font-family: 'Courier New', Consolas, monospace !important;
+}
+
+.v-theme--dark .v-dialog .backup-list .v-list-item {
+  border-color: rgba(255, 255, 255, 0.7) !important;
+  box-shadow: 3px 3px 0 0 rgba(255, 255, 255, 0.7) !important;
+}
+
+.v-dialog .backup-list .v-list-item:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 0 rgb(var(--v-theme-on-surface)) !important;
+}
+
+.v-theme--dark .v-dialog .backup-list .v-list-item:hover {
+  box-shadow: 4px 4px 0 0 rgba(255, 255, 255, 0.7) !important;
+}
+
+.v-dialog .backup-list .v-list-item-title,
+.v-dialog .backup-list .v-list-item-subtitle {
+  font-family: 'Courier New', Consolas, monospace !important;
+}
+
+/* 设置菜单复古像素风格 */
+.v-menu > .v-overlay__content > .v-list .v-list-item-title {
+  font-family: 'Courier New', Consolas, monospace !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  font-size: 0.85rem !important;
+}
+
+/* 对话框标题复古像素风格 */
+.v-dialog .v-card-title {
+  font-family: 'Courier New', Consolas, monospace !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.5px !important;
 }
 </style>

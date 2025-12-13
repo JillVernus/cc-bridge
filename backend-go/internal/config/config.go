@@ -435,6 +435,18 @@ func (cm *ConfigManager) ReloadConfig() error {
 	return cm.loadConfig()
 }
 
+// RestoreConfig 从备份恢复配置
+func (cm *ConfigManager) RestoreConfig(config Config) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	// Backup current config before restoring
+	cm.backupConfig()
+
+	// Save the restored config
+	return cm.saveConfigLocked(config)
+}
+
 // backupConfig 备份配置
 func (cm *ConfigManager) backupConfig() {
 	if _, err := os.Stat(cm.configFile); os.IsNotExist(err) {

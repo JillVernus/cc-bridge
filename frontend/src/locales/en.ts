@@ -27,6 +27,12 @@ export default {
     optional: 'Optional',
   },
 
+  // Confirmation dialogs
+  confirm: {
+    deleteChannel: 'Delete Channel',
+    deleteApiKey: 'Delete API Key',
+  },
+
   // App
   app: {
     title: 'CC-Bridge Management',
@@ -247,26 +253,6 @@ export default {
     invalidUrl: 'Please enter a valid URL',
   },
 
-  // Channel Card
-  channelCard: {
-    stopped: 'Stopped',
-    fused: 'Suspended',
-    openWebsite: 'Open website',
-    baseUrl: 'Base URL:',
-    healthy: 'Healthy',
-    error: 'Error',
-    undetected: 'Undetected',
-    connectionNormal: 'Connection normal: last check passed',
-    connectionError: 'Connection error: check base URL, network, or API key',
-    notDetected: 'Not detected: click "Test Latency" to check',
-    apiKeyManagement: 'API Key Management',
-    configuredKeys: 'Configured Keys',
-    noApiKeys: 'No API keys',
-    testLatency: 'Test Latency',
-    edit: 'Edit',
-    delete: 'Delete',
-  },
-
   // Request Log
   requestLog: {
     byModel: 'By Model',
@@ -356,6 +342,24 @@ export default {
     confirmDeleteModel: 'Are you sure you want to delete pricing for model "{model}"?',
     confirmReset: 'Confirm Reset',
     confirmResetDesc: 'Are you sure you want to reset all pricing to defaults? Custom prices will be lost.',
+  },
+
+  // Backup & Restore
+  backup: {
+    title: 'Backup & Restore',
+    createBackup: 'Create Backup',
+    backupList: 'Available Backups',
+    noBackups: 'No backups available',
+    restore: 'Restore',
+    confirmRestore: 'Confirm Restore',
+    confirmRestoreDesc: 'Are you sure you want to restore this backup? Current configuration will be replaced.',
+    createSuccess: 'Backup created successfully',
+    createFailed: 'Failed to create backup',
+    restoreSuccess: 'Configuration restored successfully',
+    restoreFailed: 'Failed to restore configuration',
+    deleteSuccess: 'Backup deleted',
+    deleteFailed: 'Failed to delete backup',
+    loadFailed: 'Failed to load backup list',
   },
 
   // Language

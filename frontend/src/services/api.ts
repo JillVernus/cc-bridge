@@ -455,6 +455,34 @@ class ApiService {
     })
   }
 
+  // ============== 备份/恢复 API ==============
+
+  // 创建备份
+  async createBackup(): Promise<BackupCreateResponse> {
+    return this.request('/config/backup', {
+      method: 'POST'
+    })
+  }
+
+  // 获取备份列表
+  async listBackups(): Promise<BackupListResponse> {
+    return this.request('/config/backups')
+  }
+
+  // 恢复备份
+  async restoreBackup(filename: string): Promise<BackupRestoreResponse> {
+    return this.request(`/config/restore/${encodeURIComponent(filename)}`, {
+      method: 'POST'
+    })
+  }
+
+  // 删除备份
+  async deleteBackup(filename: string): Promise<{ message: string; filename: string }> {
+    return this.request(`/config/backups/${encodeURIComponent(filename)}`, {
+      method: 'DELETE'
+    })
+  }
+
   // ============== 系统信息 API ==============
 
   // 获取版本信息（从 /health 端点）
@@ -568,6 +596,30 @@ export interface TokenPriceMultipliers {
   outputMultiplier?: number        // 输出 token 价格乘数，默认 1.0
   cacheCreationMultiplier?: number // 缓存创建价格乘数，默认 1.0
   cacheReadMultiplier?: number     // 缓存读取价格乘数，默认 1.0
+}
+
+// 备份信息类型
+export interface BackupInfo {
+  filename: string
+  createdAt: string
+  size: number
+}
+
+export interface BackupListResponse {
+  backups: BackupInfo[]
+}
+
+export interface BackupCreateResponse {
+  message: string
+  filename: string
+  createdAt: string
+  size: number
+}
+
+export interface BackupRestoreResponse {
+  message: string
+  filename: string
+  restoredAt: string
 }
 
 export const api = new ApiService()

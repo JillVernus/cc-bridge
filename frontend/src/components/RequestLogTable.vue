@@ -3,7 +3,7 @@
     <!-- 统计面板和日期筛选 -->
     <v-row class="mb-4">
       <!-- 模型统计 -->
-      <v-col cols="5">
+      <v-col cols="12" md="5">
         <v-card class="summary-card" density="compact">
           <v-card-title class="text-subtitle-2 pa-2">{{ t('requestLog.byModel') }}</v-card-title>
           <div class="summary-table-wrapper">
@@ -53,7 +53,7 @@
       </v-col>
 
       <!-- 渠道统计 -->
-      <v-col cols="5">
+      <v-col cols="12" md="5">
         <v-card class="summary-card" density="compact">
           <v-card-title class="text-subtitle-2 pa-2">{{ t('requestLog.byChannel') }}</v-card-title>
           <div class="summary-table-wrapper">
@@ -103,7 +103,7 @@
       </v-col>
 
       <!-- 日期筛选 -->
-      <v-col cols="2">
+      <v-col cols="12" md="2">
         <v-card class="summary-card date-filter-card" density="compact">
           <v-card-title class="text-subtitle-2 pa-2">{{ t('requestLog.dateFilter') }}</v-card-title>
           <div class="date-filter d-flex flex-column align-center justify-center pa-2">
@@ -1666,6 +1666,88 @@ const silentRefresh = async () => {
 .settings-card {
   max-height: 80vh;
   overflow-y: auto;
+}
+
+/* =========================================
+   Mobile Responsive Styles (≤600px)
+   ========================================= */
+@media (max-width: 600px) {
+  /* Date filter - horizontal layout on mobile */
+  .date-filter-card {
+    min-height: auto !important;
+  }
+
+  .date-filter {
+    flex-direction: row !important;
+    padding: 8px !important;
+    gap: 12px;
+  }
+
+  .date-year {
+    font-size: 1rem;
+    margin-bottom: 0;
+    margin-right: 8px;
+  }
+
+  .date-month,
+  .date-day {
+    font-size: 1rem;
+  }
+
+  .date-display-vertical {
+    flex-direction: row;
+    gap: 4px;
+  }
+
+  /* Summary tables - hide some columns on mobile */
+  .summary-table .col-small:nth-child(n+4) {
+    display: none;
+  }
+
+  .summary-table-footer-fixed .col-small:nth-child(n+4) {
+    display: none;
+  }
+
+  .col-model {
+    width: 50%;
+  }
+
+  .col-small {
+    width: 25%;
+  }
+
+  /* Action bar - stack elements */
+  .action-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px !important;
+  }
+
+  /* Touch-friendly buttons - minimum 44x44px */
+  .neo-btn {
+    min-width: 44px !important;
+    min-height: 44px !important;
+  }
+
+  /* Log table - horizontal scroll */
+  .log-table-card {
+    overflow-x: auto;
+  }
+
+  .log-table {
+    min-width: 800px;
+  }
+
+  /* Pagination - stack on mobile */
+  .pagination-container {
+    flex-direction: column;
+    gap: 8px;
+    align-items: stretch !important;
+  }
+
+  .pagination-container > * {
+    justify-content: center;
+  }
 }
 
 

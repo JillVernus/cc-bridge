@@ -27,6 +27,12 @@ export default {
     optional: '可选',
   },
 
+  // Confirmation dialogs
+  confirm: {
+    deleteChannel: '删除渠道',
+    deleteApiKey: '删除 API 密钥',
+  },
+
   // App
   app: {
     title: 'CC-Bridge 管理界面',
@@ -247,26 +253,6 @@ export default {
     invalidUrl: '请输入有效的URL',
   },
 
-  // Channel Card
-  channelCard: {
-    stopped: '停用',
-    fused: '熔断',
-    openWebsite: '打开官网',
-    baseUrl: 'Base URL:',
-    healthy: '健康',
-    error: '错误',
-    undetected: '未检测',
-    connectionNormal: '连接正常：最近一次检测通过',
-    connectionError: '连接异常：请检查基础 URL、网络或 API 密钥',
-    notDetected: '尚未检测：请点击"测试延迟"进行检测',
-    apiKeyManagement: 'API密钥管理',
-    configuredKeys: '已配置的密钥',
-    noApiKeys: '暂无API密钥',
-    testLatency: '测试延迟',
-    edit: '编辑',
-    delete: '删除',
-  },
-
   // Request Log
   requestLog: {
     byModel: '按模型统计',
@@ -356,6 +342,24 @@ export default {
     confirmDeleteModel: '确定要删除模型 "{model}" 的定价配置吗？',
     confirmReset: '确认重置',
     confirmResetDesc: '确定要将所有定价配置重置为默认值吗？自定义的定价将会丢失。',
+  },
+
+  // Backup & Restore
+  backup: {
+    title: '备份与恢复',
+    createBackup: '创建备份',
+    backupList: '可用备份',
+    noBackups: '暂无备份',
+    restore: '恢复',
+    confirmRestore: '确认恢复',
+    confirmRestoreDesc: '确定要恢复此备份吗？当前配置将被替换。',
+    createSuccess: '备份创建成功',
+    createFailed: '创建备份失败',
+    restoreSuccess: '配置恢复成功',
+    restoreFailed: '恢复配置失败',
+    deleteSuccess: '备份已删除',
+    deleteFailed: '删除备份失败',
+    loadFailed: '加载备份列表失败',
   },
 
   // Language
