@@ -111,34 +111,21 @@ class ApiService {
     return this.apiKey
   }
 
-  // 从URL查询参数获取密钥
-  getKeyFromUrl(): string | null {
-    const params = new URLSearchParams(window.location.search)
-    return params.get('key')
-  }
-
-  // 初始化密钥（从URL或localStorage）
+  // 初始化密钥（从 sessionStorage，必要时从 localStorage 迁移并清理）
   initializeAuth() {
-    // 优先从URL获取密钥
-    const urlKey = this.getKeyFromUrl()
-    if (urlKey) {
-      this.setApiKey(urlKey)
-      // 保存到localStorage以便下次使用
-      localStorage.setItem('proxyAccessKey', urlKey)
-
-      // 清理URL中的key参数以提高安全性
-      const url = new URL(window.location.href)
-      url.searchParams.delete('key')
-      window.history.replaceState({}, '', url.toString())
-
-      return urlKey
+    const sessionKey = sessionStorage.getItem('proxyAccessKey')
+    if (sessionKey) {
+      this.setApiKey(sessionKey)
+      return sessionKey
     }
 
-    // 从localStorage获取保存的密钥
-    const savedKey = localStorage.getItem('proxyAccessKey')
-    if (savedKey) {
-      this.setApiKey(savedKey)
-      return savedKey
+    // 兼容：将旧的 localStorage key 迁移到 sessionStorage 并清理
+    const legacyKey = localStorage.getItem('proxyAccessKey')
+    if (legacyKey) {
+      sessionStorage.setItem('proxyAccessKey', legacyKey)
+      localStorage.removeItem('proxyAccessKey')
+      this.setApiKey(legacyKey)
+      return legacyKey
     }
 
     return null
@@ -147,6 +134,7 @@ class ApiService {
   // 清除认证信息
   clearAuth() {
     this.apiKey = null
+    sessionStorage.removeItem('proxyAccessKey')
     localStorage.removeItem('proxyAccessKey')
   }
 

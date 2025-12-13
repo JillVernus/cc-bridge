@@ -113,6 +113,10 @@ func (p *ClaudeProvider) HandleStreamResponse(body io.ReadCloser) (<-chan string
 		defer body.Close()
 
 		scanner := bufio.NewScanner(body)
+		// Increase max line size to avoid breaking on large SSE chunks (default is ~64KB).
+		const maxCapacity = 4 * 1024 * 1024 // 4MB
+		buf := make([]byte, 0, 64*1024)     // initial 64KB
+		scanner.Buffer(buf, maxCapacity)
 		toolUseStopEmitted := false
 
 		for scanner.Scan() {

@@ -44,12 +44,12 @@ func (t *TokenPriceMultipliers) GetEffectiveMultiplier(tokenType string) float64
 
 // UpstreamConfig 上游配置
 type UpstreamConfig struct {
-	BaseURL            string            `json:"baseUrl"`
-	APIKeys            []string          `json:"apiKeys"`
-	ServiceType        string            `json:"serviceType"` // gemini, openai, openaiold, claude
-	Name               string            `json:"name,omitempty"`
-	Description        string            `json:"description,omitempty"`
-	Website            string            `json:"website,omitempty"`
+	BaseURL                   string            `json:"baseUrl"`
+	APIKeys                   []string          `json:"apiKeys"`
+	ServiceType               string            `json:"serviceType"` // gemini, openai, openaiold, claude
+	Name                      string            `json:"name,omitempty"`
+	Description               string            `json:"description,omitempty"`
+	Website                   string            `json:"website,omitempty"`
 	InsecureSkipVerify        bool              `json:"insecureSkipVerify,omitempty"`
 	ModelMapping              map[string]string `json:"modelMapping,omitempty"`
 	ResponseHeaderTimeoutSecs int               `json:"responseHeaderTimeout,omitempty"` // 响应头超时（秒），默认30秒
@@ -131,20 +131,20 @@ func multiplyEffective(a, b float64) float64 {
 
 // UpstreamUpdate 用于部分更新 UpstreamConfig
 type UpstreamUpdate struct {
-	Name               *string           `json:"name"`
-	ServiceType        *string           `json:"serviceType"`
-	BaseURL            *string           `json:"baseUrl"`
-	APIKeys            []string          `json:"apiKeys"`
-	Description        *string           `json:"description"`
-	Website            *string           `json:"website"`
+	Name                      *string           `json:"name"`
+	ServiceType               *string           `json:"serviceType"`
+	BaseURL                   *string           `json:"baseUrl"`
+	APIKeys                   []string          `json:"apiKeys"`
+	Description               *string           `json:"description"`
+	Website                   *string           `json:"website"`
 	InsecureSkipVerify        *bool             `json:"insecureSkipVerify"`
 	ModelMapping              map[string]string `json:"modelMapping"`
 	ResponseHeaderTimeoutSecs *int              `json:"responseHeaderTimeout"`
 	// 多渠道调度相关字段
-	Priority         *int                              `json:"priority"`
-	Status           *string                           `json:"status"`
-	PromotionUntil   *time.Time                        `json:"promotionUntil"`
-	PriceMultipliers map[string]TokenPriceMultipliers  `json:"priceMultipliers"`
+	Priority         *int                             `json:"priority"`
+	Status           *string                          `json:"status"`
+	PromotionUntil   *time.Time                       `json:"promotionUntil"`
+	PriceMultipliers map[string]TokenPriceMultipliers `json:"priceMultipliers"`
 }
 
 // Config 配置结构
@@ -406,6 +406,11 @@ func (cm *ConfigManager) SaveConfig() error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 	return cm.saveConfigLocked(cm.config)
+}
+
+// ReloadConfig 从磁盘重新加载配置
+func (cm *ConfigManager) ReloadConfig() error {
+	return cm.loadConfig()
 }
 
 // backupConfig 备份配置

@@ -61,7 +61,7 @@ bun run preview
 
 ### 路由
 - **单页应用**: 所有功能在根路由 `/` 下
-- **认证流程**: URL 参数 `?key=xxx` 或本地存储的 API 密钥
+- **认证流程**: 手动输入访问密钥，保存在 `sessionStorage`（仅当前浏览器会话）
 
 ### 与后端交互
 通过 `src/services/api.ts` 封装的 API 客户端：

@@ -17,6 +17,7 @@ type EnvConfig struct {
 	EnableResponseLogs   bool
 	RequestTimeout       int
 	MaxConcurrentReqs    int
+	MaxRequestBodyMB     int
 	EnableCORS           bool
 	CORSOrigin           string
 	EnableRateLimit      bool
@@ -53,6 +54,7 @@ func NewEnvConfig() *EnvConfig {
 		EnableResponseLogs:   getEnv("ENABLE_RESPONSE_LOGS", "true") != "false",
 		RequestTimeout:       getEnvAsInt("REQUEST_TIMEOUT", 300000),
 		MaxConcurrentReqs:    getEnvAsInt("MAX_CONCURRENT_REQUESTS", 100),
+		MaxRequestBodyMB:     getEnvAsInt("MAX_REQUEST_BODY_MB", 20),
 		EnableCORS:           getEnv("ENABLE_CORS", "true") != "false",
 		CORSOrigin:           getEnv("CORS_ORIGIN", "*"),
 		EnableRateLimit:      getEnv("ENABLE_RATE_LIMIT", "false") == "true",

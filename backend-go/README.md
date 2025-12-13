@@ -123,25 +123,29 @@ LOG_LEVEL=info
 ENABLE_REQUEST_LOGS=true
 ENABLE_RESPONSE_LOGS=true
 
-# ============ 性能配置 ============
-# 请求超时时间（毫秒）
-REQUEST_TIMEOUT=30000
+	# ============ 性能配置 ============
+	# 请求超时时间（毫秒）
+	REQUEST_TIMEOUT=30000
+	
+		# 最大并发请求数（planning：当前版本未生效）
+		MAX_CONCURRENT_REQUESTS=100
 
-# 最大并发请求数
-MAX_CONCURRENT_REQUESTS=100
+	# 最大请求体大小（MB），用于 /v1/messages 和 /v1/responses
+	MAX_REQUEST_BODY_MB=20
 
-# ============ CORS 配置 ============
-ENABLE_CORS=true
-CORS_ORIGIN=*
+	# ============ CORS 配置 ============
+	ENABLE_CORS=true
+	CORS_ORIGIN=*
 
-# ============ 速率限制 ============
-ENABLE_RATE_LIMIT=false
-RATE_LIMIT_WINDOW=60000
-RATE_LIMIT_MAX_REQUESTS=100
-
-# ============ 健康检查 ============
-HEALTH_CHECK_ENABLED=true
-HEALTH_CHECK_PATH=/health
+	# ============ 速率限制（planning：当前版本未生效） ============
+	ENABLE_RATE_LIMIT=false
+	RATE_LIMIT_WINDOW=60000
+	RATE_LIMIT_MAX_REQUESTS=100
+	
+	# ============ 健康检查 ============
+	# HEALTH_CHECK_ENABLED（planning：当前版本未生效；仅 HEALTH_CHECK_PATH 生效）
+	HEALTH_CHECK_ENABLED=true
+	HEALTH_CHECK_PATH=/health
 ```
 
 ### 环境模式详解

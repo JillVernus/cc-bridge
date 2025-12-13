@@ -15,9 +15,48 @@ func WebAuthMiddleware(envCfg *config.EnvConfig, cfgManager *config.ConfigManage
 		path := c.Request.URL.Path
 
 		// 公开端点直接放行
-		if path == envCfg.HealthCheckPath ||
-			path == "/admin/config/reload" ||
-			(envCfg.IsDevelopment() && path == "/admin/dev/info") {
+		if path == envCfg.HealthCheckPath {
+			c.Next()
+			return
+		}
+
+		// 管理端点需要访问密钥（即使 Web UI 被禁用）
+		if envCfg.IsDevelopment() && path == "/admin/dev/info" {
+			providedKey := getAPIKey(c)
+			expectedKey := envCfg.ProxyAccessKey
+
+			if providedKey == "" || providedKey != expectedKey {
+				if envCfg.ShouldLog("warn") {
+					log.Printf("🔒 管理端点访问密钥验证失败 - IP: %s | Path: %s", c.ClientIP(), path)
+				}
+
+				c.JSON(401, gin.H{
+					"error": "Invalid proxy access key",
+				})
+				c.Abort()
+				return
+			}
+
+			c.Next()
+			return
+		}
+
+		if path == "/admin/config/reload" {
+			providedKey := getAPIKey(c)
+			expectedKey := envCfg.ProxyAccessKey
+
+			if providedKey == "" || providedKey != expectedKey {
+				if envCfg.ShouldLog("warn") {
+					log.Printf("🔒 管理端点访问密钥验证失败 - IP: %s | Path: %s", c.ClientIP(), path)
+				}
+
+				c.JSON(401, gin.H{
+					"error": "Invalid proxy access key",
+				})
+				c.Abort()
+				return
+			}
+
 			c.Next()
 			return
 		}
@@ -112,11 +151,6 @@ func getAPIKey(c *gin.Context) string {
 	if auth := c.GetHeader("Authorization"); auth != "" {
 		// 移除 Bearer 前缀
 		return strings.TrimPrefix(auth, "Bearer ")
-	}
-
-	// 从查询参数获取
-	if key := c.Query("key"); key != "" {
-		return key
 	}
 
 	return ""

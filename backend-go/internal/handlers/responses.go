@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -45,8 +46,22 @@ func ResponsesHandler(
 		startTime := time.Now()
 
 		// 读取原始请求体
+		maxBodyMB := envCfg.MaxRequestBodyMB
+		if maxBodyMB <= 0 {
+			maxBodyMB = 20
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, int64(maxBodyMB)*1024*1024)
+
 		bodyBytes, err := io.ReadAll(c.Request.Body)
 		if err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				c.JSON(http.StatusRequestEntityTooLarge, gin.H{
+					"error":   "Request body too large",
+					"message": fmt.Sprintf("Maximum allowed request size is %d MB", maxBodyMB),
+				})
+				return
+			}
 			c.JSON(400, gin.H{"error": "Failed to read request body"})
 			return
 		}
@@ -840,6 +855,8 @@ func handleResponsesSuccess(
 		// 获取会话
 		sess, err := sessionManager.GetOrCreateSession(originalReq.PreviousResponseID)
 		if err == nil {
+			previousID := sess.LastResponseID
+
 			// 追加用户输入
 			inputItems, _ := parseInputToItems(originalReq.Input)
 			for _, item := range inputItems {
@@ -848,8 +865,11 @@ func handleResponsesSuccess(
 
 			// 追加助手响应
 			for _, item := range responsesResp.Output {
-				sessionManager.AppendMessage(sess.ID, item, responsesResp.Usage.TotalTokens)
+				sessionManager.AppendMessage(sess.ID, item, 0)
 			}
+
+			// 仅在每次响应完成后累计一次 token（避免按输出项重复累计）
+			sessionManager.AddTokens(sess.ID, responsesResp.Usage.TotalTokens)
 
 			// 更新 last response ID
 			sessionManager.UpdateLastResponseID(sess.ID, responsesResp.ID)
@@ -858,8 +878,8 @@ func handleResponsesSuccess(
 			sessionManager.RecordResponseMapping(responsesResp.ID, sess.ID)
 
 			// 设置 previous_id
-			if sess.LastResponseID != "" {
-				responsesResp.PreviousID = sess.LastResponseID
+			if previousID != "" {
+				responsesResp.PreviousID = previousID
 			}
 		}
 	}
@@ -899,7 +919,7 @@ func extractCodexUsageFromSSE(line string) (*CodexUsage, string) {
 		Response struct {
 			Model string `json:"model"`
 			Usage struct {
-				InputTokens int `json:"input_tokens"`
+				InputTokens        int `json:"input_tokens"`
 				InputTokensDetails struct {
 					CachedTokens int `json:"cached_tokens"`
 				} `json:"input_tokens_details"`
@@ -931,7 +951,7 @@ func extractCodexUsageFromJSON(body []byte) (*CodexUsage, string) {
 	var resp struct {
 		Model string `json:"model"`
 		Usage struct {
-			InputTokens int `json:"input_tokens"`
+			InputTokens        int `json:"input_tokens"`
 			InputTokensDetails struct {
 				CachedTokens int `json:"cached_tokens"`
 			} `json:"input_tokens_details"`

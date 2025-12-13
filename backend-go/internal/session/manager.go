@@ -108,6 +108,26 @@ func (sm *SessionManager) AppendMessage(sessionID string, item types.ResponsesIt
 	return nil
 }
 
+// AddTokens 增加会话的 token 统计（不追加消息）
+func (sm *SessionManager) AddTokens(sessionID string, tokensUsed int) error {
+	if tokensUsed <= 0 {
+		return nil
+	}
+
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	session, exists := sm.sessions[sessionID]
+	if !exists {
+		return fmt.Errorf("会话不存在: %s", sessionID)
+	}
+
+	session.TotalTokens += tokensUsed
+	session.LastAccessAt = time.Now()
+
+	return nil
+}
+
 // UpdateLastResponseID 更新会话的最后一个 responseID
 func (sm *SessionManager) UpdateLastResponseID(sessionID, responseID string) error {
 	sm.mu.Lock()

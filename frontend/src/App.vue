@@ -766,7 +766,7 @@ const autoAuthenticate = async () => {
 // 手动设置密钥（用于重新认证）
 const setAuthKey = (key: string) => {
   api.setApiKey(key)
-  localStorage.setItem('proxyAccessKey', key)
+  sessionStorage.setItem('proxyAccessKey', key)
   isAuthenticated.value = true
   authError.value = ''
   // 重新加载数据
@@ -868,7 +868,7 @@ onMounted(async () => {
   mediaQuery.addEventListener('change', handlePref)
 
   // 检查是否有保存的密钥
-  const savedKey = localStorage.getItem('proxyAccessKey')
+  const savedKey = initializeAuth()
 
   if (savedKey) {
     // 有保存的密钥，开始自动认证

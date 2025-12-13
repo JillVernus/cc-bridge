@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -35,8 +36,22 @@ func ProxyHandler(envCfg *config.EnvConfig, cfgManager *config.ConfigManager, ch
 		startTime := time.Now()
 
 		// 读取原始请求体
+		maxBodyMB := envCfg.MaxRequestBodyMB
+		if maxBodyMB <= 0 {
+			maxBodyMB = 20
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, int64(maxBodyMB)*1024*1024)
+
 		bodyBytes, err := io.ReadAll(c.Request.Body)
 		if err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				c.JSON(http.StatusRequestEntityTooLarge, gin.H{
+					"error":   "Request body too large",
+					"message": fmt.Sprintf("Maximum allowed request size is %d MB", maxBodyMB),
+				})
+				return
+			}
 			c.JSON(400, gin.H{"error": "Failed to read request body"})
 			return
 		}

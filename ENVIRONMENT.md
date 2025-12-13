@@ -184,8 +184,8 @@ ENABLE_RESPONSE_LOGS=true
 | 配置项 | `development` | `production` |
 |--------|---------------|--------------|
 | Gin 模式 | DebugMode | ReleaseMode |
-| `/admin/dev/info` | ✅ 开启 | ❌ 关闭 |
-| CORS | 宽松（localhost自动允许）| 严格 |
+| `/admin/dev/info` | ✅ 开启（需 `x-api-key`） | ❌ 关闭 |
+| CORS | `ENABLE_CORS=true` 时仅允许本地源（`localhost`/`127.0.0.1`/`::1`） | `ENABLE_CORS=true` 时按 `CORS_ORIGIN` 严格匹配（支持 `*` 或逗号分隔列表） |
 | 日志 | 详细 | 最小 |
 
 ## 配置文件内容

@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"net/url"
 	"strings"
 
 	"github.com/JillVernus/cc-bridge/internal/config"
@@ -9,22 +10,56 @@ import (
 
 // CORSMiddleware CORS 中间件
 func CORSMiddleware(envCfg *config.EnvConfig) gin.HandlerFunc {
+	corsOrigin := strings.TrimSpace(envCfg.CORSOrigin)
+	allowAll := corsOrigin == "*"
+	allowedOrigins := make(map[string]struct{})
+	if !allowAll && corsOrigin != "" {
+		for _, part := range strings.Split(corsOrigin, ",") {
+			origin := strings.TrimSpace(part)
+			if origin == "" {
+				continue
+			}
+			allowedOrigins[origin] = struct{}{}
+		}
+	}
+
 	return func(c *gin.Context) {
+		if !envCfg.EnableCORS {
+			// 仍然快速处理预检请求；由于未返回 Allow-Origin，浏览器会阻止跨域访问。
+			if c.Request.Method == "OPTIONS" {
+				c.AbortWithStatus(204)
+				return
+			}
+			c.Next()
+			return
+		}
+
 		origin := c.GetHeader("Origin")
 
-		// 开发环境允许所有 localhost 源
-		if envCfg.IsDevelopment() {
-			if origin != "" && strings.Contains(origin, "localhost") {
-				c.Header("Access-Control-Allow-Origin", origin)
+		if origin != "" {
+			allowedOrigin := ""
+			if envCfg.IsDevelopment() {
+				if isAllowedDevOrigin(origin) {
+					allowedOrigin = origin
+				}
+			} else {
+				if allowAll {
+					allowedOrigin = "*"
+				} else if _, ok := allowedOrigins[origin]; ok {
+					allowedOrigin = origin
+				}
 			}
-		} else {
-			// 生产环境使用配置的源
-			c.Header("Access-Control-Allow-Origin", envCfg.CORSOrigin)
+
+			if allowedOrigin != "" {
+				c.Header("Access-Control-Allow-Origin", allowedOrigin)
+				if allowedOrigin != "*" {
+					c.Header("Vary", "Origin")
+				}
+			}
 		}
 
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, x-api-key")
-		c.Header("Access-Control-Allow-Credentials", "true")
 
 		// 处理预检请求
 		if c.Request.Method == "OPTIONS" {
@@ -33,5 +68,22 @@ func CORSMiddleware(envCfg *config.EnvConfig) gin.HandlerFunc {
 		}
 
 		c.Next()
+	}
+}
+
+func isAllowedDevOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return false
+	}
+
+	switch u.Hostname() {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	default:
+		return false
 	}
 }

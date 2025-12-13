@@ -62,7 +62,7 @@ func SetVersionInfo(version, build, commit string) {
 // ReloadConfig 配置重载处理器
 func ReloadConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if err := cfgManager.SaveConfig(); err != nil {
+		if err := cfgManager.ReloadConfig(); err != nil {
 			c.JSON(500, gin.H{
 				"status":    "error",
 				"message":   "配置重载失败",

@@ -296,7 +296,7 @@ GET /health                # 基础健康检查
 ### 开发信息
 
 ```
-GET /admin/dev/info        # 开发环境信息
+GET /admin/dev/info        # 开发环境信息（需要 x-api-key）
 ```
 
 ### 配置重载
@@ -330,7 +330,7 @@ NODE_ENV=development                   # 开发模式
    - 配置会自动重载，无需重启
 
 4. **测试**
-   - 使用 `/admin/dev/info` 查看状态
+   - 使用 `/admin/dev/info`（带 x-api-key）查看状态
    - 使用健康检查端点验证
 
 ## 文件变化处理
@@ -357,7 +357,7 @@ kill -9 <PID>              # 强制终止进程
 cat backend/.config/config.json | jq .
 
 # 手动重载配置
-curl -X POST http://localhost:3000/admin/config/reload
+curl -X POST http://localhost:3000/admin/config/reload -H "x-api-key: <your-access-key>"
 ```
 
 ### 文件监听问题
