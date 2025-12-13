@@ -5,7 +5,6 @@
       <!-- 模型统计 -->
       <v-col cols="12" md="5">
         <v-card class="summary-card" density="compact">
-          <v-card-title class="text-subtitle-2 pa-2">{{ t('requestLog.byModel') }}</v-card-title>
           <div class="summary-table-wrapper">
             <v-table density="compact" class="summary-table">
               <thead>
@@ -55,7 +54,6 @@
       <!-- 渠道统计 -->
       <v-col cols="12" md="5">
         <v-card class="summary-card" density="compact">
-          <v-card-title class="text-subtitle-2 pa-2">{{ t('requestLog.byChannel') }}</v-card-title>
           <div class="summary-table-wrapper">
             <v-table density="compact" class="summary-table">
               <thead>
@@ -105,21 +103,30 @@
       <!-- 日期筛选 -->
       <v-col cols="12" md="2">
         <v-card class="summary-card date-filter-card" density="compact">
-          <v-card-title class="text-subtitle-2 pa-2">{{ t('requestLog.dateFilter') }}</v-card-title>
           <div class="date-filter d-flex flex-column align-center justify-center pa-2">
-            <div class="date-year">{{ filterYear }}</div>
+            <!-- Unit selector -->
+            <v-btn-toggle
+              v-model="dateUnit"
+              mandatory
+              density="compact"
+              class="unit-toggle mb-2"
+            >
+              <v-btn value="day" size="x-small">{{ t('requestLog.unitDay') }}</v-btn>
+              <v-btn value="week" size="x-small">{{ t('requestLog.unitWeek') }}</v-btn>
+              <v-btn value="month" size="x-small">{{ t('requestLog.unitMonth') }}</v-btn>
+            </v-btn-toggle>
+            <!-- Date display: 3 lines -->
+            <div class="date-year">{{ displayYear }}</div>
             <div class="date-nav d-flex align-center">
-              <v-btn icon variant="text" size="small" class="neo-btn" @click="prevDay">
+              <v-btn icon variant="text" size="small" class="neo-btn" @click="prevPeriod">
                 <v-icon size="20">mdi-chevron-left</v-icon>
               </v-btn>
-              <div class="date-display-vertical mx-2">
-                <div class="date-month">{{ filterMonth }}</div>
-                <div class="date-day">{{ filterDay }}</div>
-              </div>
-              <v-btn icon variant="text" size="small" class="neo-btn" @click="nextDay" :disabled="isToday">
+              <div class="date-month mx-2">{{ displayMonth }}</div>
+              <v-btn icon variant="text" size="small" class="neo-btn" @click="nextPeriod" :disabled="isCurrentPeriod">
                 <v-icon size="20">mdi-chevron-right</v-icon>
               </v-btn>
             </div>
+            <div class="date-days">{{ displayDays }}</div>
           </div>
         </v-card>
       </v-col>
@@ -572,13 +579,143 @@ const getLocalDateString = (date: Date) => {
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
 }
-const filterDate = ref(getLocalDateString(new Date()))
-const isToday = computed(() => filterDate.value === getLocalDateString(new Date()))
 
-// Separate date parts for vertical display
-const filterYear = computed(() => filterDate.value.split('-')[0])
-const filterMonth = computed(() => filterDate.value.split('-')[1])
-const filterDay = computed(() => filterDate.value.split('-')[2])
+// Date unit and current reference date
+type DateUnit = 'day' | 'week' | 'month'
+const dateUnit = ref<DateUnit>('day')
+const currentDate = ref(new Date()) // Reference date for navigation
+
+// Display computed values
+const displayYear = computed(() => currentDate.value.getFullYear())
+
+// Line 2: Month (with navigation arrows)
+const displayMonth = computed(() => {
+  const d = currentDate.value
+  return String(d.getMonth() + 1).padStart(2, '0')
+})
+
+// Line 3: Day or day range
+const displayDays = computed(() => {
+  const d = currentDate.value
+  switch (dateUnit.value) {
+    case 'day': {
+      return String(d.getDate()).padStart(2, '0')
+    }
+    case 'week': {
+      // Get Monday and Sunday of the week
+      const monday = getWeekStart(d)
+      const sunday = new Date(monday)
+      sunday.setDate(monday.getDate() + 6)
+      const mDay = String(monday.getDate()).padStart(2, '0')
+      const sDay = String(sunday.getDate()).padStart(2, '0')
+      return `${mDay}-${sDay}`
+    }
+    case 'month': {
+      // First to last day of month
+      const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+      return `01-${lastDay}`
+    }
+  }
+})
+
+// Get Monday of a given week
+const getWeekStart = (date: Date): Date => {
+  const d = new Date(date)
+  const dayOfWeek = d.getDay()
+  const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+  d.setDate(d.getDate() - diff)
+  return d
+}
+
+// Check if current period includes today
+const isCurrentPeriod = computed(() => {
+  const today = new Date()
+  const d = currentDate.value
+  switch (dateUnit.value) {
+    case 'day':
+      return getLocalDateString(d) === getLocalDateString(today)
+    case 'week': {
+      const todayWeekStart = getWeekStart(today)
+      const currentWeekStart = getWeekStart(d)
+      return getLocalDateString(todayWeekStart) === getLocalDateString(currentWeekStart)
+    }
+    case 'month':
+      return d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth()
+  }
+})
+
+// Navigate to previous period
+const prevPeriod = () => {
+  const d = new Date(currentDate.value)
+  switch (dateUnit.value) {
+    case 'day':
+      d.setDate(d.getDate() - 1)
+      break
+    case 'week':
+      d.setDate(d.getDate() - 7)
+      break
+    case 'month':
+      d.setMonth(d.getMonth() - 1)
+      break
+  }
+  currentDate.value = d
+}
+
+// Navigate to next period
+const nextPeriod = () => {
+  if (isCurrentPeriod.value) return
+  const d = new Date(currentDate.value)
+  switch (dateUnit.value) {
+    case 'day':
+      d.setDate(d.getDate() + 1)
+      break
+    case 'week':
+      d.setDate(d.getDate() + 7)
+      break
+    case 'month':
+      d.setMonth(d.getMonth() + 1)
+      break
+  }
+  currentDate.value = d
+}
+
+// Get date range based on current unit and date
+const getDateRange = () => {
+  const d = currentDate.value
+  let from: string
+  let to: string
+
+  switch (dateUnit.value) {
+    case 'day': {
+      const dateStr = getLocalDateString(d)
+      from = `${dateStr}T00:00:00+08:00`
+      to = `${dateStr}T23:59:59+08:00`
+      break
+    }
+    case 'week': {
+      const monday = getWeekStart(d)
+      const sunday = new Date(monday)
+      sunday.setDate(monday.getDate() + 6)
+      from = `${getLocalDateString(monday)}T00:00:00+08:00`
+      to = `${getLocalDateString(sunday)}T23:59:59+08:00`
+      break
+    }
+    case 'month': {
+      const firstDay = new Date(d.getFullYear(), d.getMonth(), 1)
+      const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0)
+      from = `${getLocalDateString(firstDay)}T00:00:00+08:00`
+      to = `${getLocalDateString(lastDay)}T23:59:59+08:00`
+      break
+    }
+  }
+
+  return { from, to }
+}
+
+// When unit changes, reset to current period
+watch(dateUnit, () => {
+  currentDate.value = new Date()
+})
 
 // Sorted stats by cost (descending), then by total tokens (descending)
 const getTotalTokens = (data: GroupStats) => {
@@ -631,27 +768,6 @@ const providerTotals = computed(() => {
   }
   return totals
 })
-
-const getDateRange = () => {
-  // RFC3339 format with timezone offset
-  const from = `${filterDate.value}T00:00:00+08:00`
-  const to = `${filterDate.value}T23:59:59+08:00`
-  return { from, to }
-}
-
-const prevDay = () => {
-  const d = new Date(filterDate.value)
-  d.setDate(d.getDate() - 1)
-  filterDate.value = d.toISOString().split('T')[0]
-}
-
-const nextDay = () => {
-  if (!isToday.value) {
-    const d = new Date(filterDate.value)
-    d.setDate(d.getDate() + 1)
-    filterDate.value = d.toISOString().split('T')[0]
-  }
-}
 
 // Auto-refresh
 const autoRefreshEnabled = ref(true)
@@ -765,11 +881,15 @@ const refreshLogs = async () => {
   }
 }
 
-// Watch date changes
-watch(filterDate, () => {
-  offset.value = 0
-  refreshLogs()
-})
+// Watch date/unit changes - debounced to avoid rapid re-fetches
+let dateChangeTimeout: ReturnType<typeof setTimeout> | null = null
+watch([currentDate, dateUnit], () => {
+  if (dateChangeTimeout) clearTimeout(dateChangeTimeout)
+  dateChangeTimeout = setTimeout(() => {
+    offset.value = 0
+    refreshLogs()
+  }, 100)
+}, { immediate: false })
 
 const prevPage = () => {
   if (offset.value > 0) {
@@ -1188,41 +1308,46 @@ const silentRefresh = async () => {
   flex: 1;
 }
 
-.date-display {
-  font-family: 'Courier New', monospace;
-  min-width: 120px;
-  text-align: center;
+.unit-toggle {
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.2) !important;
+  border-radius: 4px !important;
 }
 
-.date-display-vertical {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  font-family: 'Courier New', monospace;
-  line-height: 1.2;
+.unit-toggle .v-btn {
+  font-size: 0.7rem !important;
+  min-width: 40px !important;
+  padding: 0 8px !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
 }
 
 .date-year {
-  font-size: 1.25rem;
+  font-size: 1.1rem;
   font-weight: 700;
   font-family: 'Courier New', monospace;
-  color: rgba(var(--v-theme-on-surface), 0.7);
+  color: rgba(var(--v-theme-on-surface), 0.6);
   margin-bottom: 2px;
-}
-
-.date-month {
-  font-size: 1.25rem;
-  font-weight: 700;
-}
-
-.date-day {
-  font-size: 1.25rem;
-  font-weight: 700;
 }
 
 .date-nav {
   display: flex;
   align-items: center;
+}
+
+.date-month {
+  font-size: 1.5rem;
+  font-weight: 700;
+  font-family: 'Courier New', monospace;
+  min-width: 36px;
+  text-align: center;
+}
+
+.date-days {
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-family: 'Courier New', monospace;
+  color: rgb(var(--v-theme-primary));
+  margin-top: 2px;
 }
 
 .action-bar {
@@ -1672,31 +1797,31 @@ const silentRefresh = async () => {
    Mobile Responsive Styles (≤600px)
    ========================================= */
 @media (max-width: 600px) {
-  /* Date filter - horizontal layout on mobile */
+  /* Date filter - compact layout on mobile */
   .date-filter-card {
     min-height: auto !important;
   }
 
   .date-filter {
-    flex-direction: row !important;
     padding: 8px !important;
-    gap: 12px;
+  }
+
+  .unit-toggle .v-btn {
+    font-size: 0.6rem !important;
+    min-width: 32px !important;
+    padding: 0 6px !important;
   }
 
   .date-year {
-    font-size: 1rem;
-    margin-bottom: 0;
-    margin-right: 8px;
+    font-size: 0.9rem;
   }
 
-  .date-month,
-  .date-day {
-    font-size: 1rem;
+  .date-month {
+    font-size: 1.2rem;
   }
 
-  .date-display-vertical {
-    flex-direction: row;
-    gap: 4px;
+  .date-days {
+    font-size: 1rem;
   }
 
   /* Summary tables - hide some columns on mobile */
