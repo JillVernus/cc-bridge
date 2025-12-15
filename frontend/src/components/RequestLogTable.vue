@@ -1,9 +1,9 @@
 <template>
   <div class="request-log-container">
     <!-- 统计面板和日期筛选 -->
-    <v-row class="mb-4">
+    <div class="top-panels-container mb-4" ref="topPanelsContainer">
       <!-- 统一的统计表格 -->
-      <v-col cols="12" md="5">
+      <div class="panel-wrapper" :style="{ width: panelWidths.summary + '%' }">
         <v-card class="summary-card" density="compact">
           <!-- Group by selector header -->
           <div class="summary-header d-flex align-center px-2 py-1">
@@ -106,17 +106,27 @@
             </table>
           </div>
         </v-card>
-      </v-col>
+      </div>
+
+      <!-- Splitter 1 -->
+      <div class="panel-splitter" @mousedown="startPanelResize($event, 'splitter1')">
+        <div class="splitter-handle"></div>
+      </div>
 
       <!-- 预留区域 -->
-      <v-col cols="12" md="5">
+      <div class="panel-wrapper" :style="{ width: panelWidths.reserved + '%' }">
         <v-card class="summary-card" density="compact">
           <!-- Reserved for future use -->
         </v-card>
-      </v-col>
+      </div>
+
+      <!-- Splitter 2 -->
+      <div class="panel-splitter" @mousedown="startPanelResize($event, 'splitter2')">
+        <div class="splitter-handle"></div>
+      </div>
 
       <!-- 日期筛选 -->
-      <v-col cols="12" md="2">
+      <div class="panel-wrapper" :style="{ width: panelWidths.dateFilter + '%' }">
         <v-card class="summary-card date-filter-card" density="compact">
           <div class="date-filter d-flex flex-column align-center justify-center pa-2">
             <!-- Unit selector -->
@@ -144,8 +154,8 @@
             <div class="date-days">{{ displayDays }}</div>
           </div>
         </v-card>
-      </v-col>
-    </v-row>
+      </div>
+    </div>
 
     <!-- 设置对话框 -->
     <v-dialog v-model="showSettings" max-width="500">
@@ -1035,6 +1045,111 @@ const stopSummaryResize = () => {
   document.body.style.userSelect = ''
 }
 
+// Panel widths (percentages) - default: 42% / 42% / 16%
+const defaultPanelWidths = {
+  summary: 42,
+  reserved: 42,
+  dateFilter: 16
+}
+
+const panelWidths = ref<{ summary: number; reserved: number; dateFilter: number }>({ ...defaultPanelWidths })
+const topPanelsContainer = ref<HTMLElement | null>(null)
+
+// Load panel widths from localStorage
+const loadPanelWidths = () => {
+  try {
+    const saved = localStorage.getItem('requestlog-panel-widths')
+    if (saved) {
+      panelWidths.value = { ...defaultPanelWidths, ...JSON.parse(saved) }
+    }
+  } catch (e) {
+    console.error('Failed to load panel widths:', e)
+  }
+}
+
+// Save panel widths to localStorage
+const savePanelWidths = () => {
+  try {
+    localStorage.setItem('requestlog-panel-widths', JSON.stringify(panelWidths.value))
+  } catch (e) {
+    console.error('Failed to save panel widths:', e)
+  }
+}
+
+// Panel resize logic
+const resizingSplitter = ref<string | null>(null)
+const panelResizeStartX = ref(0)
+const panelResizeStartWidths = ref<{ summary: number; reserved: number; dateFilter: number }>({ ...defaultPanelWidths })
+
+const startPanelResize = (e: MouseEvent, splitter: string) => {
+  e.preventDefault()
+  resizingSplitter.value = splitter
+  panelResizeStartX.value = e.pageX
+  panelResizeStartWidths.value = { ...panelWidths.value }
+
+  document.addEventListener('mousemove', onPanelResize)
+  document.addEventListener('mouseup', stopPanelResize)
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+}
+
+const onPanelResize = (e: MouseEvent) => {
+  if (!resizingSplitter.value || !topPanelsContainer.value) return
+
+  const containerWidth = topPanelsContainer.value.offsetWidth
+  const diffPx = e.pageX - panelResizeStartX.value
+  const diffPercent = (diffPx / containerWidth) * 100
+
+  const minWidth = 10 // minimum 10% for any panel
+
+  if (resizingSplitter.value === 'splitter1') {
+    // Adjust summary and reserved panels
+    let newSummary = panelResizeStartWidths.value.summary + diffPercent
+    let newReserved = panelResizeStartWidths.value.reserved - diffPercent
+
+    // Enforce minimum widths
+    if (newSummary < minWidth) {
+      newSummary = minWidth
+      newReserved = panelResizeStartWidths.value.summary + panelResizeStartWidths.value.reserved - minWidth
+    }
+    if (newReserved < minWidth) {
+      newReserved = minWidth
+      newSummary = panelResizeStartWidths.value.summary + panelResizeStartWidths.value.reserved - minWidth
+    }
+
+    panelWidths.value.summary = newSummary
+    panelWidths.value.reserved = newReserved
+  } else if (resizingSplitter.value === 'splitter2') {
+    // Adjust reserved and dateFilter panels
+    let newReserved = panelResizeStartWidths.value.reserved + diffPercent
+    let newDateFilter = panelResizeStartWidths.value.dateFilter - diffPercent
+
+    // Enforce minimum widths
+    if (newReserved < minWidth) {
+      newReserved = minWidth
+      newDateFilter = panelResizeStartWidths.value.reserved + panelResizeStartWidths.value.dateFilter - minWidth
+    }
+    if (newDateFilter < minWidth) {
+      newDateFilter = minWidth
+      newReserved = panelResizeStartWidths.value.reserved + panelResizeStartWidths.value.dateFilter - minWidth
+    }
+
+    panelWidths.value.reserved = newReserved
+    panelWidths.value.dateFilter = newDateFilter
+  }
+}
+
+const stopPanelResize = () => {
+  if (resizingSplitter.value) {
+    savePanelWidths()
+  }
+  resizingSplitter.value = null
+  document.removeEventListener('mousemove', onPanelResize)
+  document.removeEventListener('mouseup', stopPanelResize)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+}
+
 // Auto-refresh
 const autoRefreshEnabled = ref(true)
 const AUTO_REFRESH_INTERVAL = 3000
@@ -1349,6 +1464,7 @@ const cleanupLogs = async () => {
 onMounted(() => {
   loadColumnWidths()
   loadSummaryColumnWidths()
+  loadPanelWidths()
   refreshLogs()
   startAutoRefresh()
 })
@@ -1458,6 +1574,69 @@ const silentRefresh = async () => {
 <style scoped>
 .request-log-container {
   padding: 0;
+}
+
+/* Top panels container with flex layout */
+.top-panels-container {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
+
+.panel-wrapper {
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.panel-wrapper .summary-card {
+  height: 100%;
+}
+
+/* Panel splitter */
+.panel-splitter {
+  width: 12px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 10;
+}
+
+.panel-splitter:hover .splitter-handle,
+.panel-splitter:active .splitter-handle {
+  background: rgb(var(--v-theme-primary));
+  opacity: 1;
+}
+
+.splitter-handle {
+  width: 4px;
+  height: 40px;
+  background: rgb(var(--v-theme-on-surface));
+  opacity: 0.3;
+  border-radius: 2px;
+  transition: all 0.2s ease;
+}
+
+.v-theme--dark .splitter-handle {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* Mobile: stack panels vertically */
+@media (max-width: 960px) {
+  .top-panels-container {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .panel-wrapper {
+    width: 100% !important;
+  }
+
+  .panel-splitter {
+    display: none;
+  }
 }
 
 /* Provider chip with custom icon */
