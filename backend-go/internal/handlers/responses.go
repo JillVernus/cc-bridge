@@ -74,10 +74,22 @@ func ResponsesHandler(
 			_ = json.Unmarshal(bodyBytes, &responsesReq)
 		}
 
-		// 提取对话标识用于 Trace 亲和性
-		// 优先级: Conversation_id Header > Session_id Header > prompt_cache_key > metadata.user_id
-		compoundUserID := extractConversationID(c, bodyBytes)
-		userID, sessionID := parseClaudeCodeUserID(compoundUserID)
+		// 提取对话标识用于 Trace 亲和性 + 记录 user/session
+		// - Codex：user_id 统一记录为 "codex"，session_id 使用 prompt_cache_key（会话级标识）
+		// - Claude：使用复合 user_id 解析出 user_id + session_id
+		promptCacheKey := strings.TrimSpace(gjson.GetBytes(bodyBytes, "prompt_cache_key").String())
+		compoundUserID := ""
+		userID := ""
+		sessionID := ""
+		if promptCacheKey != "" {
+			userID = "codex"
+			sessionID = promptCacheKey
+			compoundUserID = promptCacheKey
+		} else {
+			// 优先级: Conversation_id Header > Session_id Header > prompt_cache_key > metadata.user_id
+			compoundUserID = extractConversationID(c, bodyBytes)
+			userID, sessionID = parseClaudeCodeUserID(compoundUserID)
+		}
 
 		// 提取 reasoning.effort 用于日志显示
 		reasoningEffort := gjson.GetBytes(bodyBytes, "reasoning.effort").String()
@@ -1027,4 +1039,9 @@ func extractConversationID(c *gin.Context, bodyBytes []byte) string {
 	}
 
 	return ""
+}
+
+func isCodexResponsesModel(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return strings.Contains(model, "codex")
 }
