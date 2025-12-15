@@ -19,10 +19,10 @@ type RequestLog struct {
 	InitialTime              time.Time `json:"initialTime"`
 	CompleteTime             time.Time `json:"completeTime"`
 	DurationMs               int64     `json:"durationMs"`
-	Type                     string    `json:"type"`          // claude, openai, gemini (service type)
-	ProviderName             string    `json:"providerName"`  // actual provider/channel name
-	Model                    string    `json:"model"`         // 请求的模型名称
-	ResponseModel            string    `json:"responseModel"` // 响应中的模型名称（可能与请求不同）
+	Type                     string    `json:"type"`                      // claude, openai, gemini (service type)
+	ProviderName             string    `json:"providerName"`              // actual provider/channel name
+	Model                    string    `json:"model"`                     // 请求的模型名称
+	ResponseModel            string    `json:"responseModel"`             // 响应中的模型名称（可能与请求不同）
 	ReasoningEffort          string    `json:"reasoningEffort,omitempty"` // Codex reasoning effort (low/medium/high/xhigh)
 	InputTokens              int       `json:"inputTokens"`
 	OutputTokens             int       `json:"outputTokens"`
@@ -36,13 +36,14 @@ type RequestLog struct {
 	CacheCreationCost float64 `json:"cacheCreationCost"`
 	CacheReadCost     float64 `json:"cacheReadCost"`
 	// 其他字段
-	HTTPStatus  int    `json:"httpStatus"`
-	Stream      bool   `json:"stream"`
-	ChannelID   int    `json:"channelId"`
-	ChannelName string `json:"channelName"`
-	Endpoint    string `json:"endpoint"` // /v1/messages or /v1/responses
-	UserID      string `json:"userId,omitempty"`
-	Error       string `json:"error,omitempty"`
+	HTTPStatus    int       `json:"httpStatus"`
+	Stream        bool      `json:"stream"`
+	ChannelID     int       `json:"channelId"`
+	ChannelName   string    `json:"channelName"`
+	Endpoint      string    `json:"endpoint"` // /v1/messages or /v1/responses
+	UserID        string    `json:"userId,omitempty"`
+	SessionID     string    `json:"sessionId,omitempty"` // Claude Code conversation session ID
+	Error         string    `json:"error,omitempty"`
 	UpstreamError string    `json:"upstreamError,omitempty"` // 上游服务原始错误信息
 	CreatedAt     time.Time `json:"createdAt"`
 }
@@ -62,6 +63,8 @@ type RequestLogFilter struct {
 	Model      string     `json:"model,omitempty"`
 	HTTPStatus int        `json:"httpStatus,omitempty"`
 	Endpoint   string     `json:"endpoint,omitempty"`
+	UserID     string     `json:"userId,omitempty"`
+	SessionID  string     `json:"sessionId,omitempty"`
 	From       *time.Time `json:"from,omitempty"`
 	To         *time.Time `json:"to,omitempty"`
 	Limit      int        `json:"limit,omitempty"`
@@ -75,7 +78,19 @@ type RequestLogStats struct {
 	TotalCost     float64                  `json:"totalCost"`
 	ByProvider    map[string]ProviderStats `json:"byProvider"`
 	ByModel       map[string]ModelStats    `json:"byModel"`
+	ByUser        map[string]GroupStats    `json:"byUser"`
+	BySession     map[string]GroupStats    `json:"bySession"`
 	TimeRange     TimeRange                `json:"timeRange"`
+}
+
+// GroupStats represents statistics for a generic group (user, session, etc.)
+type GroupStats struct {
+	Count                    int64   `json:"count"`
+	InputTokens              int     `json:"inputTokens"`
+	OutputTokens             int     `json:"outputTokens"`
+	CacheCreationInputTokens int     `json:"cacheCreationInputTokens"`
+	CacheReadInputTokens     int     `json:"cacheReadInputTokens"`
+	Cost                     float64 `json:"cost"`
 }
 
 // ProviderStats represents statistics for a single provider

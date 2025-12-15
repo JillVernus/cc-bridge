@@ -391,6 +391,8 @@ class ApiService {
     if (filter?.provider) params.set('provider', filter.provider)
     if (filter?.model) params.set('model', filter.model)
     if (filter?.endpoint) params.set('endpoint', filter.endpoint)
+    if (filter?.userId) params.set('userId', filter.userId)
+    if (filter?.sessionId) params.set('sessionId', filter.sessionId)
     if (filter?.httpStatus) params.set('httpStatus', String(filter.httpStatus))
     if (filter?.limit) params.set('limit', String(filter.limit))
     if (filter?.offset) params.set('offset', String(filter.offset))
@@ -400,10 +402,12 @@ class ApiService {
     return this.request(`/logs${query}`)
   }
 
-  async getRequestLogStats(filter?: { from?: string; to?: string }): Promise<RequestLogStats> {
+  async getRequestLogStats(filter?: { from?: string; to?: string; userId?: string; sessionId?: string }): Promise<RequestLogStats> {
     const params = new URLSearchParams()
     if (filter?.from) params.set('from', filter.from)
     if (filter?.to) params.set('to', filter.to)
+    if (filter?.userId) params.set('userId', filter.userId)
+    if (filter?.sessionId) params.set('sessionId', filter.sessionId)
     const query = params.toString() ? `?${params.toString()}` : ''
     return this.request(`/logs/stats${query}`)
   }
@@ -503,7 +507,7 @@ class ApiService {
 // 请求日志类型
 export interface RequestLog {
   id: string
-  status: 'pending' | 'completed' | 'error'
+  status: 'pending' | 'completed' | 'error' | 'timeout'
   initialTime: string
   completeTime: string
   durationMs: number
@@ -530,6 +534,7 @@ export interface RequestLog {
   channelName: string
   endpoint: string
   userId?: string
+  sessionId?: string
   error?: string
   upstreamError?: string  // 上游服务原始错误信息
   createdAt: string
@@ -540,6 +545,8 @@ export interface RequestLogFilter {
   model?: string
   httpStatus?: number
   endpoint?: string
+  userId?: string
+  sessionId?: string
   from?: string
   to?: string
   limit?: number
@@ -573,6 +580,8 @@ export interface RequestLogStats {
   totalCost: number
   byProvider: Record<string, GroupStats>
   byModel: Record<string, GroupStats>
+  byUser: Record<string, GroupStats>
+  bySession: Record<string, GroupStats>
   timeRange: { from: string; to: string }
 }
 

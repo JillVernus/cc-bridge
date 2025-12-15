@@ -65,7 +65,8 @@ func ProxyHandler(envCfg *config.EnvConfig, cfgManager *config.ConfigManager, ch
 		}
 
 		// 提取 user_id 用于 Trace 亲和性
-		userID := extractUserID(bodyBytes)
+		compoundUserID := extractUserID(bodyBytes)
+		userID, sessionID := parseClaudeCodeUserID(compoundUserID)
 
 		// 创建 pending 请求日志记录
 		var requestLogID string
@@ -77,6 +78,7 @@ func ProxyHandler(envCfg *config.EnvConfig, cfgManager *config.ConfigManager, ch
 				Stream:      claudeReq.Stream,
 				Endpoint:    "/v1/messages",
 				UserID:      userID,
+				SessionID:   sessionID,
 			}
 			if err := reqLogManager.Add(pendingLog); err != nil {
 				log.Printf("⚠️ 创建 pending 请求日志失败: %v", err)
@@ -90,7 +92,7 @@ func ProxyHandler(envCfg *config.EnvConfig, cfgManager *config.ConfigManager, ch
 
 		if isMultiChannel {
 			// 多渠道模式：使用调度器
-			handleMultiChannelProxy(c, envCfg, cfgManager, channelScheduler, bodyBytes, claudeReq, userID, startTime, reqLogManager, requestLogID)
+			handleMultiChannelProxy(c, envCfg, cfgManager, channelScheduler, bodyBytes, claudeReq, compoundUserID, startTime, reqLogManager, requestLogID)
 		} else {
 			// 单渠道模式：使用现有逻辑
 			handleSingleChannelProxy(c, envCfg, cfgManager, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID)
@@ -109,6 +111,28 @@ func extractUserID(bodyBytes []byte) string {
 		return req.Metadata.UserID
 	}
 	return ""
+}
+
+// parseClaudeCodeUserID 解析 Claude Code 的复合 user_id 格式
+// 格式: user_<hash>_account__session_<session_uuid>
+// 返回: (userID, sessionID)
+func parseClaudeCodeUserID(compoundUserID string) (userID string, sessionID string) {
+	compoundUserID = strings.TrimSpace(compoundUserID)
+	if compoundUserID == "" {
+		return "", ""
+	}
+
+	// 查找分隔符 "_account__session_"
+	const delimiter = "_account__session_"
+	idx := strings.Index(compoundUserID, delimiter)
+	if idx == -1 {
+		// 没有找到分隔符，整个字符串作为 userID
+		return compoundUserID, ""
+	}
+
+	userID = strings.TrimSpace(compoundUserID[:idx])
+	sessionID = strings.TrimSpace(compoundUserID[idx+len(delimiter):])
+	return userID, sessionID
 }
 
 // handleMultiChannelProxy 处理多渠道代理请求

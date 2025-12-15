@@ -87,6 +87,7 @@ func (m *Manager) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_request_logs_model ON request_logs(model);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_http_status ON request_logs(http_status);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_endpoint ON request_logs(endpoint);
+	CREATE INDEX IF NOT EXISTS idx_request_logs_user_id ON request_logs(user_id);
 	`
 
 	_, err := m.db.Exec(schema)
@@ -182,6 +183,25 @@ func (m *Manager) initSchema() error {
 		}
 	}
 
+	// Migration: Add session_id column if it doesn't exist (for Claude Code conversation tracking)
+	err = m.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('request_logs') WHERE name='session_id'`).Scan(&count)
+	if err != nil {
+		log.Printf("⚠️ Failed to check session_id column: %v", err)
+	} else if count == 0 {
+		_, err = m.db.Exec(`ALTER TABLE request_logs ADD COLUMN session_id TEXT`)
+		if err != nil {
+			log.Printf("⚠️ Failed to add session_id column: %v", err)
+		} else {
+			log.Printf("✅ Added session_id column to request_logs table")
+		}
+	}
+
+	// Create index for session_id to improve query performance
+	_, err = m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_request_logs_session_id ON request_logs(session_id)`)
+	if err != nil {
+		log.Printf("⚠️ Failed to create session_id index: %v", err)
+	}
+
 	// Migration: Update old error records with timeout error message to use timeout status
 	// This fixes records created before the StatusTimeout constant was added
 	result, err := m.db.Exec(`UPDATE request_logs SET status = ? WHERE status = ? AND (error = 'request timed out' OR error = 'timeout')`, StatusTimeout, StatusError)
@@ -219,8 +239,8 @@ func (m *Manager) Add(record *RequestLog) error {
 		cache_creation_input_tokens, cache_read_input_tokens, total_tokens,
 		price, input_cost, output_cost, cache_creation_cost, cache_read_cost,
 		http_status, stream, channel_id, channel_name,
-		endpoint, user_id, error, upstream_error, created_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		endpoint, user_id, session_id, error, upstream_error, created_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := m.db.Exec(query,
@@ -250,6 +270,7 @@ func (m *Manager) Add(record *RequestLog) error {
 		record.ChannelName,
 		record.Endpoint,
 		record.UserID,
+		record.SessionID,
 		record.Error,
 		record.UpstreamError,
 		record.CreatedAt,
@@ -370,6 +391,14 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		conditions = append(conditions, "endpoint = ?")
 		args = append(args, filter.Endpoint)
 	}
+	if filter.UserID != "" {
+		conditions = append(conditions, "user_id = ?")
+		args = append(args, filter.UserID)
+	}
+	if filter.SessionID != "" {
+		conditions = append(conditions, "session_id = ?")
+		args = append(args, filter.SessionID)
+	}
 	if filter.From != nil {
 		conditions = append(conditions, "initial_time >= ?")
 		args = append(args, *filter.From)
@@ -398,7 +427,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 			   cache_creation_input_tokens, cache_read_input_tokens, total_tokens,
 			   price, input_cost, output_cost, cache_creation_cost, cache_read_cost,
 			   http_status, stream, channel_id, channel_name,
-			   endpoint, user_id, error, upstream_error, created_at
+			   endpoint, user_id, session_id, error, upstream_error, created_at
 		FROM request_logs
 		%s
 		ORDER BY initial_time DESC
@@ -417,7 +446,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 	for rows.Next() {
 		var r RequestLog
 		var channelID sql.NullInt64
-		var channelName, endpoint, userID, errorStr, upstreamErrorStr, status, providerName, responseModel, reasoningEffort sql.NullString
+		var channelName, endpoint, userID, sessionID, errorStr, upstreamErrorStr, status, providerName, responseModel, reasoningEffort sql.NullString
 		var initialTime, completeTime, createdAt sql.NullString
 
 		err := rows.Scan(
@@ -426,7 +455,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 			&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 			&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
 			&r.HTTPStatus, &r.Stream, &channelID, &channelName,
-			&endpoint, &userID, &errorStr, &upstreamErrorStr, &createdAt,
+			&endpoint, &userID, &sessionID, &errorStr, &upstreamErrorStr, &createdAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan request log: %w", err)
@@ -466,6 +495,9 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		}
 		if userID.Valid {
 			r.UserID = userID.String
+		}
+		if sessionID.Valid {
+			r.SessionID = sessionID.String
 		}
 		if errorStr.Valid {
 			r.Error = errorStr.String
@@ -509,12 +541,22 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 		conditions = append(conditions, "initial_time <= ?")
 		args = append(args, *filter.To)
 	}
+	if filter.UserID != "" {
+		conditions = append(conditions, "user_id = ?")
+		args = append(args, filter.UserID)
+	}
+	if filter.SessionID != "" {
+		conditions = append(conditions, "session_id = ?")
+		args = append(args, filter.SessionID)
+	}
 
 	whereClause := "WHERE " + strings.Join(conditions, " AND ")
 
 	stats := &RequestLogStats{
 		ByProvider: make(map[string]ProviderStats),
 		ByModel:    make(map[string]ModelStats),
+		ByUser:     make(map[string]GroupStats),
+		BySession:  make(map[string]GroupStats),
 	}
 
 	// Get total stats
@@ -618,6 +660,60 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 		stats.ByModel[model] = ms
 	}
 
+	// Get stats by user
+	userQuery := fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(TRIM(user_id), ''), '<unknown>'), COUNT(*),
+			COALESCE(SUM(input_tokens), 0),
+			COALESCE(SUM(output_tokens), 0),
+			COALESCE(SUM(cache_creation_input_tokens), 0),
+			COALESCE(SUM(cache_read_input_tokens), 0),
+			COALESCE(SUM(price), 0)
+		FROM request_logs %s
+		GROUP BY COALESCE(NULLIF(TRIM(user_id), ''), '<unknown>')
+	`, whereClause)
+
+	userRows, err := m.db.Query(userQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user stats: %w", err)
+	}
+	defer userRows.Close()
+
+	for userRows.Next() {
+		var user string
+		var us GroupStats
+		if err := userRows.Scan(&user, &us.Count, &us.InputTokens, &us.OutputTokens, &us.CacheCreationInputTokens, &us.CacheReadInputTokens, &us.Cost); err != nil {
+			return nil, fmt.Errorf("failed to scan user stats: %w", err)
+		}
+		stats.ByUser[user] = us
+	}
+
+	// Get stats by session
+	sessionQuery := fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(TRIM(session_id), ''), '<unknown>'), COUNT(*),
+			COALESCE(SUM(input_tokens), 0),
+			COALESCE(SUM(output_tokens), 0),
+			COALESCE(SUM(cache_creation_input_tokens), 0),
+			COALESCE(SUM(cache_read_input_tokens), 0),
+			COALESCE(SUM(price), 0)
+		FROM request_logs %s
+		GROUP BY COALESCE(NULLIF(TRIM(session_id), ''), '<unknown>')
+	`, whereClause)
+
+	sessionRows, err := m.db.Query(sessionQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get session stats: %w", err)
+	}
+	defer sessionRows.Close()
+
+	for sessionRows.Next() {
+		var session string
+		var ss GroupStats
+		if err := sessionRows.Scan(&session, &ss.Count, &ss.InputTokens, &ss.OutputTokens, &ss.CacheCreationInputTokens, &ss.CacheReadInputTokens, &ss.Cost); err != nil {
+			return nil, fmt.Errorf("failed to scan session stats: %w", err)
+		}
+		stats.BySession[session] = ss
+	}
+
 	return stats, nil
 }
 
@@ -643,21 +739,21 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 			   provider, model, input_tokens, output_tokens,
 			   cache_creation_input_tokens, cache_read_input_tokens, total_tokens,
 			   price, http_status, stream, channel_id, channel_name,
-			   endpoint, user_id, error, created_at
+			   endpoint, user_id, session_id, error, created_at
 		FROM request_logs
 		WHERE id = ?
 	`
 
 	var r RequestLog
 	var channelID sql.NullInt64
-	var channelName, endpoint, userID, errorStr sql.NullString
+	var channelName, endpoint, userID, sessionID, errorStr sql.NullString
 
 	err := m.db.QueryRow(query, id).Scan(
 		&r.ID, &r.InitialTime, &r.CompleteTime, &r.DurationMs,
 		&r.Type, &r.Model, &r.InputTokens, &r.OutputTokens,
 		&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 		&r.Price, &r.HTTPStatus, &r.Stream, &channelID, &channelName,
-		&endpoint, &userID, &errorStr, &r.CreatedAt,
+		&endpoint, &userID, &sessionID, &errorStr, &r.CreatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -677,6 +773,9 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 	}
 	if userID.Valid {
 		r.UserID = userID.String
+	}
+	if sessionID.Valid {
+		r.SessionID = sessionID.String
 	}
 	if errorStr.Valid {
 		r.Error = errorStr.String

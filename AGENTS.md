@@ -1,7 +1,5 @@
 # Repository Guidelines
 
-## Always respond in Chinese-simplified
-
 ## Project Structure & Module Organization
 - `backend-go/`: Go service (Gin), embeds built frontend, commands via `Makefile`; Go packages live under `internal/`.
 - `frontend/`: web UI (Vite + Vue 3). Built assets are embedded by the Go build.

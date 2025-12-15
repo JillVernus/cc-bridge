@@ -2,101 +2,116 @@
   <div class="request-log-container">
     <!-- 统计面板和日期筛选 -->
     <v-row class="mb-4">
-      <!-- 模型统计 -->
+      <!-- 统一的统计表格 -->
       <v-col cols="12" md="5">
         <v-card class="summary-card" density="compact">
-          <div class="summary-table-wrapper">
-            <v-table density="compact" class="summary-table">
+          <!-- Group by selector header -->
+          <div class="summary-header d-flex align-center px-2 py-1">
+            <v-select
+              v-model="summaryGroupBy"
+              :items="summaryGroupByOptions"
+              item-title="label"
+              item-value="value"
+              density="compact"
+              variant="outlined"
+              hide-details
+              class="group-by-select"
+            />
+          </div>
+          <!-- Header table -->
+          <div class="summary-table-header-wrapper">
+            <table class="summary-table-custom resizable-summary-table" :style="{ width: summaryTableWidth + 'px' }">
               <thead>
                 <tr>
-                  <th class="col-model">{{ t('requestLog.model') }}</th>
-                  <th class="text-end col-small">{{ t('requestLog.requests') }}</th>
-                  <th class="text-end col-small">{{ t('requestLog.input') }}</th>
-                  <th class="text-end col-small">{{ t('requestLog.output') }}</th>
-                  <th class="text-end col-small">{{ t('requestLog.cacheCreation') }}</th>
-                  <th class="text-end col-small">{{ t('requestLog.cacheHit') }}</th>
-                  <th class="text-end col-small">{{ t('requestLog.cost') }}</th>
+                  <th class="resizable-summary-header" :style="{ width: summaryColumnWidths.name + 'px' }">
+                    {{ summaryNameHeaderTitle }}
+                    <div class="resize-handle" @mousedown="startSummaryResize($event, 'name')"></div>
+                  </th>
+                  <th class="text-end resizable-summary-header" :style="{ width: summaryColumnWidths.requests + 'px' }">
+                    {{ t('requestLog.requests') }}
+                    <div class="resize-handle" @mousedown="startSummaryResize($event, 'requests')"></div>
+                  </th>
+                  <th class="text-end resizable-summary-header" :style="{ width: summaryColumnWidths.input + 'px' }">
+                    {{ t('requestLog.input') }}
+                    <div class="resize-handle" @mousedown="startSummaryResize($event, 'input')"></div>
+                  </th>
+                  <th class="text-end resizable-summary-header" :style="{ width: summaryColumnWidths.output + 'px' }">
+                    {{ t('requestLog.output') }}
+                    <div class="resize-handle" @mousedown="startSummaryResize($event, 'output')"></div>
+                  </th>
+                  <th class="text-end resizable-summary-header" :style="{ width: summaryColumnWidths.cacheCreation + 'px' }">
+                    {{ t('requestLog.cacheCreation') }}
+                    <div class="resize-handle" @mousedown="startSummaryResize($event, 'cacheCreation')"></div>
+                  </th>
+                  <th class="text-end resizable-summary-header" :style="{ width: summaryColumnWidths.cacheHit + 'px' }">
+                    {{ t('requestLog.cacheHit') }}
+                    <div class="resize-handle" @mousedown="startSummaryResize($event, 'cacheHit')"></div>
+                  </th>
+                  <th class="text-end resizable-summary-header-last" :style="{ width: summaryColumnWidths.cost + 'px' }">
+                    {{ t('requestLog.cost') }}
+                  </th>
                 </tr>
               </thead>
-              <tbody class="summary-table-body">
-                <tr v-for="[model, data] in sortedByModel" :key="model" :class="{ 'summary-row-flash': updatedModels.has(String(model)) }">
-                  <td class="text-caption col-model font-weight-bold">{{ truncateModel(String(model)) }}</td>
-                  <td class="text-end text-caption col-small">{{ data.count }}</td>
-                  <td class="text-end text-caption col-small">{{ formatNumber(data.inputTokens) }}</td>
-                  <td class="text-end text-caption col-small">{{ formatNumber(data.outputTokens) }}</td>
-                  <td class="text-end text-caption text-success col-small">{{ formatNumber(data.cacheCreationInputTokens) }}</td>
-                  <td class="text-end text-caption text-warning col-small">{{ formatNumber(data.cacheReadInputTokens) }}</td>
-                  <td class="text-end text-caption cost-cell col-small">{{ formatPriceSummary(data.cost) }}</td>
+            </table>
+          </div>
+          <!-- Body table (scrollable) -->
+          <div class="summary-table-body-wrapper">
+            <table class="summary-table-custom" :style="{ width: summaryTableWidth + 'px' }">
+              <tbody>
+                <tr
+                  v-for="[key, data] in currentSortedData"
+                  :key="key"
+                  :class="{ 'summary-row-flash': currentUpdatedSet.has(String(key)) }"
+                >
+                  <td class="text-caption font-weight-bold summary-name-cell" :style="{ width: summaryColumnWidths.name + 'px', maxWidth: summaryColumnWidths.name + 'px' }">
+                    <v-tooltip
+                      v-if="(summaryGroupBy === 'user' || summaryGroupBy === 'session') && String(key) && String(key) !== '<unknown>'"
+                      location="top"
+                      max-width="600"
+                    >
+                      <template v-slot:activator="{ props }">
+                        <span v-bind="props">{{ formatSummaryKey(String(key)) }}</span>
+                      </template>
+                      <span class="id-tooltip">{{ summaryGroupBy === 'user' ? normalizeUserId(String(key)) : String(key) }}</span>
+                    </v-tooltip>
+                    <span v-else>{{ formatSummaryKey(String(key)) }}</span>
+                  </td>
+                  <td class="text-end text-caption" :style="{ width: summaryColumnWidths.requests + 'px' }">{{ data.count }}</td>
+                  <td class="text-end text-caption" :style="{ width: summaryColumnWidths.input + 'px' }">{{ formatNumber(data.inputTokens) }}</td>
+                  <td class="text-end text-caption" :style="{ width: summaryColumnWidths.output + 'px' }">{{ formatNumber(data.outputTokens) }}</td>
+                  <td class="text-end text-caption text-success" :style="{ width: summaryColumnWidths.cacheCreation + 'px' }">{{ formatNumber(data.cacheCreationInputTokens) }}</td>
+                  <td class="text-end text-caption text-warning" :style="{ width: summaryColumnWidths.cacheHit + 'px' }">{{ formatNumber(data.cacheReadInputTokens) }}</td>
+                  <td class="text-end text-caption cost-cell" :style="{ width: summaryColumnWidths.cost + 'px' }">{{ formatPriceSummary(data.cost) }}</td>
                 </tr>
-                <tr v-if="sortedByModel.length === 0">
+                <tr v-if="currentSortedData.length === 0">
                   <td colspan="7" class="text-center text-caption text-grey">{{ t('common.noData') }}</td>
                 </tr>
               </tbody>
-            </v-table>
+            </table>
           </div>
-          <!-- Fixed footer -->
+          <!-- Footer table -->
           <div class="summary-table-footer-fixed">
-            <table class="total-table">
-              <tr class="total-row">
-                <td class="text-caption font-weight-bold col-model">Total</td>
-                <td class="text-end text-caption font-weight-bold col-small">{{ modelTotals.count }}</td>
-                <td class="text-end text-caption font-weight-bold col-small">{{ formatNumber(modelTotals.inputTokens) }}</td>
-                <td class="text-end text-caption font-weight-bold col-small">{{ formatNumber(modelTotals.outputTokens) }}</td>
-                <td class="text-end text-caption font-weight-bold text-success col-small">{{ formatNumber(modelTotals.cacheCreationInputTokens) }}</td>
-                <td class="text-end text-caption font-weight-bold text-warning col-small">{{ formatNumber(modelTotals.cacheReadInputTokens) }}</td>
-                <td class="text-end text-caption font-weight-bold cost-cell col-small">{{ formatPriceSummary(modelTotals.cost) }}</td>
-              </tr>
+            <table class="summary-table-custom" :style="{ width: summaryTableWidth + 'px' }">
+              <tbody>
+                <tr class="total-row">
+                  <td class="text-caption font-weight-bold" :style="{ width: summaryColumnWidths.name + 'px' }">Total</td>
+                  <td class="text-end text-caption font-weight-bold" :style="{ width: summaryColumnWidths.requests + 'px' }">{{ currentTotals.count }}</td>
+                  <td class="text-end text-caption font-weight-bold" :style="{ width: summaryColumnWidths.input + 'px' }">{{ formatNumber(currentTotals.inputTokens) }}</td>
+                  <td class="text-end text-caption font-weight-bold" :style="{ width: summaryColumnWidths.output + 'px' }">{{ formatNumber(currentTotals.outputTokens) }}</td>
+                  <td class="text-end text-caption font-weight-bold text-success" :style="{ width: summaryColumnWidths.cacheCreation + 'px' }">{{ formatNumber(currentTotals.cacheCreationInputTokens) }}</td>
+                  <td class="text-end text-caption font-weight-bold text-warning" :style="{ width: summaryColumnWidths.cacheHit + 'px' }">{{ formatNumber(currentTotals.cacheReadInputTokens) }}</td>
+                  <td class="text-end text-caption font-weight-bold cost-cell" :style="{ width: summaryColumnWidths.cost + 'px' }">{{ formatPriceSummary(currentTotals.cost) }}</td>
+                </tr>
+              </tbody>
             </table>
           </div>
         </v-card>
       </v-col>
 
-      <!-- 渠道统计 -->
+      <!-- 预留区域 -->
       <v-col cols="12" md="5">
         <v-card class="summary-card" density="compact">
-          <div class="summary-table-wrapper">
-            <v-table density="compact" class="summary-table">
-              <thead>
-                <tr>
-                  <th class="col-model">{{ t('requestLog.channel') }}</th>
-                  <th class="text-end col-small">{{ t('requestLog.requests') }}</th>
-                  <th class="text-end col-small">{{ t('requestLog.input') }}</th>
-                  <th class="text-end col-small">{{ t('requestLog.output') }}</th>
-                  <th class="text-end col-small">{{ t('requestLog.cacheCreation') }}</th>
-                  <th class="text-end col-small">{{ t('requestLog.cacheHit') }}</th>
-                  <th class="text-end col-small">{{ t('requestLog.cost') }}</th>
-                </tr>
-              </thead>
-              <tbody class="summary-table-body">
-                <tr v-for="[provider, data] in sortedByProvider" :key="provider" :class="{ 'summary-row-flash': updatedProviders.has(String(provider)) }">
-                  <td class="text-caption col-model font-weight-bold">{{ provider }}</td>
-                  <td class="text-end text-caption col-small">{{ data.count }}</td>
-                  <td class="text-end text-caption col-small">{{ formatNumber(data.inputTokens) }}</td>
-                  <td class="text-end text-caption col-small">{{ formatNumber(data.outputTokens) }}</td>
-                  <td class="text-end text-caption text-success col-small">{{ formatNumber(data.cacheCreationInputTokens) }}</td>
-                  <td class="text-end text-caption text-warning col-small">{{ formatNumber(data.cacheReadInputTokens) }}</td>
-                  <td class="text-end text-caption cost-cell col-small">{{ formatPriceSummary(data.cost) }}</td>
-                </tr>
-                <tr v-if="sortedByProvider.length === 0">
-                  <td colspan="7" class="text-center text-caption text-grey">{{ t('common.noData') }}</td>
-                </tr>
-              </tbody>
-            </v-table>
-          </div>
-          <!-- Fixed footer -->
-          <div class="summary-table-footer-fixed">
-            <table class="total-table">
-              <tr class="total-row">
-                <td class="text-caption font-weight-bold col-model">Total</td>
-                <td class="text-end text-caption font-weight-bold col-small">{{ providerTotals.count }}</td>
-                <td class="text-end text-caption font-weight-bold col-small">{{ formatNumber(providerTotals.inputTokens) }}</td>
-                <td class="text-end text-caption font-weight-bold col-small">{{ formatNumber(providerTotals.outputTokens) }}</td>
-                <td class="text-end text-caption font-weight-bold text-success col-small">{{ formatNumber(providerTotals.cacheCreationInputTokens) }}</td>
-                <td class="text-end text-caption font-weight-bold text-warning col-small">{{ formatNumber(providerTotals.cacheReadInputTokens) }}</td>
-                <td class="text-end text-caption font-weight-bold cost-cell col-small">{{ formatPriceSummary(providerTotals.cost) }}</td>
-              </tr>
-            </table>
-          </div>
+          <!-- Reserved for future use -->
         </v-card>
       </v-col>
 
@@ -312,6 +327,18 @@
             <div class="resize-handle" @mousedown="startResize($event, 'model')"></div>
           </div>
         </template>
+        <template v-slot:[`header.userId`]="{ column }">
+          <div class="resizable-header">
+            {{ column.title }}
+            <div class="resize-handle" @mousedown="startResize($event, 'userId')"></div>
+          </div>
+        </template>
+        <template v-slot:[`header.sessionId`]="{ column }">
+          <div class="resizable-header">
+            {{ column.title }}
+            <div class="resize-handle" @mousedown="startResize($event, 'sessionId')"></div>
+          </div>
+        </template>
         <template v-slot:[`header.tokens`]>
           <div class="resizable-header tokens-header">
             <div class="tokens-header-row">
@@ -415,6 +442,30 @@
             </div>
           </v-tooltip>
           <span v-else class="text-caption font-weight-medium">{{ item.model }}</span>
+        </template>
+
+        <template v-slot:item.userId="{ item }">
+          <v-tooltip v-if="item.userId" location="top" max-width="600">
+            <template v-slot:activator="{ props }">
+              <span v-bind="props" class="text-caption mono-text id-cell">
+                {{ formatUserId(item.userId) }}
+              </span>
+            </template>
+            <span class="id-tooltip">{{ normalizeUserId(item.userId) }}</span>
+          </v-tooltip>
+          <span v-else class="text-caption mono-text id-cell">—</span>
+        </template>
+
+        <template v-slot:item.sessionId="{ item }">
+          <v-tooltip v-if="item.sessionId" location="top" max-width="600">
+            <template v-slot:activator="{ props }">
+              <span v-bind="props" class="text-caption mono-text id-cell">
+                {{ formatId(item.sessionId) }}
+              </span>
+            </template>
+            <span class="id-tooltip">{{ item.sessionId }}</span>
+          </v-tooltip>
+          <span v-else class="text-caption mono-text id-cell">—</span>
         </template>
 
         <template v-slot:item.tokens="{ item }">
@@ -551,6 +602,33 @@ const pageSize = 50
 const updatedIds = ref<Set<string>>(new Set())
 const updatedModels = ref<Set<string>>(new Set())
 const updatedProviders = ref<Set<string>>(new Set())
+const updatedUsers = ref<Set<string>>(new Set())
+const updatedSessions = ref<Set<string>>(new Set())
+
+// Summary table group by state
+type SummaryGroupBy = 'model' | 'provider' | 'user' | 'session'
+const summaryGroupBy = ref<SummaryGroupBy>('model')
+const summaryGroupByOptions = computed(() => [
+  { label: t('requestLog.groupByModel'), value: 'model' },
+  { label: t('requestLog.groupByProvider'), value: 'provider' },
+  { label: t('requestLog.groupByUser'), value: 'user' },
+  { label: t('requestLog.groupBySession'), value: 'session' },
+])
+
+const summaryNameHeaderTitle = computed(() => {
+  switch (summaryGroupBy.value) {
+    case 'model':
+      return t('requestLog.model')
+    case 'provider':
+      return t('requestLog.channel')
+    case 'user':
+      return t('requestLog.userId')
+    case 'session':
+      return t('requestLog.sessionId')
+    default:
+      return t('requestLog.model')
+  }
+})
 
 // Settings
 const showSettings = ref(false)
@@ -722,6 +800,21 @@ const getTotalTokens = (data: GroupStats) => {
   return data.inputTokens + data.outputTokens + data.cacheCreationInputTokens + data.cacheReadInputTokens
 }
 
+const detectUpdatedGroups = (oldData: Record<string, GroupStats> | undefined, newData: Record<string, GroupStats> | undefined) => {
+  const updated = new Set<string>()
+  if (!newData) return updated
+
+  for (const key of Object.keys(newData)) {
+    const oldVal = oldData?.[key]
+    const newVal = newData[key]
+    if (!oldVal || oldVal.count !== newVal.count || oldVal.cost !== newVal.cost || getTotalTokens(oldVal) !== getTotalTokens(newVal)) {
+      updated.add(key)
+    }
+  }
+
+  return updated
+}
+
 const sortedByModel = computed(() => {
   if (!stats.value?.byModel) return []
   return Object.entries(stats.value.byModel)
@@ -735,6 +828,26 @@ const sortedByModel = computed(() => {
 const sortedByProvider = computed(() => {
   if (!stats.value?.byProvider) return []
   return Object.entries(stats.value.byProvider)
+    .sort(([, a], [, b]) => {
+      const costDiff = b.cost - a.cost
+      if (costDiff !== 0) return costDiff
+      return getTotalTokens(b) - getTotalTokens(a)
+    })
+})
+
+const sortedByUser = computed(() => {
+  if (!stats.value?.byUser) return []
+  return Object.entries(stats.value.byUser)
+    .sort(([, a], [, b]) => {
+      const costDiff = b.cost - a.cost
+      if (costDiff !== 0) return costDiff
+      return getTotalTokens(b) - getTotalTokens(a)
+    })
+})
+
+const sortedBySession = computed(() => {
+  if (!stats.value?.bySession) return []
+  return Object.entries(stats.value.bySession)
     .sort(([, a], [, b]) => {
       const costDiff = b.cost - a.cost
       if (costDiff !== 0) return costDiff
@@ -769,6 +882,159 @@ const providerTotals = computed(() => {
   return totals
 })
 
+const userTotals = computed(() => {
+  const totals = { count: 0, inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, cost: 0 }
+  for (const [, data] of sortedByUser.value) {
+    totals.count += data.count
+    totals.inputTokens += data.inputTokens
+    totals.outputTokens += data.outputTokens
+    totals.cacheCreationInputTokens += data.cacheCreationInputTokens
+    totals.cacheReadInputTokens += data.cacheReadInputTokens
+    totals.cost += data.cost
+  }
+  return totals
+})
+
+const sessionTotals = computed(() => {
+  const totals = { count: 0, inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, cost: 0 }
+  for (const [, data] of sortedBySession.value) {
+    totals.count += data.count
+    totals.inputTokens += data.inputTokens
+    totals.outputTokens += data.outputTokens
+    totals.cacheCreationInputTokens += data.cacheCreationInputTokens
+    totals.cacheReadInputTokens += data.cacheReadInputTokens
+    totals.cost += data.cost
+  }
+  return totals
+})
+
+// Unified summary computed properties
+const currentSortedData = computed(() => {
+  switch (summaryGroupBy.value) {
+    case 'model':
+      return sortedByModel.value
+    case 'provider':
+      return sortedByProvider.value
+    case 'user':
+      return sortedByUser.value
+    case 'session':
+      return sortedBySession.value
+    default:
+      return []
+  }
+})
+
+const currentTotals = computed(() => {
+  switch (summaryGroupBy.value) {
+    case 'model':
+      return modelTotals.value
+    case 'provider':
+      return providerTotals.value
+    case 'user':
+      return userTotals.value
+    case 'session':
+      return sessionTotals.value
+    default:
+      return modelTotals.value
+  }
+})
+
+const currentUpdatedSet = computed(() => {
+  switch (summaryGroupBy.value) {
+    case 'model':
+      return updatedModels.value
+    case 'provider':
+      return updatedProviders.value
+    case 'user':
+      return updatedUsers.value
+    case 'session':
+      return updatedSessions.value
+    default:
+      return new Set()
+  }
+})
+
+// Computed total width for summary table
+const summaryTableWidth = computed(() => {
+  return summaryColumnWidths.value.name +
+    summaryColumnWidths.value.requests +
+    summaryColumnWidths.value.input +
+    summaryColumnWidths.value.output +
+    summaryColumnWidths.value.cacheCreation +
+    summaryColumnWidths.value.cacheHit +
+    summaryColumnWidths.value.cost
+})
+
+// Summary table column widths
+const defaultSummaryColumnWidths: Record<string, number> = {
+  name: 200,
+  requests: 70,
+  input: 80,
+  output: 80,
+  cacheCreation: 80,
+  cacheHit: 80,
+  cost: 80
+}
+
+const summaryColumnWidths = ref<Record<string, number>>({ ...defaultSummaryColumnWidths })
+
+// Load summary column widths from localStorage
+const loadSummaryColumnWidths = () => {
+  try {
+    const saved = localStorage.getItem('requestlog-summary-column-widths')
+    if (saved) {
+      summaryColumnWidths.value = { ...defaultSummaryColumnWidths, ...JSON.parse(saved) }
+    }
+  } catch (e) {
+    console.error('Failed to load summary column widths:', e)
+  }
+}
+
+// Save summary column widths to localStorage
+const saveSummaryColumnWidths = () => {
+  try {
+    localStorage.setItem('requestlog-summary-column-widths', JSON.stringify(summaryColumnWidths.value))
+  } catch (e) {
+    console.error('Failed to save summary column widths:', e)
+  }
+}
+
+// Summary column resize logic
+const resizingSummaryColumn = ref<string | null>(null)
+const summaryResizeStartX = ref(0)
+const summaryResizeStartWidth = ref(0)
+
+const startSummaryResize = (e: MouseEvent, columnKey: string) => {
+  e.preventDefault()
+  resizingSummaryColumn.value = columnKey
+  summaryResizeStartX.value = e.pageX
+  summaryResizeStartWidth.value = summaryColumnWidths.value[columnKey]
+
+  document.addEventListener('mousemove', onSummaryResize)
+  document.addEventListener('mouseup', stopSummaryResize)
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+}
+
+const onSummaryResize = (e: MouseEvent) => {
+  if (!resizingSummaryColumn.value) return
+
+  const diff = e.pageX - summaryResizeStartX.value
+  const newWidth = Math.max(50, Math.min(400, summaryResizeStartWidth.value + diff))
+  summaryColumnWidths.value[resizingSummaryColumn.value] = newWidth
+}
+
+const stopSummaryResize = () => {
+  if (resizingSummaryColumn.value) {
+    saveSummaryColumnWidths()
+  }
+  resizingSummaryColumn.value = null
+  document.removeEventListener('mousemove', onSummaryResize)
+  document.removeEventListener('mouseup', stopSummaryResize)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+}
+
 // Auto-refresh
 const autoRefreshEnabled = ref(true)
 const AUTO_REFRESH_INTERVAL = 3000
@@ -781,6 +1047,8 @@ const defaultColumnWidths: Record<string, number> = {
   durationMs: 80,
   providerName: 120,
   model: 200,
+  userId: 220,
+  sessionId: 240,
   tokens: 400,
   price: 80,
   httpStatus: 70
@@ -821,6 +1089,8 @@ const headers = computed(() => [
   { title: t('requestLog.duration'), key: 'durationMs', sortable: false, width: `${columnWidths.value.durationMs}px` },
   { title: t('requestLog.channel'), key: 'providerName', sortable: false, width: `${columnWidths.value.providerName}px` },
   { title: t('requestLog.model'), key: 'model', sortable: false, width: `${columnWidths.value.model}px` },
+  { title: t('requestLog.user'), key: 'userId', sortable: false, width: `${columnWidths.value.userId}px` },
+  { title: t('requestLog.session'), key: 'sessionId', sortable: false, width: `${columnWidths.value.sessionId}px` },
   { title: t('requestLog.tokens'), key: 'tokens', sortable: false, width: `${columnWidths.value.tokens}px` },
   { title: t('requestLog.price'), key: 'price', sortable: false, width: `${columnWidths.value.price}px` },
   { title: t('requestLog.http'), key: 'httpStatus', sortable: false, width: `${columnWidths.value.httpStatus}px` },
@@ -953,6 +1223,38 @@ const truncateModel = (model: string) => {
   return model
 }
 
+const formatId = (value?: string) => {
+  if (!value) return '—'
+  const trimmed = value.trim()
+  if (trimmed.length <= 8) return trimmed
+  return `${trimmed.slice(0, 4)}...${trimmed.slice(-4)}`
+}
+
+const normalizeUserId = (userID?: string) => {
+  if (!userID) return ''
+  const trimmed = userID.trim()
+  if (trimmed.startsWith('user_')) return trimmed.slice('user_'.length)
+  return trimmed
+}
+
+const formatUserId = (userID?: string) => {
+  const normalized = normalizeUserId(userID)
+  if (!normalized) return '—'
+  return formatId(normalized)
+}
+
+const formatSummaryKey = (key: string) => {
+  if (key === '<unknown>') return key
+  switch (summaryGroupBy.value) {
+    case 'user':
+      return formatUserId(key)
+    case 'session':
+      return formatId(key)
+    default:
+      return key
+  }
+}
+
 const calcHitRate = (data: GroupStats) => {
   const total = data.inputTokens + data.cacheReadInputTokens
   if (total === 0) return 0
@@ -1046,6 +1348,7 @@ const cleanupLogs = async () => {
 
 onMounted(() => {
   loadColumnWidths()
+  loadSummaryColumnWidths()
   refreshLogs()
   startAutoRefresh()
 })
@@ -1103,33 +1406,11 @@ const silentRefresh = async () => {
       }
     }
 
-    // Detect updated models and providers in stats
-    const newUpdatedModels = new Set<string>()
-    const newUpdatedProviders = new Set<string>()
-
-    if (stats.value && statsRes) {
-      // Check models
-      const oldByModel = stats.value.byModel || {}
-      const newByModel = statsRes.byModel || {}
-      for (const model of Object.keys(newByModel)) {
-        const oldData = oldByModel[model]
-        const newData = newByModel[model]
-        if (!oldData || oldData.count !== newData.count || oldData.cost !== newData.cost) {
-          newUpdatedModels.add(model)
-        }
-      }
-
-      // Check providers
-      const oldByProvider = stats.value.byProvider || {}
-      const newByProvider = statsRes.byProvider || {}
-      for (const provider of Object.keys(newByProvider)) {
-        const oldData = oldByProvider[provider]
-        const newData = newByProvider[provider]
-        if (!oldData || oldData.count !== newData.count || oldData.cost !== newData.cost) {
-          newUpdatedProviders.add(provider)
-        }
-      }
-    }
+    // Detect updated groups in stats
+    const newUpdatedModels = detectUpdatedGroups(stats.value?.byModel, statsRes?.byModel)
+    const newUpdatedProviders = detectUpdatedGroups(stats.value?.byProvider, statsRes?.byProvider)
+    const newUpdatedUsers = detectUpdatedGroups(stats.value?.byUser, statsRes?.byUser)
+    const newUpdatedSessions = detectUpdatedGroups(stats.value?.bySession, statsRes?.bySession)
 
     logs.value = logsRes.requests || []
     total.value = logsRes.total
@@ -1156,6 +1437,18 @@ const silentRefresh = async () => {
         updatedProviders.value = new Set()
       }, 1000)
     }
+    if (newUpdatedUsers.size > 0) {
+      updatedUsers.value = newUpdatedUsers
+      setTimeout(() => {
+        updatedUsers.value = new Set()
+      }, 1000)
+    }
+    if (newUpdatedSessions.size > 0) {
+      updatedSessions.value = newUpdatedSessions
+      setTimeout(() => {
+        updatedSessions.value = new Set()
+      }, 1000)
+    }
   } catch (error) {
     console.error('Failed to refresh logs:', error)
   }
@@ -1175,6 +1468,25 @@ const silentRefresh = async () => {
 .provider-chip :deep(.custom-icon svg) {
   width: 14px;
   height: 14px;
+}
+
+.mono-text {
+  font-family: 'Courier New', monospace;
+}
+
+.id-tooltip {
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  white-space: nowrap;
+  color: #fff;
+}
+
+.id-cell {
+  display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Spinning animation for sync icon */
@@ -1235,7 +1547,7 @@ const silentRefresh = async () => {
 /* Scrollable tbody for summary tables - 4 rows max */
 .summary-table-body {
   display: block;
-  max-height: 120px; /* approximately 4 rows */
+  max-height: 110px; /* 4 rows (4 × 26px) + 6px buffer */
   overflow-y: auto;
 }
 
@@ -1270,6 +1582,113 @@ const silentRefresh = async () => {
 .summary-table-footer-fixed .total-row td {
   padding: 6px 8px;
   font-family: 'Courier New', monospace;
+}
+
+/* Summary header with group by select */
+.summary-header {
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+}
+
+.group-by-select {
+  max-width: 220px;
+}
+
+.group-by-select :deep(.v-field) {
+  font-size: 0.8rem;
+}
+
+.group-by-select :deep(.v-field__input) {
+  padding: 4px 8px;
+  min-height: 28px;
+}
+
+/* Summary table header wrapper */
+.summary-table-header-wrapper {
+  overflow: hidden;
+}
+
+/* Summary table body wrapper (scrollable) */
+.summary-table-body-wrapper {
+  max-height: 110px; /* 4 rows (4 × 26px) + 6px buffer */
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Custom summary table (replaces v-table) */
+.summary-table-custom {
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  font-family: 'Courier New', monospace;
+  table-layout: fixed;
+}
+
+.summary-table-custom th {
+  font-size: 0.75rem !important;
+  font-weight: 700 !important;
+  font-family: 'Courier New', monospace !important;
+  padding: 6px 8px !important;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  position: relative;
+}
+
+.summary-table-custom td {
+  padding: 4px 8px !important;
+  font-family: 'Courier New', monospace !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Name cell with proper ellipsis */
+.summary-name-cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Resizable summary headers */
+.resizable-summary-header,
+.resizable-summary-header-last {
+  position: relative;
+}
+
+.resizable-summary-table .resize-handle {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  user-select: none;
+  z-index: 100;
+  background: transparent;
+  transition: all 0.2s ease;
+}
+
+.resizable-summary-table .resize-handle::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 0;
+  background: rgb(var(--v-theme-primary));
+  border-radius: 2px;
+  transition: height 0.2s ease;
+}
+
+.resizable-summary-table .resize-handle:hover {
+  background: rgba(var(--v-theme-primary), 0.2);
+  width: 12px;
+  right: -6px;
+}
+
+.resizable-summary-table .resize-handle:hover::before {
+  height: 18px;
 }
 
 /* Old tfoot styles - kept for backward compatibility */

@@ -33,6 +33,12 @@ func (h *RequestLogHandler) GetLogs(c *gin.Context) {
 	if endpoint := c.Query("endpoint"); endpoint != "" {
 		filter.Endpoint = endpoint
 	}
+	if userID := c.Query("userId"); userID != "" {
+		filter.UserID = userID
+	}
+	if sessionID := c.Query("sessionId"); sessionID != "" {
+		filter.SessionID = sessionID
+	}
 	if status := c.Query("httpStatus"); status != "" {
 		if s, err := strconv.Atoi(status); err == nil {
 			filter.HTTPStatus = s
@@ -81,6 +87,12 @@ func (h *RequestLogHandler) GetStats(c *gin.Context) {
 		if t, err := time.Parse(time.RFC3339, to); err == nil {
 			filter.To = &t
 		}
+	}
+	if userID := c.Query("userId"); userID != "" {
+		filter.UserID = userID
+	}
+	if sessionID := c.Query("sessionId"); sessionID != "" {
+		filter.SessionID = sessionID
 	}
 
 	stats, err := h.manager.GetStats(filter)
@@ -150,8 +162,8 @@ func (h *RequestLogHandler) CleanupLogs(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":      "Cleanup completed",
-		"deletedCount": deleted,
+		"message":       "Cleanup completed",
+		"deletedCount":  deleted,
 		"retentionDays": days,
 	})
 }

@@ -76,7 +76,8 @@ func ResponsesHandler(
 
 		// 提取对话标识用于 Trace 亲和性
 		// 优先级: Conversation_id Header > Session_id Header > prompt_cache_key > metadata.user_id
-		userID := extractConversationID(c, bodyBytes)
+		compoundUserID := extractConversationID(c, bodyBytes)
+		userID, sessionID := parseClaudeCodeUserID(compoundUserID)
 
 		// 提取 reasoning.effort 用于日志显示
 		reasoningEffort := gjson.GetBytes(bodyBytes, "reasoning.effort").String()
@@ -92,6 +93,7 @@ func ResponsesHandler(
 				Stream:          responsesReq.Stream,
 				Endpoint:        "/v1/responses",
 				UserID:          userID,
+				SessionID:       sessionID,
 			}
 			if err := reqLogManager.Add(pendingLog); err != nil {
 				log.Printf("⚠️ 创建 pending 请求日志失败: %v", err)
@@ -105,7 +107,7 @@ func ResponsesHandler(
 
 		if isMultiChannel {
 			// 多渠道模式：使用调度器
-			handleMultiChannelResponses(c, envCfg, cfgManager, channelScheduler, sessionManager, bodyBytes, responsesReq, userID, startTime, reqLogManager, requestLogID)
+			handleMultiChannelResponses(c, envCfg, cfgManager, channelScheduler, sessionManager, bodyBytes, responsesReq, compoundUserID, startTime, reqLogManager, requestLogID)
 		} else {
 			// 单渠道模式：使用现有逻辑
 			handleSingleChannelResponses(c, envCfg, cfgManager, sessionManager, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID)
