@@ -17,6 +17,7 @@ func main() {
 	dbPath := flag.String("db", "../request_logs.db", "path to SQLite DB (request_logs.db)")
 	apply := flag.Bool("apply", false, "apply changes (default: dry-run)")
 	limit := flag.Int("limit", 10, "sample rows to print in dry-run")
+	mode := flag.String("mode", "claude", "backfill mode: claude | codex | all")
 	flag.Parse()
 
 	db, err := sql.Open("sqlite", *dbPath)
@@ -29,49 +30,60 @@ func main() {
 		log.Fatalf("schema check: %v", err)
 	}
 
-	candidateCount, err := countCandidates(db)
+	ops, err := operationsForMode(*mode)
 	if err != nil {
-		log.Fatalf("count candidates: %v", err)
+		log.Fatalf("mode: %v", err)
 	}
-	log.Printf("candidates: %d", candidateCount)
+
+	for _, op := range ops {
+		candidateCount, err := op.CountCandidates(db)
+		if err != nil {
+			log.Fatalf("count candidates (%s): %v", op.Name, err)
+		}
+		log.Printf("[%s] candidates: %d", op.Name, candidateCount)
+
+		if !*apply {
+			if *limit > 0 {
+				if err := op.PrintSamples(db, *limit); err != nil {
+					log.Fatalf("print samples (%s): %v", op.Name, err)
+				}
+			}
+			continue
+		}
+
+		if candidateCount == 0 {
+			log.Printf("[%s] nothing to do", op.Name)
+			continue
+		}
+
+		tx, err := db.Begin()
+		if err != nil {
+			log.Fatalf("begin (%s): %v", op.Name, err)
+		}
+
+		updated, err := op.Backfill(tx)
+		if err != nil {
+			_ = tx.Rollback()
+			log.Fatalf("update (%s): %v", op.Name, err)
+		}
+
+		if err := tx.Commit(); err != nil {
+			log.Fatalf("commit (%s): %v", op.Name, err)
+		}
+
+		afterCount, err := op.CountCandidates(db)
+		if err != nil {
+			log.Fatalf("count after (%s): %v", op.Name, err)
+		}
+
+		log.Printf("[%s] updated rows: %d", op.Name, updated)
+		log.Printf("[%s] candidates after: %d", op.Name, afterCount)
+	}
 
 	if !*apply {
-		if *limit > 0 {
-			if err := printSamples(db, *limit); err != nil {
-				log.Fatalf("print samples: %v", err)
-			}
-		}
 		log.Printf("dry-run complete (use --apply to update)")
 		return
 	}
-
-	if candidateCount == 0 {
-		log.Printf("nothing to do")
-		return
-	}
-
-	tx, err := db.Begin()
-	if err != nil {
-		log.Fatalf("begin: %v", err)
-	}
-
-	updated, err := backfill(tx)
-	if err != nil {
-		_ = tx.Rollback()
-		log.Fatalf("update: %v", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		log.Fatalf("commit: %v", err)
-	}
-
-	afterCount, err := countCandidates(db)
-	if err != nil {
-		log.Fatalf("count after: %v", err)
-	}
-
-	log.Printf("updated rows: %d", updated)
-	log.Printf("candidates after: %d", afterCount)
 }
 
 func ensureColumns(db *sql.DB) error {
@@ -107,7 +119,37 @@ func tableColumns(db *sql.DB, table string) (map[string]bool, error) {
 	return cols, rows.Err()
 }
 
-func countCandidates(db *sql.DB) (int64, error) {
+type operation struct {
+	Name            string
+	CountCandidates func(db *sql.DB) (int64, error)
+	PrintSamples    func(db *sql.DB, limit int) error
+	Backfill        func(tx *sql.Tx) (int64, error)
+}
+
+func operationsForMode(mode string) ([]operation, error) {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	switch mode {
+	case "claude":
+		return []operation{operationClaude()}, nil
+	case "codex":
+		return []operation{operationCodex()}, nil
+	case "all":
+		return []operation{operationClaude(), operationCodex()}, nil
+	default:
+		return nil, fmt.Errorf("unknown mode %q (expected: claude | codex | all)", mode)
+	}
+}
+
+func operationClaude() operation {
+	return operation{
+		Name:            "claude",
+		CountCandidates: countClaudeCandidates,
+		PrintSamples:    printClaudeSamples,
+		Backfill:        backfillClaude,
+	}
+}
+
+func countClaudeCandidates(db *sql.DB) (int64, error) {
 	const q = `
 		SELECT COUNT(*)
 		FROM request_logs
@@ -122,7 +164,7 @@ func countCandidates(db *sql.DB) (int64, error) {
 	return n, nil
 }
 
-func printSamples(db *sql.DB, limit int) error {
+func printClaudeSamples(db *sql.DB, limit int) error {
 	if limit <= 0 {
 		return nil
 	}
@@ -161,7 +203,7 @@ func printSamples(db *sql.DB, limit int) error {
 	return rows.Err()
 }
 
-func backfill(tx *sql.Tx) (int64, error) {
+func backfillClaude(tx *sql.Tx) (int64, error) {
 	const q = `
 		WITH parsed AS (
 			SELECT id,
@@ -176,6 +218,93 @@ func backfill(tx *sql.Tx) (int64, error) {
 		SET user_id = (SELECT new_user_id FROM parsed WHERE parsed.id = request_logs.id),
 		    session_id = (SELECT new_session_id FROM parsed WHERE parsed.id = request_logs.id)
 		WHERE id IN (SELECT id FROM parsed)
+	`
+	res, err := tx.Exec(q)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+func operationCodex() operation {
+	return operation{
+		Name:            "codex",
+		CountCandidates: countCodexCandidates,
+		PrintSamples:    printCodexSamples,
+		Backfill:        backfillCodex,
+	}
+}
+
+func countCodexCandidates(db *sql.DB) (int64, error) {
+	const q = `
+		SELECT COUNT(*)
+		FROM request_logs
+		WHERE endpoint = '/v1/responses'
+		  AND (session_id IS NULL OR TRIM(session_id) = '')
+		  AND user_id IS NOT NULL
+		  AND TRIM(user_id) != ''
+		  AND TRIM(user_id) != 'codex'
+		  AND TRIM(user_id) NOT LIKE 'user_%'
+		  AND instr(TRIM(user_id), '_account__session_') = 0
+	`
+	var n int64
+	if err := db.QueryRow(q).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+func printCodexSamples(db *sql.DB, limit int) error {
+	if limit <= 0 {
+		return nil
+	}
+	const q = `
+		SELECT id, endpoint, user_id, session_id
+		FROM request_logs
+		WHERE endpoint = '/v1/responses'
+		  AND (session_id IS NULL OR TRIM(session_id) = '')
+		  AND user_id IS NOT NULL
+		  AND TRIM(user_id) != ''
+		  AND TRIM(user_id) != 'codex'
+		  AND TRIM(user_id) NOT LIKE 'user_%'
+		  AND instr(TRIM(user_id), '_account__session_') = 0
+		LIMIT ?
+	`
+	rows, err := db.Query(q, limit)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	log.Printf("sample rows:")
+	for rows.Next() {
+		var id string
+		var endpoint sql.NullString
+		var userID sql.NullString
+		var sessionID sql.NullString
+		if err := rows.Scan(&id, &endpoint, &userID, &sessionID); err != nil {
+			return err
+		}
+		u := strings.TrimSpace(userID.String)
+		s := strings.TrimSpace(sessionID.String)
+		e := strings.TrimSpace(endpoint.String)
+		log.Printf("- id=%s endpoint=%s user_id=%s session_id=%s -> user_id=codex session_id=%s", id, e, u, s, u)
+	}
+	return rows.Err()
+}
+
+func backfillCodex(tx *sql.Tx) (int64, error) {
+	const q = `
+		UPDATE request_logs
+		SET session_id = TRIM(user_id),
+		    user_id = 'codex'
+		WHERE endpoint = '/v1/responses'
+		  AND (session_id IS NULL OR TRIM(session_id) = '')
+		  AND user_id IS NOT NULL
+		  AND TRIM(user_id) != ''
+		  AND TRIM(user_id) != 'codex'
+		  AND TRIM(user_id) NOT LIKE 'user_%'
+		  AND instr(TRIM(user_id), '_account__session_') = 0
 	`
 	res, err := tx.Exec(q)
 	if err != nil {
