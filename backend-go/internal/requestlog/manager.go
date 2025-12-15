@@ -847,6 +847,91 @@ func (m *Manager) CleanupStalePending(timeoutSeconds int) (int64, error) {
 	return updated, nil
 }
 
+// GetActiveSessions returns sessions with recent activity (within threshold duration)
+func (m *Manager) GetActiveSessions(threshold time.Duration) ([]ActiveSession, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if threshold <= 0 {
+		threshold = 30 * time.Minute // Default 30 minutes
+	}
+
+	cutoff := time.Now().Add(-threshold)
+
+	// Query to get active sessions with aggregated stats
+	// Uses a subquery to get the provider (type) from the most recent COMPLETED request in each session
+	query := `
+		SELECT
+			session_id,
+			(SELECT provider FROM request_logs r2
+			 WHERE r2.session_id = r1.session_id AND r2.status = 'completed'
+			 ORDER BY initial_time DESC LIMIT 1) as type,
+			MIN(initial_time) as first_request_time,
+			MAX(initial_time) as last_request_time,
+			COUNT(*) as count,
+			COALESCE(SUM(input_tokens), 0) as input_tokens,
+			COALESCE(SUM(output_tokens), 0) as output_tokens,
+			COALESCE(SUM(cache_creation_input_tokens), 0) as cache_creation_input_tokens,
+			COALESCE(SUM(cache_read_input_tokens), 0) as cache_read_input_tokens,
+			COALESCE(SUM(price), 0) as cost
+		FROM request_logs r1
+		WHERE session_id != ''
+		  AND session_id IS NOT NULL
+		  AND TRIM(session_id) != ''
+		  AND status NOT IN (?, ?)
+		GROUP BY session_id
+		HAVING MAX(initial_time) > ?
+		ORDER BY last_request_time DESC
+	`
+
+	rows, err := m.db.Query(query, StatusPending, StatusTimeout, cutoff)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query active sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var sessions []ActiveSession
+	for rows.Next() {
+		var s ActiveSession
+		var sessionType sql.NullString
+		var firstRequestTimeStr, lastRequestTimeStr string
+
+		err := rows.Scan(
+			&s.SessionID,
+			&sessionType,
+			&firstRequestTimeStr,
+			&lastRequestTimeStr,
+			&s.Count,
+			&s.InputTokens,
+			&s.OutputTokens,
+			&s.CacheCreationInputTokens,
+			&s.CacheReadInputTokens,
+			&s.Cost,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan active session: %w", err)
+		}
+
+		// Debug: log the raw time strings
+		log.Printf("Active session %s: firstTime='%s', lastTime='%s'", s.SessionID, firstRequestTimeStr, lastRequestTimeStr)
+
+		s.FirstRequestTime = parseTimeString(firstRequestTimeStr)
+		s.LastRequestTime = parseTimeString(lastRequestTimeStr)
+
+		if sessionType.Valid {
+			s.Type = sessionType.String
+		}
+
+		sessions = append(sessions, s)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating active sessions: %w", err)
+	}
+
+	return sessions, nil
+}
+
 // Close closes the database connection
 func (m *Manager) Close() error {
 	return m.db.Close()
@@ -859,12 +944,39 @@ func generateID() string {
 
 // parseTimeString parses a time string from SQLite in various formats
 func parseTimeString(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+
+	// Handle Go's internal time format with monotonic clock (e.g., "2025-12-15 22:41:43.377695946 +0800 CST m=+560.016976256")
+	// Strip the monotonic clock part if present
+	if idx := strings.Index(s, " m="); idx != -1 {
+		s = s[:idx]
+	}
+
+	// Try standard library parsing first - it handles most RFC3339 variants
+	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return t
+	}
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t
+	}
+
+	// Try Go's default time format (used when time.Time is stored as string)
+	// Format: "2006-01-02 15:04:05.999999999 -0700 MST"
+	if t, err := time.Parse("2006-01-02 15:04:05.999999999 -0700 MST", s); err == nil {
+		return t
+	}
+	if t, err := time.Parse("2006-01-02 15:04:05.999999999 +0800 CST", s); err == nil {
+		return t
+	}
+
+	// Try other common formats
 	formats := []string{
-		time.RFC3339Nano,
-		time.RFC3339,
+		"2006-01-02T15:04:05.999999999-07:00",
+		"2006-01-02T15:04:05-07:00",
 		"2006-01-02T15:04:05Z",
 		"2006-01-02 15:04:05",
-		"2006-01-02T15:04:05.999999999Z07:00",
 	}
 	for _, format := range formats {
 		if t, err := time.Parse(format, s); err == nil {

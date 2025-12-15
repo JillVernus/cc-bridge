@@ -412,6 +412,14 @@ class ApiService {
     return this.request(`/logs/stats${query}`)
   }
 
+  // 获取活跃会话
+  async getActiveSessions(threshold?: string): Promise<ActiveSession[]> {
+    const params = new URLSearchParams()
+    if (threshold) params.set('threshold', threshold)
+    const query = params.toString() ? `?${params.toString()}` : ''
+    return this.request(`/logs/sessions/active${query}`)
+  }
+
   // 清空所有日志
   async clearRequestLogs(): Promise<{ message: string }> {
     return this.request('/logs', { method: 'DELETE' })
@@ -629,6 +637,20 @@ export interface BackupRestoreResponse {
   message: string
   filename: string
   restoredAt: string
+}
+
+// 活跃会话类型
+export interface ActiveSession {
+  sessionId: string
+  type: string  // claude, openai, codex, responses
+  firstRequestTime: string
+  lastRequestTime: string
+  count: number
+  inputTokens: number
+  outputTokens: number
+  cacheCreationInputTokens: number
+  cacheReadInputTokens: number
+  cost: number
 }
 
 export const api = new ApiService()

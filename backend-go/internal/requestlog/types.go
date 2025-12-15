@@ -125,3 +125,17 @@ type RequestLogListResponse struct {
 	Total    int64        `json:"total"`
 	HasMore  bool         `json:"hasMore"`
 }
+
+// ActiveSession represents an active session with aggregated statistics
+type ActiveSession struct {
+	SessionID                string    `json:"sessionId"`
+	Type                     string    `json:"type"` // claude, openai, codex, responses
+	FirstRequestTime         time.Time `json:"firstRequestTime"`
+	LastRequestTime          time.Time `json:"lastRequestTime"`
+	Count                    int64     `json:"count"`
+	InputTokens              int       `json:"inputTokens"`
+	OutputTokens             int       `json:"outputTokens"`
+	CacheCreationInputTokens int       `json:"cacheCreationInputTokens"`
+	CacheReadInputTokens     int       `json:"cacheReadInputTokens"`
+	Cost                     float64   `json:"cost"`
+}

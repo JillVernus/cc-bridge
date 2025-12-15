@@ -325,6 +325,10 @@ export default {
     totalCost: 'Total:',
     prevPage: 'Previous',
     nextPage: 'Next',
+    activeSessions: 'Active Sessions',
+    sessions: 'sessions',
+    live: 'Live',
+    noActiveSessions: 'No active sessions',
   },
 
   // Pricing Settings

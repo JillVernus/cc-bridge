@@ -134,6 +134,30 @@ func (h *RequestLogHandler) GetLogByID(c *gin.Context) {
 	c.JSON(http.StatusOK, record)
 }
 
+// GetActiveSessions 获取活跃会话列表
+func (h *RequestLogHandler) GetActiveSessions(c *gin.Context) {
+	// Parse threshold parameter (default 30m)
+	threshold := 30 * time.Minute
+	if thresholdStr := c.Query("threshold"); thresholdStr != "" {
+		if d, err := time.ParseDuration(thresholdStr); err == nil && d > 0 {
+			threshold = d
+		}
+	}
+
+	sessions, err := h.manager.GetActiveSessions(threshold)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Return empty array instead of null
+	if sessions == nil {
+		sessions = []requestlog.ActiveSession{}
+	}
+
+	c.JSON(http.StatusOK, sessions)
+}
+
 // CleanupLogs 清理指定天数之前的日志
 func (h *RequestLogHandler) CleanupLogs(c *gin.Context) {
 	daysStr := c.Query("days")

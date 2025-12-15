@@ -47,8 +47,9 @@
                     {{ t('requestLog.cacheHit') }}
                     <div class="resize-handle" @mousedown="startSummaryResize($event, 'cacheHit')"></div>
                   </th>
-                  <th class="text-end resizable-summary-header-last" :style="{ width: summaryColumnWidths.cost + 'px' }">
+                  <th class="text-end resizable-summary-header" :style="{ width: summaryColumnWidths.cost + 'px' }">
                     {{ t('requestLog.cost') }}
+                    <div class="resize-handle" @mousedown="startSummaryResize($event, 'cost')"></div>
                   </th>
                 </tr>
               </thead>
@@ -113,10 +114,91 @@
         <div class="splitter-handle"></div>
       </div>
 
-      <!-- 预留区域 -->
+      <!-- 活跃会话 -->
       <div class="panel-wrapper" :style="{ width: panelWidths.reserved + '%' }">
         <v-card class="summary-card" density="compact">
-          <!-- Reserved for future use -->
+          <!-- Header -->
+          <div class="summary-header d-flex align-center px-2 py-1">
+            <span class="text-subtitle-2 font-weight-bold">{{ t('requestLog.activeSessions') }}</span>
+            <v-spacer />
+            <span class="text-caption text-grey">{{ activeSessions.length }} {{ t('requestLog.sessions') }}</span>
+          </div>
+          <!-- Header table -->
+          <div class="summary-table-header-wrapper">
+            <table class="summary-table-custom resizable-summary-table" :style="{ width: activeSessionsTableWidth + 'px' }">
+              <thead>
+                <tr>
+                  <th class="resizable-summary-header" :style="{ width: activeSessionColumnWidths.session + 'px' }">
+                    {{ t('requestLog.session') }}
+                    <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'session')"></div>
+                  </th>
+                  <th class="text-end resizable-summary-header" :style="{ width: activeSessionColumnWidths.live + 'px' }">
+                    {{ t('requestLog.live') }}
+                    <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'live')"></div>
+                  </th>
+                  <th class="text-end resizable-summary-header" :style="{ width: activeSessionColumnWidths.requests + 'px' }">
+                    {{ t('requestLog.requests') }}
+                    <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'requests')"></div>
+                  </th>
+                  <th class="text-end resizable-summary-header" :style="{ width: activeSessionColumnWidths.input + 'px' }">
+                    {{ t('requestLog.input') }}
+                    <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'input')"></div>
+                  </th>
+                  <th class="text-end resizable-summary-header" :style="{ width: activeSessionColumnWidths.output + 'px' }">
+                    {{ t('requestLog.output') }}
+                    <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'output')"></div>
+                  </th>
+                  <th class="text-end resizable-summary-header" :style="{ width: activeSessionColumnWidths.cache + 'px' }">
+                    {{ t('requestLog.cacheCreation') }}
+                    <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'cache')"></div>
+                  </th>
+                  <th class="text-end resizable-summary-header" :style="{ width: activeSessionColumnWidths.hit + 'px' }">
+                    {{ t('requestLog.cacheHit') }}
+                    <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'hit')"></div>
+                  </th>
+                  <th class="text-end resizable-summary-header" :style="{ width: activeSessionColumnWidths.cost + 'px' }">
+                    {{ t('requestLog.cost') }}
+                    <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'cost')"></div>
+                  </th>
+                </tr>
+              </thead>
+            </table>
+          </div>
+          <!-- Body table (scrollable) -->
+          <div class="summary-table-body-wrapper">
+            <table class="summary-table-custom" :style="{ width: activeSessionsTableWidth + 'px' }">
+              <tbody>
+                <tr
+                  v-for="session in activeSessions"
+                  :key="session.sessionId"
+                  :class="{ 'summary-row-flash': updatedActiveSessions.has(session.sessionId) }"
+                >
+                  <td :style="{ width: activeSessionColumnWidths.session + 'px', maxWidth: activeSessionColumnWidths.session + 'px' }">
+                    <div class="d-flex align-center">
+                      <v-icon v-if="session.type === 'claude'" size="14" icon="custom:claude" class="mr-1" />
+                      <v-icon v-else size="14" icon="custom:codex" class="mr-1" />
+                      <v-tooltip location="top" max-width="400">
+                        <template v-slot:activator="{ props }">
+                          <span v-bind="props" class="text-caption">{{ formatId(session.sessionId) }}</span>
+                        </template>
+                        <span class="id-tooltip">{{ session.sessionId }}</span>
+                      </v-tooltip>
+                    </div>
+                  </td>
+                  <td class="text-end text-caption" :style="{ width: activeSessionColumnWidths.live + 'px', maxWidth: activeSessionColumnWidths.live + 'px' }">{{ formatLiveTime(session.firstRequestTime) }}</td>
+                  <td class="text-end text-caption" :style="{ width: activeSessionColumnWidths.requests + 'px', maxWidth: activeSessionColumnWidths.requests + 'px' }">{{ session.count }}</td>
+                  <td class="text-end text-caption" :style="{ width: activeSessionColumnWidths.input + 'px', maxWidth: activeSessionColumnWidths.input + 'px' }">{{ formatNumber(session.inputTokens) }}</td>
+                  <td class="text-end text-caption" :style="{ width: activeSessionColumnWidths.output + 'px', maxWidth: activeSessionColumnWidths.output + 'px' }">{{ formatNumber(session.outputTokens) }}</td>
+                  <td class="text-end text-caption text-success" :style="{ width: activeSessionColumnWidths.cache + 'px', maxWidth: activeSessionColumnWidths.cache + 'px' }">{{ formatNumber(session.cacheCreationInputTokens) }}</td>
+                  <td class="text-end text-caption text-warning" :style="{ width: activeSessionColumnWidths.hit + 'px', maxWidth: activeSessionColumnWidths.hit + 'px' }">{{ formatNumber(session.cacheReadInputTokens) }}</td>
+                  <td class="text-end text-caption cost-cell" :style="{ width: activeSessionColumnWidths.cost + 'px', maxWidth: activeSessionColumnWidths.cost + 'px' }">{{ formatPriceSummary(session.cost) }}</td>
+                </tr>
+                <tr v-if="activeSessions.length === 0">
+                  <td colspan="8" class="text-center text-caption text-grey pa-4">{{ t('requestLog.noActiveSessions') }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </v-card>
       </div>
 
@@ -597,7 +679,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api, type RequestLog, type RequestLogStats, type GroupStats } from '../services/api'
+import { api, type RequestLog, type RequestLogStats, type GroupStats, type ActiveSession } from '../services/api'
 
 // i18n
 const { t } = useI18n()
@@ -614,6 +696,10 @@ const updatedModels = ref<Set<string>>(new Set())
 const updatedProviders = ref<Set<string>>(new Set())
 const updatedUsers = ref<Set<string>>(new Set())
 const updatedSessions = ref<Set<string>>(new Set())
+
+// Active sessions state
+const activeSessions = ref<ActiveSession[]>([])
+const updatedActiveSessions = ref<Set<string>>(new Set())
 
 // Summary table group by state
 type SummaryGroupBy = 'model' | 'provider' | 'user' | 'session'
@@ -825,6 +911,27 @@ const detectUpdatedGroups = (oldData: Record<string, GroupStats> | undefined, ne
   return updated
 }
 
+// Detect changes in active sessions
+const detectActiveSessionChanges = (oldSessions: ActiveSession[], newSessions: ActiveSession[]) => {
+  const updated = new Set<string>()
+  if (!newSessions) return updated
+
+  const oldMap = new Map(oldSessions.map(s => [s.sessionId, s]))
+
+  for (const newSession of newSessions) {
+    const oldSession = oldMap.get(newSession.sessionId)
+    if (!oldSession ||
+        oldSession.count !== newSession.count ||
+        oldSession.cost !== newSession.cost ||
+        oldSession.inputTokens !== newSession.inputTokens ||
+        oldSession.outputTokens !== newSession.outputTokens) {
+      updated.add(newSession.sessionId)
+    }
+  }
+
+  return updated
+}
+
 const sortedByModel = computed(() => {
   if (!stats.value?.byModel) return []
   return Object.entries(stats.value.byModel)
@@ -974,6 +1081,88 @@ const summaryTableWidth = computed(() => {
     summaryColumnWidths.value.cacheHit +
     summaryColumnWidths.value.cost
 })
+
+// Active sessions column widths (resizable)
+const defaultActiveSessionColumnWidths: Record<string, number> = {
+  session: 140,
+  live: 70,
+  requests: 50,
+  input: 60,
+  output: 60,
+  cache: 50,
+  hit: 50,
+  cost: 60
+}
+
+const activeSessionColumnWidths = ref<Record<string, number>>({ ...defaultActiveSessionColumnWidths })
+
+const activeSessionsTableWidth = computed(() => {
+  return activeSessionColumnWidths.value.session +
+    activeSessionColumnWidths.value.live +
+    activeSessionColumnWidths.value.requests +
+    activeSessionColumnWidths.value.input +
+    activeSessionColumnWidths.value.output +
+    activeSessionColumnWidths.value.cache +
+    activeSessionColumnWidths.value.hit +
+    activeSessionColumnWidths.value.cost
+})
+
+// Load active session column widths from localStorage
+const loadActiveSessionColumnWidths = () => {
+  try {
+    const saved = localStorage.getItem('requestlog-active-session-column-widths')
+    if (saved) {
+      activeSessionColumnWidths.value = { ...defaultActiveSessionColumnWidths, ...JSON.parse(saved) }
+    }
+  } catch (e) {
+    console.error('Failed to load active session column widths:', e)
+  }
+}
+
+// Save active session column widths to localStorage
+const saveActiveSessionColumnWidths = () => {
+  try {
+    localStorage.setItem('requestlog-active-session-column-widths', JSON.stringify(activeSessionColumnWidths.value))
+  } catch (e) {
+    console.error('Failed to save active session column widths:', e)
+  }
+}
+
+// Active session column resize logic
+const resizingActiveSessionColumn = ref<string | null>(null)
+const activeSessionResizeStartX = ref(0)
+const activeSessionResizeStartWidth = ref(0)
+
+const startActiveSessionResize = (e: MouseEvent, column: string) => {
+  e.preventDefault()
+  resizingActiveSessionColumn.value = column
+  activeSessionResizeStartX.value = e.pageX
+  activeSessionResizeStartWidth.value = activeSessionColumnWidths.value[column]
+
+  document.addEventListener('mousemove', onActiveSessionResize)
+  document.addEventListener('mouseup', stopActiveSessionResize)
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+}
+
+const onActiveSessionResize = (e: MouseEvent) => {
+  if (!resizingActiveSessionColumn.value) return
+
+  const diff = e.pageX - activeSessionResizeStartX.value
+  const newWidth = Math.max(30, activeSessionResizeStartWidth.value + diff)
+  activeSessionColumnWidths.value[resizingActiveSessionColumn.value] = newWidth
+}
+
+const stopActiveSessionResize = () => {
+  if (resizingActiveSessionColumn.value) {
+    saveActiveSessionColumnWidths()
+  }
+  resizingActiveSessionColumn.value = null
+  document.removeEventListener('mousemove', onActiveSessionResize)
+  document.removeEventListener('mouseup', stopActiveSessionResize)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+}
 
 // Summary table column widths
 const defaultSummaryColumnWidths: Record<string, number> = {
@@ -1259,6 +1448,14 @@ const refreshLogs = async () => {
     total.value = logsRes.total
     hasMore.value = logsRes.hasMore
     stats.value = statsRes
+
+    // Fetch active sessions separately to avoid breaking main data on error
+    try {
+      activeSessions.value = await api.getActiveSessions()
+    } catch (e) {
+      console.warn('Failed to fetch active sessions:', e)
+      activeSessions.value = []
+    }
   } catch (error) {
     console.error('Failed to load logs:', error)
   } finally {
@@ -1343,6 +1540,26 @@ const formatId = (value?: string) => {
   const trimmed = value.trim()
   if (trimmed.length <= 8) return trimmed
   return `${trimmed.slice(0, 4)}...${trimmed.slice(-4)}`
+}
+
+// Format live time: 56s / 10m:45s (no hours, so 70m:0s instead of 1h10m0s)
+const formatLiveTime = (firstRequestTime: string): string => {
+  if (!firstRequestTime) return '0s'
+
+  // Parse the time - handle both ISO format and other formats
+  const start = new Date(firstRequestTime).getTime()
+
+  // Check if parsing failed
+  if (isNaN(start)) return '0s'
+
+  const now = Date.now()
+  const diffSec = Math.floor((now - start) / 1000)
+
+  if (diffSec < 0) return '0s'
+  if (diffSec < 60) return `${diffSec}s`
+  const minutes = Math.floor(diffSec / 60)
+  const seconds = diffSec % 60
+  return `${minutes}m:${seconds}s`
 }
 
 const normalizeUserId = (userID?: string) => {
@@ -1464,6 +1681,7 @@ const cleanupLogs = async () => {
 onMounted(() => {
   loadColumnWidths()
   loadSummaryColumnWidths()
+  loadActiveSessionColumnWidths()
   loadPanelWidths()
   refreshLogs()
   startAutoRefresh()
@@ -1510,6 +1728,14 @@ const silentRefresh = async () => {
       api.getRequestLogs({ limit: pageSize, offset: offset.value, from, to }),
       api.getRequestLogStats({ from, to })
     ])
+
+    // Fetch active sessions separately to avoid breaking main data on error
+    let activeSessionsRes: ActiveSession[] = []
+    try {
+      activeSessionsRes = await api.getActiveSessions()
+    } catch (e) {
+      console.warn('Failed to fetch active sessions:', e)
+    }
 
     // Detect updated/new records
     const oldLogsMap = new Map(logs.value.map(l => [l.id, l]))
@@ -1563,6 +1789,17 @@ const silentRefresh = async () => {
       updatedSessions.value = newUpdatedSessions
       setTimeout(() => {
         updatedSessions.value = new Set()
+      }, 1000)
+    }
+
+    // Detect updated active sessions
+    const newUpdatedActive = detectActiveSessionChanges(activeSessions.value, activeSessionsRes)
+    activeSessions.value = activeSessionsRes || []
+
+    if (newUpdatedActive.size > 0) {
+      updatedActiveSessions.value = newUpdatedActive
+      setTimeout(() => {
+        updatedActiveSessions.value = new Set()
       }, 1000)
     }
   } catch (error) {
@@ -2022,7 +2259,8 @@ const silentRefresh = async () => {
 }
 
 /* Summary table row flash animation */
-.summary-table tr.summary-row-flash {
+.summary-table tr.summary-row-flash,
+.summary-table-custom tr.summary-row-flash {
   animation: row-flash 1s ease-out;
 }
 

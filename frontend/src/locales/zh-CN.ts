@@ -325,6 +325,10 @@ export default {
     totalCost: 'Total:',
     prevPage: '上一页',
     nextPage: '下一页',
+    activeSessions: '活跃会话',
+    sessions: '个会话',
+    live: '时长',
+    noActiveSessions: '暂无活跃会话',
   },
 
   // Pricing Settings
