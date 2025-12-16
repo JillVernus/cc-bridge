@@ -291,6 +291,35 @@
         </v-card-title>
         <v-card-text>
           <div class="settings-section mb-4">
+            <div class="text-subtitle-2 mb-2">{{ t('requestLog.columnVisibility') }}</div>
+            <div class="column-visibility-grid">
+              <v-checkbox
+                v-for="(name, key) in columnDisplayNames"
+                :key="key"
+                :model-value="columnVisibility[key]"
+                :label="name"
+                density="compact"
+                hide-details
+                class="column-visibility-checkbox"
+                @update:model-value="toggleColumnVisibility(key)"
+              />
+            </div>
+            <div class="d-flex align-center ga-2 mt-2">
+              <v-btn
+                size="small"
+                variant="tonal"
+                @click="resetColumnVisibility"
+              >
+                <v-icon class="mr-1" size="16">mdi-eye</v-icon>
+                {{ t('requestLog.showAllColumns') }}
+              </v-btn>
+            </div>
+            <div class="text-caption text-grey mt-2">{{ t('requestLog.columnVisibilityDesc') }}</div>
+          </div>
+
+          <v-divider class="my-4" />
+
+          <div class="settings-section mb-4">
             <div class="text-subtitle-2 mb-2">{{ t('requestLog.columnWidthSettings') }}</div>
             <v-btn
               color="primary"
@@ -1604,6 +1633,74 @@ const defaultColumnWidths: Record<string, number> = {
 
 const columnWidths = ref<Record<string, number>>({ ...defaultColumnWidths })
 
+// Column visibility settings
+const defaultColumnVisibility: Record<string, boolean> = {
+  status: true,
+  initialTime: true,
+  durationMs: true,
+  providerName: true,
+  model: true,
+  clientId: true,
+  sessionId: true,
+  tokens: true,
+  price: true,
+  httpStatus: true
+}
+
+const columnVisibility = ref<Record<string, boolean>>({ ...defaultColumnVisibility })
+
+// Column display names for the settings UI
+const columnDisplayNames = computed(() => ({
+  status: t('requestLog.status'),
+  initialTime: t('requestLog.time'),
+  durationMs: t('requestLog.duration'),
+  providerName: t('requestLog.channel'),
+  model: t('requestLog.model'),
+  clientId: t('requestLog.client'),
+  sessionId: t('requestLog.session'),
+  tokens: t('requestLog.tokens'),
+  price: t('requestLog.price'),
+  httpStatus: t('requestLog.http')
+}))
+
+// Load column visibility from localStorage
+const loadColumnVisibility = () => {
+  try {
+    const saved = localStorage.getItem('requestlog-column-visibility')
+    if (saved) {
+      columnVisibility.value = { ...defaultColumnVisibility, ...JSON.parse(saved) }
+    }
+  } catch (e) {
+    console.error('Failed to load column visibility:', e)
+  }
+}
+
+// Save column visibility to localStorage
+const saveColumnVisibility = () => {
+  try {
+    localStorage.setItem('requestlog-column-visibility', JSON.stringify(columnVisibility.value))
+  } catch (e) {
+    console.error('Failed to save column visibility:', e)
+  }
+}
+
+// Toggle column visibility
+const toggleColumnVisibility = (columnKey: string) => {
+  // Ensure at least one column remains visible
+  const visibleCount = Object.values(columnVisibility.value).filter(v => v).length
+  if (visibleCount <= 1 && columnVisibility.value[columnKey]) {
+    return // Don't allow hiding the last visible column
+  }
+  columnVisibility.value[columnKey] = !columnVisibility.value[columnKey]
+  saveColumnVisibility()
+}
+
+// Reset column visibility to defaults
+const resetColumnVisibility = () => {
+  columnVisibility.value = { ...defaultColumnVisibility }
+  saveColumnVisibility()
+}
+
 // Load column widths from localStorage
 const loadColumnWidths = () => {
   try {
@@ -1631,18 +1728,28 @@ const resetColumnWidths = () => {
   saveColumnWidths()
 }
 
-const headers = computed(() => [
-  { title: t('requestLog.status'), key: 'status', sortable: false, width: `${columnWidths.value.status}px` },
-  { title: t('requestLog.time'), key: 'initialTime', sortable: false, width: `${columnWidths.value.initialTime}px` },
-  { title: t('requestLog.duration'), key: 'durationMs', sortable: false, width: `${columnWidths.value.durationMs}px`, align: 'end' as const },
-  { title: t('requestLog.channel'), key: 'providerName', sortable: false, width: `${columnWidths.value.providerName}px` },
-  { title: t('requestLog.model'), key: 'model', sortable: false, width: `${columnWidths.value.model}px` },
-  { title: t('requestLog.client'), key: 'clientId', sortable: false, width: `${columnWidths.value.clientId}px` },
-  { title: t('requestLog.session'), key: 'sessionId', sortable: false, width: `${columnWidths.value.sessionId}px` },
-  { title: t('requestLog.tokens'), key: 'tokens', sortable: false, width: `${columnWidths.value.tokens}px` },
-  { title: t('requestLog.price'), key: 'price', sortable: false, width: `${columnWidths.value.price}px` },
-  { title: t('requestLog.http'), key: 'httpStatus', sortable: false, width: `${columnWidths.value.httpStatus}px` },
-])
+const allHeaders = [
+  { title: () => t('requestLog.status'), key: 'status', sortable: false },
+  { title: () => t('requestLog.time'), key: 'initialTime', sortable: false },
+  { title: () => t('requestLog.duration'), key: 'durationMs', sortable: false, align: 'end' as const },
+  { title: () => t('requestLog.channel'), key: 'providerName', sortable: false },
+  { title: () => t('requestLog.model'), key: 'model', sortable: false },
+  { title: () => t('requestLog.client'), key: 'clientId', sortable: false },
+  { title: () => t('requestLog.session'), key: 'sessionId', sortable: false },
+  { title: () => t('requestLog.tokens'), key: 'tokens', sortable: false },
+  { title: () => t('requestLog.price'), key: 'price', sortable: false },
+  { title: () => t('requestLog.http'), key: 'httpStatus', sortable: false },
+]
+
+const headers = computed(() =>
+  allHeaders
+    .filter(h => columnVisibility.value[h.key])
+    .map(h => ({
+      ...h,
+      title: h.title(),
+      width: `${columnWidths.value[h.key]}px`
+    }))
+)
 
 // Column resize logic
 const resizingColumn = ref<string | null>(null)
@@ -1977,6 +2084,7 @@ const removeAlias = async (userId?: string) => {
 
 onMounted(() => {
   loadColumnWidths()
+  loadColumnVisibility()
   loadSummaryColumnWidths()
   loadActiveSessionColumnWidths()
   loadPanelWidths()
@@ -3121,6 +3229,21 @@ const silentRefresh = async () => {
 .alias-userid {
   font-size: 0.8rem;
   color: rgba(var(--v-theme-on-surface), 0.7);
+}
+
+/* Column visibility grid */
+.column-visibility-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0;
+}
+
+.column-visibility-checkbox {
+  margin: 0;
+}
+
+.column-visibility-checkbox :deep(.v-label) {
+  font-size: 0.875rem;
 }
 
 </style>
