@@ -7,16 +7,41 @@
         <v-card class="summary-card" density="compact">
           <!-- Group by selector header -->
           <div class="summary-header d-flex align-center px-2 py-1">
-            <v-select
+            <v-btn-toggle
               v-model="summaryGroupBy"
-              :items="summaryGroupByOptions"
-              item-title="label"
-              item-value="value"
+              mandatory
               density="compact"
-              variant="outlined"
-              hide-details
-              class="group-by-select"
-            />
+              class="group-by-toggle"
+            >
+              <v-tooltip :text="t('requestLog.groupByProvider')" location="top">
+                <template v-slot:activator="{ props }">
+                  <v-btn v-bind="props" value="provider" size="x-small">
+                    <v-icon size="18">mdi-cloud-outline</v-icon>
+                  </v-btn>
+                </template>
+              </v-tooltip>
+              <v-tooltip :text="t('requestLog.groupByModel')" location="top">
+                <template v-slot:activator="{ props }">
+                  <v-btn v-bind="props" value="model" size="x-small">
+                    <v-icon size="18">mdi-head-snowflake-outline</v-icon>
+                  </v-btn>
+                </template>
+              </v-tooltip>
+              <v-tooltip :text="t('requestLog.groupByUser')" location="top">
+                <template v-slot:activator="{ props }">
+                  <v-btn v-bind="props" value="user" size="x-small">
+                    <v-icon size="18">mdi-account-outline</v-icon>
+                  </v-btn>
+                </template>
+              </v-tooltip>
+              <v-tooltip :text="t('requestLog.groupBySession')" location="top">
+                <template v-slot:activator="{ props }">
+                  <v-btn v-bind="props" value="session" size="x-small">
+                    <v-icon size="18">mdi-chat-processing-outline</v-icon>
+                  </v-btn>
+                </template>
+              </v-tooltip>
+            </v-btn-toggle>
           </div>
           <!-- Header table -->
           <div class="summary-table-header-wrapper">
@@ -119,7 +144,21 @@
         <v-card class="summary-card" density="compact">
           <!-- Header -->
           <div class="summary-header d-flex align-center px-2 py-1">
-            <span class="text-subtitle-2 font-weight-bold">{{ t('requestLog.activeSessions') }}</span>
+            <v-tooltip :text="t('requestLog.activeSessions')" location="top">
+              <template v-slot:activator="{ props }">
+                <div v-bind="props" class="d-flex align-center active-sessions-icon">
+                  <v-progress-circular
+                    v-if="activeSessions.length > 0"
+                    indeterminate
+                    size="14"
+                    width="2"
+                    color="primary"
+                    class="mr-1"
+                  />
+                  <v-icon size="18">mdi-chat-processing-outline</v-icon>
+                </div>
+              </template>
+            </v-tooltip>
             <v-spacer />
             <span class="text-caption text-grey">{{ activeSessions.length }} {{ t('requestLog.sessions') }}</span>
           </div>
@@ -703,7 +742,7 @@ const updatedActiveSessions = ref<Set<string>>(new Set())
 
 // Summary table group by state
 type SummaryGroupBy = 'model' | 'provider' | 'user' | 'session'
-const summaryGroupBy = ref<SummaryGroupBy>('model')
+const summaryGroupBy = ref<SummaryGroupBy>('provider')
 const summaryGroupByOptions = computed(() => [
   { label: t('requestLog.groupByModel'), value: 'model' },
   { label: t('requestLog.groupByProvider'), value: 'provider' },
@@ -2000,10 +2039,7 @@ const silentRefresh = async () => {
   font-family: 'Courier New', monospace;
 }
 
-/* Summary header with group by select */
-.summary-header {
-  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.1);
-}
+/* Summary header with group by select - moved to end of file for theme styling */
 
 .group-by-select {
   max-width: 220px;
@@ -2711,5 +2747,36 @@ const silentRefresh = async () => {
   }
 }
 
+/* =========================================
+   Global Tooltip Theme Styles
+   Note: Tooltip styles are in src/assets/style.css
+   because tooltips are teleported to body.
+   ========================================= */
+
+/* Summary header alignment - ensure consistent height across all panels */
+.summary-header {
+  height: 36px;
+  min-height: 36px;
+  max-height: 36px;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+  box-sizing: border-box;
+}
+
+/* Group by toggle styling */
+.group-by-toggle {
+  height: 28px;
+}
+
+.group-by-toggle .v-btn {
+  height: 28px !important;
+  min-width: 36px !important;
+}
+
+/* Active sessions icon wrapper */
+.active-sessions-icon {
+  height: 28px;
+  display: flex;
+  align-items: center;
+}
 
 </style>

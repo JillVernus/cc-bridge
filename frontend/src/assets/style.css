@@ -17,3 +17,75 @@ html {
 .fade-leave-to {
   opacity: 0;
 }
+
+/* =========================================
+   Global Tooltip Theme Styles
+   Vuetify tooltips are teleported to body,
+   so they need global styles, not scoped.
+   ========================================= */
+
+/* Force all tooltips to have dark background and white text */
+.v-tooltip > .v-overlay__content {
+  background: rgba(33, 33, 33, 0.95) !important;
+  color: #fff !important;
+}
+
+/* Ensure the tooltip text content is always white */
+.v-tooltip > .v-overlay__content,
+.v-tooltip > .v-overlay__content * {
+  color: #fff !important;
+}
+
+/* Ensure all custom tooltip content text is white */
+.v-tooltip .id-tooltip,
+.v-tooltip .error-tooltip,
+.v-tooltip .error-tooltip *,
+.v-tooltip .error-line,
+.v-tooltip .upstream-error-line,
+.v-tooltip .cost-breakdown-tooltip,
+.v-tooltip .cost-breakdown-tooltip *,
+.v-tooltip .cost-breakdown-title,
+.v-tooltip .cost-breakdown-row .cost-value,
+.v-tooltip .cost-breakdown-total,
+.v-tooltip .cost-breakdown-total .cost-label,
+.v-tooltip .model-mapping-tooltip,
+.v-tooltip .reasoning-effort-tooltip {
+  color: #fff !important;
+}
+
+/* Keep semantic colors for specific elements */
+.v-tooltip .cost-breakdown-row .cost-label {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.v-tooltip .cost-breakdown-row.cache-create-row .cost-value {
+  color: #e0f7fa !important;
+}
+
+.v-tooltip .cost-breakdown-row.cache-hit-row .cost-value {
+  color: #fff9c4 !important;
+}
+
+.v-tooltip .cost-breakdown-total .cost-value {
+  color: #81C784 !important;
+}
+
+.v-tooltip .error-label {
+  color: #ff9800 !important;
+}
+
+.v-tooltip .model-mapping-tooltip .request-model {
+  color: #64B5F6 !important;
+}
+
+.v-tooltip .model-mapping-tooltip .response-model {
+  color: #81C784 !important;
+}
+
+.v-tooltip .reasoning-effort-tooltip .effort-label {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.v-tooltip .reasoning-effort-tooltip .effort-value {
+  color: #FFB74D !important;
+}
