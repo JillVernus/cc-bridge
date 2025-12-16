@@ -912,9 +912,6 @@ func (m *Manager) GetActiveSessions(threshold time.Duration) ([]ActiveSession, e
 			return nil, fmt.Errorf("failed to scan active session: %w", err)
 		}
 
-		// Debug: log the raw time strings
-		log.Printf("Active session %s: firstTime='%s', lastTime='%s'", s.SessionID, firstRequestTimeStr, lastRequestTimeStr)
-
 		s.FirstRequestTime = parseTimeString(firstRequestTimeStr)
 		s.LastRequestTime = parseTimeString(lastRequestTimeStr)
 

@@ -110,8 +110,9 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	// 创建路由器
-	r := gin.Default()
+	// 创建路由器（不使用 gin.Default() 以避免默认的 Logger 中间件产生大量日志）
+	r := gin.New()
+	r.Use(gin.Recovery()) // 只添加 Recovery 中间件，不添加 Logger
 
 	// 配置安全响应头（仅影响 Web UI）
 	r.Use(middleware.SecurityHeadersMiddleware())

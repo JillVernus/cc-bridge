@@ -493,14 +493,21 @@ func buildCodexOAuthRequest(
 		return nil, err
 	}
 
-	// 设置 Codex OAuth 专用请求头
-	utils.SetCodexOAuthHeaders(req.Header, accessToken, accountID)
+	// 构建 OAuth 请求头输入，转发原始请求的关键头部
+	headerInput := utils.CodexOAuthHeadersInput{
+		AccessToken:    accessToken,
+		AccountID:      accountID,
+		UserAgent:      c.GetHeader("User-Agent"),
+		ConversationID: c.GetHeader("Conversation_id"),
+		SessionID:      c.GetHeader("Session_id"),
+		Originator:     c.GetHeader("Originator"),
+	}
 
 	// 如果是流式请求，确保正确的 Accept 头
 	if responsesReq.Stream {
-		utils.SetCodexOAuthStreamHeaders(req.Header, accessToken, accountID)
+		utils.SetCodexOAuthStreamHeaders(req.Header, headerInput)
 	} else {
-		utils.SetCodexOAuthNonStreamHeaders(req.Header, accessToken, accountID)
+		utils.SetCodexOAuthNonStreamHeaders(req.Header, headerInput)
 	}
 
 	return req, nil

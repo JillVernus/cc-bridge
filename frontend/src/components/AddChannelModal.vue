@@ -959,12 +959,16 @@ const parsedOAuthInfo = ref<{ email?: string; accountId?: string } | null>(null)
 // 解析 OAuth auth.json 内容
 const parseOAuthJson = () => {
   oauthParseError.value = ''
-  parsedOAuthInfo.value = null
-  form.oauthTokens = undefined
 
+  // 如果输入为空，保留已有的 OAuth tokens（编辑模式下不清除）
   if (!oauthJsonInput.value.trim()) {
+    // 不清除 form.oauthTokens 和 parsedOAuthInfo，保留编辑前的值
     return
   }
+
+  // 只有当用户输入新内容时才清除并重新解析
+  parsedOAuthInfo.value = null
+  form.oauthTokens = undefined
 
   try {
     const parsed = JSON.parse(oauthJsonInput.value.trim())
