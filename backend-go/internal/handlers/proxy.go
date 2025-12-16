@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JillVernus/cc-bridge/internal/apikey"
 	"github.com/JillVernus/cc-bridge/internal/config"
 	"github.com/JillVernus/cc-bridge/internal/httpclient"
 	"github.com/JillVernus/cc-bridge/internal/middleware"
@@ -26,9 +27,14 @@ import (
 // ProxyHandler 代理处理器
 // 支持多渠道调度：当配置多个渠道时自动启用
 func ProxyHandler(envCfg *config.EnvConfig, cfgManager *config.ConfigManager, channelScheduler *scheduler.ChannelScheduler, reqLogManager *requestlog.Manager) gin.HandlerFunc {
+	return ProxyHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, nil)
+}
+
+// ProxyHandlerWithAPIKey 代理处理器（支持 API Key 验证）
+func ProxyHandlerWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.ConfigManager, channelScheduler *scheduler.ChannelScheduler, reqLogManager *requestlog.Manager, apiKeyManager *apikey.Manager) gin.HandlerFunc {
 	return gin.HandlerFunc(func(c *gin.Context) {
 		// 先进行认证
-		middleware.ProxyAuthMiddleware(envCfg)(c)
+		middleware.ProxyAuthMiddlewareWithAPIKey(envCfg, apiKeyManager)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -68,6 +74,14 @@ func ProxyHandler(envCfg *config.EnvConfig, cfgManager *config.ConfigManager, ch
 		compoundUserID := extractUserID(bodyBytes)
 		userID, sessionID := parseClaudeCodeUserID(compoundUserID)
 
+		// 提取 API Key ID 用于请求日志
+		var apiKeyID int64
+		if id, exists := c.Get(middleware.ContextKeyAPIKeyID); exists {
+			if idVal, ok := id.(int64); ok {
+				apiKeyID = idVal
+			}
+		}
+
 		// 创建 pending 请求日志记录
 		var requestLogID string
 		if reqLogManager != nil {
@@ -79,6 +93,7 @@ func ProxyHandler(envCfg *config.EnvConfig, cfgManager *config.ConfigManager, ch
 				Endpoint:    "/v1/messages",
 				UserID:      userID,
 				SessionID:   sessionID,
+				APIKeyID:    apiKeyID,
 			}
 			if err := reqLogManager.Add(pendingLog); err != nil {
 				log.Printf("⚠️ 创建 pending 请求日志失败: %v", err)

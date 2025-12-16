@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/JillVernus/cc-bridge/internal/apikey"
 	"github.com/JillVernus/cc-bridge/internal/config"
 	"github.com/JillVernus/cc-bridge/internal/handlers"
 	"github.com/JillVernus/cc-bridge/internal/logger"
@@ -97,6 +98,18 @@ func main() {
 		}()
 	}
 
+	// 初始化 API Key 管理器（使用与请求日志相同的数据库）
+	var apiKeyManager *apikey.Manager
+	if reqLogManager != nil {
+		apiKeyManager, err = apikey.NewManager(reqLogManager.GetDB())
+		if err != nil {
+			log.Printf("⚠️ API Key 管理器初始化失败: %v (API Key 功能将被禁用)", err)
+			apiKeyManager = nil
+		} else {
+			log.Printf("✅ API Key 管理器已初始化")
+		}
+	}
+
 	// 初始化定价管理器
 	_, err = pricing.InitManager(".config/pricing.json")
 	if err != nil {
@@ -121,7 +134,7 @@ func main() {
 	r.Use(middleware.CORSMiddleware(envCfg))
 
 	// Web UI 访问控制中间件
-	r.Use(middleware.WebAuthMiddleware(envCfg, cfgManager))
+	r.Use(middleware.WebAuthMiddlewareWithAPIKey(envCfg, cfgManager, apiKeyManager))
 
 	// 健康检查端点
 	r.GET(envCfg.HealthCheckPath, handlers.HealthCheck(envCfg, cfgManager))
@@ -197,6 +210,19 @@ func main() {
 			apiGroup.POST("/aliases/import", reqLogHandler.ImportAliases)
 		}
 
+		// API Key 管理 API (需要 admin 权限)
+		if apiKeyManager != nil {
+			apiKeyHandler := handlers.NewAPIKeyHandler(apiKeyManager)
+			apiGroup.GET("/keys", apiKeyHandler.ListKeys)
+			apiGroup.POST("/keys", apiKeyHandler.CreateKey)
+			apiGroup.GET("/keys/:id", apiKeyHandler.GetKey)
+			apiGroup.PUT("/keys/:id", apiKeyHandler.UpdateKey)
+			apiGroup.DELETE("/keys/:id", apiKeyHandler.DeleteKey)
+			apiGroup.POST("/keys/:id/enable", apiKeyHandler.EnableKey)
+			apiGroup.POST("/keys/:id/disable", apiKeyHandler.DisableKey)
+			apiGroup.POST("/keys/:id/revoke", apiKeyHandler.RevokeKey)
+		}
+
 		// 定价配置 API
 		apiGroup.GET("/pricing", handlers.GetPricing())
 		apiGroup.PUT("/pricing", handlers.UpdatePricing())
@@ -212,10 +238,10 @@ func main() {
 	}
 
 	// 代理端点 - 统一入口
-	r.POST("/v1/messages", handlers.ProxyHandler(envCfg, cfgManager, channelScheduler, reqLogManager))
+	r.POST("/v1/messages", handlers.ProxyHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, apiKeyManager))
 
 	// Responses API 端点
-	r.POST("/v1/responses", handlers.ResponsesHandler(envCfg, cfgManager, sessionManager, channelScheduler, reqLogManager))
+	r.POST("/v1/responses", handlers.ResponsesHandlerWithAPIKey(envCfg, cfgManager, sessionManager, channelScheduler, reqLogManager, apiKeyManager))
 
 	// 静态文件服务 (嵌入的前端)
 	if envCfg.EnableWebUI {

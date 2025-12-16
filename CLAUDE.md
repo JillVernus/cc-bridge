@@ -48,23 +48,31 @@ graph TD
 ## 常用命令
 
 ```bash
-# Go 后端开发（推荐）
+# 根目录快捷命令（推荐）
+make dev              # 前后端联合开发（热重载）
+make build            # 生产构建（前端 + 后端）
+make run              # 启动生产服务
+make sync-version     # 同步 VERSION 到 frontend/package.json
+
+# Go 后端开发
 cd backend-go
 make dev              # 热重载开发模式
-make test             # 运行测试
-make test-cover       # 测试 + 覆盖率
+make test             # 运行所有测试
+make test-cover       # 测试 + 覆盖率报告
 make build            # 构建生产版本
-make lint             # 代码检查
+make lint             # 代码检查 (golangci-lint)
 make fmt              # 格式化代码
+
+# 运行单个测试
+cd backend-go
+go test -v -run TestFunctionName ./internal/converters/
 
 # 前端开发
 cd frontend
-bun install && bun run dev
-
-# 根目录快捷命令
-make dev              # 前后端联合开发
-make build            # 生产构建
-make run              # 启动生产服务
+bun install           # 安装依赖
+bun run dev           # 开发服务器
+bun run build         # 生产构建
+bun run type-check    # TypeScript 类型检查
 
 # Docker
 docker-compose up -d
@@ -134,31 +142,6 @@ cc-bridge/
 
 - `/v1/messages` - Claude Messages API（支持 OpenAI 协议转换）
 - `/v1/responses` - Codex Responses API（支持会话管理）
-
-## 运行与开发
-
-### 开发环境启动
-```bash
-# 后端热重载
-cd backend-go && make dev
-
-# 前端开发服务器
-cd frontend && bun run dev
-```
-
-### 生产构建
-```bash
-# 构建所有平台
-make build
-
-# 仅构建当前平台
-cd backend-go && make build-local
-```
-
-### Docker 部署
-```bash
-docker-compose up -d
-```
 
 ## 测试策略
 

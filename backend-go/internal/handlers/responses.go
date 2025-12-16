@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JillVernus/cc-bridge/internal/apikey"
 	"github.com/JillVernus/cc-bridge/internal/auth/codex"
 	"github.com/JillVernus/cc-bridge/internal/config"
 	"github.com/JillVernus/cc-bridge/internal/converters"
@@ -40,9 +41,21 @@ func ResponsesHandler(
 	channelScheduler *scheduler.ChannelScheduler,
 	reqLogManager *requestlog.Manager,
 ) gin.HandlerFunc {
+	return ResponsesHandlerWithAPIKey(envCfg, cfgManager, sessionManager, channelScheduler, reqLogManager, nil)
+}
+
+// ResponsesHandlerWithAPIKey Responses API 代理处理器（支持 API Key 验证）
+func ResponsesHandlerWithAPIKey(
+	envCfg *config.EnvConfig,
+	cfgManager *config.ConfigManager,
+	sessionManager *session.SessionManager,
+	channelScheduler *scheduler.ChannelScheduler,
+	reqLogManager *requestlog.Manager,
+	apiKeyManager *apikey.Manager,
+) gin.HandlerFunc {
 	return gin.HandlerFunc(func(c *gin.Context) {
 		// 先进行认证
-		middleware.ProxyAuthMiddleware(envCfg)(c)
+		middleware.ProxyAuthMiddlewareWithAPIKey(envCfg, apiKeyManager)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -98,6 +111,14 @@ func ResponsesHandler(
 		// 提取 reasoning.effort 用于日志显示
 		reasoningEffort := gjson.GetBytes(bodyBytes, "reasoning.effort").String()
 
+		// 提取 API Key ID 用于请求日志
+		var apiKeyID int64
+		if id, exists := c.Get(middleware.ContextKeyAPIKeyID); exists {
+			if idVal, ok := id.(int64); ok {
+				apiKeyID = idVal
+			}
+		}
+
 		// 创建 pending 请求日志记录
 		var requestLogID string
 		if reqLogManager != nil {
@@ -110,6 +131,7 @@ func ResponsesHandler(
 				Endpoint:        "/v1/responses",
 				UserID:          userID,
 				SessionID:       sessionID,
+				APIKeyID:        apiKeyID,
 			}
 			if err := reqLogManager.Add(pendingLog); err != nil {
 				log.Printf("⚠️ 创建 pending 请求日志失败: %v", err)

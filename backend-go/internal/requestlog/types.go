@@ -43,6 +43,7 @@ type RequestLog struct {
 	Endpoint      string    `json:"endpoint"` // /v1/messages or /v1/responses
 	UserID        string    `json:"userId,omitempty"`
 	SessionID     string    `json:"sessionId,omitempty"` // Claude Code conversation session ID
+	APIKeyID      int64     `json:"apiKeyId,omitempty"`  // API key ID for tracking
 	Error         string    `json:"error,omitempty"`
 	UpstreamError string    `json:"upstreamError,omitempty"` // 上游服务原始错误信息
 	CreatedAt     time.Time `json:"createdAt"`

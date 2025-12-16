@@ -1,0 +1,491 @@
+<template>
+  <div class="api-key-management">
+    <!-- Header with Add button -->
+    <div class="d-flex justify-space-between align-center mb-4">
+      <div class="text-h6">{{ t('apiKeys.title') }}</div>
+      <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreateDialog">
+        {{ t('apiKeys.create') }}
+      </v-btn>
+    </div>
+
+    <!-- API Keys Table -->
+    <v-card>
+      <v-data-table
+        :headers="headers"
+        :items="keys"
+        :loading="loading"
+        :items-per-page="20"
+        class="elevation-1"
+      >
+        <!-- Key Prefix -->
+        <template v-slot:item.keyPrefix="{ item }">
+          <code class="key-prefix">{{ item.keyPrefix }}</code>
+        </template>
+
+        <!-- Status -->
+        <template v-slot:item.status="{ item }">
+          <v-chip
+            :color="getStatusColor(item.status)"
+            size="small"
+            variant="flat"
+          >
+            {{ t(`apiKeys.status.${item.status}`) }}
+          </v-chip>
+        </template>
+
+        <!-- Admin Badge -->
+        <template v-slot:item.isAdmin="{ item }">
+          <v-chip v-if="item.isAdmin" color="warning" size="small" variant="flat">
+            {{ t('apiKeys.admin') }}
+          </v-chip>
+          <span v-else class="text-grey">-</span>
+        </template>
+
+        <!-- Last Used -->
+        <template v-slot:item.lastUsedAt="{ item }">
+          <span v-if="item.lastUsedAt">{{ formatDate(item.lastUsedAt) }}</span>
+          <span v-else class="text-grey">{{ t('apiKeys.neverUsed') }}</span>
+        </template>
+
+        <!-- Created At -->
+        <template v-slot:item.createdAt="{ item }">
+          {{ formatDate(item.createdAt) }}
+        </template>
+
+        <!-- Actions -->
+        <template v-slot:item.actions="{ item }">
+          <div class="d-flex gap-1">
+            <v-tooltip :text="t('apiKeys.edit')" location="top">
+              <template v-slot:activator="{ props }">
+                <v-btn
+                  v-bind="props"
+                  icon="mdi-pencil"
+                  size="small"
+                  variant="text"
+                  @click="openEditDialog(item)"
+                />
+              </template>
+            </v-tooltip>
+
+            <v-tooltip v-if="item.status === 'disabled'" :text="t('apiKeys.enable')" location="top">
+              <template v-slot:activator="{ props }">
+                <v-btn
+                  v-bind="props"
+                  icon="mdi-check-circle"
+                  size="small"
+                  variant="text"
+                  color="success"
+                  @click="enableKey(item)"
+                />
+              </template>
+            </v-tooltip>
+
+            <v-tooltip v-if="item.status === 'active'" :text="t('apiKeys.disable')" location="top">
+              <template v-slot:activator="{ props }">
+                <v-btn
+                  v-bind="props"
+                  icon="mdi-pause-circle"
+                  size="small"
+                  variant="text"
+                  color="warning"
+                  @click="disableKey(item)"
+                />
+              </template>
+            </v-tooltip>
+
+            <v-tooltip v-if="item.status !== 'revoked'" :text="t('apiKeys.revoke')" location="top">
+              <template v-slot:activator="{ props }">
+                <v-btn
+                  v-bind="props"
+                  icon="mdi-cancel"
+                  size="small"
+                  variant="text"
+                  color="error"
+                  @click="confirmRevoke(item)"
+                />
+              </template>
+            </v-tooltip>
+
+            <v-tooltip :text="t('apiKeys.delete')" location="top">
+              <template v-slot:activator="{ props }">
+                <v-btn
+                  v-bind="props"
+                  icon="mdi-delete"
+                  size="small"
+                  variant="text"
+                  color="error"
+                  @click="confirmDelete(item)"
+                />
+              </template>
+            </v-tooltip>
+          </div>
+        </template>
+      </v-data-table>
+    </v-card>
+
+    <!-- Create/Edit Dialog -->
+    <v-dialog v-model="dialogOpen" max-width="500">
+      <v-card>
+        <v-card-title>
+          {{ editingKey ? t('apiKeys.editTitle') : t('apiKeys.createTitle') }}
+        </v-card-title>
+        <v-card-text>
+          <v-form ref="formRef" v-model="formValid">
+            <v-text-field
+              v-model="form.name"
+              :label="t('apiKeys.name')"
+              :rules="[v => !!v || t('apiKeys.nameRequired')]"
+              required
+            />
+            <v-textarea
+              v-model="form.description"
+              :label="t('apiKeys.description')"
+              rows="2"
+            />
+            <v-checkbox
+              v-if="!editingKey"
+              v-model="form.isAdmin"
+              :label="t('apiKeys.isAdmin')"
+              :hint="t('apiKeys.isAdminHint')"
+              persistent-hint
+            />
+          </v-form>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="dialogOpen = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn
+            color="primary"
+            :loading="saving"
+            :disabled="!formValid"
+            @click="saveKey"
+          >
+            {{ t('common.save') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- New Key Dialog (shows the key once) -->
+    <v-dialog v-model="newKeyDialogOpen" max-width="600" persistent>
+      <v-card>
+        <v-card-title class="d-flex align-center">
+          <v-icon color="success" class="mr-2">mdi-check-circle</v-icon>
+          {{ t('apiKeys.keyCreated') }}
+        </v-card-title>
+        <v-card-text>
+          <v-alert type="warning" variant="tonal" class="mb-4">
+            {{ t('apiKeys.keyCreatedWarning') }}
+          </v-alert>
+          <div class="d-flex align-center gap-2">
+            <v-text-field
+              :model-value="newKey"
+              readonly
+              variant="outlined"
+              density="compact"
+              hide-details
+              class="flex-grow-1"
+            />
+            <v-btn
+              icon="mdi-content-copy"
+              variant="tonal"
+              @click="copyKey"
+            />
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn color="primary" @click="closeNewKeyDialog">
+            {{ t('apiKeys.understood') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Confirm Revoke Dialog -->
+    <v-dialog v-model="revokeDialogOpen" max-width="400">
+      <v-card>
+        <v-card-title>{{ t('apiKeys.confirmRevoke') }}</v-card-title>
+        <v-card-text>
+          <v-alert type="error" variant="tonal" class="mb-2">
+            {{ t('apiKeys.revokeWarning') }}
+          </v-alert>
+          <p>{{ t('apiKeys.revokeConfirmText', { name: keyToRevoke?.name }) }}</p>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="revokeDialogOpen = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="error" :loading="revoking" @click="revokeKey">
+            {{ t('apiKeys.revoke') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Confirm Delete Dialog -->
+    <v-dialog v-model="deleteDialogOpen" max-width="400">
+      <v-card>
+        <v-card-title>{{ t('apiKeys.confirmDelete') }}</v-card-title>
+        <v-card-text>
+          {{ t('apiKeys.deleteConfirmText', { name: keyToDelete?.name }) }}
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="deleteDialogOpen = false">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="error" :loading="deleting" @click="deleteKey">
+            {{ t('common.delete') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Snackbar for notifications -->
+    <v-snackbar v-model="snackbar.show" :color="snackbar.color" :timeout="3000">
+      {{ snackbar.text }}
+    </v-snackbar>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { api, type APIKey, type CreateAPIKeyRequest } from '../services/api'
+
+const { t } = useI18n()
+
+// State
+const keys = ref<APIKey[]>([])
+const loading = ref(false)
+const saving = ref(false)
+const revoking = ref(false)
+const deleting = ref(false)
+
+// Dialog state
+const dialogOpen = ref(false)
+const newKeyDialogOpen = ref(false)
+const revokeDialogOpen = ref(false)
+const deleteDialogOpen = ref(false)
+
+const editingKey = ref<APIKey | null>(null)
+const keyToRevoke = ref<APIKey | null>(null)
+const keyToDelete = ref<APIKey | null>(null)
+const newKey = ref('')
+
+// Form state
+const formRef = ref()
+const formValid = ref(false)
+const form = ref<CreateAPIKeyRequest>({
+  name: '',
+  description: '',
+  isAdmin: false
+})
+
+// Snackbar
+const snackbar = ref({
+  show: false,
+  text: '',
+  color: 'success'
+})
+
+// Table headers
+const headers = computed(() => [
+  { title: t('apiKeys.name'), key: 'name', sortable: true },
+  { title: t('apiKeys.keyPrefix'), key: 'keyPrefix', sortable: false },
+  { title: t('apiKeys.status.label'), key: 'status', sortable: true },
+  { title: t('apiKeys.role'), key: 'isAdmin', sortable: true },
+  { title: t('apiKeys.lastUsed'), key: 'lastUsedAt', sortable: true },
+  { title: t('apiKeys.createdAt'), key: 'createdAt', sortable: true },
+  { title: t('apiKeys.actions'), key: 'actions', sortable: false, align: 'end' as const }
+])
+
+// Methods
+const loadKeys = async () => {
+  loading.value = true
+  try {
+    const response = await api.getAPIKeys()
+    keys.value = response.keys || []
+  } catch (error: any) {
+    showSnackbar(error.message || t('apiKeys.loadError'), 'error')
+  } finally {
+    loading.value = false
+  }
+}
+
+const openCreateDialog = () => {
+  editingKey.value = null
+  form.value = { name: '', description: '', isAdmin: false }
+  dialogOpen.value = true
+}
+
+const openEditDialog = (key: APIKey) => {
+  editingKey.value = key
+  form.value = {
+    name: key.name,
+    description: key.description || '',
+    isAdmin: key.isAdmin
+  }
+  dialogOpen.value = true
+}
+
+const saveKey = async () => {
+  if (!formValid.value) return
+
+  saving.value = true
+  try {
+    if (editingKey.value) {
+      await api.updateAPIKey(editingKey.value.id, {
+        name: form.value.name,
+        description: form.value.description
+      })
+      showSnackbar(t('apiKeys.updateSuccess'), 'success')
+    } else {
+      const response = await api.createAPIKey(form.value)
+      newKey.value = response.key
+      newKeyDialogOpen.value = true
+      showSnackbar(t('apiKeys.createSuccess'), 'success')
+    }
+    dialogOpen.value = false
+    await loadKeys()
+  } catch (error: any) {
+    showSnackbar(error.message || t('apiKeys.saveError'), 'error')
+  } finally {
+    saving.value = false
+  }
+}
+
+const enableKey = async (key: APIKey) => {
+  try {
+    await api.enableAPIKey(key.id)
+    showSnackbar(t('apiKeys.enableSuccess'), 'success')
+    await loadKeys()
+  } catch (error: any) {
+    showSnackbar(error.message || t('apiKeys.enableError'), 'error')
+  }
+}
+
+const disableKey = async (key: APIKey) => {
+  try {
+    await api.disableAPIKey(key.id)
+    showSnackbar(t('apiKeys.disableSuccess'), 'success')
+    await loadKeys()
+  } catch (error: any) {
+    showSnackbar(error.message || t('apiKeys.disableError'), 'error')
+  }
+}
+
+const confirmRevoke = (key: APIKey) => {
+  keyToRevoke.value = key
+  revokeDialogOpen.value = true
+}
+
+const revokeKey = async () => {
+  if (!keyToRevoke.value) return
+
+  revoking.value = true
+  try {
+    await api.revokeAPIKey(keyToRevoke.value.id)
+    showSnackbar(t('apiKeys.revokeSuccess'), 'success')
+    revokeDialogOpen.value = false
+    await loadKeys()
+  } catch (error: any) {
+    showSnackbar(error.message || t('apiKeys.revokeError'), 'error')
+  } finally {
+    revoking.value = false
+  }
+}
+
+const confirmDelete = (key: APIKey) => {
+  keyToDelete.value = key
+  deleteDialogOpen.value = true
+}
+
+const deleteKey = async () => {
+  if (!keyToDelete.value) return
+
+  deleting.value = true
+  try {
+    await api.deleteAPIKey(keyToDelete.value.id)
+    showSnackbar(t('apiKeys.deleteSuccess'), 'success')
+    deleteDialogOpen.value = false
+    await loadKeys()
+  } catch (error: any) {
+    showSnackbar(error.message || t('apiKeys.deleteError'), 'error')
+  } finally {
+    deleting.value = false
+  }
+}
+
+const copyKey = async () => {
+  try {
+    // Try modern clipboard API first
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(newKey.value)
+    } else {
+      // Fallback for non-secure contexts (HTTP)
+      const textArea = document.createElement('textarea')
+      textArea.value = newKey.value
+      textArea.style.position = 'fixed'
+      textArea.style.left = '-999999px'
+      textArea.style.top = '-999999px'
+      document.body.appendChild(textArea)
+      textArea.focus()
+      textArea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textArea)
+    }
+    showSnackbar(t('apiKeys.keyCopied'), 'success')
+  } catch {
+    showSnackbar(t('apiKeys.copyError'), 'error')
+  }
+}
+
+const closeNewKeyDialog = () => {
+  newKey.value = ''
+  newKeyDialogOpen.value = false
+}
+
+const getStatusColor = (status: string) => {
+  switch (status) {
+    case 'active': return 'success'
+    case 'disabled': return 'warning'
+    case 'revoked': return 'error'
+    default: return 'grey'
+  }
+}
+
+const formatDate = (dateStr: string) => {
+  if (!dateStr) return '-'
+  const date = new Date(dateStr)
+  return date.toLocaleString()
+}
+
+const showSnackbar = (text: string, color: string) => {
+  snackbar.value = { show: true, text, color }
+}
+
+// Lifecycle
+onMounted(() => {
+  loadKeys()
+})
+</script>
+
+<style scoped>
+.api-key-management {
+  padding: 16px;
+}
+
+.key-prefix {
+  font-family: monospace;
+  background-color: rgba(var(--v-theme-surface-variant), 0.5);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.gap-1 {
+  gap: 4px;
+}
+
+.gap-2 {
+  gap: 8px;
+}
+</style>

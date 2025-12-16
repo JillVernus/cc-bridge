@@ -24,14 +24,27 @@ func NewManager(dbPath string) (*Manager, error) {
 		dbPath = ".config/request_logs.db"
 	}
 
-	db, err := sql.Open("sqlite", dbPath)
+	// Add connection parameters for busy timeout and other settings
+	// _busy_timeout=5000 - wait up to 5 seconds when database is locked
+	// _txlock=immediate - acquire write lock immediately in transactions
+	connStr := dbPath + "?_busy_timeout=5000&_txlock=immediate"
+	db, err := sql.Open("sqlite", connStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
+	// Limit to single connection to avoid lock contention
+	// SQLite doesn't benefit from multiple write connections
+	db.SetMaxOpenConns(1)
+
 	// Enable WAL mode for better concurrent read/write performance
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		log.Printf("⚠️ Failed to enable WAL mode: %v", err)
+	}
+
+	// Set busy timeout to wait up to 5 seconds when database is locked (backup for connection string)
+	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		log.Printf("⚠️ Failed to set busy timeout: %v", err)
 	}
 
 	// Enable foreign keys
@@ -216,6 +229,25 @@ func (m *Manager) initSchema() error {
 		log.Printf("⚠️ Failed to create session_id index: %v", err)
 	}
 
+	// Migration: Add api_key_id column if it doesn't exist (for API key tracking)
+	err = m.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('request_logs') WHERE name='api_key_id'`).Scan(&count)
+	if err != nil {
+		log.Printf("⚠️ Failed to check api_key_id column: %v", err)
+	} else if count == 0 {
+		_, err = m.db.Exec(`ALTER TABLE request_logs ADD COLUMN api_key_id INTEGER`)
+		if err != nil {
+			log.Printf("⚠️ Failed to add api_key_id column: %v", err)
+		} else {
+			log.Printf("✅ Added api_key_id column to request_logs table")
+		}
+	}
+
+	// Create index for api_key_id to improve query performance
+	_, err = m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_request_logs_api_key_id ON request_logs(api_key_id)`)
+	if err != nil {
+		log.Printf("⚠️ Failed to create api_key_id index: %v", err)
+	}
+
 	// Migration: Update old error records with timeout error message to use timeout status
 	// This fixes records created before the StatusTimeout constant was added
 	result, err := m.db.Exec(`UPDATE request_logs SET status = ? WHERE status = ? AND (error = 'request timed out' OR error = 'timeout')`, StatusTimeout, StatusError)
@@ -253,9 +285,17 @@ func (m *Manager) Add(record *RequestLog) error {
 		cache_creation_input_tokens, cache_read_input_tokens, total_tokens,
 		price, input_cost, output_cost, cache_creation_cost, cache_read_cost,
 		http_status, stream, channel_id, channel_name,
-		endpoint, user_id, session_id, error, upstream_error, created_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		endpoint, user_id, session_id, api_key_id, error, upstream_error, created_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
+
+	// Convert api_key_id to nullable value (0 means no key)
+	var apiKeyID interface{}
+	if record.APIKeyID > 0 {
+		apiKeyID = record.APIKeyID
+	} else {
+		apiKeyID = nil
+	}
 
 	_, err := m.db.Exec(query,
 		record.ID,
@@ -285,6 +325,7 @@ func (m *Manager) Add(record *RequestLog) error {
 		record.Endpoint,
 		record.UserID,
 		record.SessionID,
+		apiKeyID,
 		record.Error,
 		record.UpstreamError,
 		record.CreatedAt,
@@ -946,6 +987,12 @@ func (m *Manager) GetActiveSessions(threshold time.Duration) ([]ActiveSession, e
 // Close closes the database connection
 func (m *Manager) Close() error {
 	return m.db.Close()
+}
+
+// GetDB returns the underlying database connection
+// Used by other managers that share the same database
+func (m *Manager) GetDB() *sql.DB {
+	return m.db
 }
 
 // ========== User Alias Methods ==========

@@ -551,6 +551,67 @@ class ApiService {
     const data = await response.json()
     return data.version || { version: 'unknown', buildTime: 'unknown', gitCommit: 'unknown' }
   }
+
+  // ============== API Key 管理 API ==============
+
+  // 获取 API Key 列表
+  async getAPIKeys(filter?: { status?: string; limit?: number; offset?: number }): Promise<APIKeyListResponse> {
+    const params = new URLSearchParams()
+    if (filter?.status) params.set('status', filter.status)
+    if (filter?.limit) params.set('limit', String(filter.limit))
+    if (filter?.offset) params.set('offset', String(filter.offset))
+    const query = params.toString() ? `?${params.toString()}` : ''
+    return this.request(`/keys${query}`)
+  }
+
+  // 创建 API Key
+  async createAPIKey(req: CreateAPIKeyRequest): Promise<CreateAPIKeyResponse> {
+    return this.request('/keys', {
+      method: 'POST',
+      body: JSON.stringify(req)
+    })
+  }
+
+  // 获取单个 API Key
+  async getAPIKey(id: number): Promise<APIKey> {
+    return this.request(`/keys/${id}`)
+  }
+
+  // 更新 API Key
+  async updateAPIKey(id: number, req: UpdateAPIKeyRequest): Promise<APIKey> {
+    return this.request(`/keys/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(req)
+    })
+  }
+
+  // 删除 API Key
+  async deleteAPIKey(id: number): Promise<{ message: string }> {
+    return this.request(`/keys/${id}`, {
+      method: 'DELETE'
+    })
+  }
+
+  // 启用 API Key
+  async enableAPIKey(id: number): Promise<{ message: string }> {
+    return this.request(`/keys/${id}/enable`, {
+      method: 'POST'
+    })
+  }
+
+  // 禁用 API Key
+  async disableAPIKey(id: number): Promise<{ message: string }> {
+    return this.request(`/keys/${id}/disable`, {
+      method: 'POST'
+    })
+  }
+
+  // 撤销 API Key
+  async revokeAPIKey(id: number): Promise<{ message: string }> {
+    return this.request(`/keys/${id}/revoke`, {
+      method: 'POST'
+    })
+  }
 }
 
 // 请求日志类型
@@ -692,6 +753,42 @@ export interface ActiveSession {
   cacheCreationInputTokens: number
   cacheReadInputTokens: number
   cost: number
+}
+
+// API Key 类型
+export type APIKeyStatus = 'active' | 'disabled' | 'revoked'
+
+export interface APIKey {
+  id: number
+  name: string
+  keyPrefix: string
+  description: string
+  status: APIKeyStatus
+  isAdmin: boolean
+  createdAt: string
+  updatedAt: string
+  lastUsedAt?: string
+}
+
+export interface CreateAPIKeyRequest {
+  name: string
+  description?: string
+  isAdmin: boolean
+}
+
+export interface CreateAPIKeyResponse extends APIKey {
+  key: string  // Full key, only returned once on creation
+}
+
+export interface UpdateAPIKeyRequest {
+  name?: string
+  description?: string
+}
+
+export interface APIKeyListResponse {
+  keys: APIKey[]
+  total: number
+  hasMore: boolean
 }
 
 export const api = new ApiService()

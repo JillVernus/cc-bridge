@@ -4,6 +4,43 @@
 
 ---
 
+## [v1.3.006] - 2025-12-16
+
+### ✨ 新功能
+
+#### 多 API Key 管理 (Phase 1)
+
+支持多个命名 API Key，实现团队使用场景：
+
+- **API Key 管理**：
+  - 创建/编辑/删除 API Key
+  - 启用/禁用/撤销 Key 状态管理
+  - Admin 与普通 Key 权限区分
+  - Key 前缀显示 (sk-xxx...)，完整 Key 仅创建时显示一次
+
+- **后端 API**：新增 `/api/keys` 端点
+  - `GET /api/keys` - 获取所有 Key（需 Admin 权限）
+  - `POST /api/keys` - 创建新 Key
+  - `GET/PUT/DELETE /api/keys/:id` - 单个 Key 操作
+  - `POST /api/keys/:id/enable|disable|revoke` - 状态管理
+
+- **认证增强**：
+  - SQLite 存储 Key（SHA-256 哈希）
+  - 内存缓存加速验证
+  - `PROXY_ACCESS_KEY` 作为 bootstrap admin（向后兼容）
+  - 请求日志关联 API Key ID
+
+- **前端界面**：
+  - 新增 "Keys" 标签页（快捷键 3）
+  - 完整的 CRUD 管理界面
+  - 中英文国际化支持
+
+- **SQLite 优化**：
+  - 单连接模式避免锁竞争
+  - busy_timeout 配置
+
+---
+
 ## [v1.3.005] - 2025-12-16
 
 ### ✨ 新功能

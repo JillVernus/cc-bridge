@@ -6,8 +6,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JillVernus/cc-bridge/internal/apikey"
 	"github.com/JillVernus/cc-bridge/internal/config"
 	"github.com/gin-gonic/gin"
+)
+
+// Context keys for storing validated API key info
+const (
+	ContextKeyAPIKeyID      = "apiKeyID"
+	ContextKeyAPIKeyName    = "apiKeyName"
+	ContextKeyAPIKeyIsAdmin = "apiKeyIsAdmin"
+	ContextKeyIsBootstrap   = "isBootstrapAdmin"
 )
 
 // secureCompare performs a constant-time comparison of two strings
@@ -22,6 +31,11 @@ func secureCompare(a, b string) bool {
 
 // WebAuthMiddleware Web 访问控制中间件
 func WebAuthMiddleware(envCfg *config.EnvConfig, cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return WebAuthMiddlewareWithAPIKey(envCfg, cfgManager, nil)
+}
+
+// WebAuthMiddlewareWithAPIKey Web 访问控制中间件（支持 API Key 验证）
+func WebAuthMiddlewareWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.ConfigManager, apiKeyManager *apikey.Manager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
 
@@ -33,41 +47,17 @@ func WebAuthMiddleware(envCfg *config.EnvConfig, cfgManager *config.ConfigManage
 
 		// 管理端点需要访问密钥（即使 Web UI 被禁用）
 		if envCfg.IsDevelopment() && path == "/admin/dev/info" {
-			providedKey := getAPIKey(c)
-			expectedKey := envCfg.ProxyAccessKey
-
-			if !secureCompare(providedKey, expectedKey) {
-				if envCfg.ShouldLog("warn") {
-					log.Printf("🔒 管理端点访问密钥验证失败 - IP: %s | Path: %s", c.ClientIP(), path)
-				}
-
-				c.JSON(401, gin.H{
-					"error": "Invalid proxy access key",
-				})
-				c.Abort()
+			if !validateAndSetContext(c, envCfg, apiKeyManager, true) {
 				return
 			}
-
 			c.Next()
 			return
 		}
 
 		if path == "/admin/config/reload" {
-			providedKey := getAPIKey(c)
-			expectedKey := envCfg.ProxyAccessKey
-
-			if !secureCompare(providedKey, expectedKey) {
-				if envCfg.ShouldLog("warn") {
-					log.Printf("🔒 管理端点访问密钥验证失败 - IP: %s | Path: %s", c.ClientIP(), path)
-				}
-
-				c.JSON(401, gin.H{
-					"error": "Invalid proxy access key",
-				})
-				c.Abort()
+			if !validateAndSetContext(c, envCfg, apiKeyManager, true) {
 				return
 			}
-
 			c.Next()
 			return
 		}
@@ -102,38 +92,83 @@ func WebAuthMiddleware(envCfg *config.EnvConfig, cfgManager *config.ConfigManage
 
 		// 检查访问密钥（仅对管理 API 请求）
 		if strings.HasPrefix(path, "/api") {
-			providedKey := getAPIKey(c)
-			expectedKey := envCfg.ProxyAccessKey
-
-			// 记录认证尝试
-			clientIP := c.ClientIP()
-			timestamp := time.Now().Format(time.RFC3339)
-
-			if !secureCompare(providedKey, expectedKey) {
-				// 认证失败 - 记录详细日志
-				reason := "密钥无效"
-				if providedKey == "" {
-					reason = "密钥缺失"
-				}
-				log.Printf("🔒 [认证失败] IP: %s | Path: %s | Time: %s | Reason: %s",
-					clientIP, path, timestamp, reason)
-
-				c.JSON(401, gin.H{
-					"error":   "Unauthorized",
-					"message": "Invalid or missing access key",
-				})
-				c.Abort()
+			// API Key 管理端点需要 admin 权限
+			requireAdmin := strings.HasPrefix(path, "/api/keys")
+			if !validateAndSetContext(c, envCfg, apiKeyManager, requireAdmin) {
 				return
-			}
-
-			// 认证成功 - 记录日志(可选，根据日志级别)
-			if envCfg.ShouldLog("info") {
-				log.Printf("✅ [认证成功] IP: %s | Path: %s | Time: %s", clientIP, path, timestamp)
 			}
 		}
 
 		c.Next()
 	}
+}
+
+// validateAndSetContext validates the API key and sets context values
+// Returns true if validation passed, false if request was aborted
+func validateAndSetContext(c *gin.Context, envCfg *config.EnvConfig, apiKeyManager *apikey.Manager, requireAdmin bool) bool {
+	providedKey := getAPIKey(c)
+	clientIP := c.ClientIP()
+	timestamp := time.Now().Format(time.RFC3339)
+	path := c.Request.URL.Path
+
+	// Try SQLite API keys first (if manager is available)
+	if apiKeyManager != nil && providedKey != "" {
+		if vk := apiKeyManager.Validate(providedKey); vk != nil {
+			// Check admin requirement
+			if requireAdmin && !vk.IsAdmin {
+				log.Printf("🔒 [权限不足] IP: %s | Path: %s | Time: %s | Key: %s",
+					clientIP, path, timestamp, vk.Name)
+				c.JSON(403, gin.H{
+					"error":   "Forbidden",
+					"message": "Admin privileges required",
+				})
+				c.Abort()
+				return false
+			}
+
+			// Set context values
+			c.Set(ContextKeyAPIKeyID, vk.ID)
+			c.Set(ContextKeyAPIKeyName, vk.Name)
+			c.Set(ContextKeyAPIKeyIsAdmin, vk.IsAdmin)
+			c.Set(ContextKeyIsBootstrap, false)
+
+			if envCfg.ShouldLog("info") {
+				log.Printf("✅ [认证成功] IP: %s | Path: %s | Time: %s | Key: %s",
+					clientIP, path, timestamp, vk.Name)
+			}
+			return true
+		}
+	}
+
+	// Fallback to bootstrap admin key (PROXY_ACCESS_KEY)
+	if secureCompare(providedKey, envCfg.ProxyAccessKey) {
+		// Bootstrap admin has full admin privileges
+		c.Set(ContextKeyAPIKeyID, int64(0))
+		c.Set(ContextKeyAPIKeyName, "bootstrap_admin")
+		c.Set(ContextKeyAPIKeyIsAdmin, true)
+		c.Set(ContextKeyIsBootstrap, true)
+
+		if envCfg.ShouldLog("info") {
+			log.Printf("✅ [认证成功] IP: %s | Path: %s | Time: %s | Key: bootstrap_admin",
+				clientIP, path, timestamp)
+		}
+		return true
+	}
+
+	// Authentication failed
+	reason := "密钥无效"
+	if providedKey == "" {
+		reason = "密钥缺失"
+	}
+	log.Printf("🔒 [认证失败] IP: %s | Path: %s | Time: %s | Reason: %s",
+		clientIP, path, timestamp, reason)
+
+	c.JSON(401, gin.H{
+		"error":   "Unauthorized",
+		"message": "Invalid or missing access key",
+	})
+	c.Abort()
+	return false
 }
 
 // isStaticResource 判断是否为静态资源
@@ -169,22 +204,44 @@ func getAPIKey(c *gin.Context) string {
 
 // ProxyAuthMiddleware 代理访问控制中间件
 func ProxyAuthMiddleware(envCfg *config.EnvConfig) gin.HandlerFunc {
+	return ProxyAuthMiddlewareWithAPIKey(envCfg, nil)
+}
+
+// ProxyAuthMiddlewareWithAPIKey 代理访问控制中间件（支持 API Key 验证）
+func ProxyAuthMiddlewareWithAPIKey(envCfg *config.EnvConfig, apiKeyManager *apikey.Manager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		providedKey := getAPIKey(c)
-		expectedKey := envCfg.ProxyAccessKey
 
-		if !secureCompare(providedKey, expectedKey) {
-			if envCfg.ShouldLog("warn") {
-				log.Printf("🔒 代理访问密钥验证失败 - IP: %s", c.ClientIP())
+		// Try SQLite API keys first (if manager is available)
+		if apiKeyManager != nil && providedKey != "" {
+			if vk := apiKeyManager.Validate(providedKey); vk != nil {
+				// Set context values for request logging
+				c.Set(ContextKeyAPIKeyID, vk.ID)
+				c.Set(ContextKeyAPIKeyName, vk.Name)
+				c.Set(ContextKeyAPIKeyIsAdmin, vk.IsAdmin)
+				c.Set(ContextKeyIsBootstrap, false)
+				c.Next()
+				return
 			}
+		}
 
-			c.JSON(401, gin.H{
-				"error": "Invalid proxy access key",
-			})
-			c.Abort()
+		// Fallback to bootstrap admin key (PROXY_ACCESS_KEY)
+		if secureCompare(providedKey, envCfg.ProxyAccessKey) {
+			c.Set(ContextKeyAPIKeyID, int64(0))
+			c.Set(ContextKeyAPIKeyName, "bootstrap_admin")
+			c.Set(ContextKeyAPIKeyIsAdmin, true)
+			c.Set(ContextKeyIsBootstrap, true)
+			c.Next()
 			return
 		}
 
-		c.Next()
+		if envCfg.ShouldLog("warn") {
+			log.Printf("🔒 代理访问密钥验证失败 - IP: %s", c.ClientIP())
+		}
+
+		c.JSON(401, gin.H{
+			"error": "Invalid proxy access key",
+		})
+		c.Abort()
 	}
 }

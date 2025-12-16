@@ -97,6 +97,10 @@
             <v-icon start :size="$vuetify.display.mobile ? 16 : 20" icon="custom:codex" />
             <span>Codex</span>
           </v-btn>
+          <v-btn value="apikeys" class="nav-btn" :size="$vuetify.display.mobile ? 'small' : 'default'">
+            <v-icon start :size="$vuetify.display.mobile ? 16 : 20">mdi-key-variant</v-icon>
+            <span>{{ t('apiKeys.tabTitle') }}</span>
+          </v-btn>
           <v-btn value="logs" class="nav-btn" :size="$vuetify.display.mobile ? 'small' : 'default'">
             <v-icon start :size="$vuetify.display.mobile ? 16 : 20">mdi-format-list-bulleted</v-icon>
             <span>Logs</span>
@@ -141,8 +145,11 @@
         <!-- Logs 视图 -->
         <RequestLogTable v-if="activeTab === 'logs'" />
 
+        <!-- API Keys 视图 -->
+        <APIKeyManagement v-if="activeTab === 'apikeys'" />
+
         <!-- 渠道管理视图 -->
-        <template v-if="activeTab !== 'logs'">
+        <template v-if="activeTab !== 'logs' && activeTab !== 'apikeys'">
         <!-- 统计卡片 - 玻璃拟态风格 -->
         <v-row class="mb-6 stat-cards-row">
           <v-col cols="6" sm="4">
@@ -502,6 +509,7 @@ import { api, type Channel, type ChannelsResponse } from './services/api'
 import AddChannelModal from './components/AddChannelModal.vue'
 import ChannelOrchestration from './components/ChannelOrchestration.vue'
 import RequestLogTable from './components/RequestLogTable.vue'
+import APIKeyManagement from './components/APIKeyManagement.vue'
 import PricingSettings from './components/PricingSettings.vue'
 import { useAppTheme } from './composables/useTheme'
 import { useLocale } from './composables/useLocale'
@@ -526,7 +534,7 @@ let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
 const AUTO_REFRESH_INTERVAL = 2000 // 2秒
 
 // 响应式数据
-const activeTab = ref<'messages' | 'responses' | 'logs'>('messages') // Tab 切换状态
+const activeTab = ref<'messages' | 'responses' | 'logs' | 'apikeys'>('messages') // Tab 切换状态
 const channelsData = ref<ChannelsResponse>({ channels: [], current: -1, loadBalance: 'round-robin' })
 const responsesChannelsData = ref<ChannelsResponse>({ channels: [], current: -1, loadBalance: 'round-robin' }) // Responses渠道数据
 const showAddChannelModal = ref(false)
@@ -555,9 +563,12 @@ const pendingDeleteChannelId = ref<number | null>(null)
 const pendingDeleteApiKey = ref<{ channelId: number; apiKey: string } | null>(null)
 const isDeleting = ref(false)
 
-// 用于传递给子组件的 channelType (排除 'logs')
-const channelTypeForComponents = computed(() => {
-  return activeTab.value === 'logs' ? 'messages' : activeTab.value
+// 用于传递给子组件的 channelType (排除 'logs' 和 'apikeys')
+const channelTypeForComponents = computed((): 'messages' | 'responses' => {
+  if (activeTab.value === 'logs' || activeTab.value === 'apikeys') {
+    return 'messages'
+  }
+  return activeTab.value
 })
 
 // Toast通知系统
@@ -1146,6 +1157,8 @@ const handleKeydown = (event: KeyboardEvent) => {
     } else if (event.key === '2') {
       activeTab.value = 'responses'
     } else if (event.key === '3') {
+      activeTab.value = 'apikeys'
+    } else if (event.key === '4') {
       activeTab.value = 'logs'
     }
   }
