@@ -177,13 +177,13 @@
 
           <v-col cols="6" sm="4">
             <div class="stat-card stat-card-emerald">
-              <div class="stat-card-icon pulse-animation">
-                <v-icon size="28">mdi-heart-pulse</v-icon>
+              <div class="stat-card-icon">
+                <v-icon size="28">mdi-chart-line</v-icon>
               </div>
               <div class="stat-card-content">
-                <div class="stat-card-value">{{ t('stats.running') }}</div>
-                <div class="stat-card-label">{{ t('stats.systemStatus') }}</div>
-                <div class="stat-card-desc">{{ t('stats.serviceNormal') }}</div>
+                <div class="stat-card-value">--</div>
+                <div class="stat-card-label">--</div>
+                <div class="stat-card-desc">--</div>
               </div>
               <div class="stat-card-glow"></div>
             </div>
@@ -215,9 +215,6 @@
               {{ t('actions.testLatency') }}
             </v-btn>
 
-            <v-btn size="large" @click="refreshChannels" prepend-icon="mdi-refresh" variant="text" class="action-btn">
-              {{ t('common.refresh') }}
-            </v-btn>
           </div>
 
           <div class="action-bar-right">
