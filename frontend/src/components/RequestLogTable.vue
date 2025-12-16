@@ -639,17 +639,21 @@
         </template>
 
         <template v-slot:item.model="{ item }">
-          <!-- Model with reasoning effort tooltip -->
+          <!-- Model with reasoning effort icon -->
           <v-tooltip v-if="item.reasoningEffort" location="top" max-width="300">
             <template v-slot:activator="{ props }">
               <span v-bind="props" class="text-caption font-weight-medium model-with-effort">
                 {{ item.model }}
-                <v-icon size="12" class="ml-1">mdi-lightbulb</v-icon>
+                <v-icon size="20" class="ml-1" :color="getReasoningEffortColor(item.reasoningEffort)">
+                  {{ getReasoningEffortIcon(item.reasoningEffort) }}
+                </v-icon>
               </span>
             </template>
             <div class="reasoning-effort-tooltip">
-              <span class="effort-label">Reasoning Effort:</span>
-              <span class="effort-value">{{ item.reasoningEffort }}</span>
+              <span class="effort-label">{{ t('logs.reasoningEffort') }}</span>
+              <span class="effort-value" :class="'effort-' + item.reasoningEffort.toLowerCase()">
+                {{ item.reasoningEffort }}
+              </span>
             </div>
           </v-tooltip>
           <!-- Model with response model mapping tooltip -->
@@ -1353,6 +1357,40 @@ const getDisplayUserId = (userId: string): string => {
   const alias = getUserAlias(userId)
   if (alias) return alias
   return formatUserId(userId)
+}
+
+// Reasoning effort icon mapping (gauge icons)
+const getReasoningEffortIcon = (effort: string): string => {
+  const effortLower = effort.toLowerCase()
+  switch (effortLower) {
+    case 'low':
+      return 'mdi-gauge-empty'
+    case 'medium':
+      return 'mdi-gauge-low'
+    case 'high':
+      return 'mdi-gauge'
+    case 'xhigh':
+      return 'mdi-gauge-full'
+    default:
+      return 'mdi-gauge-low'
+  }
+}
+
+// Reasoning effort color mapping
+const getReasoningEffortColor = (effort: string): string => {
+  const effortLower = effort.toLowerCase()
+  switch (effortLower) {
+    case 'low':
+      return 'success'
+    case 'medium':
+      return 'info'
+    case 'high':
+      return 'warning'
+    case 'xhigh':
+      return 'error'
+    default:
+      return 'grey'
+  }
 }
 
 // Summary table column widths
@@ -2847,9 +2885,24 @@ const silentRefresh = async () => {
 }
 
 .reasoning-effort-tooltip .effort-value {
-  color: #FFB74D;
   font-weight: 600;
   text-transform: uppercase;
+}
+
+.reasoning-effort-tooltip .effort-value.effort-low {
+  color: #4CAF50;
+}
+
+.reasoning-effort-tooltip .effort-value.effort-medium {
+  color: #64B5F6;
+}
+
+.reasoning-effort-tooltip .effort-value.effort-high {
+  color: #FFB74D;
+}
+
+.reasoning-effort-tooltip .effort-value.effort-xhigh {
+  color: #EF5350;
 }
 
 .settings-card {
