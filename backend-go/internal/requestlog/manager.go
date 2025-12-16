@@ -83,6 +83,7 @@ func (m *Manager) initSchema() error {
 	}
 
 	// Create table without status index first (for backward compatibility)
+	// Note: For existing databases with user_id column, migration will rename it to client_id
 	schema := `
 	CREATE TABLE IF NOT EXISTS request_logs (
 		id TEXT PRIMARY KEY,
@@ -103,7 +104,7 @@ func (m *Manager) initSchema() error {
 		channel_id INTEGER,
 		channel_name TEXT,
 		endpoint TEXT,
-		user_id TEXT,
+		client_id TEXT,
 		error TEXT,
 		upstream_error TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -114,7 +115,6 @@ func (m *Manager) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_request_logs_model ON request_logs(model);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_http_status ON request_logs(http_status);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_endpoint ON request_logs(endpoint);
-	CREATE INDEX IF NOT EXISTS idx_request_logs_user_id ON request_logs(user_id);
 	`
 
 	_, err := m.db.Exec(schema)
@@ -248,6 +248,35 @@ func (m *Manager) initSchema() error {
 		log.Printf("⚠️ Failed to create api_key_id index: %v", err)
 	}
 
+	// Migration: Rename user_id to client_id (user_id was actually client/machine identifier)
+	err = m.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('request_logs') WHERE name='user_id'`).Scan(&count)
+	if err != nil {
+		log.Printf("⚠️ Failed to check user_id column: %v", err)
+	} else if count > 0 {
+		// Column exists, rename it
+		_, err = m.db.Exec(`ALTER TABLE request_logs RENAME COLUMN user_id TO client_id`)
+		if err != nil {
+			log.Printf("⚠️ Failed to rename user_id to client_id: %v", err)
+			// If rename fails, return error to prevent further issues
+			return fmt.Errorf("failed to rename user_id to client_id: %w", err)
+		}
+		log.Printf("✅ Renamed user_id column to client_id in request_logs table")
+		// Drop old index and create new one
+		m.db.Exec(`DROP INDEX IF EXISTS idx_request_logs_user_id`)
+	}
+
+	// Ensure client_id column exists (check after potential migration)
+	err = m.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('request_logs') WHERE name='client_id'`).Scan(&count)
+	if err != nil {
+		log.Printf("⚠️ Failed to check client_id column: %v", err)
+	} else if count > 0 {
+		// Column exists, ensure index exists
+		_, err = m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_request_logs_client_id ON request_logs(client_id)`)
+		if err != nil {
+			log.Printf("⚠️ Failed to create client_id index: %v", err)
+		}
+	}
+
 	// Migration: Update old error records with timeout error message to use timeout status
 	// This fixes records created before the StatusTimeout constant was added
 	result, err := m.db.Exec(`UPDATE request_logs SET status = ? WHERE status = ? AND (error = 'request timed out' OR error = 'timeout')`, StatusTimeout, StatusError)
@@ -285,7 +314,7 @@ func (m *Manager) Add(record *RequestLog) error {
 		cache_creation_input_tokens, cache_read_input_tokens, total_tokens,
 		price, input_cost, output_cost, cache_creation_cost, cache_read_cost,
 		http_status, stream, channel_id, channel_name,
-		endpoint, user_id, session_id, api_key_id, error, upstream_error, created_at
+		endpoint, client_id, session_id, api_key_id, error, upstream_error, created_at
 	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
@@ -323,7 +352,7 @@ func (m *Manager) Add(record *RequestLog) error {
 		record.ChannelID,
 		record.ChannelName,
 		record.Endpoint,
-		record.UserID,
+		record.ClientID,
 		record.SessionID,
 		apiKeyID,
 		record.Error,
@@ -446,9 +475,9 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		conditions = append(conditions, "endpoint = ?")
 		args = append(args, filter.Endpoint)
 	}
-	if filter.UserID != "" {
-		conditions = append(conditions, "user_id = ?")
-		args = append(args, filter.UserID)
+	if filter.ClientID != "" {
+		conditions = append(conditions, "client_id = ?")
+		args = append(args, filter.ClientID)
 	}
 	if filter.SessionID != "" {
 		conditions = append(conditions, "session_id = ?")
@@ -482,7 +511,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 			   cache_creation_input_tokens, cache_read_input_tokens, total_tokens,
 			   price, input_cost, output_cost, cache_creation_cost, cache_read_cost,
 			   http_status, stream, channel_id, channel_name,
-			   endpoint, user_id, session_id, error, upstream_error, created_at
+			   endpoint, client_id, session_id, error, upstream_error, created_at
 		FROM request_logs
 		%s
 		ORDER BY initial_time DESC
@@ -501,7 +530,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 	for rows.Next() {
 		var r RequestLog
 		var channelID sql.NullInt64
-		var channelName, endpoint, userID, sessionID, errorStr, upstreamErrorStr, status, providerName, responseModel, reasoningEffort sql.NullString
+		var channelName, endpoint, clientID, sessionID, errorStr, upstreamErrorStr, status, providerName, responseModel, reasoningEffort sql.NullString
 		var initialTime, completeTime, createdAt sql.NullString
 
 		err := rows.Scan(
@@ -510,7 +539,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 			&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 			&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
 			&r.HTTPStatus, &r.Stream, &channelID, &channelName,
-			&endpoint, &userID, &sessionID, &errorStr, &upstreamErrorStr, &createdAt,
+			&endpoint, &clientID, &sessionID, &errorStr, &upstreamErrorStr, &createdAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan request log: %w", err)
@@ -548,8 +577,8 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		if endpoint.Valid {
 			r.Endpoint = endpoint.String
 		}
-		if userID.Valid {
-			r.UserID = userID.String
+		if clientID.Valid {
+			r.ClientID = clientID.String
 		}
 		if sessionID.Valid {
 			r.SessionID = sessionID.String
@@ -596,9 +625,9 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 		conditions = append(conditions, "initial_time <= ?")
 		args = append(args, *filter.To)
 	}
-	if filter.UserID != "" {
-		conditions = append(conditions, "user_id = ?")
-		args = append(args, filter.UserID)
+	if filter.ClientID != "" {
+		conditions = append(conditions, "client_id = ?")
+		args = append(args, filter.ClientID)
 	}
 	if filter.SessionID != "" {
 		conditions = append(conditions, "session_id = ?")
@@ -610,7 +639,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 	stats := &RequestLogStats{
 		ByProvider: make(map[string]ProviderStats),
 		ByModel:    make(map[string]ModelStats),
-		ByUser:     make(map[string]GroupStats),
+		ByClient:   make(map[string]GroupStats),
 		BySession:  make(map[string]GroupStats),
 	}
 
@@ -717,14 +746,14 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 
 	// Get stats by user
 	userQuery := fmt.Sprintf(`
-		SELECT COALESCE(NULLIF(TRIM(user_id), ''), '<unknown>'), COUNT(*),
+		SELECT COALESCE(NULLIF(TRIM(client_id), ''), '<unknown>'), COUNT(*),
 			COALESCE(SUM(input_tokens), 0),
 			COALESCE(SUM(output_tokens), 0),
 			COALESCE(SUM(cache_creation_input_tokens), 0),
 			COALESCE(SUM(cache_read_input_tokens), 0),
 			COALESCE(SUM(price), 0)
 		FROM request_logs %s
-		GROUP BY COALESCE(NULLIF(TRIM(user_id), ''), '<unknown>')
+		GROUP BY COALESCE(NULLIF(TRIM(client_id), ''), '<unknown>')
 	`, whereClause)
 
 	userRows, err := m.db.Query(userQuery, args...)
@@ -734,12 +763,12 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 	defer userRows.Close()
 
 	for userRows.Next() {
-		var user string
+		var client string
 		var us GroupStats
-		if err := userRows.Scan(&user, &us.Count, &us.InputTokens, &us.OutputTokens, &us.CacheCreationInputTokens, &us.CacheReadInputTokens, &us.Cost); err != nil {
-			return nil, fmt.Errorf("failed to scan user stats: %w", err)
+		if err := userRows.Scan(&client, &us.Count, &us.InputTokens, &us.OutputTokens, &us.CacheCreationInputTokens, &us.CacheReadInputTokens, &us.Cost); err != nil {
+			return nil, fmt.Errorf("failed to scan client stats: %w", err)
 		}
-		stats.ByUser[user] = us
+		stats.ByClient[client] = us
 	}
 
 	// Get stats by session
@@ -794,21 +823,21 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 			   provider, model, input_tokens, output_tokens,
 			   cache_creation_input_tokens, cache_read_input_tokens, total_tokens,
 			   price, http_status, stream, channel_id, channel_name,
-			   endpoint, user_id, session_id, error, created_at
+			   endpoint, client_id, session_id, error, created_at
 		FROM request_logs
 		WHERE id = ?
 	`
 
 	var r RequestLog
 	var channelID sql.NullInt64
-	var channelName, endpoint, userID, sessionID, errorStr sql.NullString
+	var channelName, endpoint, clientID, sessionID, errorStr sql.NullString
 
 	err := m.db.QueryRow(query, id).Scan(
 		&r.ID, &r.InitialTime, &r.CompleteTime, &r.DurationMs,
 		&r.Type, &r.Model, &r.InputTokens, &r.OutputTokens,
 		&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 		&r.Price, &r.HTTPStatus, &r.Stream, &channelID, &channelName,
-		&endpoint, &userID, &sessionID, &errorStr, &r.CreatedAt,
+		&endpoint, &clientID, &sessionID, &errorStr, &r.CreatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -826,8 +855,8 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 	if endpoint.Valid {
 		r.Endpoint = endpoint.String
 	}
-	if userID.Valid {
-		r.UserID = userID.String
+	if clientID.Valid {
+		r.ClientID = clientID.String
 	}
 	if sessionID.Valid {
 		r.SessionID = sessionID.String

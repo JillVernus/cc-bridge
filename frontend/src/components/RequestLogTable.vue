@@ -27,10 +27,10 @@
                   </v-btn>
                 </template>
               </v-tooltip>
-              <v-tooltip :text="t('requestLog.groupByUser')" location="top">
+              <v-tooltip :text="t('requestLog.groupByClient')" location="top">
                 <template v-slot:activator="{ props }">
-                  <v-btn v-bind="props" value="user" size="x-small">
-                    <v-icon size="18">mdi-account-outline</v-icon>
+                  <v-btn v-bind="props" value="client" size="x-small">
+                    <v-icon size="18">mdi-laptop</v-icon>
                   </v-btn>
                 </template>
               </v-tooltip>
@@ -91,25 +91,25 @@
                 >
                   <td class="text-caption font-weight-bold summary-name-cell" :style="{ width: summaryColumnWidths.name + 'px', maxWidth: summaryColumnWidths.name + 'px' }">
                     <v-tooltip
-                      v-if="(summaryGroupBy === 'user' || summaryGroupBy === 'session') && String(key) && String(key) !== '<unknown>'"
+                      v-if="(summaryGroupBy === 'client' || summaryGroupBy === 'session') && String(key) && String(key) !== '<unknown>'"
                       location="top"
                       max-width="600"
                     >
                       <template v-slot:activator="{ props }">
                         <span
                           v-bind="props"
-                          :class="{ 'clickable-id': summaryGroupBy === 'user' }"
-                          @click.stop="summaryGroupBy === 'user' && openAliasDialog(String(key))"
+                          :class="{ 'clickable-id': summaryGroupBy === 'client' }"
+                          @click.stop="summaryGroupBy === 'client' && openAliasDialog(String(key))"
                         >
                           {{ formatSummaryKey(String(key)) }}
                         </span>
                       </template>
-                      <div v-if="summaryGroupBy === 'user'" class="id-tooltip">
+                      <div v-if="summaryGroupBy === 'client'" class="id-tooltip">
                         <div v-if="getUserAlias(String(key))" class="alias-tooltip-row">
                           <span class="alias-label">{{ t('requestLog.alias') }}:</span> {{ getUserAlias(String(key)) }}
                         </div>
                         <div>
-                          <span class="id-label">{{ t('requestLog.userId') }}:</span> {{ normalizeUserId(String(key)) }}
+                          <span class="id-label">{{ t('requestLog.clientId') }}:</span> {{ normalizeUserId(String(key)) }}
                         </div>
                       </div>
                       <span v-else class="id-tooltip">{{ String(key) }}</span>
@@ -446,7 +446,7 @@
         </v-card-title>
         <v-card-text>
           <!-- Full User ID (read-only) -->
-          <div class="text-caption text-grey mb-1">{{ t('requestLog.userId') }}</div>
+          <div class="text-caption text-grey mb-1">{{ t('requestLog.clientId') }}</div>
           <div class="mono-text text-body-2 mb-4 user-id-display">
             {{ normalizeUserId(editingUserId) }}
           </div>
@@ -552,10 +552,10 @@
             <div class="resize-handle" @mousedown="startResize($event, 'model')"></div>
           </div>
         </template>
-        <template v-slot:[`header.userId`]="{ column }">
+        <template v-slot:[`header.clientId`]="{ column }">
           <div class="resizable-header">
             {{ column.title }}
-            <div class="resize-handle" @mousedown="startResize($event, 'userId')"></div>
+            <div class="resize-handle" @mousedown="startResize($event, 'clientId')"></div>
           </div>
         </template>
         <template v-slot:[`header.sessionId`]="{ column }">
@@ -673,23 +673,23 @@
           <span v-else class="text-caption font-weight-medium">{{ item.model }}</span>
         </template>
 
-        <template v-slot:item.userId="{ item }">
-          <v-tooltip v-if="item.userId" location="top" max-width="600">
+        <template v-slot:item.clientId="{ item }">
+          <v-tooltip v-if="item.clientId" location="top" max-width="600">
             <template v-slot:activator="{ props }">
               <span
                 v-bind="props"
                 class="text-caption mono-text id-cell clickable-id"
-                @click.stop="openAliasDialog(item.userId)"
+                @click.stop="openAliasDialog(item.clientId)"
               >
-                {{ getDisplayUserId(item.userId) }}
+                {{ getDisplayUserId(item.clientId) }}
               </span>
             </template>
             <div class="id-tooltip">
-              <div v-if="getUserAlias(item.userId)" class="alias-tooltip-row">
-                <span class="alias-label">{{ t('requestLog.alias') }}:</span> {{ getUserAlias(item.userId) }}
+              <div v-if="getUserAlias(item.clientId)" class="alias-tooltip-row">
+                <span class="alias-label">{{ t('requestLog.alias') }}:</span> {{ getUserAlias(item.clientId) }}
               </div>
               <div>
-                <span class="id-label">{{ t('requestLog.userId') }}:</span> {{ normalizeUserId(item.userId) }}
+                <span class="id-label">{{ t('requestLog.clientId') }}:</span> {{ normalizeUserId(item.clientId) }}
               </div>
             </div>
           </v-tooltip>
@@ -842,7 +842,7 @@ const pageSize = 50
 const updatedIds = ref<Set<string>>(new Set())
 const updatedModels = ref<Set<string>>(new Set())
 const updatedProviders = ref<Set<string>>(new Set())
-const updatedUsers = ref<Set<string>>(new Set())
+const updatedClients = ref<Set<string>>(new Set())
 const updatedSessions = ref<Set<string>>(new Set())
 
 // Active sessions state
@@ -857,12 +857,12 @@ const aliasInput = ref<string>('')
 const aliasError = ref<string>('')
 
 // Summary table group by state
-type SummaryGroupBy = 'model' | 'provider' | 'user' | 'session'
+type SummaryGroupBy = 'model' | 'provider' | 'client' | 'session'
 const summaryGroupBy = ref<SummaryGroupBy>('provider')
 const summaryGroupByOptions = computed(() => [
   { label: t('requestLog.groupByModel'), value: 'model' },
   { label: t('requestLog.groupByProvider'), value: 'provider' },
-  { label: t('requestLog.groupByUser'), value: 'user' },
+  { label: t('requestLog.groupByClient'), value: 'client' },
   { label: t('requestLog.groupBySession'), value: 'session' },
 ])
 
@@ -872,8 +872,8 @@ const summaryNameHeaderTitle = computed(() => {
       return t('requestLog.model')
     case 'provider':
       return t('requestLog.channel')
-    case 'user':
-      return t('requestLog.userId')
+    case 'client':
+      return t('requestLog.clientId')
     case 'session':
       return t('requestLog.sessionId')
     default:
@@ -1107,9 +1107,9 @@ const sortedByProvider = computed(() => {
     })
 })
 
-const sortedByUser = computed(() => {
-  if (!stats.value?.byUser) return []
-  return Object.entries(stats.value.byUser)
+const sortedByClient = computed(() => {
+  if (!stats.value?.byClient) return []
+  return Object.entries(stats.value.byClient)
     .sort(([, a], [, b]) => {
       const costDiff = b.cost - a.cost
       if (costDiff !== 0) return costDiff
@@ -1154,9 +1154,9 @@ const providerTotals = computed(() => {
   return totals
 })
 
-const userTotals = computed(() => {
+const clientTotals = computed(() => {
   const totals = { count: 0, inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, cost: 0 }
-  for (const [, data] of sortedByUser.value) {
+  for (const [, data] of sortedByClient.value) {
     totals.count += data.count
     totals.inputTokens += data.inputTokens
     totals.outputTokens += data.outputTokens
@@ -1187,8 +1187,8 @@ const currentSortedData = computed(() => {
       return sortedByModel.value
     case 'provider':
       return sortedByProvider.value
-    case 'user':
-      return sortedByUser.value
+    case 'client':
+      return sortedByClient.value
     case 'session':
       return sortedBySession.value
     default:
@@ -1202,8 +1202,8 @@ const currentTotals = computed(() => {
       return modelTotals.value
     case 'provider':
       return providerTotals.value
-    case 'user':
-      return userTotals.value
+    case 'client':
+      return clientTotals.value
     case 'session':
       return sessionTotals.value
     default:
@@ -1217,8 +1217,8 @@ const currentUpdatedSet = computed(() => {
       return updatedModels.value
     case 'provider':
       return updatedProviders.value
-    case 'user':
-      return updatedUsers.value
+    case 'client':
+      return updatedClients.value
     case 'session':
       return updatedSessions.value
     default:
@@ -1595,7 +1595,7 @@ const defaultColumnWidths: Record<string, number> = {
   durationMs: 80,
   providerName: 120,
   model: 200,
-  userId: 220,
+  clientId: 220,
   sessionId: 240,
   tokens: 400,
   price: 80,
@@ -1637,7 +1637,7 @@ const headers = computed(() => [
   { title: t('requestLog.duration'), key: 'durationMs', sortable: false, width: `${columnWidths.value.durationMs}px`, align: 'end' as const },
   { title: t('requestLog.channel'), key: 'providerName', sortable: false, width: `${columnWidths.value.providerName}px` },
   { title: t('requestLog.model'), key: 'model', sortable: false, width: `${columnWidths.value.model}px` },
-  { title: t('requestLog.user'), key: 'userId', sortable: false, width: `${columnWidths.value.userId}px` },
+  { title: t('requestLog.client'), key: 'clientId', sortable: false, width: `${columnWidths.value.clientId}px` },
   { title: t('requestLog.session'), key: 'sessionId', sortable: false, width: `${columnWidths.value.sessionId}px` },
   { title: t('requestLog.tokens'), key: 'tokens', sortable: false, width: `${columnWidths.value.tokens}px` },
   { title: t('requestLog.price'), key: 'price', sortable: false, width: `${columnWidths.value.price}px` },
@@ -1822,7 +1822,7 @@ const formatUserId = (userID?: string) => {
 const formatSummaryKey = (key: string) => {
   if (key === '<unknown>') return key
   switch (summaryGroupBy.value) {
-    case 'user':
+    case 'client':
       return getUserAlias(key) || formatUserId(key)
     case 'session':
       return formatId(key)
@@ -2049,7 +2049,7 @@ const silentRefresh = async () => {
     // Detect updated groups in stats
     const newUpdatedModels = detectUpdatedGroups(stats.value?.byModel, statsRes?.byModel)
     const newUpdatedProviders = detectUpdatedGroups(stats.value?.byProvider, statsRes?.byProvider)
-    const newUpdatedUsers = detectUpdatedGroups(stats.value?.byUser, statsRes?.byUser)
+    const newUpdatedClients = detectUpdatedGroups(stats.value?.byClient, statsRes?.byClient)
     const newUpdatedSessions = detectUpdatedGroups(stats.value?.bySession, statsRes?.bySession)
 
     logs.value = logsRes.requests || []
@@ -2077,10 +2077,10 @@ const silentRefresh = async () => {
         updatedProviders.value = new Set()
       }, 1000)
     }
-    if (newUpdatedUsers.size > 0) {
-      updatedUsers.value = newUpdatedUsers
+    if (newUpdatedClients.size > 0) {
+      updatedClients.value = newUpdatedClients
       setTimeout(() => {
-        updatedUsers.value = new Set()
+        updatedClients.value = new Set()
       }, 1000)
     }
     if (newUpdatedSessions.size > 0) {

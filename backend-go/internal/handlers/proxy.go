@@ -91,7 +91,7 @@ func ProxyHandlerWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.ConfigM
 				Model:       claudeReq.Model,
 				Stream:      claudeReq.Stream,
 				Endpoint:    "/v1/messages",
-				UserID:      userID,
+				ClientID:    userID,
 				SessionID:   sessionID,
 				APIKeyID:    apiKeyID,
 			}

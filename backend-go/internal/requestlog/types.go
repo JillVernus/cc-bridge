@@ -41,7 +41,7 @@ type RequestLog struct {
 	ChannelID     int       `json:"channelId"`
 	ChannelName   string    `json:"channelName"`
 	Endpoint      string    `json:"endpoint"` // /v1/messages or /v1/responses
-	UserID        string    `json:"userId,omitempty"`
+	ClientID      string    `json:"clientId,omitempty"` // Client/machine identifier
 	SessionID     string    `json:"sessionId,omitempty"` // Claude Code conversation session ID
 	APIKeyID      int64     `json:"apiKeyId,omitempty"`  // API key ID for tracking
 	Error         string    `json:"error,omitempty"`
@@ -64,7 +64,7 @@ type RequestLogFilter struct {
 	Model      string     `json:"model,omitempty"`
 	HTTPStatus int        `json:"httpStatus,omitempty"`
 	Endpoint   string     `json:"endpoint,omitempty"`
-	UserID     string     `json:"userId,omitempty"`
+	ClientID   string     `json:"clientId,omitempty"`
 	SessionID  string     `json:"sessionId,omitempty"`
 	From       *time.Time `json:"from,omitempty"`
 	To         *time.Time `json:"to,omitempty"`
@@ -79,7 +79,7 @@ type RequestLogStats struct {
 	TotalCost     float64                  `json:"totalCost"`
 	ByProvider    map[string]ProviderStats `json:"byProvider"`
 	ByModel       map[string]ModelStats    `json:"byModel"`
-	ByUser        map[string]GroupStats    `json:"byUser"`
+	ByClient      map[string]GroupStats    `json:"byClient"`
 	BySession     map[string]GroupStats    `json:"bySession"`
 	TimeRange     TimeRange                `json:"timeRange"`
 }

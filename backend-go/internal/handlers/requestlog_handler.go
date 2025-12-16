@@ -33,8 +33,8 @@ func (h *RequestLogHandler) GetLogs(c *gin.Context) {
 	if endpoint := c.Query("endpoint"); endpoint != "" {
 		filter.Endpoint = endpoint
 	}
-	if userID := c.Query("userId"); userID != "" {
-		filter.UserID = userID
+	if clientID := c.Query("clientId"); clientID != "" {
+		filter.ClientID = clientID
 	}
 	if sessionID := c.Query("sessionId"); sessionID != "" {
 		filter.SessionID = sessionID
@@ -88,8 +88,8 @@ func (h *RequestLogHandler) GetStats(c *gin.Context) {
 			filter.To = &t
 		}
 	}
-	if userID := c.Query("userId"); userID != "" {
-		filter.UserID = userID
+	if clientID := c.Query("clientId"); clientID != "" {
+		filter.ClientID = clientID
 	}
 	if sessionID := c.Query("sessionId"); sessionID != "" {
 		filter.SessionID = sessionID

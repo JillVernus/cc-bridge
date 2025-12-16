@@ -402,7 +402,7 @@ class ApiService {
     if (filter?.provider) params.set('provider', filter.provider)
     if (filter?.model) params.set('model', filter.model)
     if (filter?.endpoint) params.set('endpoint', filter.endpoint)
-    if (filter?.userId) params.set('userId', filter.userId)
+    if (filter?.clientId) params.set('clientId', filter.clientId)
     if (filter?.sessionId) params.set('sessionId', filter.sessionId)
     if (filter?.httpStatus) params.set('httpStatus', String(filter.httpStatus))
     if (filter?.limit) params.set('limit', String(filter.limit))
@@ -413,11 +413,11 @@ class ApiService {
     return this.request(`/logs${query}`)
   }
 
-  async getRequestLogStats(filter?: { from?: string; to?: string; userId?: string; sessionId?: string }): Promise<RequestLogStats> {
+  async getRequestLogStats(filter?: { from?: string; to?: string; clientId?: string; sessionId?: string }): Promise<RequestLogStats> {
     const params = new URLSearchParams()
     if (filter?.from) params.set('from', filter.from)
     if (filter?.to) params.set('to', filter.to)
-    if (filter?.userId) params.set('userId', filter.userId)
+    if (filter?.clientId) params.set('clientId', filter.clientId)
     if (filter?.sessionId) params.set('sessionId', filter.sessionId)
     const query = params.toString() ? `?${params.toString()}` : ''
     return this.request(`/logs/stats${query}`)
@@ -643,7 +643,7 @@ export interface RequestLog {
   channelId: number
   channelName: string
   endpoint: string
-  userId?: string
+  clientId?: string
   sessionId?: string
   error?: string
   upstreamError?: string  // 上游服务原始错误信息
@@ -655,7 +655,7 @@ export interface RequestLogFilter {
   model?: string
   httpStatus?: number
   endpoint?: string
-  userId?: string
+  clientId?: string
   sessionId?: string
   from?: string
   to?: string
@@ -690,7 +690,7 @@ export interface RequestLogStats {
   totalCost: number
   byProvider: Record<string, GroupStats>
   byModel: Record<string, GroupStats>
-  byUser: Record<string, GroupStats>
+  byClient: Record<string, GroupStats>
   bySession: Record<string, GroupStats>
   timeRange: { from: string; to: string }
 }

@@ -129,7 +129,7 @@ func ResponsesHandlerWithAPIKey(
 				ReasoningEffort: reasoningEffort,
 				Stream:          responsesReq.Stream,
 				Endpoint:        "/v1/responses",
-				UserID:          userID,
+				ClientID:        userID,
 				SessionID:       sessionID,
 				APIKeyID:        apiKeyID,
 			}
