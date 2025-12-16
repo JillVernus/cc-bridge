@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JillVernus/cc-bridge/internal/auth/codex"
 	"github.com/JillVernus/cc-bridge/internal/config"
 	"github.com/JillVernus/cc-bridge/internal/converters"
 	"github.com/JillVernus/cc-bridge/internal/httpclient"
@@ -26,6 +27,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
+
+// codexTokenManager is a shared token manager for OAuth token refresh
+var codexTokenManager = codex.NewTokenManager()
 
 // ResponsesHandler Responses API 代理处理器
 // 支持多渠道调度：当配置多个渠道时自动启用
@@ -225,6 +229,11 @@ func tryResponsesChannelWithAllKeys(
 	Status int
 	Body   []byte
 }) {
+	// 处理 OpenAI OAuth 渠道（Codex）
+	if upstream.ServiceType == "openai-oauth" {
+		return tryResponsesChannelWithOAuth(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID)
+	}
+
 	if len(upstream.APIKeys) == 0 {
 		return false, nil
 	}
@@ -307,6 +316,196 @@ func tryResponsesChannelWithAllKeys(
 	return false, lastFailoverError
 }
 
+// tryResponsesChannelWithOAuth 使用 OAuth 认证尝试 Responses 请求（Codex）
+func tryResponsesChannelWithOAuth(
+	c *gin.Context,
+	envCfg *config.EnvConfig,
+	cfgManager *config.ConfigManager,
+	sessionManager *session.SessionManager,
+	upstream *config.UpstreamConfig,
+	bodyBytes []byte,
+	responsesReq types.ResponsesRequest,
+	startTime time.Time,
+	reqLogManager *requestlog.Manager,
+	requestLogID string,
+) (bool, *struct {
+	Status int
+	Body   []byte
+}) {
+	// 辅助函数：更新请求日志为错误状态
+	updateErrorLog := func(httpStatus int, errMsg string) {
+		if reqLogManager != nil && requestLogID != "" {
+			completeTime := time.Now()
+			record := &requestlog.RequestLog{
+				Status:        requestlog.StatusError,
+				CompleteTime:  completeTime,
+				DurationMs:    completeTime.Sub(startTime).Milliseconds(),
+				Type:          "openai-oauth",
+				ProviderName:  upstream.Name,
+				HTTPStatus:    httpStatus,
+				ChannelName:   upstream.Name,
+				UpstreamError: errMsg,
+			}
+			if err := reqLogManager.Update(requestLogID, record); err != nil {
+				log.Printf("⚠️ 请求日志更新失败: %v", err)
+			}
+		}
+	}
+
+	if upstream.OAuthTokens == nil {
+		errMsg := "OAuth tokens not configured for this channel"
+		log.Printf("⚠️ [OAuth] 渠道 %s 未配置 OAuth tokens", upstream.Name)
+		updateErrorLog(503, errMsg)
+		return false, &struct {
+			Status int
+			Body   []byte
+		}{
+			Status: 503,
+			Body:   []byte(fmt.Sprintf(`{"error":"%s"}`, errMsg)),
+		}
+	}
+
+	// 获取有效的 OAuth token（如果过期会自动刷新）
+	accessToken, accountID, updatedTokens, err := codexTokenManager.GetValidToken(upstream.OAuthTokens)
+	if err != nil {
+		errMsg := fmt.Sprintf("Failed to get valid OAuth token: %s", err.Error())
+		log.Printf("⚠️ [OAuth] 获取有效 token 失败: %v", err)
+		updateErrorLog(401, errMsg)
+		return false, &struct {
+			Status int
+			Body   []byte
+		}{
+			Status: 401,
+			Body:   []byte(fmt.Sprintf(`{"error":"%s"}`, errMsg)),
+		}
+	}
+
+	// 如果 token 被刷新了，保存到配置中
+	if updatedTokens != nil {
+		if err := cfgManager.UpdateResponsesOAuthTokensByName(upstream.Name, updatedTokens); err != nil {
+			log.Printf("⚠️ [OAuth] 保存刷新后的 token 失败: %v", err)
+		} else {
+			log.Printf("✅ [OAuth] Token 已刷新并保存")
+		}
+	}
+
+	c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+
+	if envCfg.ShouldLog("info") {
+		log.Printf("🔐 [OAuth] 使用 Codex OAuth 认证 (Account: %s...)", accountID[:12])
+	}
+
+	// 构建 OAuth 请求
+	providerReq, err := buildCodexOAuthRequest(c, upstream, bodyBytes, responsesReq, accessToken, accountID)
+	if err != nil {
+		errMsg := fmt.Sprintf("Failed to build OAuth request: %s", err.Error())
+		log.Printf("⚠️ [OAuth] 构建请求失败: %v", err)
+		updateErrorLog(500, errMsg)
+		return false, &struct {
+			Status int
+			Body   []byte
+		}{
+			Status: 500,
+			Body:   []byte(fmt.Sprintf(`{"error":"%s"}`, errMsg)),
+		}
+	}
+
+	resp, err := sendResponsesRequest(providerReq, upstream, envCfg, responsesReq.Stream)
+	if err != nil {
+		errMsg := fmt.Sprintf("Request failed: %s", err.Error())
+		log.Printf("⚠️ [OAuth] 请求失败: %v", err)
+		updateErrorLog(502, errMsg)
+		return false, &struct {
+			Status int
+			Body   []byte
+		}{
+			Status: 502,
+			Body:   []byte(fmt.Sprintf(`{"error":"%s"}`, errMsg)),
+		}
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBodyBytes, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		respBodyBytes = utils.DecompressGzipIfNeeded(resp, respBodyBytes)
+
+		log.Printf("⚠️ [OAuth] Codex API 返回错误: %d - %s", resp.StatusCode, string(respBodyBytes))
+
+		// 更新请求日志为错误状态
+		updateErrorLog(resp.StatusCode, string(respBodyBytes))
+
+		// 对于 401 错误，尝试强制刷新 token
+		if resp.StatusCode == 401 {
+			log.Printf("🔄 [OAuth] 401 错误，尝试强制刷新 token...")
+			newTokens, refreshErr := codexTokenManager.RefreshTokensWithRetry(upstream.OAuthTokens.RefreshToken, 2)
+			if refreshErr == nil {
+				if saveErr := cfgManager.UpdateResponsesOAuthTokensByName(upstream.Name, newTokens); saveErr != nil {
+					log.Printf("⚠️ [OAuth] 保存刷新后的 token 失败: %v", saveErr)
+				}
+			}
+		}
+
+		return false, &struct {
+			Status int
+			Body   []byte
+		}{
+			Status: resp.StatusCode,
+			Body:   respBodyBytes,
+		}
+	}
+
+	provider := &providers.ResponsesProvider{SessionManager: sessionManager}
+	handleResponsesSuccess(c, resp, provider, upstream, envCfg, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID)
+	return true, nil
+}
+
+// buildCodexOAuthRequest 构建 Codex OAuth API 请求
+func buildCodexOAuthRequest(
+	c *gin.Context,
+	upstream *config.UpstreamConfig,
+	bodyBytes []byte,
+	responsesReq types.ResponsesRequest,
+	accessToken string,
+	accountID string,
+) (*http.Request, error) {
+	// 解析请求体为 map 以保留所有字段
+	var reqMap map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &reqMap); err != nil {
+		return nil, fmt.Errorf("解析请求失败: %w", err)
+	}
+
+	// 模型重定向
+	if model, ok := reqMap["model"].(string); ok {
+		reqMap["model"] = config.RedirectModel(model, upstream)
+	}
+
+	// 序列化请求体
+	reqBody, err := json.Marshal(reqMap)
+	if err != nil {
+		return nil, fmt.Errorf("序列化请求失败: %w", err)
+	}
+
+	// Codex OAuth 使用固定的 API 端点
+	targetURL := "https://chatgpt.com/backend-api/codex/responses"
+
+	req, err := http.NewRequest("POST", targetURL, bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, err
+	}
+
+	// 设置 Codex OAuth 专用请求头
+	utils.SetCodexOAuthHeaders(req.Header, accessToken, accountID)
+
+	// 如果是流式请求，确保正确的 Accept 头
+	if responsesReq.Stream {
+		utils.SetCodexOAuthStreamHeaders(req.Header, accessToken, accountID)
+	} else {
+		utils.SetCodexOAuthNonStreamHeaders(req.Header, accessToken, accountID)
+	}
+
+	return req, nil
+}
+
 // handleSingleChannelResponses 处理单渠道 Responses 请求（现有逻辑）
 func handleSingleChannelResponses(
 	c *gin.Context,
@@ -326,6 +525,24 @@ func handleSingleChannelResponses(
 			"error": "未配置任何 Responses 渠道，请先在管理界面添加渠道",
 			"code":  "NO_RESPONSES_UPSTREAM",
 		})
+		return
+	}
+
+	// 处理 OpenAI OAuth 渠道（Codex）
+	if upstream.ServiceType == "openai-oauth" {
+		success, failoverErr := tryResponsesChannelWithOAuth(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID)
+		if !success && failoverErr != nil {
+			status := failoverErr.Status
+			if status == 0 {
+				status = 500
+			}
+			var errBody map[string]interface{}
+			if err := json.Unmarshal(failoverErr.Body, &errBody); err == nil {
+				c.JSON(status, errBody)
+			} else {
+				c.JSON(status, gin.H{"error": string(failoverErr.Body)})
+			}
+		}
 		return
 	}
 
@@ -584,14 +801,15 @@ func handleResponsesSuccess(
 		var logBuffer bytes.Buffer
 		streamLoggingEnabled := envCfg.IsDevelopment() && envCfg.EnableResponseLogs
 
-		// 对于 responses 类型，我们需要 synthesizer 来提取 usage，不论日志是否启用
-		needsSynthesizer := upstreamType == "responses" && reqLogManager != nil
+		// 对于 responses 类型（包括 openai-oauth），我们需要 synthesizer 来提取 usage，不论日志是否启用
+		needsSynthesizer := (upstreamType == "responses" || upstreamType == "openai-oauth") && reqLogManager != nil
 		if streamLoggingEnabled || needsSynthesizer {
 			synthesizer = utils.NewStreamSynthesizer(upstreamType)
 		}
 
 		// 判断是否需要转换：非 responses 类型的上游需要从 Chat Completions 转换为 Responses 格式
-		needConvert := upstreamType != "responses"
+		// openai-oauth 使用 Responses API 格式，不需要转换
+		needConvert := upstreamType != "responses" && upstreamType != "openai-oauth"
 		var converterState any
 
 		// 转发流式响应并记录内容
@@ -619,8 +837,8 @@ func handleResponsesSuccess(
 				synthesizer.ProcessLine(line)
 			}
 
-			// 对于 responses 类型，尝试从 response.completed 事件中提取 usage
-			if upstreamType == "responses" && reqLogManager != nil {
+			// 对于 responses/openai-oauth 类型，尝试从 response.completed 事件中提取 usage
+			if (upstreamType == "responses" || upstreamType == "openai-oauth") && reqLogManager != nil {
 				if usage, model := extractCodexUsageFromSSE(line); usage != nil {
 					codexUsage = usage
 					if model != "" {
@@ -796,8 +1014,8 @@ func handleResponsesSuccess(
 		return
 	}
 
-	// 更新请求日志（非流式 Responses API）
-	if reqLogManager != nil && requestLogID != "" && upstreamType == "responses" {
+	// 更新请求日志（非流式 Responses API，包括 openai-oauth）
+	if reqLogManager != nil && requestLogID != "" && (upstreamType == "responses" || upstreamType == "openai-oauth") {
 		// 从非流式响应中提取 usage
 		codexUsage, responseModel := extractCodexUsageFromJSON(bodyBytes)
 

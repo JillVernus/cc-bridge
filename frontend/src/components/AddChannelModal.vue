@@ -133,8 +133,8 @@
               />
             </v-col>
 
-            <!-- 基础URL -->
-            <v-col cols="12">
+            <!-- 基础URL（非 OAuth 类型显示） -->
+            <v-col cols="12" v-if="!isOAuthChannel">
               <v-text-field
                 v-model="form.baseUrl"
                 :label="t('addChannel.baseUrl')"
@@ -149,6 +149,18 @@
                 :hint="getUrlHint()"
                 persistent-hint
               />
+            </v-col>
+
+            <!-- OAuth 固定 URL 提示 -->
+            <v-col cols="12" v-if="isOAuthChannel">
+              <v-alert type="info" variant="tonal" density="compact" rounded="lg">
+                <div class="d-flex align-center ga-2">
+                  <v-icon size="small">mdi-lock</v-icon>
+                  <span class="text-body-2">
+                    {{ t('addChannel.oauthFixedUrl') }}: <code>https://chatgpt.com/backend-api/codex/responses</code>
+                  </span>
+                </div>
+              </v-alert>
             </v-col>
 
             <!-- 官网/控制台（可选） -->
@@ -426,8 +438,62 @@
               </v-card>
             </v-col>
 
-            <!-- API密钥管理 -->
-            <v-col cols="12">
+            <!-- OAuth 认证配置（仅 openai-oauth 类型显示） -->
+            <v-col cols="12" v-if="isOAuthChannel">
+              <v-card variant="outlined" rounded="lg" :color="!form.oauthTokens ? 'error' : 'success'">
+                <v-card-title class="d-flex align-center justify-space-between pa-4 pb-2">
+                  <div class="d-flex align-center ga-2">
+                    <v-icon :color="form.oauthTokens ? 'success' : 'error'">mdi-shield-account</v-icon>
+                    <span class="text-body-1 font-weight-bold">{{ t('addChannel.oauthConfig') }}</span>
+                    <v-chip v-if="!form.oauthTokens" size="x-small" color="error" variant="tonal">
+                      {{ t('addChannel.oauthRequired') }}
+                    </v-chip>
+                  </div>
+                  <v-chip size="small" color="info" variant="tonal"> Codex / ChatGPT Plus </v-chip>
+                </v-card-title>
+
+                <v-card-text class="pt-2">
+                  <div class="text-body-2 text-medium-emphasis mb-4">
+                    {{ t('addChannel.oauthHint') }}
+                  </div>
+
+                  <!-- 已配置 OAuth tokens 的显示 -->
+                  <v-alert v-if="parsedOAuthInfo" type="success" variant="tonal" class="mb-4" rounded="lg">
+                    <div class="d-flex align-center ga-2">
+                      <v-icon>mdi-check-circle</v-icon>
+                      <div>
+                        <div class="font-weight-medium">{{ t('addChannel.oauthConfigured') }}</div>
+                        <div class="text-caption">
+                          <span v-if="parsedOAuthInfo.email">{{ parsedOAuthInfo.email }} · </span>
+                          Account: {{ parsedOAuthInfo.accountId }}
+                        </div>
+                      </div>
+                    </div>
+                  </v-alert>
+
+                  <!-- auth.json 输入区域 -->
+                  <v-textarea
+                    v-model="oauthJsonInput"
+                    :label="t('addChannel.oauthJsonLabel')"
+                    :placeholder="t('addChannel.oauthJsonPlaceholder')"
+                    variant="outlined"
+                    rows="8"
+                    no-resize
+                    @input="parseOAuthJson"
+                    :error="!!oauthParseError"
+                    :error-messages="oauthParseError"
+                    class="oauth-json-textarea"
+                  />
+
+                  <div class="text-caption text-medium-emphasis mt-2">
+                    {{ t('addChannel.oauthJsonPath') }}: <code>~/.codex/auth.json</code>
+                  </div>
+                </v-card-text>
+              </v-card>
+            </v-col>
+
+            <!-- API密钥管理（非 OAuth 类型显示） -->
+            <v-col cols="12" v-if="!isOAuthChannel">
               <v-card variant="outlined" rounded="lg" :color="form.apiKeys.length === 0 ? 'error' : undefined">
                 <v-card-title class="d-flex align-center justify-space-between pa-4 pb-2">
                   <div class="d-flex align-center ga-2">
@@ -621,7 +687,7 @@
 import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useTheme } from 'vuetify'
 import { useI18n } from 'vue-i18n'
-import type { Channel } from '../services/api'
+import type { Channel, OAuthTokens } from '../services/api'
 
 // i18n
 const { t } = useI18n()
@@ -811,6 +877,7 @@ const serviceTypeOptions = computed(() => {
   if (props.channelType === 'responses') {
     return [
       { title: t('addChannel.serviceTypeResponses'), value: 'responses' },
+      { title: t('addChannel.serviceTypeOpenAIOAuth'), value: 'openai-oauth' },
       { title: t('addChannel.serviceTypeOpenAI'), value: 'openai' },
       { title: t('addChannel.serviceTypeOpenAIOld'), value: 'openaiold' },
       { title: 'Claude', value: 'claude' }
@@ -872,7 +939,7 @@ const targetModelPlaceholder = computed(() => {
 // 表单数据
 const form = reactive({
   name: '',
-  serviceType: '' as 'openai' | 'openaiold' | 'gemini' | 'claude' | 'responses' | '',
+  serviceType: '' as 'openai' | 'openaiold' | 'gemini' | 'claude' | 'responses' | 'openai-oauth' | '',
   baseUrl: '',
   website: '',
   insecureSkipVerify: false,
@@ -880,8 +947,77 @@ const form = reactive({
   description: '',
   apiKeys: [] as string[],
   modelMapping: {} as Record<string, string>,
-  priceMultipliers: {} as Record<string, { inputMultiplier?: number; outputMultiplier?: number; cacheCreationMultiplier?: number; cacheReadMultiplier?: number }>
+  priceMultipliers: {} as Record<string, { inputMultiplier?: number; outputMultiplier?: number; cacheCreationMultiplier?: number; cacheReadMultiplier?: number }>,
+  oauthTokens: undefined as OAuthTokens | undefined
 })
+
+// OAuth 相关状态
+const oauthJsonInput = ref('')
+const oauthParseError = ref('')
+const parsedOAuthInfo = ref<{ email?: string; accountId?: string } | null>(null)
+
+// 解析 OAuth auth.json 内容
+const parseOAuthJson = () => {
+  oauthParseError.value = ''
+  parsedOAuthInfo.value = null
+  form.oauthTokens = undefined
+
+  if (!oauthJsonInput.value.trim()) {
+    return
+  }
+
+  try {
+    const parsed = JSON.parse(oauthJsonInput.value.trim())
+
+    // 验证必需字段
+    if (!parsed.tokens?.access_token) {
+      oauthParseError.value = t('addChannel.oauthMissingAccessToken')
+      return
+    }
+    if (!parsed.tokens?.account_id) {
+      oauthParseError.value = t('addChannel.oauthMissingAccountId')
+      return
+    }
+    if (!parsed.tokens?.refresh_token) {
+      oauthParseError.value = t('addChannel.oauthMissingRefreshToken')
+      return
+    }
+
+    // 尝试从 JWT 中提取 email（可选）
+    let email: string | undefined
+    try {
+      const idToken = parsed.tokens.id_token
+      if (idToken) {
+        const parts = idToken.split('.')
+        if (parts.length === 3) {
+          const payload = JSON.parse(atob(parts[1]))
+          email = payload.email
+        }
+      }
+    } catch {
+      // 忽略 JWT 解析错误
+    }
+
+    // 设置解析结果
+    form.oauthTokens = {
+      access_token: parsed.tokens.access_token,
+      account_id: parsed.tokens.account_id,
+      id_token: parsed.tokens.id_token,
+      refresh_token: parsed.tokens.refresh_token,
+      last_refresh: parsed.last_refresh
+    }
+
+    parsedOAuthInfo.value = {
+      email,
+      accountId: parsed.tokens.account_id.substring(0, 12) + '...'
+    }
+  } catch {
+    oauthParseError.value = t('addChannel.oauthInvalidJson')
+  }
+}
+
+// 检查是否为 OAuth 渠道类型
+const isOAuthChannel = computed(() => form.serviceType === 'openai-oauth')
 
 // 原始密钥映射 (掩码密钥 -> 原始密钥)
 const originalKeyMap = ref<Map<string, string>>(new Map())
@@ -971,6 +1107,14 @@ const subtitleClasses = computed(() => {
 })
 
 const isFormValid = computed(() => {
+  // OAuth 渠道需要 OAuth tokens 而非 API keys，且不需要用户输入 base URL
+  if (form.serviceType === 'openai-oauth') {
+    return (
+      form.name.trim() &&
+      form.serviceType &&
+      form.oauthTokens !== undefined
+    )
+  }
   return (
     form.name.trim() && form.serviceType && form.baseUrl.trim() && isValidUrl(form.baseUrl) && form.apiKeys.length > 0
   )
@@ -1014,6 +1158,7 @@ const resetForm = () => {
   form.apiKeys = []
   form.modelMapping = {}
   form.priceMultipliers = {}
+  form.oauthTokens = undefined
   newApiKey.value = ''
   newMapping.source = ''
   newMapping.target = ''
@@ -1040,6 +1185,11 @@ const resetForm = () => {
   detectedBaseUrl.value = ''
   detectedApiKeys.value = []
   randomSuffix.value = generateRandomString(6)
+
+  // 重置 OAuth 状态
+  oauthJsonInput.value = ''
+  oauthParseError.value = ''
+  parsedOAuthInfo.value = null
 }
 
 const loadChannelData = (channel: Channel) => {
@@ -1059,6 +1209,34 @@ const loadChannelData = (channel: Channel) => {
 
   form.modelMapping = { ...(channel.modelMapping || {}) }
   form.priceMultipliers = { ...(channel.priceMultipliers || {}) }
+
+  // 加载 OAuth tokens（如果存在）
+  if (channel.oauthTokens) {
+    form.oauthTokens = { ...channel.oauthTokens }
+    // 尝试从 JWT 中提取 email
+    let email: string | undefined
+    try {
+      const idToken = channel.oauthTokens.id_token
+      if (idToken) {
+        const parts = idToken.split('.')
+        if (parts.length === 3) {
+          const payload = JSON.parse(atob(parts[1]))
+          email = payload.email
+        }
+      }
+    } catch {
+      // 忽略 JWT 解析错误
+    }
+    parsedOAuthInfo.value = {
+      email,
+      accountId: channel.oauthTokens.account_id.substring(0, 12) + '...'
+    }
+  } else {
+    form.oauthTokens = undefined
+    parsedOAuthInfo.value = null
+  }
+  oauthJsonInput.value = ''
+  oauthParseError.value = ''
 }
 
 const addApiKey = () => {
@@ -1222,11 +1400,16 @@ const handleSubmit = async () => {
   // 直接使用原始密钥，不需要转换
   const processedApiKeys = form.apiKeys.filter(key => key.trim())
 
+  // OAuth 渠道使用固定的 base URL
+  const baseUrl = form.serviceType === 'openai-oauth'
+    ? 'https://chatgpt.com/backend-api/codex'
+    : form.baseUrl.trim().replace(/\/$/, '') // 移除末尾斜杠
+
   // 类型断言，因为表单验证已经确保serviceType不为空
-  const channelData = {
+  const channelData: Record<string, unknown> = {
     name: form.name.trim(),
-    serviceType: form.serviceType as 'openai' | 'openaiold' | 'gemini' | 'claude' | 'responses',
-    baseUrl: form.baseUrl.trim().replace(/\/$/, ''), // 移除末尾斜杠
+    serviceType: form.serviceType as 'openai' | 'openaiold' | 'gemini' | 'claude' | 'responses' | 'openai-oauth',
+    baseUrl,
     website: form.website.trim() || undefined,
     insecureSkipVerify: form.insecureSkipVerify || undefined,
     responseHeaderTimeout: form.responseHeaderTimeout || undefined,
@@ -1237,7 +1420,12 @@ const handleSubmit = async () => {
     priceMultipliers: form.priceMultipliers
   }
 
-  emit('save', channelData)
+  // 对于 OAuth 渠道，添加 OAuth tokens
+  if (form.serviceType === 'openai-oauth' && form.oauthTokens) {
+    channelData.oauthTokens = form.oauthTokens
+  }
+
+  emit('save', channelData as Omit<Channel, 'index' | 'latency' | 'status'>)
 }
 
 const handleCancel = () => {
@@ -1322,6 +1510,13 @@ onUnmounted(() => {
   font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
   font-size: 13px;
   line-height: 1.6;
+}
+
+/* OAuth JSON 输入样式 */
+.oauth-json-textarea :deep(textarea) {
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .detection-status-card {

@@ -63,9 +63,18 @@ export interface ChannelMetrics {
   }
 }
 
+// OAuth tokens for OpenAI OAuth channels (Codex)
+export interface OAuthTokens {
+  access_token: string
+  account_id: string
+  id_token?: string
+  refresh_token: string
+  last_refresh?: string
+}
+
 export interface Channel {
   name: string
-  serviceType: 'openai' | 'openaiold' | 'gemini' | 'claude' | 'responses'
+  serviceType: 'openai' | 'openaiold' | 'gemini' | 'claude' | 'responses' | 'openai-oauth'
   baseUrl: string
   apiKeys: string[]
   description?: string
@@ -83,6 +92,8 @@ export interface Channel {
   suspendReason?: string     // 熔断原因
   // 价格乘数配置：key 为模型名称（支持前缀匹配），"_default" 为默认乘数
   priceMultipliers?: Record<string, TokenPriceMultipliers>
+  // OAuth tokens for openai-oauth service type
+  oauthTokens?: OAuthTokens
 }
 
 export interface ChannelsResponse {

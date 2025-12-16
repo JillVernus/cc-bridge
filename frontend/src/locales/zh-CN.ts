@@ -251,6 +251,20 @@ export default {
     updateChannel: '更新渠道',
     requiredField: '此字段为必填项',
     invalidUrl: '请输入有效的URL',
+    // OAuth
+    serviceTypeOpenAIOAuth: 'OpenAI OAuth (Codex)',
+    oauthConfig: 'OAuth 认证',
+    oauthRequired: '必填',
+    oauthHint: '粘贴官方 Codex CLI 的 auth.json 内容 (~/.codex/auth.json)。cc-bridge 会自动管理 token 刷新。',
+    oauthJsonLabel: 'auth.json 内容',
+    oauthJsonPlaceholder: '在此粘贴 ~/.codex/auth.json 的内容...',
+    oauthJsonPath: '文件路径',
+    oauthConfigured: 'OAuth 已配置',
+    oauthMissingAccessToken: 'JSON 中缺少 access_token',
+    oauthMissingAccountId: 'JSON 中缺少 account_id',
+    oauthMissingRefreshToken: 'JSON 中缺少 refresh_token',
+    oauthInvalidJson: 'JSON 格式无效',
+    oauthFixedUrl: '固定 API 端点',
   },
 
   // Request Log

@@ -23,6 +23,16 @@ type TokenPriceMultipliers struct {
 	CacheReadMultiplier     float64 `json:"cacheReadMultiplier,omitempty"`     // 缓存读取价格乘数，默认 1.0
 }
 
+// OAuthTokens stores OAuth authentication data for OpenAI OAuth channels
+// Matches the structure of Codex CLI's auth.json tokens field
+type OAuthTokens struct {
+	AccessToken  string `json:"access_token"`            // OAuth2 access token for API calls
+	AccountID    string `json:"account_id"`              // ChatGPT account ID (required for API headers)
+	IDToken      string `json:"id_token,omitempty"`      // JWT ID token containing user info
+	RefreshToken string `json:"refresh_token"`           // OAuth2 refresh token for token renewal
+	LastRefresh  string `json:"last_refresh,omitempty"`  // Timestamp of last token refresh
+}
+
 // GetEffectiveMultiplier 获取有效乘数（0 或未设置时返回 1.0）
 func (t *TokenPriceMultipliers) GetEffectiveMultiplier(tokenType string) float64 {
 	var m float64
@@ -46,7 +56,7 @@ func (t *TokenPriceMultipliers) GetEffectiveMultiplier(tokenType string) float64
 type UpstreamConfig struct {
 	BaseURL                   string            `json:"baseUrl"`
 	APIKeys                   []string          `json:"apiKeys"`
-	ServiceType               string            `json:"serviceType"` // gemini, openai, openaiold, claude
+	ServiceType               string            `json:"serviceType"` // gemini, openai, openaiold, claude, openai-oauth
 	Name                      string            `json:"name,omitempty"`
 	Description               string            `json:"description,omitempty"`
 	Website                   string            `json:"website,omitempty"`
@@ -59,6 +69,8 @@ type UpstreamConfig struct {
 	PromotionUntil *time.Time `json:"promotionUntil,omitempty"` // 促销期截止时间，在此期间内优先使用此渠道（忽略trace亲和）
 	// 价格乘数配置：key 为模型名称（支持前缀匹配），"_default" 为默认乘数
 	PriceMultipliers map[string]TokenPriceMultipliers `json:"priceMultipliers,omitempty"`
+	// OpenAI OAuth configuration (for serviceType="openai-oauth")
+	OAuthTokens *OAuthTokens `json:"oauthTokens,omitempty"`
 }
 
 // GetResponseHeaderTimeout 获取响应头超时时间（秒），默认30秒
@@ -145,6 +157,8 @@ type UpstreamUpdate struct {
 	Status           *string                          `json:"status"`
 	PromotionUntil   *time.Time                       `json:"promotionUntil"`
 	PriceMultipliers map[string]TokenPriceMultipliers `json:"priceMultipliers"`
+	// OpenAI OAuth configuration
+	OAuthTokens *OAuthTokens `json:"oauthTokens"`
 }
 
 // Config 配置结构
@@ -347,6 +361,7 @@ func (cm *ConfigManager) loadConfig() error {
 
 // validateChannelKeys 自检渠道密钥配置
 // 没有配置 API key 的渠道，即使状态为 active 也应暂停
+// 例外：openai-oauth 类型渠道使用 OAuthTokens 而非 APIKeys
 // 返回 true 表示有配置被修改，需要保存
 func (cm *ConfigManager) validateChannelKeys() bool {
 	modified := false
@@ -373,6 +388,17 @@ func (cm *ConfigManager) validateChannelKeys() bool {
 		status := upstream.Status
 		if status == "" {
 			status = "active"
+		}
+
+		// openai-oauth 类型使用 OAuthTokens，不需要 APIKeys
+		if upstream.ServiceType == "openai-oauth" {
+			// 检查 OAuthTokens 是否配置
+			if status == "active" && (upstream.OAuthTokens == nil || upstream.OAuthTokens.AccessToken == "") {
+				upstream.Status = "suspended"
+				modified = true
+				log.Printf("⚠️ [自检] Responses 渠道 [%d] %s (openai-oauth) 没有配置 OAuth tokens，已自动暂停", i, upstream.Name)
+			}
+			continue
 		}
 
 		// 如果是 active 状态但没有配置 key，自动设为 suspended
@@ -1272,6 +1298,15 @@ func (cm *ConfigManager) UpdateResponsesUpstream(index int, updates UpstreamUpda
 	if updates.PriceMultipliers != nil {
 		upstream.PriceMultipliers = updates.PriceMultipliers
 	}
+	if updates.OAuthTokens != nil {
+		// OAuth tokens updated - auto-activate if suspended
+		upstream.OAuthTokens = updates.OAuthTokens
+		if upstream.Status == "suspended" && upstream.OAuthTokens.AccessToken != "" {
+			upstream.Status = "active"
+			shouldResetMetrics = true
+			log.Printf("Responses 渠道 [%d] %s 已从暂停状态自动激活（OAuth tokens 更新）", index, upstream.Name)
+		}
+	}
 
 	if err := cm.saveConfigLocked(cm.config); err != nil {
 		return false, err
@@ -1360,6 +1395,49 @@ func (cm *ConfigManager) RemoveResponsesAPIKey(index int, apiKey string) error {
 
 	log.Printf("已从 Responses 上游 [%d] %s 删除API密钥", index, cm.config.ResponsesUpstream[index].Name)
 	return nil
+}
+
+// UpdateResponsesOAuthTokens 更新 Responses 渠道的 OAuth tokens
+// 用于自动刷新 token 后保存新的 tokens
+func (cm *ConfigManager) UpdateResponsesOAuthTokens(index int, tokens *OAuthTokens) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if index < 0 || index >= len(cm.config.ResponsesUpstream) {
+		return fmt.Errorf("无效的 Responses 上游索引: %d", index)
+	}
+
+	upstream := &cm.config.ResponsesUpstream[index]
+	upstream.OAuthTokens = tokens
+
+	if err := cm.saveConfigLocked(cm.config); err != nil {
+		return err
+	}
+
+	log.Printf("已更新 Responses 上游 [%d] %s 的 OAuth tokens", index, upstream.Name)
+	return nil
+}
+
+// UpdateResponsesOAuthTokensByName 根据渠道名称更新 Responses 渠道的 OAuth tokens
+// 用于在不知道渠道索引的情况下更新 tokens（如单渠道模式）
+func (cm *ConfigManager) UpdateResponsesOAuthTokensByName(name string, tokens *OAuthTokens) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	for i, upstream := range cm.config.ResponsesUpstream {
+		if upstream.Name == name {
+			cm.config.ResponsesUpstream[i].OAuthTokens = tokens
+
+			if err := cm.saveConfigLocked(cm.config); err != nil {
+				return err
+			}
+
+			log.Printf("已更新 Responses 上游 %s 的 OAuth tokens", name)
+			return nil
+		}
+	}
+
+	return fmt.Errorf("未找到名为 %s 的 Responses 渠道", name)
 }
 
 // ============== 多渠道调度相关方法 ==============

@@ -251,6 +251,20 @@ export default {
     updateChannel: 'Update Channel',
     requiredField: 'This field is required',
     invalidUrl: 'Please enter a valid URL',
+    // OAuth
+    serviceTypeOpenAIOAuth: 'OpenAI OAuth (Codex)',
+    oauthConfig: 'OAuth Authentication',
+    oauthRequired: 'Required',
+    oauthHint: 'Paste the content of auth.json from the official Codex CLI (~/.codex/auth.json). cc-bridge will automatically manage token refresh.',
+    oauthJsonLabel: 'auth.json Content',
+    oauthJsonPlaceholder: 'Paste the content of ~/.codex/auth.json here...',
+    oauthJsonPath: 'File path',
+    oauthConfigured: 'OAuth Configured',
+    oauthMissingAccessToken: 'Missing access_token in JSON',
+    oauthMissingAccountId: 'Missing account_id in JSON',
+    oauthMissingRefreshToken: 'Missing refresh_token in JSON',
+    oauthInvalidJson: 'Invalid JSON format',
+    oauthFixedUrl: 'Fixed API endpoint',
   },
 
   // Request Log
