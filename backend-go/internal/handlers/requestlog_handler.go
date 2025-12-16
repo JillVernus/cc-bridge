@@ -191,3 +191,89 @@ func (h *RequestLogHandler) CleanupLogs(c *gin.Context) {
 		"retentionDays": days,
 	})
 }
+
+// ========== User Alias Handlers ==========
+
+// GetAliases 获取所有用户别名
+func (h *RequestLogHandler) GetAliases(c *gin.Context) {
+	aliases, err := h.manager.GetAllAliases()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, aliases)
+}
+
+// SetAlias 设置用户别名
+func (h *RequestLogHandler) SetAlias(c *gin.Context) {
+	userID := c.Param("userId")
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "userId is required"})
+		return
+	}
+
+	var req struct {
+		Alias string `json:"alias"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	if req.Alias == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "alias is required"})
+		return
+	}
+
+	if err := h.manager.SetAlias(userID, req.Alias); err != nil {
+		if err.Error() == "alias already in use" {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Alias set successfully"})
+}
+
+// DeleteAlias 删除用户别名
+func (h *RequestLogHandler) DeleteAlias(c *gin.Context) {
+	userID := c.Param("userId")
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "userId is required"})
+		return
+	}
+
+	if err := h.manager.DeleteAlias(userID); err != nil {
+		if err.Error() == "alias not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Alias deleted successfully"})
+}
+
+// ImportAliases 批量导入别名（用于从 localStorage 迁移）
+func (h *RequestLogHandler) ImportAliases(c *gin.Context) {
+	var aliases map[string]string
+	if err := c.ShouldBindJSON(&aliases); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body, expected object with userId: alias pairs"})
+		return
+	}
+
+	imported, err := h.manager.ImportAliases(aliases)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":  "Import completed",
+		"imported": imported,
+	})
+}

@@ -189,6 +189,12 @@ func main() {
 			apiGroup.GET("/logs/:id", reqLogHandler.GetLogByID)
 			apiGroup.DELETE("/logs", reqLogHandler.ClearLogs)
 			apiGroup.POST("/logs/cleanup", reqLogHandler.CleanupLogs)
+
+			// 用户别名 API
+			apiGroup.GET("/aliases", reqLogHandler.GetAliases)
+			apiGroup.PUT("/aliases/:userId", reqLogHandler.SetAlias)
+			apiGroup.DELETE("/aliases/:userId", reqLogHandler.DeleteAlias)
+			apiGroup.POST("/aliases/import", reqLogHandler.ImportAliases)
 		}
 
 		// 定价配置 API

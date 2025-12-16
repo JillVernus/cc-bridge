@@ -441,6 +441,36 @@ class ApiService {
     return this.request(`/logs/cleanup?days=${days}`, { method: 'POST' })
   }
 
+  // ============== 用户别名 API ==============
+
+  // 获取所有用户别名
+  async getUserAliases(): Promise<Record<string, string>> {
+    return this.request('/aliases')
+  }
+
+  // 设置用户别名
+  async setUserAlias(userId: string, alias: string): Promise<{ message: string }> {
+    return this.request(`/aliases/${encodeURIComponent(userId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ alias })
+    })
+  }
+
+  // 删除用户别名
+  async deleteUserAlias(userId: string): Promise<{ message: string }> {
+    return this.request(`/aliases/${encodeURIComponent(userId)}`, {
+      method: 'DELETE'
+    })
+  }
+
+  // 批量导入别名（用于从 localStorage 迁移）
+  async importUserAliases(aliases: Record<string, string>): Promise<{ message: string; imported: number }> {
+    return this.request('/aliases/import', {
+      method: 'POST',
+      body: JSON.stringify(aliases)
+    })
+  }
+
   // ============== 定价配置 API ==============
 
   // 获取定价配置

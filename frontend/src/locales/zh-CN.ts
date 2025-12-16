@@ -351,7 +351,7 @@ export default {
     removeAlias: '移除别名',
     aliasNotUnique: '此别名已被使用',
     userAliasManagement: '用户ID别名',
-    userAliasDesc: '点击表格中的用户ID来设置别名。别名存储在本地浏览器中。',
+    userAliasDesc: '点击表格中的用户ID来设置别名。别名存储在服务器上，可跨设备同步。',
     noAliases: '暂无别名。点击日志表格中的用户ID添加。',
   },
 

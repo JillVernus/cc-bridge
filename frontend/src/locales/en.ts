@@ -351,7 +351,7 @@ export default {
     removeAlias: 'Remove Alias',
     aliasNotUnique: 'This alias is already in use',
     userAliasManagement: 'User ID Aliases',
-    userAliasDesc: 'Click on a User ID in the table to assign an alias. Aliases are stored locally in your browser.',
+    userAliasDesc: 'Click on a User ID in the table to assign an alias. Aliases are stored on the server and synced across devices.',
     noAliases: 'No aliases defined. Click on a User ID in the logs table to add one.',
   },
 

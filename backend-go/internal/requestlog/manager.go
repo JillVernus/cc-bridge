@@ -55,6 +55,20 @@ func NewManager(dbPath string) (*Manager, error) {
 
 // initSchema creates the necessary tables and indexes
 func (m *Manager) initSchema() error {
+	// Create user_aliases table for storing user ID to alias mappings
+	aliasSchema := `
+	CREATE TABLE IF NOT EXISTS user_aliases (
+		user_id TEXT PRIMARY KEY,
+		alias TEXT NOT NULL UNIQUE,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_user_aliases_alias ON user_aliases(alias);
+	`
+	if _, err := m.db.Exec(aliasSchema); err != nil {
+		return fmt.Errorf("failed to create user_aliases table: %w", err)
+	}
+
 	// Create table without status index first (for backward compatibility)
 	schema := `
 	CREATE TABLE IF NOT EXISTS request_logs (
@@ -932,6 +946,158 @@ func (m *Manager) GetActiveSessions(threshold time.Duration) ([]ActiveSession, e
 // Close closes the database connection
 func (m *Manager) Close() error {
 	return m.db.Close()
+}
+
+// ========== User Alias Methods ==========
+
+// UserAlias represents a user ID to alias mapping
+type UserAlias struct {
+	UserID    string    `json:"userId"`
+	Alias     string    `json:"alias"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// GetAllAliases retrieves all user aliases
+func (m *Manager) GetAllAliases() (map[string]string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	query := `SELECT user_id, alias FROM user_aliases`
+	rows, err := m.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query user aliases: %w", err)
+	}
+	defer rows.Close()
+
+	aliases := make(map[string]string)
+	for rows.Next() {
+		var userID, alias string
+		if err := rows.Scan(&userID, &alias); err != nil {
+			return nil, fmt.Errorf("failed to scan user alias: %w", err)
+		}
+		aliases[userID] = alias
+	}
+
+	return aliases, nil
+}
+
+// GetAlias retrieves a single alias by user ID
+func (m *Manager) GetAlias(userID string) (*UserAlias, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	query := `SELECT user_id, alias, created_at, updated_at FROM user_aliases WHERE user_id = ?`
+	var ua UserAlias
+	var createdAt, updatedAt string
+
+	err := m.db.QueryRow(query, userID).Scan(&ua.UserID, &ua.Alias, &createdAt, &updatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user alias: %w", err)
+	}
+
+	ua.CreatedAt = parseTimeString(createdAt)
+	ua.UpdatedAt = parseTimeString(updatedAt)
+
+	return &ua, nil
+}
+
+// SetAlias creates or updates a user alias
+func (m *Manager) SetAlias(userID, alias string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if userID == "" || alias == "" {
+		return fmt.Errorf("user_id and alias are required")
+	}
+
+	// Check if alias is unique (excluding current user)
+	var count int
+	err := m.db.QueryRow(`SELECT COUNT(*) FROM user_aliases WHERE alias = ? AND user_id != ?`, alias, userID).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("failed to check alias uniqueness: %w", err)
+	}
+	if count > 0 {
+		return fmt.Errorf("alias already in use")
+	}
+
+	// Upsert the alias
+	query := `
+	INSERT INTO user_aliases (user_id, alias, created_at, updated_at)
+	VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+	ON CONFLICT(user_id) DO UPDATE SET
+		alias = excluded.alias,
+		updated_at = CURRENT_TIMESTAMP
+	`
+	_, err = m.db.Exec(query, userID, alias)
+	if err != nil {
+		return fmt.Errorf("failed to set user alias: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteAlias removes a user alias
+func (m *Manager) DeleteAlias(userID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	result, err := m.db.Exec(`DELETE FROM user_aliases WHERE user_id = ?`, userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete user alias: %w", err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return fmt.Errorf("alias not found")
+	}
+
+	return nil
+}
+
+// ImportAliases imports multiple aliases (used for migration from localStorage)
+func (m *Manager) ImportAliases(aliases map[string]string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	tx, err := m.db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO user_aliases (user_id, alias, created_at, updated_at)
+		VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT(user_id) DO UPDATE SET
+			alias = excluded.alias,
+			updated_at = CURRENT_TIMESTAMP
+	`)
+	if err != nil {
+		return 0, fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	imported := 0
+	for userID, alias := range aliases {
+		if userID == "" || alias == "" {
+			continue
+		}
+		if _, err := stmt.Exec(userID, alias); err != nil {
+			log.Printf("⚠️ Failed to import alias for %s: %v", userID, err)
+			continue
+		}
+		imported++
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return imported, nil
 }
 
 // generateID creates a unique request ID

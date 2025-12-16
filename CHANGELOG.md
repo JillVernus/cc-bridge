@@ -4,6 +4,26 @@
 
 ---
 
+## [v1.3.005] - 2025-12-16
+
+### ✨ 新功能
+
+#### 用户别名后端存储
+
+将用户 ID 别名从浏览器 localStorage 迁移到后端 SQLite 存储，实现跨设备同步：
+
+- **后端 API**：新增 `/api/aliases` 端点，支持 CRUD 操作
+  - `GET /api/aliases` - 获取所有别名
+  - `PUT /api/aliases/:userId` - 设置别名
+  - `DELETE /api/aliases/:userId` - 删除别名
+  - `POST /api/aliases/import` - 批量导入（用于迁移）
+- **SQLite 存储**：`user_aliases` 表，支持唯一性约束
+- **自动迁移**：首次加载时自动将 localStorage 中的别名迁移到后端
+- **跨设备同步**：别名存储在服务器，可在不同浏览器/设备间同步
+- **优雅降级**：后端不可用时回退到 localStorage
+
+---
+
 ## [v1.3.004] - 2025-12-16
 
 ### 🐛 Bug 修复

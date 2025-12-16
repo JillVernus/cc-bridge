@@ -1319,23 +1319,38 @@ const stopActiveSessionResize = () => {
   document.body.style.userSelect = ''
 }
 
-// User alias localStorage functions
-const loadUserAliases = () => {
+// User alias API functions
+const loadUserAliases = async () => {
   try {
-    const saved = localStorage.getItem('requestlog-user-aliases')
-    if (saved) {
-      userAliases.value = JSON.parse(saved)
+    // First, check if there are aliases in localStorage to migrate
+    const localAliases = localStorage.getItem('requestlog-user-aliases')
+    if (localAliases) {
+      const parsed = JSON.parse(localAliases)
+      if (Object.keys(parsed).length > 0) {
+        // Migrate to backend
+        try {
+          await api.importUserAliases(parsed)
+          localStorage.removeItem('requestlog-user-aliases')
+          console.log('Migrated user aliases from localStorage to backend')
+        } catch (e) {
+          console.warn('Failed to migrate aliases to backend:', e)
+        }
+      }
     }
+
+    // Load from backend
+    userAliases.value = await api.getUserAliases()
   } catch (e) {
     console.error('Failed to load user aliases:', e)
-  }
-}
-
-const saveUserAliases = () => {
-  try {
-    localStorage.setItem('requestlog-user-aliases', JSON.stringify(userAliases.value))
-  } catch (e) {
-    console.error('Failed to save user aliases:', e)
+    // Fallback to localStorage if backend fails
+    try {
+      const saved = localStorage.getItem('requestlog-user-aliases')
+      if (saved) {
+        userAliases.value = JSON.parse(saved)
+      }
+    } catch (e2) {
+      console.error('Failed to load user aliases from localStorage:', e2)
+    }
   }
 }
 
@@ -1928,21 +1943,35 @@ const validateAlias = () => {
   }
 }
 
-const saveAlias = () => {
+const saveAlias = async () => {
   const alias = aliasInput.value.trim()
   if (!alias || aliasError.value) return
 
-  userAliases.value[editingUserId.value] = alias
-  saveUserAliases()
-  showAliasDialog.value = false
+  try {
+    await api.setUserAlias(editingUserId.value, alias)
+    userAliases.value[editingUserId.value] = alias
+    showAliasDialog.value = false
+  } catch (e: unknown) {
+    const error = e as Error
+    if (error.message?.includes('already in use')) {
+      aliasError.value = t('requestLog.aliasNotUnique')
+    } else {
+      console.error('Failed to save alias:', e)
+      aliasError.value = 'Failed to save alias'
+    }
+  }
 }
 
-const removeAlias = (userId?: string) => {
+const removeAlias = async (userId?: string) => {
   const targetId = userId || editingUserId.value
-  delete userAliases.value[targetId]
-  saveUserAliases()
-  if (!userId) {
-    showAliasDialog.value = false
+  try {
+    await api.deleteUserAlias(targetId)
+    delete userAliases.value[targetId]
+    if (!userId) {
+      showAliasDialog.value = false
+    }
+  } catch (e) {
+    console.error('Failed to remove alias:', e)
   }
 }
 
