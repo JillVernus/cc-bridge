@@ -440,12 +440,12 @@
 
             <!-- OAuth 认证配置（仅 openai-oauth 类型显示） -->
             <v-col cols="12" v-if="isOAuthChannel">
-              <v-card variant="outlined" rounded="lg" :color="!form.oauthTokens ? 'error' : 'success'">
+              <v-card variant="outlined" rounded="lg" :color="oauthCardColor">
                 <v-card-title class="d-flex align-center justify-space-between pa-4 pb-2">
                   <div class="d-flex align-center ga-2">
-                    <v-icon :color="form.oauthTokens ? 'success' : 'error'">mdi-shield-account</v-icon>
+                    <v-icon :color="oauthCardColor || 'primary'">mdi-shield-account</v-icon>
                     <span class="text-body-1 font-weight-bold">{{ t('addChannel.oauthConfig') }}</span>
-                    <v-chip v-if="!form.oauthTokens" size="x-small" color="error" variant="tonal">
+                    <v-chip v-if="!form.oauthTokens && !isEditing" size="x-small" color="error" variant="tonal">
                       {{ t('addChannel.oauthRequired') }}
                     </v-chip>
                   </div>
@@ -1023,6 +1023,19 @@ const parseOAuthJson = () => {
 // 检查是否为 OAuth 渠道类型
 const isOAuthChannel = computed(() => form.serviceType === 'openai-oauth')
 
+// OAuth 卡片颜色：编辑模式下如果已有 tokens 则显示 success，新建模式下无 tokens 显示 error
+const oauthCardColor = computed(() => {
+  if (form.oauthTokens) {
+    return 'success'
+  }
+  // 编辑模式下，如果没有 tokens（不应该发生），显示默认颜色而非 error
+  if (isEditing.value) {
+    return undefined
+  }
+  // 新建模式下，没有 tokens 显示 error
+  return 'error'
+})
+
 // 原始密钥映射 (掩码密钥 -> 原始密钥)
 const originalKeyMap = ref<Map<string, string>>(new Map())
 
@@ -1113,6 +1126,13 @@ const subtitleClasses = computed(() => {
 const isFormValid = computed(() => {
   // OAuth 渠道需要 OAuth tokens 而非 API keys，且不需要用户输入 base URL
   if (form.serviceType === 'openai-oauth') {
+    // 编辑模式下，不需要重新输入 OAuth tokens（后端会保留现有 tokens）
+    // 新建模式下，必须提供 OAuth tokens
+    if (isEditing.value) {
+      // 编辑模式：只需要名称和服务类型
+      return form.name.trim() && form.serviceType
+    }
+    // 新建模式：必须提供 OAuth tokens
     return (
       form.name.trim() &&
       form.serviceType &&
