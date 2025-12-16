@@ -2224,10 +2224,11 @@ const silentRefresh = async () => {
   display: flex;
   align-items: stretch;
   gap: 0;
+  width: 100%;
 }
 
 .panel-wrapper {
-  flex-shrink: 0;
+  flex-shrink: 1;
   min-width: 0;
 }
 
@@ -2438,7 +2439,6 @@ const silentRefresh = async () => {
   border-collapse: collapse;
   font-size: 0.75rem;
   font-family: 'Courier New', monospace;
-  table-layout: fixed;
 }
 
 .summary-table-custom th {
