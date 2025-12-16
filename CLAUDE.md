@@ -215,6 +215,7 @@ docker-compose up -d
 ## 重要提示
 
 - **Git 操作**: 未经用户明确要求，不要执行 git commit/push/branch 操作
+- **版本更新**: 当用户要求或批准 commit 时，**必须**同时更新 `VERSION` 文件和 `frontend/package.json` 中的版本号（patch 版本 +1）
 - **配置热重载**: `backend-go/.config/config.json` 修改后自动生效，无需重启
 - **认证**: 所有端点（除 `/health`）需要 `x-api-key` 头或 `PROXY_ACCESS_KEY`
 - **环境变量**: 通过 `.env` 文件配置，参考 `backend-go/.env.example`
