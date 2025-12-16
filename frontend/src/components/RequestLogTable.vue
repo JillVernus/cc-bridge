@@ -146,17 +146,7 @@
           <div class="summary-header d-flex align-center px-2 py-1">
             <v-tooltip :text="t('requestLog.activeSessions')" location="top">
               <template v-slot:activator="{ props }">
-                <div v-bind="props" class="d-flex align-center active-sessions-icon">
-                  <v-progress-circular
-                    v-if="activeSessions.length > 0"
-                    indeterminate
-                    size="14"
-                    width="2"
-                    color="primary"
-                    class="mr-1"
-                  />
-                  <v-icon size="18">mdi-chat-processing-outline</v-icon>
-                </div>
+                <v-icon v-bind="props" size="18">mdi-chat-processing-outline</v-icon>
               </template>
             </v-tooltip>
             <v-spacer />
@@ -523,9 +513,9 @@
             width="2"
             color="grey"
           />
-          <v-chip v-else size="x-small" :color="getDurationColor(item.durationMs)" variant="tonal">
-            {{ item.durationMs }}ms
-          </v-chip>
+          <span v-else class="duration-text" :class="'duration-' + getDurationColor(item.durationMs)">
+            {{ item.durationMs }} ms
+          </span>
         </template>
 
         <template v-slot:item.providerName="{ item }">
@@ -1429,7 +1419,7 @@ const resetColumnWidths = () => {
 const headers = computed(() => [
   { title: t('requestLog.status'), key: 'status', sortable: false, width: `${columnWidths.value.status}px` },
   { title: t('requestLog.time'), key: 'initialTime', sortable: false, width: `${columnWidths.value.initialTime}px` },
-  { title: t('requestLog.duration'), key: 'durationMs', sortable: false, width: `${columnWidths.value.durationMs}px` },
+  { title: t('requestLog.duration'), key: 'durationMs', sortable: false, width: `${columnWidths.value.durationMs}px`, align: 'end' },
   { title: t('requestLog.channel'), key: 'providerName', sortable: false, width: `${columnWidths.value.providerName}px` },
   { title: t('requestLog.model'), key: 'model', sortable: false, width: `${columnWidths.value.model}px` },
   { title: t('requestLog.user'), key: 'userId', sortable: false, width: `${columnWidths.value.userId}px` },
@@ -2772,11 +2762,23 @@ const silentRefresh = async () => {
   min-width: 36px !important;
 }
 
-/* Active sessions icon wrapper */
-.active-sessions-icon {
-  height: 28px;
-  display: flex;
-  align-items: center;
+/* Duration column - right alignment and color coding */
+.duration-text {
+  font-family: 'Courier New', monospace;
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+.duration-success {
+  color: rgb(var(--v-theme-success));
+}
+
+.duration-warning {
+  color: rgb(var(--v-theme-warning));
+}
+
+.duration-error {
+  color: rgb(var(--v-theme-error));
 }
 
 </style>
