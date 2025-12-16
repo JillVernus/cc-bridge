@@ -96,9 +96,23 @@
                       max-width="600"
                     >
                       <template v-slot:activator="{ props }">
-                        <span v-bind="props">{{ formatSummaryKey(String(key)) }}</span>
+                        <span
+                          v-bind="props"
+                          :class="{ 'clickable-id': summaryGroupBy === 'user' }"
+                          @click.stop="summaryGroupBy === 'user' && openAliasDialog(String(key))"
+                        >
+                          {{ formatSummaryKey(String(key)) }}
+                        </span>
                       </template>
-                      <span class="id-tooltip">{{ summaryGroupBy === 'user' ? normalizeUserId(String(key)) : String(key) }}</span>
+                      <div v-if="summaryGroupBy === 'user'" class="id-tooltip">
+                        <div v-if="getUserAlias(String(key))" class="alias-tooltip-row">
+                          <span class="alias-label">{{ t('requestLog.alias') }}:</span> {{ getUserAlias(String(key)) }}
+                        </div>
+                        <div>
+                          <span class="id-label">{{ t('requestLog.userId') }}:</span> {{ normalizeUserId(String(key)) }}
+                        </div>
+                      </div>
+                      <span v-else class="id-tooltip">{{ String(key) }}</span>
                     </v-tooltip>
                     <span v-else>{{ formatSummaryKey(String(key)) }}</span>
                   </td>
@@ -319,6 +333,44 @@
 
           <v-divider class="my-4" />
 
+          <div class="settings-section mb-4">
+            <div class="text-subtitle-2 mb-2">{{ t('requestLog.userAliasManagement') }}</div>
+
+            <!-- Alias List -->
+            <div v-if="Object.keys(userAliases).length > 0" class="alias-list mb-3">
+              <div
+                v-for="(alias, visibleUserId) in userAliases"
+                :key="visibleUserId"
+                class="alias-item d-flex align-center"
+              >
+                <span class="alias-name font-weight-medium">{{ alias }}</span>
+                <span class="mx-2 text-grey">→</span>
+                <v-tooltip location="top">
+                  <template v-slot:activator="{ props }">
+                    <span v-bind="props" class="alias-userid mono-text">
+                      {{ formatId(normalizeUserId(String(visibleUserId))) }}
+                    </span>
+                  </template>
+                  <span class="id-tooltip">{{ normalizeUserId(String(visibleUserId)) }}</span>
+                </v-tooltip>
+                <v-spacer />
+                <v-btn icon size="x-small" variant="text" @click="openAliasDialog(String(visibleUserId))">
+                  <v-icon size="16">mdi-pencil</v-icon>
+                </v-btn>
+                <v-btn icon size="x-small" variant="text" color="error" @click="removeAlias(String(visibleUserId))">
+                  <v-icon size="16">mdi-delete</v-icon>
+                </v-btn>
+              </div>
+            </div>
+            <div v-else class="text-caption text-grey mb-3">
+              {{ t('requestLog.noAliases') }}
+            </div>
+
+            <div class="text-caption text-grey">{{ t('requestLog.userAliasDesc') }}</div>
+          </div>
+
+          <v-divider class="my-4" />
+
           <div class="settings-section">
             <div class="text-subtitle-2 mb-2">{{ t('requestLog.databaseOps') }}</div>
             <v-btn
@@ -381,6 +433,58 @@
         <v-card-actions>
           <v-spacer />
           <v-btn color="primary" variant="flat" @click="showCleanupResult = false">{{ t('common.close') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- 用户别名对话框 -->
+    <v-dialog v-model="showAliasDialog" max-width="450">
+      <v-card>
+        <v-card-title class="d-flex align-center">
+          <v-icon class="mr-2">mdi-account-edit</v-icon>
+          {{ t('requestLog.assignAlias') }}
+        </v-card-title>
+        <v-card-text>
+          <!-- Full User ID (read-only) -->
+          <div class="text-caption text-grey mb-1">{{ t('requestLog.userId') }}</div>
+          <div class="mono-text text-body-2 mb-4 user-id-display">
+            {{ normalizeUserId(editingUserId) }}
+          </div>
+
+          <!-- Alias Input -->
+          <v-text-field
+            v-model="aliasInput"
+            :label="t('requestLog.aliasName')"
+            :error-messages="aliasError"
+            :placeholder="t('requestLog.aliasPlaceholder')"
+            density="compact"
+            variant="outlined"
+            maxlength="30"
+            counter
+            @input="validateAlias"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-btn
+            v-if="getUserAlias(editingUserId)"
+            color="error"
+            variant="text"
+            @click="removeAlias()"
+          >
+            {{ t('requestLog.removeAlias') }}
+          </v-btn>
+          <v-spacer />
+          <v-btn variant="text" @click="showAliasDialog = false">
+            {{ t('common.cancel') }}
+          </v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            @click="saveAlias"
+            :disabled="!!aliasError || !aliasInput.trim()"
+          >
+            {{ t('common.save') }}
+          </v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -568,11 +672,22 @@
         <template v-slot:item.userId="{ item }">
           <v-tooltip v-if="item.userId" location="top" max-width="600">
             <template v-slot:activator="{ props }">
-              <span v-bind="props" class="text-caption mono-text id-cell">
-                {{ formatUserId(item.userId) }}
+              <span
+                v-bind="props"
+                class="text-caption mono-text id-cell clickable-id"
+                @click.stop="openAliasDialog(item.userId)"
+              >
+                {{ getDisplayUserId(item.userId) }}
               </span>
             </template>
-            <span class="id-tooltip">{{ normalizeUserId(item.userId) }}</span>
+            <div class="id-tooltip">
+              <div v-if="getUserAlias(item.userId)" class="alias-tooltip-row">
+                <span class="alias-label">{{ t('requestLog.alias') }}:</span> {{ getUserAlias(item.userId) }}
+              </div>
+              <div>
+                <span class="id-label">{{ t('requestLog.userId') }}:</span> {{ normalizeUserId(item.userId) }}
+              </div>
+            </div>
           </v-tooltip>
           <span v-else class="text-caption mono-text id-cell">—</span>
         </template>
@@ -729,6 +844,13 @@ const updatedSessions = ref<Set<string>>(new Set())
 // Active sessions state
 const activeSessions = ref<ActiveSession[]>([])
 const updatedActiveSessions = ref<Set<string>>(new Set())
+
+// User alias state
+const userAliases = ref<Record<string, string>>({})
+const showAliasDialog = ref(false)
+const editingUserId = ref<string>('')
+const aliasInput = ref<string>('')
+const aliasError = ref<string>('')
 
 // Summary table group by state
 type SummaryGroupBy = 'model' | 'provider' | 'user' | 'session'
@@ -1193,6 +1315,46 @@ const stopActiveSessionResize = () => {
   document.body.style.userSelect = ''
 }
 
+// User alias localStorage functions
+const loadUserAliases = () => {
+  try {
+    const saved = localStorage.getItem('requestlog-user-aliases')
+    if (saved) {
+      userAliases.value = JSON.parse(saved)
+    }
+  } catch (e) {
+    console.error('Failed to load user aliases:', e)
+  }
+}
+
+const saveUserAliases = () => {
+  try {
+    localStorage.setItem('requestlog-user-aliases', JSON.stringify(userAliases.value))
+  } catch (e) {
+    console.error('Failed to save user aliases:', e)
+  }
+}
+
+// User alias helper functions
+const getUserAlias = (userId: string): string | null => {
+  return userAliases.value[userId] || null
+}
+
+const isAliasUnique = (alias: string, excludeUserId?: string): boolean => {
+  const lowerAlias = alias.toLowerCase().trim()
+  for (const [userId, existingAlias] of Object.entries(userAliases.value)) {
+    if (excludeUserId && userId === excludeUserId) continue
+    if (existingAlias.toLowerCase().trim() === lowerAlias) return false
+  }
+  return true
+}
+
+const getDisplayUserId = (userId: string): string => {
+  const alias = getUserAlias(userId)
+  if (alias) return alias
+  return formatUserId(userId)
+}
+
 // Summary table column widths
 const defaultSummaryColumnWidths: Record<string, number> = {
   name: 200,
@@ -1419,7 +1581,7 @@ const resetColumnWidths = () => {
 const headers = computed(() => [
   { title: t('requestLog.status'), key: 'status', sortable: false, width: `${columnWidths.value.status}px` },
   { title: t('requestLog.time'), key: 'initialTime', sortable: false, width: `${columnWidths.value.initialTime}px` },
-  { title: t('requestLog.duration'), key: 'durationMs', sortable: false, width: `${columnWidths.value.durationMs}px`, align: 'end' },
+  { title: t('requestLog.duration'), key: 'durationMs', sortable: false, width: `${columnWidths.value.durationMs}px`, align: 'end' as const },
   { title: t('requestLog.channel'), key: 'providerName', sortable: false, width: `${columnWidths.value.providerName}px` },
   { title: t('requestLog.model'), key: 'model', sortable: false, width: `${columnWidths.value.model}px` },
   { title: t('requestLog.user'), key: 'userId', sortable: false, width: `${columnWidths.value.userId}px` },
@@ -1608,7 +1770,7 @@ const formatSummaryKey = (key: string) => {
   if (key === '<unknown>') return key
   switch (summaryGroupBy.value) {
     case 'user':
-      return formatUserId(key)
+      return getUserAlias(key) || formatUserId(key)
     case 'session':
       return formatId(key)
     default:
@@ -1707,11 +1869,51 @@ const cleanupLogs = async () => {
   }
 }
 
+// User alias dialog functions
+const openAliasDialog = (userId: string) => {
+  editingUserId.value = userId
+  aliasInput.value = getUserAlias(userId) || ''
+  aliasError.value = ''
+  showAliasDialog.value = true
+}
+
+const validateAlias = () => {
+  const alias = aliasInput.value.trim()
+  if (!alias) {
+    aliasError.value = ''
+    return
+  }
+  if (!isAliasUnique(alias, editingUserId.value)) {
+    aliasError.value = t('requestLog.aliasNotUnique')
+  } else {
+    aliasError.value = ''
+  }
+}
+
+const saveAlias = () => {
+  const alias = aliasInput.value.trim()
+  if (!alias || aliasError.value) return
+
+  userAliases.value[editingUserId.value] = alias
+  saveUserAliases()
+  showAliasDialog.value = false
+}
+
+const removeAlias = (userId?: string) => {
+  const targetId = userId || editingUserId.value
+  delete userAliases.value[targetId]
+  saveUserAliases()
+  if (!userId) {
+    showAliasDialog.value = false
+  }
+}
+
 onMounted(() => {
   loadColumnWidths()
   loadSummaryColumnWidths()
   loadActiveSessionColumnWidths()
   loadPanelWidths()
+  loadUserAliases()
   refreshLogs()
   startAutoRefresh()
 })
@@ -2779,6 +2981,64 @@ const silentRefresh = async () => {
 
 .duration-error {
   color: rgb(var(--v-theme-error));
+}
+
+/* Clickable ID style */
+.clickable-id {
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.clickable-id:hover {
+  color: rgb(var(--v-theme-primary));
+  text-decoration: underline;
+}
+
+/* Alias tooltip labels */
+.alias-label,
+.id-label {
+  color: rgba(255, 255, 255, 0.7);
+  margin-right: 4px;
+}
+
+.alias-tooltip-row {
+  margin-bottom: 4px;
+}
+
+/* User ID display in dialog */
+.user-id-display {
+  background: rgba(var(--v-theme-on-surface), 0.05);
+  padding: 8px 12px;
+  border-radius: 4px;
+  word-break: break-all;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+}
+
+/* Alias list in settings */
+.alias-list {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+  border-radius: 4px;
+}
+
+.alias-item {
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+}
+
+.alias-item:last-child {
+  border-bottom: none;
+}
+
+.alias-name {
+  min-width: 80px;
+  color: rgb(var(--v-theme-primary));
+}
+
+.alias-userid {
+  font-size: 0.8rem;
+  color: rgba(var(--v-theme-on-surface), 0.7);
 }
 
 </style>

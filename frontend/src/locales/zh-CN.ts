@@ -329,6 +329,16 @@ export default {
     sessions: '个会话',
     live: '时长',
     noActiveSessions: '暂无活跃会话',
+    // User alias
+    alias: '别名',
+    assignAlias: '设置别名',
+    aliasName: '别名',
+    aliasPlaceholder: '输入一个易记的名称',
+    removeAlias: '移除别名',
+    aliasNotUnique: '此别名已被使用',
+    userAliasManagement: '用户ID别名',
+    userAliasDesc: '点击表格中的用户ID来设置别名。别名存储在本地浏览器中。',
+    noAliases: '暂无别名。点击日志表格中的用户ID添加。',
   },
 
   // Pricing Settings

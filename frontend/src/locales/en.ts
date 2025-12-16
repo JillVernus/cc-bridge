@@ -329,6 +329,16 @@ export default {
     sessions: 'sessions',
     live: 'Live',
     noActiveSessions: 'No active sessions',
+    // User alias
+    alias: 'Alias',
+    assignAlias: 'Assign Alias',
+    aliasName: 'Alias Name',
+    aliasPlaceholder: 'Enter a friendly name',
+    removeAlias: 'Remove Alias',
+    aliasNotUnique: 'This alias is already in use',
+    userAliasManagement: 'User ID Aliases',
+    userAliasDesc: 'Click on a User ID in the table to assign an alias. Aliases are stored locally in your browser.',
+    noAliases: 'No aliases defined. Click on a User ID in the logs table to add one.',
   },
 
   // Pricing Settings
