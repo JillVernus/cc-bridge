@@ -41,6 +41,13 @@
                   </v-btn>
                 </template>
               </v-tooltip>
+              <v-tooltip :text="t('requestLog.groupByApiKey')" location="top">
+                <template v-slot:activator="{ props }">
+                  <v-btn v-bind="props" value="apiKey" size="x-small">
+                    <v-icon size="18">mdi-key-outline</v-icon>
+                  </v-btn>
+                </template>
+              </v-tooltip>
             </v-btn-toggle>
           </div>
           <!-- Header table -->
@@ -581,6 +588,12 @@
             <div class="resize-handle" @mousedown="startResize($event, 'model')"></div>
           </div>
         </template>
+        <template v-slot:[`header.apiKeyId`]="{ column }">
+          <div class="resizable-header">
+            {{ column.title }}
+            <div class="resize-handle" @mousedown="startResize($event, 'apiKeyId')"></div>
+          </div>
+        </template>
         <template v-slot:[`header.clientId`]="{ column }">
           <div class="resizable-header">
             {{ column.title }}
@@ -700,6 +713,18 @@
             </div>
           </v-tooltip>
           <span v-else class="text-caption font-weight-medium">{{ item.model }}</span>
+        </template>
+
+        <template v-slot:item.apiKeyId="{ item }">
+          <v-tooltip v-if="item.apiKeyId !== undefined && item.apiKeyId !== null && getAPIKeyName(item.apiKeyId)" location="top" max-width="300">
+            <template v-slot:activator="{ props }">
+              <v-chip v-bind="props" size="x-small" variant="tonal" :color="item.apiKeyId === 0 ? 'warning' : 'primary'">
+                {{ getAPIKeyName(item.apiKeyId) }}
+              </v-chip>
+            </template>
+            <span class="id-tooltip">{{ item.apiKeyId === 0 ? 'Master Key (from .env)' : `ID: ${item.apiKeyId}` }}</span>
+          </v-tooltip>
+          <span v-else class="text-caption mono-text id-cell">—</span>
         </template>
 
         <template v-slot:item.clientId="{ item }">
@@ -856,7 +881,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api, type RequestLog, type RequestLogStats, type GroupStats, type ActiveSession } from '../services/api'
+import { api, type RequestLog, type RequestLogStats, type GroupStats, type ActiveSession, type APIKey } from '../services/api'
 
 // i18n
 const { t } = useI18n()
@@ -873,6 +898,7 @@ const updatedModels = ref<Set<string>>(new Set())
 const updatedProviders = ref<Set<string>>(new Set())
 const updatedClients = ref<Set<string>>(new Set())
 const updatedSessions = ref<Set<string>>(new Set())
+const updatedAPIKeys = ref<Set<string>>(new Set())
 
 // Active sessions state
 const activeSessions = ref<ActiveSession[]>([])
@@ -885,14 +911,25 @@ const editingUserId = ref<string>('')
 const aliasInput = ref<string>('')
 const aliasError = ref<string>('')
 
+// API keys state (for displaying key names by ID)
+const apiKeys = ref<APIKey[]>([])
+const apiKeyMap = computed(() => {
+  const map = new Map<number, string>()
+  for (const key of apiKeys.value) {
+    map.set(key.id, key.name)
+  }
+  return map
+})
+
 // Summary table group by state
-type SummaryGroupBy = 'model' | 'provider' | 'client' | 'session'
+type SummaryGroupBy = 'model' | 'provider' | 'client' | 'session' | 'apiKey'
 const summaryGroupBy = ref<SummaryGroupBy>('provider')
 const summaryGroupByOptions = computed(() => [
   { label: t('requestLog.groupByModel'), value: 'model' },
   { label: t('requestLog.groupByProvider'), value: 'provider' },
   { label: t('requestLog.groupByClient'), value: 'client' },
   { label: t('requestLog.groupBySession'), value: 'session' },
+  { label: t('requestLog.groupByApiKey'), value: 'apiKey' },
 ])
 
 const summaryNameHeaderTitle = computed(() => {
@@ -905,6 +942,8 @@ const summaryNameHeaderTitle = computed(() => {
       return t('requestLog.clientId')
     case 'session':
       return t('requestLog.sessionId')
+    case 'apiKey':
+      return t('requestLog.apiKey')
     default:
       return t('requestLog.model')
   }
@@ -1156,6 +1195,16 @@ const sortedBySession = computed(() => {
     })
 })
 
+const sortedByAPIKey = computed(() => {
+  if (!stats.value?.byApiKey) return []
+  return Object.entries(stats.value.byApiKey)
+    .sort(([, a], [, b]) => {
+      const costDiff = b.cost - a.cost
+      if (costDiff !== 0) return costDiff
+      return getTotalTokens(b) - getTotalTokens(a)
+    })
+})
+
 // Totals for summary tables
 const modelTotals = computed(() => {
   const totals = { count: 0, inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, cost: 0 }
@@ -1209,6 +1258,19 @@ const sessionTotals = computed(() => {
   return totals
 })
 
+const apiKeyTotals = computed(() => {
+  const totals = { count: 0, inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, cost: 0 }
+  for (const [, data] of sortedByAPIKey.value) {
+    totals.count += data.count
+    totals.inputTokens += data.inputTokens
+    totals.outputTokens += data.outputTokens
+    totals.cacheCreationInputTokens += data.cacheCreationInputTokens
+    totals.cacheReadInputTokens += data.cacheReadInputTokens
+    totals.cost += data.cost
+  }
+  return totals
+})
+
 // Unified summary computed properties
 const currentSortedData = computed(() => {
   switch (summaryGroupBy.value) {
@@ -1220,6 +1282,8 @@ const currentSortedData = computed(() => {
       return sortedByClient.value
     case 'session':
       return sortedBySession.value
+    case 'apiKey':
+      return sortedByAPIKey.value
     default:
       return []
   }
@@ -1235,6 +1299,8 @@ const currentTotals = computed(() => {
       return clientTotals.value
     case 'session':
       return sessionTotals.value
+    case 'apiKey':
+      return apiKeyTotals.value
     default:
       return modelTotals.value
   }
@@ -1250,6 +1316,8 @@ const currentUpdatedSet = computed(() => {
       return updatedClients.value
     case 'session':
       return updatedSessions.value
+    case 'apiKey':
+      return updatedAPIKeys.value
     default:
       return new Set()
   }
@@ -1381,6 +1449,24 @@ const loadUserAliases = async () => {
       console.error('Failed to load user aliases from localStorage:', e2)
     }
   }
+}
+
+// Load API keys for displaying names
+const loadAPIKeys = async () => {
+  try {
+    const response = await api.getAPIKeys()
+    apiKeys.value = response.keys || []
+  } catch (e) {
+    console.error('Failed to load API keys:', e)
+  }
+}
+
+// Get API key name by ID
+const getAPIKeyName = (apiKeyId?: number): string | null => {
+  if (apiKeyId === undefined || apiKeyId === null) return null
+  // apiKeyId = 0 means master key (bootstrap admin from .env)
+  if (apiKeyId === 0) return 'master'
+  return apiKeyMap.value.get(apiKeyId) || null
 }
 
 // User alias helper functions
@@ -1624,6 +1710,7 @@ const defaultColumnWidths: Record<string, number> = {
   durationMs: 80,
   providerName: 120,
   model: 200,
+  apiKeyId: 120,
   clientId: 220,
   sessionId: 240,
   tokens: 400,
@@ -1640,6 +1727,7 @@ const defaultColumnVisibility: Record<string, boolean> = {
   durationMs: true,
   providerName: true,
   model: true,
+  apiKeyId: true,
   clientId: true,
   sessionId: true,
   tokens: true,
@@ -1656,6 +1744,7 @@ const columnDisplayNames = computed(() => ({
   durationMs: t('requestLog.duration'),
   providerName: t('requestLog.channel'),
   model: t('requestLog.model'),
+  apiKeyId: t('requestLog.apiKey'),
   clientId: t('requestLog.client'),
   sessionId: t('requestLog.session'),
   tokens: t('requestLog.tokens'),
@@ -1734,6 +1823,7 @@ const allHeaders = [
   { title: () => t('requestLog.duration'), key: 'durationMs', sortable: false, align: 'end' as const },
   { title: () => t('requestLog.channel'), key: 'providerName', sortable: false },
   { title: () => t('requestLog.model'), key: 'model', sortable: false },
+  { title: () => t('requestLog.apiKey'), key: 'apiKeyId', sortable: false },
   { title: () => t('requestLog.client'), key: 'clientId', sortable: false },
   { title: () => t('requestLog.session'), key: 'sessionId', sortable: false },
   { title: () => t('requestLog.tokens'), key: 'tokens', sortable: false },
@@ -1933,6 +2023,14 @@ const formatSummaryKey = (key: string) => {
       return getUserAlias(key) || formatUserId(key)
     case 'session':
       return formatId(key)
+    case 'apiKey':
+      // key is 'master' or numeric ID string
+      if (key === 'master') return 'master'
+      const numId = parseInt(key, 10)
+      if (!isNaN(numId)) {
+        return apiKeyMap.value.get(numId) || key
+      }
+      return key
     default:
       return key
   }
@@ -2089,6 +2187,7 @@ onMounted(() => {
   loadActiveSessionColumnWidths()
   loadPanelWidths()
   loadUserAliases()
+  loadAPIKeys()
   refreshLogs()
   startAutoRefresh()
 })
@@ -2159,6 +2258,7 @@ const silentRefresh = async () => {
     const newUpdatedProviders = detectUpdatedGroups(stats.value?.byProvider, statsRes?.byProvider)
     const newUpdatedClients = detectUpdatedGroups(stats.value?.byClient, statsRes?.byClient)
     const newUpdatedSessions = detectUpdatedGroups(stats.value?.bySession, statsRes?.bySession)
+    const newUpdatedAPIKeys = detectUpdatedGroups(stats.value?.byApiKey, statsRes?.byApiKey)
 
     logs.value = logsRes.requests || []
     total.value = logsRes.total
@@ -2195,6 +2295,12 @@ const silentRefresh = async () => {
       updatedSessions.value = newUpdatedSessions
       setTimeout(() => {
         updatedSessions.value = new Set()
+      }, 1000)
+    }
+    if (newUpdatedAPIKeys.size > 0) {
+      updatedAPIKeys.value = newUpdatedAPIKeys
+      setTimeout(() => {
+        updatedAPIKeys.value = new Set()
       }, 1000)
     }
 

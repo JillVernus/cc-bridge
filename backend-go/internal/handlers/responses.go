@@ -111,11 +111,11 @@ func ResponsesHandlerWithAPIKey(
 		// 提取 reasoning.effort 用于日志显示
 		reasoningEffort := gjson.GetBytes(bodyBytes, "reasoning.effort").String()
 
-		// 提取 API Key ID 用于请求日志
-		var apiKeyID int64
+		// 提取 API Key ID 用于请求日志 (nil 表示未设置)
+		var apiKeyID *int64
 		if id, exists := c.Get(middleware.ContextKeyAPIKeyID); exists {
 			if idVal, ok := id.(int64); ok {
-				apiKeyID = idVal
+				apiKeyID = &idVal
 			}
 		}
 

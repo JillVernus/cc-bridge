@@ -645,6 +645,7 @@ export interface RequestLog {
   endpoint: string
   clientId?: string
   sessionId?: string
+  apiKeyId?: number  // API key ID for tracking
   error?: string
   upstreamError?: string  // 上游服务原始错误信息
   createdAt: string
@@ -692,6 +693,7 @@ export interface RequestLogStats {
   byModel: Record<string, GroupStats>
   byClient: Record<string, GroupStats>
   bySession: Record<string, GroupStats>
+  byApiKey: Record<string, GroupStats>
   timeRange: { from: string; to: string }
 }
 

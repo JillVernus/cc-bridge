@@ -144,12 +144,12 @@ func validateAndSetContext(c *gin.Context, envCfg *config.EnvConfig, apiKeyManag
 	if secureCompare(providedKey, envCfg.ProxyAccessKey) {
 		// Bootstrap admin has full admin privileges
 		c.Set(ContextKeyAPIKeyID, int64(0))
-		c.Set(ContextKeyAPIKeyName, "bootstrap_admin")
+		c.Set(ContextKeyAPIKeyName, "master")
 		c.Set(ContextKeyAPIKeyIsAdmin, true)
 		c.Set(ContextKeyIsBootstrap, true)
 
 		if envCfg.ShouldLog("info") {
-			log.Printf("✅ [认证成功] IP: %s | Path: %s | Time: %s | Key: bootstrap_admin",
+			log.Printf("✅ [认证成功] IP: %s | Path: %s | Time: %s | Key: master",
 				clientIP, path, timestamp)
 		}
 		return true
@@ -228,7 +228,7 @@ func ProxyAuthMiddlewareWithAPIKey(envCfg *config.EnvConfig, apiKeyManager *apik
 		// Fallback to bootstrap admin key (PROXY_ACCESS_KEY)
 		if secureCompare(providedKey, envCfg.ProxyAccessKey) {
 			c.Set(ContextKeyAPIKeyID, int64(0))
-			c.Set(ContextKeyAPIKeyName, "bootstrap_admin")
+			c.Set(ContextKeyAPIKeyName, "master")
 			c.Set(ContextKeyAPIKeyIsAdmin, true)
 			c.Set(ContextKeyIsBootstrap, true)
 			c.Next()

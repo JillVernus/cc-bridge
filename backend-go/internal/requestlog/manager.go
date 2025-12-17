@@ -318,10 +318,10 @@ func (m *Manager) Add(record *RequestLog) error {
 	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
-	// Convert api_key_id to nullable value (0 means no key)
+	// Convert api_key_id to nullable value (nil = not set, 0 = master key)
 	var apiKeyID interface{}
-	if record.APIKeyID > 0 {
-		apiKeyID = record.APIKeyID
+	if record.APIKeyID != nil {
+		apiKeyID = *record.APIKeyID
 	} else {
 		apiKeyID = nil
 	}
@@ -511,7 +511,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 			   cache_creation_input_tokens, cache_read_input_tokens, total_tokens,
 			   price, input_cost, output_cost, cache_creation_cost, cache_read_cost,
 			   http_status, stream, channel_id, channel_name,
-			   endpoint, client_id, session_id, error, upstream_error, created_at
+			   endpoint, client_id, session_id, api_key_id, error, upstream_error, created_at
 		FROM request_logs
 		%s
 		ORDER BY initial_time DESC
@@ -529,7 +529,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 	var records []RequestLog
 	for rows.Next() {
 		var r RequestLog
-		var channelID sql.NullInt64
+		var channelID, apiKeyID sql.NullInt64
 		var channelName, endpoint, clientID, sessionID, errorStr, upstreamErrorStr, status, providerName, responseModel, reasoningEffort sql.NullString
 		var initialTime, completeTime, createdAt sql.NullString
 
@@ -539,7 +539,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 			&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 			&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
 			&r.HTTPStatus, &r.Stream, &channelID, &channelName,
-			&endpoint, &clientID, &sessionID, &errorStr, &upstreamErrorStr, &createdAt,
+			&endpoint, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &createdAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan request log: %w", err)
@@ -582,6 +582,9 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		}
 		if sessionID.Valid {
 			r.SessionID = sessionID.String
+		}
+		if apiKeyID.Valid {
+			r.APIKeyID = &apiKeyID.Int64
 		}
 		if errorStr.Valid {
 			r.Error = errorStr.String
@@ -641,6 +644,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 		ByModel:    make(map[string]ModelStats),
 		ByClient:   make(map[string]GroupStats),
 		BySession:  make(map[string]GroupStats),
+		ByAPIKey:   make(map[string]GroupStats),
 	}
 
 	// Get total stats
@@ -796,6 +800,33 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 			return nil, fmt.Errorf("failed to scan session stats: %w", err)
 		}
 		stats.BySession[session] = ss
+	}
+
+	// Get stats by API key (0 = master, NULL = unknown)
+	apiKeyQuery := fmt.Sprintf(`
+		SELECT CASE WHEN api_key_id IS NULL THEN '<unknown>' WHEN api_key_id = 0 THEN 'master' ELSE CAST(api_key_id AS TEXT) END, COUNT(*),
+			COALESCE(SUM(input_tokens), 0),
+			COALESCE(SUM(output_tokens), 0),
+			COALESCE(SUM(cache_creation_input_tokens), 0),
+			COALESCE(SUM(cache_read_input_tokens), 0),
+			COALESCE(SUM(price), 0)
+		FROM request_logs %s
+		GROUP BY CASE WHEN api_key_id IS NULL THEN '<unknown>' WHEN api_key_id = 0 THEN 'master' ELSE CAST(api_key_id AS TEXT) END
+	`, whereClause)
+
+	apiKeyRows, err := m.db.Query(apiKeyQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get api key stats: %w", err)
+	}
+	defer apiKeyRows.Close()
+
+	for apiKeyRows.Next() {
+		var apiKey string
+		var aks GroupStats
+		if err := apiKeyRows.Scan(&apiKey, &aks.Count, &aks.InputTokens, &aks.OutputTokens, &aks.CacheCreationInputTokens, &aks.CacheReadInputTokens, &aks.Cost); err != nil {
+			return nil, fmt.Errorf("failed to scan api key stats: %w", err)
+		}
+		stats.ByAPIKey[apiKey] = aks
 	}
 
 	return stats, nil

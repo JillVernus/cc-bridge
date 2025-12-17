@@ -43,7 +43,7 @@ type RequestLog struct {
 	Endpoint      string    `json:"endpoint"` // /v1/messages or /v1/responses
 	ClientID      string    `json:"clientId,omitempty"` // Client/machine identifier
 	SessionID     string    `json:"sessionId,omitempty"` // Claude Code conversation session ID
-	APIKeyID      int64     `json:"apiKeyId,omitempty"`  // API key ID for tracking
+	APIKeyID      *int64    `json:"apiKeyId"`  // API key ID for tracking (nil = not set, 0 = master key)
 	Error         string    `json:"error,omitempty"`
 	UpstreamError string    `json:"upstreamError,omitempty"` // 上游服务原始错误信息
 	CreatedAt     time.Time `json:"createdAt"`
@@ -81,6 +81,7 @@ type RequestLogStats struct {
 	ByModel       map[string]ModelStats    `json:"byModel"`
 	ByClient      map[string]GroupStats    `json:"byClient"`
 	BySession     map[string]GroupStats    `json:"bySession"`
+	ByAPIKey      map[string]GroupStats    `json:"byApiKey"`
 	TimeRange     TimeRange                `json:"timeRange"`
 }
 
