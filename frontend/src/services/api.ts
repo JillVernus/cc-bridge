@@ -74,7 +74,7 @@ export interface OAuthTokens {
 
 export interface Channel {
   name: string
-  serviceType: 'openai' | 'openaiold' | 'gemini' | 'claude' | 'responses' | 'openai-oauth'
+  serviceType: 'openai' | 'openai_chat' | 'openaiold' | 'gemini' | 'claude' | 'responses' | 'openai-oauth'
   baseUrl: string
   apiKeys: string[]
   description?: string

@@ -791,7 +791,7 @@ const getDefaultServiceType = (): string => {
 }
 
 // 获取默认服务类型值
-const getDefaultServiceTypeValue = (): 'openai' | 'openaiold' | 'gemini' | 'claude' | 'responses' => {
+const getDefaultServiceTypeValue = (): 'openai' | 'openai_chat' | 'openaiold' | 'gemini' | 'claude' | 'responses' => {
   if (props.channelType === 'responses') {
     return 'responses'
   }
@@ -885,6 +885,7 @@ const serviceTypeOptions = computed(() => {
   } else {
     return [
       { title: t('addChannel.serviceTypeOpenAI'), value: 'openai' },
+      { title: t('addChannel.serviceTypeOpenAIChat'), value: 'openai_chat' },
       { title: t('addChannel.serviceTypeOpenAIOld'), value: 'openaiold' },
       { title: 'Claude', value: 'claude' },
       { title: 'Gemini', value: 'gemini' }
@@ -939,7 +940,7 @@ const targetModelPlaceholder = computed(() => {
 // 表单数据
 const form = reactive({
   name: '',
-  serviceType: '' as 'openai' | 'openaiold' | 'gemini' | 'claude' | 'responses' | 'openai-oauth' | '',
+  serviceType: '' as 'openai' | 'openai_chat' | 'openaiold' | 'gemini' | 'claude' | 'responses' | 'openai-oauth' | '',
   baseUrl: '',
   website: '',
   insecureSkipVerify: false,
@@ -1158,6 +1159,7 @@ const getUrlHint = (): string => {
   const hints: Record<string, string> = {
     responses: t('addChannel.urlHintOpenAI'),
     openai: t('addChannel.urlHintOpenAI'),
+    openai_chat: t('addChannel.urlHintOpenAI'),
     openaiold: t('addChannel.urlHintOpenAI'),
     claude: t('addChannel.urlHintClaude'),
     gemini: t('addChannel.urlHintGemini')
@@ -1432,7 +1434,7 @@ const handleSubmit = async () => {
   // 类型断言，因为表单验证已经确保serviceType不为空
   const channelData: Record<string, unknown> = {
     name: form.name.trim(),
-    serviceType: form.serviceType as 'openai' | 'openaiold' | 'gemini' | 'claude' | 'responses' | 'openai-oauth',
+    serviceType: form.serviceType as 'openai' | 'openai_chat' | 'openaiold' | 'gemini' | 'claude' | 'responses' | 'openai-oauth',
     baseUrl,
     website: form.website.trim() || undefined,
     insecureSkipVerify: form.insecureSkipVerify || undefined,

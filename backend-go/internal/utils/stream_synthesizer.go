@@ -91,7 +91,7 @@ func (s *StreamSynthesizer) ProcessLine(line string) {
 		s.processGemini(data)
 	case "openai", "openaiold":
 		s.processOpenAI(data)
-	case "claude":
+	case "claude", "openai_chat":
 		s.processClaude(data)
 	case "responses":
 		s.processResponses(data)

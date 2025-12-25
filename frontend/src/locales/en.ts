@@ -197,6 +197,7 @@ export default {
     serviceType: 'Service Type *',
     serviceTypeResponses: 'Responses (Native API)',
     serviceTypeOpenAI: 'OpenAI (New API)',
+    serviceTypeOpenAIChat: 'OPENAI (Chat)',
     serviceTypeOpenAIOld: 'OpenAI (Legacy Compatible)',
     serviceTypeClaude: 'Claude',
     serviceTypeGemini: 'Gemini',

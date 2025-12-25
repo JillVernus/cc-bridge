@@ -9,6 +9,13 @@ type ClaudeRequest struct {
 	Temperature float64         `json:"temperature,omitempty"`
 	Stream      bool            `json:"stream,omitempty"`
 	Tools       []ClaudeTool    `json:"tools,omitempty"`
+	Thinking    *ClaudeThinking `json:"thinking,omitempty"`
+}
+
+// ClaudeThinking Claude 思考配置（可选）
+type ClaudeThinking struct {
+	Type         string `json:"type"` // enabled | disabled
+	BudgetTokens int    `json:"budget_tokens,omitempty"`
 }
 
 // ClaudeMessage Claude 消息
@@ -21,6 +28,7 @@ type ClaudeMessage struct {
 type ClaudeContent struct {
 	Type      string      `json:"type"` // text, tool_use, tool_result
 	Text      string      `json:"text,omitempty"`
+	Thinking  string      `json:"thinking,omitempty"`
 	ID        string      `json:"id,omitempty"`
 	Name      string      `json:"name,omitempty"`
 	Input     interface{} `json:"input,omitempty"`

@@ -56,7 +56,7 @@ func (t *TokenPriceMultipliers) GetEffectiveMultiplier(tokenType string) float64
 type UpstreamConfig struct {
 	BaseURL                   string            `json:"baseUrl"`
 	APIKeys                   []string          `json:"apiKeys"`
-	ServiceType               string            `json:"serviceType"` // gemini, openai, openaiold, claude, openai-oauth
+	ServiceType               string            `json:"serviceType"` // gemini, openai, openai_chat, openaiold, claude, openai-oauth
 	Name                      string            `json:"name,omitempty"`
 	Description               string            `json:"description,omitempty"`
 	Website                   string            `json:"website,omitempty"`

@@ -537,10 +537,26 @@ func handleSingleChannelProxy(
 					respHeadersJSON, _ := json.MarshalIndent(respHeaders, "", "  ")
 					log.Printf("📋 错误响应头:\n%s", string(respHeadersJSON))
 				}
+				}
+				// 更新请求日志为错误状态（非 failover 错误也需要结束 pending）
+				if reqLogManager != nil && requestLogID != "" {
+					completeTime := time.Now()
+					record := &requestlog.RequestLog{
+						Status:        requestlog.StatusError,
+						CompleteTime:  completeTime,
+						DurationMs:    completeTime.Sub(startTime).Milliseconds(),
+						Type:          upstream.ServiceType,
+						ProviderName:  upstream.Name,
+						HTTPStatus:    resp.StatusCode,
+						ChannelName:   upstream.Name,
+						Error:         fmt.Sprintf("upstream returned status %d", resp.StatusCode),
+						UpstreamError: string(respBodyBytes),
+					}
+					_ = reqLogManager.Update(requestLogID, record)
+				}
+				c.Data(resp.StatusCode, "application/json", respBodyBytes)
+				return
 			}
-			c.Data(resp.StatusCode, "application/json", respBodyBytes)
-			return
-		}
 
 		// 处理成功响应
 		if len(deprioritizeCandidates) > 0 {
@@ -737,82 +753,79 @@ func handleNormalResponse(c *gin.Context, resp *http.Response, provider provider
 		log.Printf("⏱️ 响应发送完成: %dms, 状态: %d", responseTime, resp.StatusCode)
 	}
 
-	// 更新请求日志 (仅 Claude API 支持)
-	if reqLogManager != nil && upstream.ServiceType == "claude" && requestLogID != "" {
-		// 从非流式响应中提取 usage
-		var usage *types.Usage
-		var responseModel string
+		// 更新请求日志（所有上游都更新；usage/成本仅在可提取时填充）
+		if reqLogManager != nil && requestLogID != "" {
+			var usage *types.Usage
+			var responseModel string
 
-		if claudeResp != nil {
-			usage = claudeResp.Usage
-		}
-
-		// 从响应中提取实际使用的模型名
-		var claudeRespMap map[string]interface{}
-		if err := json.Unmarshal(bodyBytes, &claudeRespMap); err == nil {
-			if m, ok := claudeRespMap["model"].(string); ok {
-				responseModel = m
+			if claudeResp != nil {
+				usage = claudeResp.Usage
 			}
-		}
 
-		// 用于定价计算的模型名（优先响应模型，若无定价配置则回退到请求模型）
-		pricingModel := responseModel
-		if pricingModel == "" {
-			pricingModel = requestModel
-		} else if pm := pricing.GetManager(); pm != nil && !pm.HasPricing(pricingModel) && requestModel != "" {
-			// 响应模型无定价配置，回退到请求模型
-			pricingModel = requestModel
-		}
-
-		record := &requestlog.RequestLog{
-			Status:        requestlog.StatusCompleted,
-			CompleteTime:  completeTime,
-			DurationMs:    durationMs,
-			Type:          upstream.ServiceType,
-			ProviderName:  upstream.Name,
-			ResponseModel: responseModel,
-			HTTPStatus:    resp.StatusCode,
-			ChannelName:   upstream.Name,
-		}
-
-		if usage != nil {
-			record.InputTokens = usage.InputTokens
-			record.OutputTokens = usage.OutputTokens
-			record.CacheCreationInputTokens = usage.CacheCreationInputTokens
-			record.CacheReadInputTokens = usage.CacheReadInputTokens
-
-			// 计算成本（带明细和渠道乘数）
-			if pm := pricing.GetManager(); pm != nil {
-				var multipliers *pricing.PriceMultipliers
-				if channelMult := upstream.GetPriceMultipliers(pricingModel); channelMult != nil {
-					multipliers = &pricing.PriceMultipliers{
-						InputMultiplier:         channelMult.GetEffectiveMultiplier("input"),
-						OutputMultiplier:        channelMult.GetEffectiveMultiplier("output"),
-						CacheCreationMultiplier: channelMult.GetEffectiveMultiplier("cacheCreation"),
-						CacheReadMultiplier:     channelMult.GetEffectiveMultiplier("cacheRead"),
-					}
+			// 从响应中提取实际使用的模型名（若有）
+			var respMap map[string]interface{}
+			if err := json.Unmarshal(bodyBytes, &respMap); err == nil {
+				if m, ok := respMap["model"].(string); ok {
+					responseModel = m
 				}
-				breakdown := pm.CalculateCostWithBreakdown(
-					pricingModel,
-					usage.InputTokens,
-					usage.OutputTokens,
-					usage.CacheCreationInputTokens,
-					usage.CacheReadInputTokens,
-					multipliers,
-				)
-				record.Price = breakdown.TotalCost
-				record.InputCost = breakdown.InputCost
-				record.OutputCost = breakdown.OutputCost
-				record.CacheCreationCost = breakdown.CacheCreationCost
-				record.CacheReadCost = breakdown.CacheReadCost
 			}
-		}
 
-		if err := reqLogManager.Update(requestLogID, record); err != nil {
-			log.Printf("⚠️ 请求日志更新失败: %v", err)
+			// 用于定价计算的模型名（优先响应模型，若无定价配置则回退到请求模型）
+			pricingModel := responseModel
+			if pricingModel == "" {
+				pricingModel = requestModel
+			} else if pm := pricing.GetManager(); pm != nil && !pm.HasPricing(pricingModel) && requestModel != "" {
+				pricingModel = requestModel
+			}
+
+			record := &requestlog.RequestLog{
+				Status:        requestlog.StatusCompleted,
+				CompleteTime:  completeTime,
+				DurationMs:    durationMs,
+				Type:          upstream.ServiceType,
+				ProviderName:  upstream.Name,
+				ResponseModel: responseModel,
+				HTTPStatus:    resp.StatusCode,
+				ChannelName:   upstream.Name,
+			}
+
+			if usage != nil {
+				record.InputTokens = usage.InputTokens
+				record.OutputTokens = usage.OutputTokens
+				record.CacheCreationInputTokens = usage.CacheCreationInputTokens
+				record.CacheReadInputTokens = usage.CacheReadInputTokens
+
+				if pm := pricing.GetManager(); pm != nil {
+					var multipliers *pricing.PriceMultipliers
+					if channelMult := upstream.GetPriceMultipliers(pricingModel); channelMult != nil {
+						multipliers = &pricing.PriceMultipliers{
+							InputMultiplier:         channelMult.GetEffectiveMultiplier("input"),
+							OutputMultiplier:        channelMult.GetEffectiveMultiplier("output"),
+							CacheCreationMultiplier: channelMult.GetEffectiveMultiplier("cacheCreation"),
+							CacheReadMultiplier:     channelMult.GetEffectiveMultiplier("cacheRead"),
+						}
+					}
+					breakdown := pm.CalculateCostWithBreakdown(
+						pricingModel,
+						usage.InputTokens,
+						usage.OutputTokens,
+						usage.CacheCreationInputTokens,
+						usage.CacheReadInputTokens,
+						multipliers,
+					)
+					record.Price = breakdown.TotalCost
+					record.InputCost = breakdown.InputCost
+					record.OutputCost = breakdown.OutputCost
+					record.CacheCreationCost = breakdown.CacheCreationCost
+					record.CacheReadCost = breakdown.CacheReadCost
+				}
+			}
+
+			if err := reqLogManager.Update(requestLogID, record); err != nil {
+				log.Printf("⚠️ 请求日志更新失败: %v", err)
+			}
 		}
 	}
-}
 
 // handleStreamResponse 处理流式响应
 func handleStreamResponse(c *gin.Context, resp *http.Response, provider providers.Provider, envCfg *config.EnvConfig, startTime time.Time, upstream *config.UpstreamConfig, reqLogManager *requestlog.Manager, requestLogID string, requestModel string) {
@@ -838,8 +851,8 @@ func handleStreamResponse(c *gin.Context, resp *http.Response, provider provider
 	var logBuffer bytes.Buffer
 	var synthesizer *utils.StreamSynthesizer
 
-	// 对于 Claude，我们需要 synthesizer 来提取 usage，不论日志是否启用
-	needsSynthesizer := upstream.ServiceType == "claude" && reqLogManager != nil
+	// For Claude-style SSE (claude + openai_chat), we need synthesizer to extract usage for request logs.
+	needsSynthesizer := (upstream.ServiceType == "claude" || upstream.ServiceType == "openai_chat") && reqLogManager != nil
 	streamLoggingEnabled := envCfg.IsDevelopment() && envCfg.EnableResponseLogs
 
 	if streamLoggingEnabled || needsSynthesizer {
@@ -883,67 +896,72 @@ func handleStreamResponse(c *gin.Context, resp *http.Response, provider provider
 					}
 				}
 
-				// 更新请求日志 (仅 Claude API 支持)
-				if reqLogManager != nil && upstream.ServiceType == "claude" && requestLogID != "" && synthesizer != nil {
-					usage := synthesizer.GetUsage()
-					responseModel := synthesizer.GetModel()
+					// 更新请求日志（所有上游都更新；usage/成本仅在可提取时填充）
+					if reqLogManager != nil && requestLogID != "" {
+						var usage *utils.StreamUsage
+						responseModel := ""
 
-					// 用于定价计算的模型名（优先响应模型，若无定价配置则回退到请求模型）
-					pricingModel := responseModel
-					if pricingModel == "" {
-						pricingModel = requestModel
-					} else if pm := pricing.GetManager(); pm != nil && !pm.HasPricing(pricingModel) && requestModel != "" {
-						// 响应模型无定价配置，回退到请求模型
-						pricingModel = requestModel
-					}
+						if synthesizer != nil {
+							usage = synthesizer.GetUsage()
+							responseModel = synthesizer.GetModel()
+						}
 
-					record := &requestlog.RequestLog{
-						Status:                   requestlog.StatusCompleted,
-						CompleteTime:             completeTime,
-						DurationMs:               durationMs,
-						Type:                     upstream.ServiceType,
-						ProviderName:             upstream.Name,
-						ResponseModel:            responseModel,
-						InputTokens:              usage.InputTokens,
-						OutputTokens:             usage.OutputTokens,
-						CacheCreationInputTokens: usage.CacheCreationInputTokens,
-						CacheReadInputTokens:     usage.CacheReadInputTokens,
-						HTTPStatus:               resp.StatusCode,
-						ChannelName:              upstream.Name,
-					}
+						pricingModel := responseModel
+						if pricingModel == "" {
+							pricingModel = requestModel
+						} else if pm := pricing.GetManager(); pm != nil && !pm.HasPricing(pricingModel) && requestModel != "" {
+							pricingModel = requestModel
+						}
 
-					// 计算成本（带明细和渠道乘数）
-					if pm := pricing.GetManager(); pm != nil {
-						var multipliers *pricing.PriceMultipliers
-						if channelMult := upstream.GetPriceMultipliers(pricingModel); channelMult != nil {
-							multipliers = &pricing.PriceMultipliers{
-								InputMultiplier:         channelMult.GetEffectiveMultiplier("input"),
-								OutputMultiplier:        channelMult.GetEffectiveMultiplier("output"),
-								CacheCreationMultiplier: channelMult.GetEffectiveMultiplier("cacheCreation"),
-								CacheReadMultiplier:     channelMult.GetEffectiveMultiplier("cacheRead"),
+						record := &requestlog.RequestLog{
+							Status:        requestlog.StatusCompleted,
+							CompleteTime:  completeTime,
+							DurationMs:    durationMs,
+							Type:          upstream.ServiceType,
+							ProviderName:  upstream.Name,
+							ResponseModel: responseModel,
+							HTTPStatus:    resp.StatusCode,
+							ChannelName:   upstream.Name,
+						}
+
+						if usage != nil {
+							record.InputTokens = usage.InputTokens
+							record.OutputTokens = usage.OutputTokens
+							record.CacheCreationInputTokens = usage.CacheCreationInputTokens
+							record.CacheReadInputTokens = usage.CacheReadInputTokens
+
+							if pm := pricing.GetManager(); pm != nil {
+								var multipliers *pricing.PriceMultipliers
+								if channelMult := upstream.GetPriceMultipliers(pricingModel); channelMult != nil {
+									multipliers = &pricing.PriceMultipliers{
+										InputMultiplier:         channelMult.GetEffectiveMultiplier("input"),
+										OutputMultiplier:        channelMult.GetEffectiveMultiplier("output"),
+										CacheCreationMultiplier: channelMult.GetEffectiveMultiplier("cacheCreation"),
+										CacheReadMultiplier:     channelMult.GetEffectiveMultiplier("cacheRead"),
+									}
+								}
+								breakdown := pm.CalculateCostWithBreakdown(
+									pricingModel,
+									usage.InputTokens,
+									usage.OutputTokens,
+									usage.CacheCreationInputTokens,
+									usage.CacheReadInputTokens,
+									multipliers,
+								)
+								record.Price = breakdown.TotalCost
+								record.InputCost = breakdown.InputCost
+								record.OutputCost = breakdown.OutputCost
+								record.CacheCreationCost = breakdown.CacheCreationCost
+								record.CacheReadCost = breakdown.CacheReadCost
 							}
 						}
-						breakdown := pm.CalculateCostWithBreakdown(
-							pricingModel,
-							usage.InputTokens,
-							usage.OutputTokens,
-							usage.CacheCreationInputTokens,
-							usage.CacheReadInputTokens,
-							multipliers,
-						)
-						record.Price = breakdown.TotalCost
-						record.InputCost = breakdown.InputCost
-						record.OutputCost = breakdown.OutputCost
-						record.CacheCreationCost = breakdown.CacheCreationCost
-						record.CacheReadCost = breakdown.CacheReadCost
-					}
 
-					if err := reqLogManager.Update(requestLogID, record); err != nil {
-						log.Printf("⚠️ 请求日志更新失败: %v", err)
+						if err := reqLogManager.Update(requestLogID, record); err != nil {
+							log.Printf("⚠️ 请求日志更新失败: %v", err)
+						}
 					}
+					return
 				}
-				return
-			}
 
 			// 缓存事件用于最后的日志输出和 usage 提取
 			if streamLoggingEnabled || needsSynthesizer {
@@ -982,26 +1000,40 @@ func handleStreamResponse(c *gin.Context, resp *http.Response, provider provider
 				// errChan关闭，但这不一定意味着流结束，继续等待eventChan
 				continue
 			}
-			if err != nil {
-				// 真的有错误发生
-				log.Printf("💥 流式传输错误: %v", err)
+				if err != nil {
+					// 真的有错误发生
+					log.Printf("💥 流式传输错误: %v", err)
 
 				// 打印已接收到的部分响应
-				if envCfg.EnableResponseLogs && envCfg.IsDevelopment() {
-					if synthesizer != nil {
+					if envCfg.EnableResponseLogs && envCfg.IsDevelopment() {
+						if synthesizer != nil {
 						synthesizedContent := synthesizer.GetSynthesizedContent()
 						if synthesizedContent != "" && !synthesizer.IsParseFailed() {
 							log.Printf("🛰️  上游流式响应合成内容 (部分):\n%s", strings.TrimSpace(synthesizedContent))
 						} else if logBuffer.Len() > 0 {
 							log.Printf("🛰️  上游流式响应原始内容 (部分):\n%s", logBuffer.String())
 						}
+						}
 					}
+					if reqLogManager != nil && requestLogID != "" {
+						completeTime := time.Now()
+						record := &requestlog.RequestLog{
+							Status:        requestlog.StatusError,
+							CompleteTime:  completeTime,
+							DurationMs:    completeTime.Sub(startTime).Milliseconds(),
+							Type:          upstream.ServiceType,
+							ProviderName:  upstream.Name,
+							HTTPStatus:    resp.StatusCode,
+							ChannelName:   upstream.Name,
+							Error:         err.Error(),
+						}
+						_ = reqLogManager.Update(requestLogID, record)
+					}
+					return
 				}
-				return
 			}
 		}
 	}
-}
 
 // shouldRetryWithNextKey 判断是否应该使用下一个密钥重试
 // 返回: (shouldFailover bool, isQuotaRelated bool)
