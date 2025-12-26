@@ -55,33 +55,61 @@
             <table class="summary-table-custom resizable-summary-table" :style="{ width: summaryTableWidth + 'px' }">
               <thead>
                 <tr>
-                  <th class="resizable-summary-header" :style="{ width: summaryColumnWidths.name + 'px' }">
-                    {{ summaryNameHeaderTitle }}
-                    <div class="resize-handle" @mousedown="startSummaryResize($event, 'name')"></div>
+                  <th class="resizable-summary-header sortable-header" :style="{ width: summaryColumnWidths.name + 'px' }" @click="toggleSummarySort('name')">
+                    <span class="header-content">
+                      {{ summaryNameHeaderTitle }}
+                      <v-icon v-if="summarySortColumn === 'name'" size="14" class="sort-icon">{{ summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down' }}</v-icon>
+                    </span>
+                    <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'name')"></div>
                   </th>
-                  <th class="text-end resizable-summary-header" :style="{ width: summaryColumnWidths.requests + 'px' }">
-                    {{ t('requestLog.requests') }}
-                    <div class="resize-handle" @mousedown="startSummaryResize($event, 'requests')"></div>
+                  <th class="text-end resizable-summary-header sortable-header" :style="{ width: summaryColumnWidths.requests + 'px' }" @click="toggleSummarySort('requests')">
+                    <span class="header-content">
+                      {{ t('requestLog.requests') }}
+                      <v-icon v-if="summarySortColumn === 'requests'" size="14" class="sort-icon">{{ summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down' }}</v-icon>
+                    </span>
+                    <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'requests')"></div>
                   </th>
-                  <th class="text-end resizable-summary-header" :style="{ width: summaryColumnWidths.input + 'px' }">
-                    {{ t('requestLog.input') }}
-                    <div class="resize-handle" @mousedown="startSummaryResize($event, 'input')"></div>
+                  <th class="text-end resizable-summary-header sortable-header" :style="{ width: summaryColumnWidths.input + 'px' }" @click="toggleSummarySort('input')">
+                    <span class="header-content">
+                      {{ t('requestLog.input') }}
+                      <v-icon v-if="summarySortColumn === 'input'" size="14" class="sort-icon">{{ summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down' }}</v-icon>
+                    </span>
+                    <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'input')"></div>
                   </th>
-                  <th class="text-end resizable-summary-header" :style="{ width: summaryColumnWidths.output + 'px' }">
-                    {{ t('requestLog.output') }}
-                    <div class="resize-handle" @mousedown="startSummaryResize($event, 'output')"></div>
+                  <th class="text-end resizable-summary-header sortable-header" :style="{ width: summaryColumnWidths.output + 'px' }" @click="toggleSummarySort('output')">
+                    <span class="header-content">
+                      {{ t('requestLog.output') }}
+                      <v-icon v-if="summarySortColumn === 'output'" size="14" class="sort-icon">{{ summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down' }}</v-icon>
+                    </span>
+                    <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'output')"></div>
                   </th>
-                  <th class="text-end resizable-summary-header" :style="{ width: summaryColumnWidths.cacheCreation + 'px' }">
-                    {{ t('requestLog.cacheCreation') }}
-                    <div class="resize-handle" @mousedown="startSummaryResize($event, 'cacheCreation')"></div>
+                  <th class="text-end resizable-summary-header sortable-header" :style="{ width: summaryColumnWidths.cacheCreation + 'px' }" @click="toggleSummarySort('cacheCreation')">
+                    <span class="header-content">
+                      {{ t('requestLog.cacheCreation') }}
+                      <v-icon v-if="summarySortColumn === 'cacheCreation'" size="14" class="sort-icon">{{ summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down' }}</v-icon>
+                    </span>
+                    <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'cacheCreation')"></div>
                   </th>
-                  <th class="text-end resizable-summary-header" :style="{ width: summaryColumnWidths.cacheHit + 'px' }">
-                    {{ t('requestLog.cacheHit') }}
-                    <div class="resize-handle" @mousedown="startSummaryResize($event, 'cacheHit')"></div>
+                  <th class="text-end resizable-summary-header sortable-header" :style="{ width: summaryColumnWidths.cacheHit + 'px' }" @click="toggleSummarySort('cacheHit')">
+                    <span class="header-content">
+                      {{ t('requestLog.cacheHit') }}
+                      <v-icon v-if="summarySortColumn === 'cacheHit'" size="14" class="sort-icon">{{ summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down' }}</v-icon>
+                    </span>
+                    <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'cacheHit')"></div>
                   </th>
-                  <th class="text-end resizable-summary-header" :style="{ width: summaryColumnWidths.cost + 'px' }">
-                    {{ t('requestLog.cost') }}
-                    <div class="resize-handle" @mousedown="startSummaryResize($event, 'cost')"></div>
+                  <th class="text-end resizable-summary-header sortable-header" :style="{ width: summaryColumnWidths.cacheHitRate + 'px' }" @click="toggleSummarySort('cacheHitRate')">
+                    <span class="header-content">
+                      {{ t('requestLog.cacheHitRate') }}
+                      <v-icon v-if="summarySortColumn === 'cacheHitRate'" size="14" class="sort-icon">{{ summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down' }}</v-icon>
+                    </span>
+                    <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'cacheHitRate')"></div>
+                  </th>
+                  <th class="text-end resizable-summary-header sortable-header" :style="{ width: summaryColumnWidths.cost + 'px' }" @click="toggleSummarySort('cost')">
+                    <span class="header-content">
+                      {{ t('requestLog.cost') }}
+                      <v-icon v-if="summarySortColumn === 'cost'" size="14" class="sort-icon">{{ summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down' }}</v-icon>
+                    </span>
+                    <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'cost')"></div>
                   </th>
                 </tr>
               </thead>
@@ -128,10 +156,17 @@
                   <td class="text-end text-caption" :style="{ width: summaryColumnWidths.output + 'px' }">{{ formatNumber(data.outputTokens) }}</td>
                   <td class="text-end text-caption text-success" :style="{ width: summaryColumnWidths.cacheCreation + 'px' }">{{ formatNumber(data.cacheCreationInputTokens) }}</td>
                   <td class="text-end text-caption text-warning" :style="{ width: summaryColumnWidths.cacheHit + 'px' }">{{ formatNumber(data.cacheReadInputTokens) }}</td>
+                  <td class="text-end text-caption" :style="{ width: summaryColumnWidths.cacheHitRate + 'px' }">
+                    <v-tooltip :text="t('requestLog.cacheHitRateTooltip')" location="top">
+                      <template #activator="{ props }">
+                        <span v-bind="props" class="hit-rate-value">{{ calcHitRate(data) }}%</span>
+                      </template>
+                    </v-tooltip>
+                  </td>
                   <td class="text-end text-caption cost-cell" :style="{ width: summaryColumnWidths.cost + 'px' }">{{ formatPriceSummary(data.cost) }}</td>
                 </tr>
                 <tr v-if="currentSortedData.length === 0">
-                  <td colspan="7" class="text-center text-caption text-grey">{{ t('common.noData') }}</td>
+                  <td colspan="8" class="text-center text-caption text-grey">{{ t('common.noData') }}</td>
                 </tr>
               </tbody>
             </table>
@@ -147,6 +182,13 @@
                   <td class="text-end text-caption font-weight-bold" :style="{ width: summaryColumnWidths.output + 'px' }">{{ formatNumber(currentTotals.outputTokens) }}</td>
                   <td class="text-end text-caption font-weight-bold text-success" :style="{ width: summaryColumnWidths.cacheCreation + 'px' }">{{ formatNumber(currentTotals.cacheCreationInputTokens) }}</td>
                   <td class="text-end text-caption font-weight-bold text-warning" :style="{ width: summaryColumnWidths.cacheHit + 'px' }">{{ formatNumber(currentTotals.cacheReadInputTokens) }}</td>
+                  <td class="text-end text-caption font-weight-bold" :style="{ width: summaryColumnWidths.cacheHitRate + 'px' }">
+                    <v-tooltip :text="t('requestLog.cacheHitRateTooltip')" location="top">
+                      <template #activator="{ props }">
+                        <span v-bind="props" class="hit-rate-value">{{ calcHitRate(currentTotals) }}%</span>
+                      </template>
+                    </v-tooltip>
+                  </td>
                   <td class="text-end text-caption font-weight-bold cost-cell" :style="{ width: summaryColumnWidths.cost + 'px' }">{{ formatPriceSummary(currentTotals.cost) }}</td>
                 </tr>
               </tbody>
@@ -206,6 +248,10 @@
                     {{ t('requestLog.cacheHit') }}
                     <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'hit')"></div>
                   </th>
+                  <th class="text-end resizable-summary-header" :style="{ width: activeSessionColumnWidths.hitRate + 'px' }">
+                    {{ t('requestLog.cacheHitRate') }}
+                    <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'hitRate')"></div>
+                  </th>
                   <th class="text-end resizable-summary-header" :style="{ width: activeSessionColumnWidths.cost + 'px' }">
                     {{ t('requestLog.cost') }}
                     <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'cost')"></div>
@@ -241,10 +287,17 @@
                   <td class="text-end text-caption" :style="{ width: activeSessionColumnWidths.output + 'px', maxWidth: activeSessionColumnWidths.output + 'px' }">{{ formatNumber(session.outputTokens) }}</td>
                   <td class="text-end text-caption text-success" :style="{ width: activeSessionColumnWidths.cache + 'px', maxWidth: activeSessionColumnWidths.cache + 'px' }">{{ formatNumber(session.cacheCreationInputTokens) }}</td>
                   <td class="text-end text-caption text-warning" :style="{ width: activeSessionColumnWidths.hit + 'px', maxWidth: activeSessionColumnWidths.hit + 'px' }">{{ formatNumber(session.cacheReadInputTokens) }}</td>
+                  <td class="text-end text-caption" :style="{ width: activeSessionColumnWidths.hitRate + 'px', maxWidth: activeSessionColumnWidths.hitRate + 'px' }">
+                    <v-tooltip :text="t('requestLog.cacheHitRateTooltip')" location="top">
+                      <template #activator="{ props }">
+                        <span v-bind="props" class="hit-rate-value">{{ calcHitRate(session) }}%</span>
+                      </template>
+                    </v-tooltip>
+                  </td>
                   <td class="text-end text-caption cost-cell" :style="{ width: activeSessionColumnWidths.cost + 'px', maxWidth: activeSessionColumnWidths.cost + 'px' }">{{ formatPriceSummary(session.cost) }}</td>
                 </tr>
                 <tr v-if="activeSessions.length === 0">
-                  <td colspan="8" class="text-center text-caption text-grey pa-4">{{ t('requestLog.noActiveSessions') }}</td>
+                  <td colspan="9" class="text-center text-caption text-grey pa-4">{{ t('requestLog.noActiveSessions') }}</td>
                 </tr>
               </tbody>
             </table>
@@ -949,6 +1002,24 @@ const summaryNameHeaderTitle = computed(() => {
   }
 })
 
+// Summary table sorting state
+type SummarySortColumn = 'name' | 'requests' | 'input' | 'output' | 'cacheCreation' | 'cacheHit' | 'cacheHitRate' | 'cost'
+type SortDirection = 'asc' | 'desc'
+const summarySortColumn = ref<SummarySortColumn>('cost')
+const summarySortDirection = ref<SortDirection>('desc')
+
+// Toggle sort when clicking header
+const toggleSummarySort = (column: SummarySortColumn) => {
+  if (summarySortColumn.value === column) {
+    // Toggle direction
+    summarySortDirection.value = summarySortDirection.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    // New column, default to desc
+    summarySortColumn.value = column
+    summarySortDirection.value = 'desc'
+  }
+}
+
 // Settings
 const showSettings = ref(false)
 const showConfirmClear = ref(false)
@@ -1273,20 +1344,63 @@ const apiKeyTotals = computed(() => {
 
 // Unified summary computed properties
 const currentSortedData = computed(() => {
+  // Get raw data based on groupBy
+  let rawData: Record<string, GroupStats> | undefined
   switch (summaryGroupBy.value) {
     case 'model':
-      return sortedByModel.value
+      rawData = stats.value?.byModel
+      break
     case 'provider':
-      return sortedByProvider.value
+      rawData = stats.value?.byProvider
+      break
     case 'client':
-      return sortedByClient.value
+      rawData = stats.value?.byClient
+      break
     case 'session':
-      return sortedBySession.value
+      rawData = stats.value?.bySession
+      break
     case 'apiKey':
-      return sortedByAPIKey.value
-    default:
-      return []
+      rawData = stats.value?.byApiKey
+      break
   }
+  if (!rawData) return []
+
+  // Convert to array and sort
+  const entries = Object.entries(rawData)
+  const col = summarySortColumn.value
+  const dir = summarySortDirection.value
+
+  return entries.sort(([keyA, a], [keyB, b]) => {
+    let diff = 0
+    switch (col) {
+      case 'name':
+        diff = keyA.localeCompare(keyB)
+        break
+      case 'requests':
+        diff = a.count - b.count
+        break
+      case 'input':
+        diff = a.inputTokens - b.inputTokens
+        break
+      case 'output':
+        diff = a.outputTokens - b.outputTokens
+        break
+      case 'cacheCreation':
+        diff = a.cacheCreationInputTokens - b.cacheCreationInputTokens
+        break
+      case 'cacheHit':
+        diff = a.cacheReadInputTokens - b.cacheReadInputTokens
+        break
+      case 'cacheHitRate':
+        diff = calcHitRate(a) - calcHitRate(b)
+        break
+      case 'cost':
+        diff = a.cost - b.cost
+        break
+    }
+    // Apply direction
+    return dir === 'asc' ? diff : -diff
+  })
 })
 
 const currentTotals = computed(() => {
@@ -1331,6 +1445,7 @@ const summaryTableWidth = computed(() => {
     summaryColumnWidths.value.output +
     summaryColumnWidths.value.cacheCreation +
     summaryColumnWidths.value.cacheHit +
+    summaryColumnWidths.value.cacheHitRate +
     summaryColumnWidths.value.cost
 })
 
@@ -1343,6 +1458,7 @@ const defaultActiveSessionColumnWidths: Record<string, number> = {
   output: 60,
   cache: 50,
   hit: 50,
+  hitRate: 50,
   cost: 60
 }
 
@@ -1356,6 +1472,7 @@ const activeSessionsTableWidth = computed(() => {
     activeSessionColumnWidths.value.output +
     activeSessionColumnWidths.value.cache +
     activeSessionColumnWidths.value.hit +
+    activeSessionColumnWidths.value.hitRate +
     activeSessionColumnWidths.value.cost
 })
 
@@ -1531,6 +1648,7 @@ const defaultSummaryColumnWidths: Record<string, number> = {
   output: 80,
   cacheCreation: 80,
   cacheHit: 80,
+  cacheHitRate: 60,
   cost: 80
 }
 
@@ -2036,8 +2154,17 @@ const formatSummaryKey = (key: string) => {
   }
 }
 
-const calcHitRate = (data: GroupStats) => {
-  const total = data.inputTokens + data.cacheReadInputTokens
+// Cache hit rate formula (Option A):
+// cache_read / (input + cache_read + cache_creation)
+// This includes cache_creation in denominator because frequent cache creation
+// indicates cache mechanism issues (expiry, poor prefix consistency, etc.)
+interface TokenStats {
+  inputTokens: number
+  cacheReadInputTokens: number
+  cacheCreationInputTokens: number
+}
+const calcHitRate = (data: TokenStats) => {
+  const total = data.inputTokens + data.cacheReadInputTokens + data.cacheCreationInputTokens
   if (total === 0) return 0
   return Math.round((data.cacheReadInputTokens / total) * 100)
 }
@@ -2578,6 +2705,32 @@ const silentRefresh = async () => {
 .resizable-summary-header,
 .resizable-summary-header-last {
   position: relative;
+}
+
+/* Sortable header styles */
+.sortable-header {
+  cursor: pointer;
+  user-select: none;
+}
+
+.sortable-header:hover {
+  background: rgba(var(--v-theme-primary), 0.08);
+}
+
+.sortable-header .header-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Hit rate value with tooltip indicator */
+.hit-rate-value {
+  cursor: help;
+  border-bottom: 1px dotted currentColor;
+}
+
+.sortable-header .sort-icon {
+  opacity: 0.7;
 }
 
 .resizable-summary-table .resize-handle {

@@ -295,6 +295,8 @@ export default {
     output: 'Output',
     cacheCreation: 'Cache',
     cacheHit: 'Hit',
+    cacheHitRate: 'Hit%',
+    cacheHitRateTooltip: 'Cache Hit Rate = Cache Read / (Input + Cache Read + Cache Creation) × 100%',
     cost: 'Cost',
     settings: 'Settings',
     columnVisibility: 'Column Visibility',

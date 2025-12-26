@@ -295,6 +295,8 @@ export default {
     output: '输出',
     cacheCreation: '缓存创建',
     cacheHit: '缓存命中',
+    cacheHitRate: '命中率',
+    cacheHitRateTooltip: '缓存命中率 = 缓存读取 / (输入 + 缓存读取 + 缓存创建) × 100%',
     cost: '费用',
     settings: '设置',
     columnVisibility: '列显示设置',
