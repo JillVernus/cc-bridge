@@ -417,6 +417,43 @@ export default {
     zhCN: '简体中文',
   },
 
+  // Charts
+  chart: {
+    duration: {
+      '1h': '1小时',
+      '6h': '6小时',
+      '24h': '24小时',
+      today: '今天',
+    },
+    view: {
+      traffic: '流量',
+      tokens: 'Tokens',
+      cache: '缓存',
+    },
+    summary: {
+      totalRequests: '总请求数',
+      successRate: '成功率',
+      inputTokens: '输入 Tokens',
+      outputTokens: '输出 Tokens',
+    },
+    legend: {
+      totalRequests: '总请求数',
+      success: '成功',
+      inputTokens: '输入 Tokens',
+      outputTokens: '输出 Tokens',
+      cacheRead: '缓存读取',
+      cacheWrite: '缓存写入',
+    },
+    unit: {
+      requests: '次请求',
+    },
+    noData: '所选时间段无数据',
+    noDataChannel: '该渠道暂无数据',
+    error: {
+      fetchFailed: '获取图表数据失败',
+    },
+  },
+
   // API Keys
   apiKeys: {
     tabTitle: '密钥',

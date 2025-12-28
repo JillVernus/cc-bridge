@@ -612,6 +612,24 @@ class ApiService {
       method: 'POST'
     })
   }
+
+  // ============== Stats History API (for Charts) ==============
+
+  // 获取全局统计历史数据
+  async getStatsHistory(duration: Duration = '1h', endpoint?: string): Promise<StatsHistoryResponse> {
+    const params = new URLSearchParams()
+    params.set('duration', duration)
+    if (endpoint) params.set('endpoint', endpoint)
+    return this.request(`/logs/stats/history?${params.toString()}`)
+  }
+
+  // 获取渠道统计历史数据
+  async getChannelStatsHistory(channelId: number, duration: Duration = '1h', endpoint?: string): Promise<ChannelStatsHistoryResponse> {
+    const params = new URLSearchParams()
+    params.set('duration', duration)
+    if (endpoint) params.set('endpoint', endpoint)
+    return this.request(`/logs/channels/${channelId}/stats/history?${params.toString()}`)
+  }
 }
 
 // 请求日志类型
@@ -791,6 +809,47 @@ export interface APIKeyListResponse {
   keys: APIKey[]
   total: number
   hasMore: boolean
+}
+
+// ============== Stats History Types (for Charts) ==============
+
+export type Duration = '1h' | '6h' | '24h' | 'today'
+
+export interface StatsHistoryDataPoint {
+  timestamp: string
+  requests: number
+  success: number
+  failure: number
+  inputTokens: number
+  outputTokens: number
+  cacheCreationInputTokens: number
+  cacheReadInputTokens: number
+  cost: number
+}
+
+export interface StatsHistorySummary {
+  totalRequests: number
+  totalSuccess: number
+  totalFailure: number
+  totalInputTokens: number
+  totalOutputTokens: number
+  totalCacheCreationTokens: number
+  totalCacheReadTokens: number
+  totalCost: number
+  avgSuccessRate: number
+  duration: string
+}
+
+export interface StatsHistoryResponse {
+  dataPoints: StatsHistoryDataPoint[]
+  summary: StatsHistorySummary
+}
+
+export interface ChannelStatsHistoryResponse {
+  channelId: number
+  channelName: string
+  dataPoints: StatsHistoryDataPoint[]
+  summary: StatsHistorySummary
 }
 
 export const api = new ApiService()

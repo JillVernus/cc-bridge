@@ -417,6 +417,43 @@ export default {
     zhCN: '简体中文',
   },
 
+  // Charts
+  chart: {
+    duration: {
+      '1h': '1h',
+      '6h': '6h',
+      '24h': '24h',
+      today: 'Today',
+    },
+    view: {
+      traffic: 'Traffic',
+      tokens: 'Tokens',
+      cache: 'Cache',
+    },
+    summary: {
+      totalRequests: 'Total Requests',
+      successRate: 'Success Rate',
+      inputTokens: 'Input Tokens',
+      outputTokens: 'Output Tokens',
+    },
+    legend: {
+      totalRequests: 'Total Requests',
+      success: 'Success',
+      inputTokens: 'Input Tokens',
+      outputTokens: 'Output Tokens',
+      cacheRead: 'Cache Read',
+      cacheWrite: 'Cache Write',
+    },
+    unit: {
+      requests: 'requests',
+    },
+    noData: 'No data for selected period',
+    noDataChannel: 'No data for this channel',
+    error: {
+      fetchFailed: 'Failed to fetch chart data',
+    },
+  },
+
   // API Keys
   apiKeys: {
     tabTitle: 'Keys',

@@ -394,6 +394,7 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 		cache_creation_cost = ?,
 		cache_read_cost = ?,
 		http_status = ?,
+		channel_id = ?,
 		channel_name = ?,
 		error = ?,
 		upstream_error = ?
@@ -418,6 +419,7 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 		record.CacheCreationCost,
 		record.CacheReadCost,
 		record.HTTPStatus,
+		record.ChannelID,
 		record.ChannelName,
 		record.Error,
 		record.UpstreamError,
@@ -1205,6 +1207,320 @@ func (m *Manager) ImportAliases(aliases map[string]string) (int, error) {
 	}
 
 	return imported, nil
+}
+
+// GetStatsHistory returns time-series statistics for charts
+// duration: time range to query (e.g., "1h", "6h", "24h", or "today")
+// endpoint: optional filter for endpoint ("/v1/messages" or "/v1/responses")
+func (m *Manager) GetStatsHistory(duration string, endpoint string) (*StatsHistoryResponse, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Calculate time range and interval
+	now := time.Now()
+	var since time.Time
+	var interval time.Duration
+	var durationLabel string
+
+	switch duration {
+	case "1h":
+		since = now.Add(-1 * time.Hour)
+		interval = 1 * time.Minute
+		durationLabel = "1h"
+	case "6h":
+		since = now.Add(-6 * time.Hour)
+		interval = 5 * time.Minute
+		durationLabel = "6h"
+	case "24h":
+		since = now.Add(-24 * time.Hour)
+		interval = 15 * time.Minute
+		durationLabel = "24h"
+	case "today":
+		// Start of today in local timezone
+		year, month, day := now.Date()
+		since = time.Date(year, month, day, 0, 0, 0, 0, now.Location())
+		// Calculate interval based on elapsed time today
+		elapsed := now.Sub(since)
+		if elapsed < time.Hour {
+			interval = 1 * time.Minute
+		} else if elapsed < 6*time.Hour {
+			interval = 5 * time.Minute
+		} else {
+			interval = 15 * time.Minute
+		}
+		durationLabel = "today"
+	default:
+		since = now.Add(-1 * time.Hour)
+		interval = 1 * time.Minute
+		durationLabel = "1h"
+	}
+
+	// Build query with optional endpoint filter
+	query := `
+		SELECT
+			initial_time,
+			status,
+			COALESCE(input_tokens, 0) as input_tokens,
+			COALESCE(output_tokens, 0) as output_tokens,
+			COALESCE(cache_creation_input_tokens, 0) as cache_creation,
+			COALESCE(cache_read_input_tokens, 0) as cache_read,
+			COALESCE(price, 0) as price
+		FROM request_logs
+		WHERE initial_time >= ?
+	`
+	args := []interface{}{since}
+
+	if endpoint != "" {
+		query += ` AND endpoint = ?`
+		args = append(args, endpoint)
+	}
+
+	query += ` ORDER BY initial_time ASC`
+
+	rows, err := m.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query stats history: %w", err)
+	}
+	defer rows.Close()
+
+	// Create time buckets
+	buckets := make(map[int64]*StatsHistoryDataPoint)
+	var summary StatsHistorySummary
+	summary.Duration = durationLabel
+
+	for rows.Next() {
+		var initialTimeStr string
+		var status string
+		var inputTokens, outputTokens, cacheCreation, cacheRead int64
+		var price float64
+
+		if err := rows.Scan(&initialTimeStr, &status, &inputTokens, &outputTokens, &cacheCreation, &cacheRead, &price); err != nil {
+			continue
+		}
+
+		initialTime := parseTimeString(initialTimeStr)
+		if initialTime.IsZero() {
+			continue
+		}
+
+		// Calculate bucket key (truncate to interval)
+		bucketTime := initialTime.Truncate(interval)
+		bucketKey := bucketTime.Unix()
+
+		// Get or create bucket
+		if _, exists := buckets[bucketKey]; !exists {
+			buckets[bucketKey] = &StatsHistoryDataPoint{
+				Timestamp: bucketTime,
+			}
+		}
+
+		bucket := buckets[bucketKey]
+		bucket.Requests++
+		bucket.InputTokens += inputTokens
+		bucket.OutputTokens += outputTokens
+		bucket.CacheCreationInputTokens += cacheCreation
+		bucket.CacheReadInputTokens += cacheRead
+		bucket.Cost += price
+
+		// Count success/failure
+		if status == StatusCompleted {
+			bucket.Success++
+			summary.TotalSuccess++
+		} else if status == StatusError || status == StatusTimeout {
+			bucket.Failure++
+			summary.TotalFailure++
+		}
+
+		// Update summary
+		summary.TotalRequests++
+		summary.TotalInputTokens += inputTokens
+		summary.TotalOutputTokens += outputTokens
+		summary.TotalCacheCreationTokens += cacheCreation
+		summary.TotalCacheReadTokens += cacheRead
+		summary.TotalCost += price
+	}
+
+	// Calculate success rate
+	if summary.TotalRequests > 0 {
+		summary.AvgSuccessRate = float64(summary.TotalSuccess) / float64(summary.TotalRequests) * 100
+	}
+
+	// Convert buckets map to sorted slice
+	dataPoints := make([]StatsHistoryDataPoint, 0, len(buckets))
+	for _, dp := range buckets {
+		dataPoints = append(dataPoints, *dp)
+	}
+
+	// Sort by timestamp
+	for i := 0; i < len(dataPoints)-1; i++ {
+		for j := i + 1; j < len(dataPoints); j++ {
+			if dataPoints[i].Timestamp.After(dataPoints[j].Timestamp) {
+				dataPoints[i], dataPoints[j] = dataPoints[j], dataPoints[i]
+			}
+		}
+	}
+
+	return &StatsHistoryResponse{
+		DataPoints: dataPoints,
+		Summary:    summary,
+	}, nil
+}
+
+// GetChannelStatsHistory returns time-series statistics for a specific channel
+func (m *Manager) GetChannelStatsHistory(channelID int, duration string, endpoint string) (*ChannelStatsHistoryResponse, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Calculate time range and interval (same logic as GetStatsHistory)
+	now := time.Now()
+	var since time.Time
+	var interval time.Duration
+	var durationLabel string
+
+	switch duration {
+	case "1h":
+		since = now.Add(-1 * time.Hour)
+		interval = 1 * time.Minute
+		durationLabel = "1h"
+	case "6h":
+		since = now.Add(-6 * time.Hour)
+		interval = 5 * time.Minute
+		durationLabel = "6h"
+	case "24h":
+		since = now.Add(-24 * time.Hour)
+		interval = 15 * time.Minute
+		durationLabel = "24h"
+	case "today":
+		year, month, day := now.Date()
+		since = time.Date(year, month, day, 0, 0, 0, 0, now.Location())
+		elapsed := now.Sub(since)
+		if elapsed < time.Hour {
+			interval = 1 * time.Minute
+		} else if elapsed < 6*time.Hour {
+			interval = 5 * time.Minute
+		} else {
+			interval = 15 * time.Minute
+		}
+		durationLabel = "today"
+	default:
+		since = now.Add(-1 * time.Hour)
+		interval = 1 * time.Minute
+		durationLabel = "1h"
+	}
+
+	// Build query with channel filter
+	query := `
+		SELECT
+			initial_time,
+			status,
+			channel_name,
+			COALESCE(input_tokens, 0) as input_tokens,
+			COALESCE(output_tokens, 0) as output_tokens,
+			COALESCE(cache_creation_input_tokens, 0) as cache_creation,
+			COALESCE(cache_read_input_tokens, 0) as cache_read,
+			COALESCE(price, 0) as price
+		FROM request_logs
+		WHERE initial_time >= ? AND channel_id = ?
+	`
+	args := []interface{}{since, channelID}
+
+	if endpoint != "" {
+		query += ` AND endpoint = ?`
+		args = append(args, endpoint)
+	}
+
+	query += ` ORDER BY initial_time ASC`
+
+	rows, err := m.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query channel stats history: %w", err)
+	}
+	defer rows.Close()
+
+	// Create time buckets
+	buckets := make(map[int64]*StatsHistoryDataPoint)
+	var summary StatsHistorySummary
+	var channelName string
+	summary.Duration = durationLabel
+
+	for rows.Next() {
+		var initialTimeStr string
+		var status string
+		var chName string
+		var inputTokens, outputTokens, cacheCreation, cacheRead int64
+		var price float64
+
+		if err := rows.Scan(&initialTimeStr, &status, &chName, &inputTokens, &outputTokens, &cacheCreation, &cacheRead, &price); err != nil {
+			continue
+		}
+
+		if channelName == "" {
+			channelName = chName
+		}
+
+		initialTime := parseTimeString(initialTimeStr)
+		if initialTime.IsZero() {
+			continue
+		}
+
+		// Calculate bucket key
+		bucketTime := initialTime.Truncate(interval)
+		bucketKey := bucketTime.Unix()
+
+		if _, exists := buckets[bucketKey]; !exists {
+			buckets[bucketKey] = &StatsHistoryDataPoint{
+				Timestamp: bucketTime,
+			}
+		}
+
+		bucket := buckets[bucketKey]
+		bucket.Requests++
+		bucket.InputTokens += inputTokens
+		bucket.OutputTokens += outputTokens
+		bucket.CacheCreationInputTokens += cacheCreation
+		bucket.CacheReadInputTokens += cacheRead
+		bucket.Cost += price
+
+		if status == StatusCompleted {
+			bucket.Success++
+			summary.TotalSuccess++
+		} else if status == StatusError || status == StatusTimeout {
+			bucket.Failure++
+			summary.TotalFailure++
+		}
+
+		summary.TotalRequests++
+		summary.TotalInputTokens += inputTokens
+		summary.TotalOutputTokens += outputTokens
+		summary.TotalCacheCreationTokens += cacheCreation
+		summary.TotalCacheReadTokens += cacheRead
+		summary.TotalCost += price
+	}
+
+	if summary.TotalRequests > 0 {
+		summary.AvgSuccessRate = float64(summary.TotalSuccess) / float64(summary.TotalRequests) * 100
+	}
+
+	// Convert to sorted slice
+	dataPoints := make([]StatsHistoryDataPoint, 0, len(buckets))
+	for _, dp := range buckets {
+		dataPoints = append(dataPoints, *dp)
+	}
+
+	for i := 0; i < len(dataPoints)-1; i++ {
+		for j := i + 1; j < len(dataPoints); j++ {
+			if dataPoints[i].Timestamp.After(dataPoints[j].Timestamp) {
+				dataPoints[i], dataPoints[j] = dataPoints[j], dataPoints[i]
+			}
+		}
+	}
+
+	return &ChannelStatsHistoryResponse{
+		ChannelID:   channelID,
+		ChannelName: channelName,
+		DataPoints:  dataPoints,
+		Summary:     summary,
+	}, nil
 }
 
 // generateID creates a unique request ID

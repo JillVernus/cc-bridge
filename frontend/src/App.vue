@@ -150,6 +150,36 @@
 
         <!-- 渠道管理视图 -->
         <template v-if="activeTab !== 'logs' && activeTab !== 'apikeys'">
+        <!-- 全局统计图表 - 可折叠 -->
+        <v-card v-if="showGlobalStatsChart" elevation="0" class="global-chart-card mb-6">
+          <GlobalStatsChart
+            ref="globalStatsChartRef"
+            :api-type="activeTab === 'responses' ? 'responses' : 'messages'"
+          />
+          <div class="chart-collapse-btn">
+            <v-btn
+              icon
+              size="x-small"
+              variant="text"
+              @click="showGlobalStatsChart = false"
+              :title="t('common.close')"
+            >
+              <v-icon size="small">mdi-chevron-up</v-icon>
+            </v-btn>
+          </div>
+        </v-card>
+        <div v-else class="chart-expand-bar mb-4">
+          <v-btn
+            variant="text"
+            size="small"
+            @click="showGlobalStatsChart = true"
+            prepend-icon="mdi-chart-line"
+            class="expand-chart-btn"
+          >
+            {{ t('chart.view.traffic') }}
+          </v-btn>
+        </div>
+
         <!-- 统计卡片 - 玻璃拟态风格 -->
         <v-row class="mb-6 stat-cards-row">
           <v-col cols="6" sm="4">
@@ -511,6 +541,7 @@ import ChannelOrchestration from './components/ChannelOrchestration.vue'
 import RequestLogTable from './components/RequestLogTable.vue'
 import APIKeyManagement from './components/APIKeyManagement.vue'
 import PricingSettings from './components/PricingSettings.vue'
+import GlobalStatsChart from './components/GlobalStatsChart.vue'
 import { useAppTheme } from './composables/useTheme'
 import { useLocale } from './composables/useLocale'
 
@@ -547,6 +578,10 @@ const darkModePreference = ref<'light' | 'dark' | 'auto'>('auto')
 const appVersion = ref('') // 应用版本号
 const showPricingSettings = ref(false) // 定价设置对话框
 const showBackupRestore = ref(false) // 备份恢复对话框
+const showGlobalStatsChart = ref(true) // 全局统计图表显示状态
+
+// GlobalStatsChart 组件引用
+const globalStatsChartRef = ref<InstanceType<typeof GlobalStatsChart> | null>(null)
 
 // 备份恢复相关状态
 const backupList = ref<Array<{ filename: string; createdAt: string; size: number }>>([])
@@ -1441,6 +1476,51 @@ onUnmounted(() => {
 /* ----- 统计卡片 - 复古像素风格 ----- */
 .stat-cards-row {
   margin-top: -8px;
+}
+
+/* ----- 全局统计图表卡片 ----- */
+.global-chart-card {
+  position: relative;
+  background: rgb(var(--v-theme-surface));
+  border: 2px solid rgb(var(--v-theme-on-surface));
+  box-shadow: 6px 6px 0 0 rgb(var(--v-theme-on-surface));
+}
+
+.v-theme--dark .global-chart-card {
+  border-color: rgba(255, 255, 255, 0.8);
+  box-shadow: 6px 6px 0 0 rgba(255, 255, 255, 0.8);
+}
+
+.chart-collapse-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+.chart-expand-bar {
+  display: flex;
+  justify-content: center;
+  padding: 4px;
+  background: rgba(var(--v-theme-surface-variant), 0.3);
+  border: 2px dashed rgb(var(--v-theme-on-surface));
+  border-radius: 0;
+  opacity: 0.7;
+  transition: all 0.2s ease;
+}
+
+.chart-expand-bar:hover {
+  opacity: 1;
+  background: rgba(var(--v-theme-surface-variant), 0.5);
+}
+
+.v-theme--dark .chart-expand-bar {
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.expand-chart-btn {
+  text-transform: none !important;
+  font-weight: 500 !important;
+  letter-spacing: 0 !important;
 }
 
 .stat-card {

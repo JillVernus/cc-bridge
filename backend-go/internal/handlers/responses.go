@@ -365,6 +365,7 @@ func tryResponsesChannelWithOAuth(
 				Type:          "openai-oauth",
 				ProviderName:  upstream.Name,
 				HTTPStatus:    httpStatus,
+				ChannelID:     upstream.Index,
 				ChannelName:   upstream.Name,
 				UpstreamError: errMsg,
 			}
@@ -953,6 +954,7 @@ func handleResponsesSuccess(
 				ProviderName:  upstream.Name,
 				ResponseModel: responseModel,
 				HTTPStatus:    resp.StatusCode,
+				ChannelID:     upstream.Index,
 				ChannelName:   upstream.Name,
 			}
 
@@ -1065,6 +1067,7 @@ func handleResponsesSuccess(
 			ProviderName:  upstream.Name,
 			ResponseModel: responseModel,
 			HTTPStatus:    resp.StatusCode,
+			ChannelID:     upstream.Index,
 			ChannelName:   upstream.Name,
 		}
 

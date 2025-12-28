@@ -277,3 +277,56 @@ func (h *RequestLogHandler) ImportAliases(c *gin.Context) {
 		"imported": imported,
 	})
 }
+
+// ========== Stats History Handlers (for Charts) ==========
+
+// GetStatsHistory 获取统计历史数据（用于图表）
+// GET /api/logs/stats/history?duration=1h&endpoint=/v1/messages
+func (h *RequestLogHandler) GetStatsHistory(c *gin.Context) {
+	duration := c.DefaultQuery("duration", "1h")
+	endpoint := c.Query("endpoint") // optional: "/v1/messages" or "/v1/responses"
+
+	// Validate duration
+	validDurations := map[string]bool{"1h": true, "6h": true, "24h": true, "today": true}
+	if !validDurations[duration] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid duration. Use: 1h, 6h, 24h, or today"})
+		return
+	}
+
+	result, err := h.manager.GetStatsHistory(duration, endpoint)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// GetChannelStatsHistory 获取渠道统计历史数据
+// GET /api/logs/channels/:id/stats/history?duration=1h&endpoint=/v1/messages
+func (h *RequestLogHandler) GetChannelStatsHistory(c *gin.Context) {
+	idStr := c.Param("id")
+	channelID, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid channel ID"})
+		return
+	}
+
+	duration := c.DefaultQuery("duration", "1h")
+	endpoint := c.Query("endpoint")
+
+	// Validate duration
+	validDurations := map[string]bool{"1h": true, "6h": true, "24h": true, "today": true}
+	if !validDurations[duration] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid duration. Use: 1h, 6h, 24h, or today"})
+		return
+	}
+
+	result, err := h.manager.GetChannelStatsHistory(channelID, duration, endpoint)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}

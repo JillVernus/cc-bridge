@@ -41,7 +41,8 @@
         class="channel-list"
       >
         <template #item="{ element, index }">
-          <div class="channel-row" :class="{ 'is-suspended': element.status === 'suspended' }">
+          <div class="channel-item-wrapper">
+            <div class="channel-row" :class="{ 'is-suspended': element.status === 'suspended' }">
             <!-- 拖拽手柄 -->
             <div class="drag-handle">
               <v-icon size="small" color="grey">mdi-drag-vertical</v-icon>
@@ -134,6 +135,19 @@
 
             <!-- 操作按钮 -->
             <div class="channel-actions">
+              <!-- 图表展开按钮 -->
+              <v-btn
+                icon
+                size="small"
+                variant="text"
+                :color="expandedChartChannelId === element.index ? 'primary' : 'default'"
+                @click="toggleChannelChart(element.index)"
+                :title="t('chart.view.traffic')"
+                class="chart-toggle-btn"
+              >
+                <v-icon size="18">{{ expandedChartChannelId === element.index ? 'mdi-chart-line' : 'mdi-chart-line-variant' }}</v-icon>
+              </v-btn>
+
               <!-- 内联操作按钮（宽屏显示） -->
               <div class="inline-actions">
                 <!-- 编辑 -->
@@ -256,6 +270,14 @@
               </v-menu>
             </div>
           </div>
+          <!-- 渠道统计图表 - 展开时显示 -->
+          <ChannelStatsChart
+            v-if="expandedChartChannelId === element.index"
+            :channel-id="element.index"
+            :is-responses="channelType === 'responses'"
+            @close="expandedChartChannelId = null"
+          />
+          </div>
         </template>
       </draggable>
 
@@ -350,6 +372,7 @@ import { useI18n } from 'vue-i18n'
 import draggable from 'vuedraggable'
 import { api, type Channel, type ChannelMetrics, type ChannelStatus, type TimeWindowStats } from '../services/api'
 import ChannelStatusBadge from './ChannelStatusBadge.vue'
+import ChannelStatsChart from './ChannelStatsChart.vue'
 
 // i18n
 const { t } = useI18n()
@@ -381,6 +404,16 @@ const schedulerStats = ref<{
 } | null>(null)
 const isLoadingMetrics = ref(false)
 const isSavingOrder = ref(false)
+const expandedChartChannelId = ref<number | null>(null) // 展开图表的渠道ID
+
+// 切换渠道图表展开状态
+const toggleChannelChart = (channelId: number) => {
+  if (expandedChartChannelId.value === channelId) {
+    expandedChartChannelId.value = null
+  } else {
+    expandedChartChannelId.value = channelId
+  }
+}
 
 // 活跃渠道（可拖拽排序）- 包含 active 和 suspended 状态
 const activeChannels = ref<Channel[]>([])
@@ -614,6 +647,11 @@ defineExpose({
   gap: 8px;
 }
 
+.channel-item-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
 .channel-row {
   display: grid;
   grid-template-columns: 36px 36px 110px 1fr 130px 90px 140px;
@@ -751,6 +789,15 @@ defineExpose({
   align-items: center;
   gap: 2px;
   justify-content: flex-end;
+}
+
+/* 图表展开按钮样式 */
+.chart-toggle-btn {
+  transition: all 0.2s ease;
+}
+
+.chart-toggle-btn:hover {
+  background-color: rgba(var(--v-theme-primary), 0.15) !important;
 }
 
 /* 内联操作按钮容器 */

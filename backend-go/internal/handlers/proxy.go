@@ -548,6 +548,7 @@ func handleSingleChannelProxy(
 						Type:          upstream.ServiceType,
 						ProviderName:  upstream.Name,
 						HTTPStatus:    resp.StatusCode,
+						ChannelID:     upstream.Index,
 						ChannelName:   upstream.Name,
 						Error:         fmt.Sprintf("upstream returned status %d", resp.StatusCode),
 						UpstreamError: string(respBodyBytes),
@@ -786,6 +787,7 @@ func handleNormalResponse(c *gin.Context, resp *http.Response, provider provider
 				ProviderName:  upstream.Name,
 				ResponseModel: responseModel,
 				HTTPStatus:    resp.StatusCode,
+				ChannelID:     upstream.Index,
 				ChannelName:   upstream.Name,
 			}
 
@@ -921,6 +923,7 @@ func handleStreamResponse(c *gin.Context, resp *http.Response, provider provider
 							ProviderName:  upstream.Name,
 							ResponseModel: responseModel,
 							HTTPStatus:    resp.StatusCode,
+							ChannelID:     upstream.Index,
 							ChannelName:   upstream.Name,
 						}
 
@@ -1024,6 +1027,7 @@ func handleStreamResponse(c *gin.Context, resp *http.Response, provider provider
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
 							HTTPStatus:    resp.StatusCode,
+							ChannelID:     upstream.Index,
 							ChannelName:   upstream.Name,
 							Error:         err.Error(),
 						}

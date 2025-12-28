@@ -198,6 +198,8 @@ func main() {
 			reqLogHandler := handlers.NewRequestLogHandler(reqLogManager)
 			apiGroup.GET("/logs", reqLogHandler.GetLogs)
 			apiGroup.GET("/logs/stats", reqLogHandler.GetStats)
+			apiGroup.GET("/logs/stats/history", reqLogHandler.GetStatsHistory)
+			apiGroup.GET("/logs/channels/:id/stats/history", reqLogHandler.GetChannelStatsHistory)
 			apiGroup.GET("/logs/sessions/active", reqLogHandler.GetActiveSessions)
 			apiGroup.GET("/logs/:id", reqLogHandler.GetLogByID)
 			apiGroup.DELETE("/logs", reqLogHandler.ClearLogs)

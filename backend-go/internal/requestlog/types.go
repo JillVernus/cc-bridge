@@ -141,3 +141,44 @@ type ActiveSession struct {
 	CacheReadInputTokens     int       `json:"cacheReadInputTokens"`
 	Cost                     float64   `json:"cost"`
 }
+
+// StatsHistoryDataPoint represents a single data point in time-series stats
+type StatsHistoryDataPoint struct {
+	Timestamp                time.Time `json:"timestamp"`
+	Requests                 int64     `json:"requests"`
+	Success                  int64     `json:"success"`
+	Failure                  int64     `json:"failure"`
+	InputTokens              int64     `json:"inputTokens"`
+	OutputTokens             int64     `json:"outputTokens"`
+	CacheCreationInputTokens int64     `json:"cacheCreationInputTokens"`
+	CacheReadInputTokens     int64     `json:"cacheReadInputTokens"`
+	Cost                     float64   `json:"cost"`
+}
+
+// StatsHistorySummary represents aggregated summary for the time range
+type StatsHistorySummary struct {
+	TotalRequests            int64   `json:"totalRequests"`
+	TotalSuccess             int64   `json:"totalSuccess"`
+	TotalFailure             int64   `json:"totalFailure"`
+	TotalInputTokens         int64   `json:"totalInputTokens"`
+	TotalOutputTokens        int64   `json:"totalOutputTokens"`
+	TotalCacheCreationTokens int64   `json:"totalCacheCreationTokens"`
+	TotalCacheReadTokens     int64   `json:"totalCacheReadTokens"`
+	TotalCost                float64 `json:"totalCost"`
+	AvgSuccessRate           float64 `json:"avgSuccessRate"`
+	Duration                 string  `json:"duration"`
+}
+
+// StatsHistoryResponse represents the response for stats history API
+type StatsHistoryResponse struct {
+	DataPoints []StatsHistoryDataPoint `json:"dataPoints"`
+	Summary    StatsHistorySummary     `json:"summary"`
+}
+
+// ChannelStatsHistoryResponse represents per-channel stats history
+type ChannelStatsHistoryResponse struct {
+	ChannelID   int                     `json:"channelId"`
+	ChannelName string                  `json:"channelName"`
+	DataPoints  []StatsHistoryDataPoint `json:"dataPoints"`
+	Summary     StatsHistorySummary     `json:"summary"`
+}

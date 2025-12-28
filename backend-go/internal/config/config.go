@@ -54,6 +54,7 @@ func (t *TokenPriceMultipliers) GetEffectiveMultiplier(tokenType string) float64
 
 // UpstreamConfig 上游配置
 type UpstreamConfig struct {
+	Index                     int               `json:"-"` // Internal index, set at runtime (not persisted to JSON)
 	BaseURL                   string            `json:"baseUrl"`
 	APIKeys                   []string          `json:"apiKeys"`
 	ServiceType               string            `json:"serviceType"` // gemini, openai, openai_chat, openaiold, claude, openai-oauth
@@ -355,6 +356,14 @@ func (cm *ConfigManager) loadConfig() error {
 
 	// 安全警告：检查 insecureSkipVerify 选项
 	cm.warnInsecureChannels()
+
+	// 设置每个渠道的 Index 字段（运行时字段，用于请求日志等）
+	for i := range cm.config.Upstream {
+		cm.config.Upstream[i].Index = i
+	}
+	for i := range cm.config.ResponsesUpstream {
+		cm.config.ResponsesUpstream[i].Index = i
+	}
 
 	return nil
 }
