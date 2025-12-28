@@ -35,10 +35,6 @@
             <v-icon size="small" class="mr-1">mdi-chart-areaspline</v-icon>
             {{ t('chart.view.tokens') }}
           </v-btn>
-          <v-btn value="cache" size="x-small">
-            <v-icon size="small" class="mr-1">mdi-database</v-icon>
-            {{ t('chart.view.cache') }}
-          </v-btn>
         </v-btn-toggle>
 
         <!-- Close button -->
@@ -60,7 +56,7 @@
     </div>
 
     <!-- Chart -->
-    <div v-else class="chart-area">
+    <div v-else class="chart-area" @mouseenter="pauseAutoRefresh" @mouseleave="resumeAutoRefresh">
       <apexchart
         ref="chartRef"
         type="area"
@@ -97,7 +93,7 @@ defineEmits<{
 }>()
 
 // View mode type
-type ViewMode = 'traffic' | 'tokens' | 'cache'
+type ViewMode = 'traffic' | 'tokens'
 
 // Theme
 const theme = useTheme()
@@ -134,11 +130,23 @@ const stopAutoRefresh = () => {
   }
 }
 
+// Pause/resume auto refresh on hover (to keep tooltip visible)
+const isHovering = ref(false)
+
+const pauseAutoRefresh = () => {
+  isHovering.value = true
+  stopAutoRefresh()
+}
+
+const resumeAutoRefresh = () => {
+  isHovering.value = false
+  startAutoRefresh()
+}
+
 // Chart colors
 const chartColors = {
-  traffic: ['#3b82f6', '#10b981'],
-  tokens: ['#8b5cf6', '#f97316'],
-  cache: ['#06b6d4', '#f43f5e']
+  traffic: ['#3b82f6', '#10b981'],  // Blue for requests, Green for success
+  tokens: ['#8b5cf6', '#f97316', '#22c55e', '#eab308']  // Purple input, Orange output, Green cache create, Yellow cache hit
 }
 
 // Check if has data
@@ -191,7 +199,7 @@ const chartOptions = computed(() => {
     stroke: {
       curve: 'smooth' as const,
       width: 2,
-      dashArray: mode !== 'traffic' ? [0, 5] : [0, 0]
+      dashArray: mode === 'tokens' ? [0, 0, 5, 5] : [0, 0]
     },
     grid: {
       borderColor: isDark.value ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
@@ -207,30 +215,16 @@ const chartOptions = computed(() => {
       axisBorder: { show: false },
       axisTicks: { show: false }
     },
-    yaxis: mode !== 'traffic' ? [
-      {
-        labels: {
-          formatter: (val: number) => formatNumber(val),
-          style: { fontSize: '11px' }
-        },
-        min: 0
-      },
-      {
-        opposite: true,
-        labels: {
-          formatter: (val: number) => formatNumber(val),
-          style: { fontSize: '11px' }
-        },
-        min: 0
-      }
-    ] : {
+    yaxis: {
       labels: {
-        formatter: (val: number) => Math.round(val).toString(),
+        formatter: (val: number) => mode === 'traffic' ? Math.round(val).toString() : formatNumber(val),
         style: { fontSize: '11px' }
       },
       min: 0
     },
     tooltip: {
+      shared: true,
+      intersect: false,
       x: {
         format: 'MM-dd HH:mm'
       },
@@ -274,7 +268,8 @@ const chartSeries = computed(() => {
         }))
       }
     ]
-  } else if (mode === 'tokens') {
+  } else {
+    // tokens mode - show input, output, cache create, cache hit
     return [
       {
         name: t('chart.legend.inputTokens'),
@@ -289,22 +284,19 @@ const chartSeries = computed(() => {
           x: new Date(dp.timestamp).getTime(),
           y: dp.outputTokens
         }))
-      }
-    ]
-  } else {
-    return [
-      {
-        name: t('chart.legend.cacheRead'),
-        data: dataPoints.map(dp => ({
-          x: new Date(dp.timestamp).getTime(),
-          y: dp.cacheReadInputTokens
-        }))
       },
       {
-        name: t('chart.legend.cacheWrite'),
+        name: t('chart.legend.cacheCreate'),
         data: dataPoints.map(dp => ({
           x: new Date(dp.timestamp).getTime(),
           y: dp.cacheCreationInputTokens
+        }))
+      },
+      {
+        name: t('chart.legend.cacheHit'),
+        data: dataPoints.map(dp => ({
+          x: new Date(dp.timestamp).getTime(),
+          y: dp.cacheReadInputTokens
         }))
       }
     ]

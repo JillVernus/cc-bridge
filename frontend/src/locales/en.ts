@@ -435,14 +435,16 @@ export default {
       successRate: 'Success Rate',
       inputTokens: 'Input Tokens',
       outputTokens: 'Output Tokens',
+      cacheCreate: 'Cache Create',
+      cacheHit: 'Cache Hit',
     },
     legend: {
       totalRequests: 'Total Requests',
       success: 'Success',
       inputTokens: 'Input Tokens',
       outputTokens: 'Output Tokens',
-      cacheRead: 'Cache Read',
-      cacheWrite: 'Cache Write',
+      cacheCreate: 'Cache Create',
+      cacheHit: 'Cache Hit',
     },
     unit: {
       requests: 'requests',

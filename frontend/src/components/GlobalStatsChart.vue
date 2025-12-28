@@ -57,6 +57,14 @@
         <div class="summary-label">{{ t('chart.summary.outputTokens') }}</div>
         <div class="summary-value">{{ formatNumber(summary.totalOutputTokens) }}</div>
       </div>
+      <div class="summary-card">
+        <div class="summary-label">{{ t('chart.summary.cacheCreate') }}</div>
+        <div class="summary-value text-success">{{ formatNumber(summary.totalCacheCreationTokens) }}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">{{ t('chart.summary.cacheHit') }}</div>
+        <div class="summary-value text-warning">{{ formatNumber(summary.totalCacheReadTokens) }}</div>
+      </div>
     </div>
 
     <!-- Loading state -->
@@ -71,7 +79,7 @@
     </div>
 
     <!-- Chart -->
-    <div v-else class="chart-area">
+    <div v-else class="chart-area" @mouseenter="pauseAutoRefresh" @mouseleave="resumeAutoRefresh">
       <apexchart
         ref="chartRef"
         type="area"
@@ -160,6 +168,19 @@ const stopAutoRefresh = () => {
   }
 }
 
+// Pause/resume auto refresh on hover (to keep tooltip visible)
+const isHovering = ref(false)
+
+const pauseAutoRefresh = () => {
+  isHovering.value = true
+  stopAutoRefresh()
+}
+
+const resumeAutoRefresh = () => {
+  isHovering.value = false
+  startAutoRefresh()
+}
+
 // Chart height
 const chartHeight = 260
 
@@ -175,14 +196,8 @@ const hasData = computed(() => {
 
 // Chart colors
 const chartColors = {
-  traffic: {
-    primary: '#3b82f6',    // Blue for requests
-    success: '#10b981',    // Green for success
-  },
-  tokens: {
-    input: '#8b5cf6',      // Purple for input
-    output: '#f97316'      // Orange for output
-  }
+  traffic: ['#3b82f6', '#10b981'],  // Blue for requests, Green for success
+  tokens: ['#8b5cf6', '#f97316', '#22c55e', '#eab308']  // Purple input, Orange output, Green cache create, Yellow cache hit
 }
 
 // Format number for display
@@ -212,9 +227,7 @@ const chartOptions = computed(() => {
     theme: {
       mode: (isDark.value ? 'dark' : 'light') as 'dark' | 'light'
     },
-    colors: mode === 'traffic'
-      ? [chartColors.traffic.primary, chartColors.traffic.success]
-      : [chartColors.tokens.input, chartColors.tokens.output],
+    colors: chartColors[mode],
     fill: {
       type: 'gradient',
       gradient: {
@@ -230,7 +243,7 @@ const chartOptions = computed(() => {
     stroke: {
       curve: 'smooth' as const,
       width: 2,
-      dashArray: mode === 'tokens' ? [0, 5] : [0, 0]
+      dashArray: mode === 'tokens' ? [0, 0, 5, 5] : [0, 0]
     },
     grid: {
       borderColor: isDark.value ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
@@ -246,32 +259,16 @@ const chartOptions = computed(() => {
       axisBorder: { show: false },
       axisTicks: { show: false }
     },
-    yaxis: mode === 'tokens' ? [
-      {
-        seriesName: t('chart.legend.inputTokens'),
-        labels: {
-          formatter: (val: number) => formatNumber(val),
-          style: { fontSize: '11px' }
-        },
-        min: 0
-      },
-      {
-        seriesName: t('chart.legend.outputTokens'),
-        opposite: true,
-        labels: {
-          formatter: (val: number) => formatNumber(val),
-          style: { fontSize: '11px' }
-        },
-        min: 0
-      }
-    ] : {
+    yaxis: {
       labels: {
-        formatter: (val: number) => Math.round(val).toString(),
+        formatter: (val: number) => mode === 'traffic' ? Math.round(val).toString() : formatNumber(val),
         style: { fontSize: '11px' }
       },
       min: 0
     },
     tooltip: {
+      shared: true,
+      intersect: false,
       x: {
         format: 'MM-dd HH:mm'
       },
@@ -316,6 +313,7 @@ const chartSeries = computed(() => {
       }
     ]
   } else {
+    // tokens mode - show input, output, cache create, cache hit
     return [
       {
         name: t('chart.legend.inputTokens'),
@@ -329,6 +327,20 @@ const chartSeries = computed(() => {
         data: dataPoints.map(dp => ({
           x: new Date(dp.timestamp).getTime(),
           y: dp.outputTokens
+        }))
+      },
+      {
+        name: t('chart.legend.cacheCreate'),
+        data: dataPoints.map(dp => ({
+          x: new Date(dp.timestamp).getTime(),
+          y: dp.cacheCreationInputTokens
+        }))
+      },
+      {
+        name: t('chart.legend.cacheHit'),
+        data: dataPoints.map(dp => ({
+          x: new Date(dp.timestamp).getTime(),
+          y: dp.cacheReadInputTokens
         }))
       }
     ]

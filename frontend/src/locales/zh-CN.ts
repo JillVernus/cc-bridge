@@ -435,14 +435,16 @@ export default {
       successRate: '成功率',
       inputTokens: '输入 Tokens',
       outputTokens: '输出 Tokens',
+      cacheCreate: '缓存创建',
+      cacheHit: '缓存命中',
     },
     legend: {
       totalRequests: '总请求数',
       success: '成功',
       inputTokens: '输入 Tokens',
       outputTokens: '输出 Tokens',
-      cacheRead: '缓存读取',
-      cacheWrite: '缓存写入',
+      cacheCreate: '缓存创建',
+      cacheHit: '缓存命中',
     },
     unit: {
       requests: '次请求',
