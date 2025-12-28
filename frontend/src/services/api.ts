@@ -616,11 +616,23 @@ class ApiService {
   // ============== Stats History API (for Charts) ==============
 
   // 获取全局统计历史数据
-  async getStatsHistory(duration: Duration = '1h', endpoint?: string): Promise<StatsHistoryResponse> {
+  async getStatsHistory(duration: Duration = '1h', endpoint?: string, from?: string, to?: string): Promise<StatsHistoryResponse> {
     const params = new URLSearchParams()
     params.set('duration', duration)
     if (endpoint) params.set('endpoint', endpoint)
+    if (from) params.set('from', from)
+    if (to) params.set('to', to)
     return this.request(`/logs/stats/history?${params.toString()}`)
+  }
+
+  // 获取按 provider/channel 维度聚合的统计历史数据（用于成本/价格图表）
+  async getProviderStatsHistory(duration: Duration = '1h', endpoint?: string, from?: string, to?: string): Promise<ProviderStatsHistoryResponse> {
+    const params = new URLSearchParams()
+    params.set('duration', duration)
+    if (endpoint) params.set('endpoint', endpoint)
+    if (from) params.set('from', from)
+    if (to) params.set('to', to)
+    return this.request(`/logs/providers/stats/history?${params.toString()}`)
   }
 
   // 获取渠道统计历史数据
@@ -813,13 +825,16 @@ export interface APIKeyListResponse {
 
 // ============== Stats History Types (for Charts) ==============
 
-export type Duration = '1h' | '6h' | '24h' | 'today'
+export type Duration = '1h' | '6h' | '24h' | 'today' | 'period'
 
 export interface StatsHistoryDataPoint {
   timestamp: string
   requests: number
   success: number
   failure: number
+  avgDurationMs: number
+  p50DurationMs: number
+  p95DurationMs: number
   inputTokens: number
   outputTokens: number
   cacheCreationInputTokens: number
@@ -837,6 +852,9 @@ export interface StatsHistorySummary {
   totalCacheReadTokens: number
   totalCost: number
   avgSuccessRate: number
+  avgDurationMs: number
+  p50DurationMs: number
+  p95DurationMs: number
   duration: string
 }
 
@@ -849,6 +867,18 @@ export interface ChannelStatsHistoryResponse {
   channelId: number
   channelName: string
   dataPoints: StatsHistoryDataPoint[]
+  summary: StatsHistorySummary
+}
+
+export interface ProviderStatsHistorySeries {
+  provider: string
+  baselineCost: number
+  dataPoints: StatsHistoryDataPoint[]
+  summary: StatsHistorySummary
+}
+
+export interface ProviderStatsHistoryResponse {
+  providers: ProviderStatsHistorySeries[]
   summary: StatsHistorySummary
 }
 

@@ -148,6 +148,9 @@ type StatsHistoryDataPoint struct {
 	Requests                 int64     `json:"requests"`
 	Success                  int64     `json:"success"`
 	Failure                  int64     `json:"failure"`
+	AvgDurationMs            float64   `json:"avgDurationMs"`
+	P50DurationMs            int64     `json:"p50DurationMs"`
+	P95DurationMs            int64     `json:"p95DurationMs"`
 	InputTokens              int64     `json:"inputTokens"`
 	OutputTokens             int64     `json:"outputTokens"`
 	CacheCreationInputTokens int64     `json:"cacheCreationInputTokens"`
@@ -166,6 +169,9 @@ type StatsHistorySummary struct {
 	TotalCacheReadTokens     int64   `json:"totalCacheReadTokens"`
 	TotalCost                float64 `json:"totalCost"`
 	AvgSuccessRate           float64 `json:"avgSuccessRate"`
+	AvgDurationMs            float64 `json:"avgDurationMs"`
+	P50DurationMs            int64   `json:"p50DurationMs"`
+	P95DurationMs            int64   `json:"p95DurationMs"`
 	Duration                 string  `json:"duration"`
 }
 
@@ -181,4 +187,18 @@ type ChannelStatsHistoryResponse struct {
 	ChannelName string                  `json:"channelName"`
 	DataPoints  []StatsHistoryDataPoint `json:"dataPoints"`
 	Summary     StatsHistorySummary     `json:"summary"`
+}
+
+// ProviderStatsHistorySeries represents time-series statistics for a provider/channel name.
+type ProviderStatsHistorySeries struct {
+	Provider      string               `json:"provider"`
+	BaselineCost  float64              `json:"baselineCost"`
+	DataPoints    []StatsHistoryDataPoint `json:"dataPoints"`
+	Summary       StatsHistorySummary  `json:"summary"`
+}
+
+// ProviderStatsHistoryResponse represents time-series statistics grouped by provider/channel name.
+type ProviderStatsHistoryResponse struct {
+	Providers []ProviderStatsHistorySeries `json:"providers"`
+	Summary   StatsHistorySummary          `json:"summary"`
 }

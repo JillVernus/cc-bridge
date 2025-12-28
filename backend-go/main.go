@@ -199,6 +199,7 @@ func main() {
 			apiGroup.GET("/logs", reqLogHandler.GetLogs)
 			apiGroup.GET("/logs/stats", reqLogHandler.GetStats)
 			apiGroup.GET("/logs/stats/history", reqLogHandler.GetStatsHistory)
+			apiGroup.GET("/logs/providers/stats/history", reqLogHandler.GetProviderStatsHistory)
 			apiGroup.GET("/logs/channels/:id/stats/history", reqLogHandler.GetChannelStatsHistory)
 			apiGroup.GET("/logs/sessions/active", reqLogHandler.GetActiveSessions)
 			apiGroup.GET("/logs/:id", reqLogHandler.GetLogByID)

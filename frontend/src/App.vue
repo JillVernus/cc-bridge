@@ -143,43 +143,42 @@
     <v-main>
       <v-container fluid class="pa-4 pa-md-6">
         <!-- Logs 视图 -->
-        <RequestLogTable v-if="activeTab === 'logs'" />
+        <template v-if="activeTab === 'logs'">
+          <!-- 全局统计图表 - 可折叠 -->
+          <v-card v-if="showGlobalStatsChart" elevation="0" class="global-chart-card mb-6">
+            <GlobalStatsChart ref="globalStatsChartRef" :from="logsDateRange?.from" :to="logsDateRange?.to" />
+            <div class="chart-collapse-btn">
+              <v-btn
+                icon
+                size="x-small"
+                variant="text"
+                @click="showGlobalStatsChart = false"
+                :title="t('common.close')"
+              >
+                <v-icon size="small">mdi-chevron-up</v-icon>
+              </v-btn>
+            </div>
+          </v-card>
+          <div v-else class="chart-expand-bar mb-4">
+            <v-btn
+              variant="text"
+              size="small"
+              @click="showGlobalStatsChart = true"
+              prepend-icon="mdi-chart-line"
+              class="expand-chart-btn"
+            >
+              {{ t('chart.view.traffic') }}
+            </v-btn>
+          </div>
+
+          <RequestLogTable @date-range-change="onLogsDateRangeChange" />
+        </template>
 
         <!-- API Keys 视图 -->
         <APIKeyManagement v-if="activeTab === 'apikeys'" />
 
         <!-- 渠道管理视图 -->
         <template v-if="activeTab !== 'logs' && activeTab !== 'apikeys'">
-        <!-- 全局统计图表 - 可折叠 -->
-        <v-card v-if="showGlobalStatsChart" elevation="0" class="global-chart-card mb-6">
-          <GlobalStatsChart
-            ref="globalStatsChartRef"
-            :api-type="activeTab === 'responses' ? 'responses' : 'messages'"
-          />
-          <div class="chart-collapse-btn">
-            <v-btn
-              icon
-              size="x-small"
-              variant="text"
-              @click="showGlobalStatsChart = false"
-              :title="t('common.close')"
-            >
-              <v-icon size="small">mdi-chevron-up</v-icon>
-            </v-btn>
-          </div>
-        </v-card>
-        <div v-else class="chart-expand-bar mb-4">
-          <v-btn
-            variant="text"
-            size="small"
-            @click="showGlobalStatsChart = true"
-            prepend-icon="mdi-chart-line"
-            class="expand-chart-btn"
-          >
-            {{ t('chart.view.traffic') }}
-          </v-btn>
-        </div>
-
         <!-- 统计卡片 - 玻璃拟态风格 -->
         <v-row class="mb-6 stat-cards-row">
           <v-col cols="6" sm="4">
@@ -582,6 +581,12 @@ const showGlobalStatsChart = ref(true) // 全局统计图表显示状态
 
 // GlobalStatsChart 组件引用
 const globalStatsChartRef = ref<InstanceType<typeof GlobalStatsChart> | null>(null)
+
+type LogDateRange = { from: string; to: string }
+const logsDateRange = ref<LogDateRange | null>(null)
+const onLogsDateRangeChange = (range: LogDateRange) => {
+  logsDateRange.value = range
+}
 
 // 备份恢复相关状态
 const backupList = ref<Array<{ filename: string; createdAt: string; size: number }>>([])
@@ -1493,8 +1498,9 @@ onUnmounted(() => {
 
 .chart-collapse-btn {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 4px;
+  right: 4px;
+  z-index: 2;
 }
 
 .chart-expand-bar {

@@ -280,24 +280,102 @@ func (h *RequestLogHandler) ImportAliases(c *gin.Context) {
 
 // ========== Stats History Handlers (for Charts) ==========
 
-// GetStatsHistory 获取统计历史数据（用于图表）
-// GET /api/logs/stats/history?duration=1h&endpoint=/v1/messages
-func (h *RequestLogHandler) GetStatsHistory(c *gin.Context) {
-	duration := c.DefaultQuery("duration", "1h")
-	endpoint := c.Query("endpoint") // optional: "/v1/messages" or "/v1/responses"
+	// GetStatsHistory 获取统计历史数据（用于图表）
+	// GET /api/logs/stats/history?duration=1h&endpoint=/v1/messages
+	func (h *RequestLogHandler) GetStatsHistory(c *gin.Context) {
+		duration := c.DefaultQuery("duration", "1h")
+		endpoint := c.Query("endpoint") // optional: "/v1/messages" or "/v1/responses"
 
-	// Validate duration
-	validDurations := map[string]bool{"1h": true, "6h": true, "24h": true, "today": true}
-	if !validDurations[duration] {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid duration. Use: 1h, 6h, 24h, or today"})
-		return
-	}
+		// Validate duration
+		validDurations := map[string]bool{"1h": true, "6h": true, "24h": true, "today": true, "period": true}
+		if !validDurations[duration] {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid duration. Use: 1h, 6h, 24h, today, or period"})
+			return
+		}
 
-	result, err := h.manager.GetStatsHistory(duration, endpoint)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
+		// Optional date range filter (RFC3339)
+		fromStr := c.Query("from")
+		toStr := c.Query("to")
+		if fromStr != "" || toStr != "" {
+			if fromStr == "" || toStr == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Both from and to are required when filtering by date range"})
+				return
+			}
+			from, err := time.Parse(time.RFC3339, fromStr)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid from. Expected RFC3339 timestamp"})
+				return
+			}
+			to, err := time.Parse(time.RFC3339, toStr)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid to. Expected RFC3339 timestamp"})
+				return
+			}
+
+			result, err := h.manager.GetStatsHistoryRange(duration, from, to, endpoint)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, result)
+			return
+		}
+
+		result, err := h.manager.GetStatsHistory(duration, endpoint)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+	c.JSON(http.StatusOK, result)
+}
+
+	// GetProviderStatsHistory 获取按 provider/channel 维度聚合的统计历史数据（用于图表）
+	// GET /api/logs/providers/stats/history?duration=1h&endpoint=/v1/messages
+	func (h *RequestLogHandler) GetProviderStatsHistory(c *gin.Context) {
+		duration := c.DefaultQuery("duration", "1h")
+		endpoint := c.Query("endpoint") // optional: "/v1/messages" or "/v1/responses"
+
+		// Validate duration
+		validDurations := map[string]bool{"1h": true, "6h": true, "24h": true, "today": true, "period": true}
+		if !validDurations[duration] {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid duration. Use: 1h, 6h, 24h, today, or period"})
+			return
+		}
+
+		// Optional date range filter (RFC3339)
+		fromStr := c.Query("from")
+		toStr := c.Query("to")
+		if fromStr != "" || toStr != "" {
+			if fromStr == "" || toStr == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Both from and to are required when filtering by date range"})
+				return
+			}
+			from, err := time.Parse(time.RFC3339, fromStr)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid from. Expected RFC3339 timestamp"})
+				return
+			}
+			to, err := time.Parse(time.RFC3339, toStr)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid to. Expected RFC3339 timestamp"})
+				return
+			}
+
+			result, err := h.manager.GetProviderStatsHistoryRange(duration, from, to, endpoint)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, result)
+			return
+		}
+
+		result, err := h.manager.GetProviderStatsHistory(duration, endpoint)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 
 	c.JSON(http.StatusOK, result)
 }

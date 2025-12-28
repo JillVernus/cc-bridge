@@ -424,11 +424,19 @@ export default {
       '6h': '6h',
       '24h': '24h',
       today: 'Today',
+      period: 'Period',
+    },
+    endpoint: {
+      all: 'All',
+      messages: 'Claude',
+      responses: 'Codex',
     },
     view: {
       traffic: 'Traffic',
       tokens: 'Tokens',
       cache: 'Cache',
+      latency: 'Latency',
+      cost: 'Cost',
     },
     summary: {
       totalRequests: 'Total Requests',
@@ -437,6 +445,10 @@ export default {
       outputTokens: 'Output Tokens',
       cacheCreate: 'Cache Create',
       cacheHit: 'Cache Hit',
+      p50Latency: 'p50 Latency',
+      p95Latency: 'p95 Latency',
+      totalCost: 'Total Cost',
+      avgCostPerRequest: 'Avg / Request',
     },
     legend: {
       totalRequests: 'Total Requests',
@@ -445,6 +457,8 @@ export default {
       outputTokens: 'Output Tokens',
       cacheCreate: 'Cache Create',
       cacheHit: 'Cache Hit',
+      p50Latency: 'p50 Latency',
+      p95Latency: 'p95 Latency',
     },
     unit: {
       requests: 'requests',

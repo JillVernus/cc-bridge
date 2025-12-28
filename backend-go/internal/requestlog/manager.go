@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"math"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -1209,6 +1211,27 @@ func (m *Manager) ImportAliases(aliases map[string]string) (int, error) {
 	return imported, nil
 }
 
+type statsHistoryBucket struct {
+	dp            *StatsHistoryDataPoint
+	durationsMs   []int64
+	durationSumMs int64
+}
+
+func intervalForStatsHistoryWindow(windowLen time.Duration) time.Duration {
+	switch {
+	case windowLen <= time.Hour:
+		return 1 * time.Minute
+	case windowLen <= 6*time.Hour:
+		return 5 * time.Minute
+	case windowLen <= 24*time.Hour:
+		return 15 * time.Minute
+	case windowLen <= 7*24*time.Hour:
+		return 1 * time.Hour
+	default:
+		return 4 * time.Hour
+	}
+}
+
 // GetStatsHistory returns time-series statistics for charts
 // duration: time range to query (e.g., "1h", "6h", "24h", or "today")
 // endpoint: optional filter for endpoint ("/v1/messages" or "/v1/responses")
@@ -1235,7 +1258,7 @@ func (m *Manager) GetStatsHistory(duration string, endpoint string) (*StatsHisto
 		since = now.Add(-24 * time.Hour)
 		interval = 15 * time.Minute
 		durationLabel = "24h"
-	case "today":
+	case "today", "period":
 		// Start of today in local timezone
 		year, month, day := now.Date()
 		since = time.Date(year, month, day, 0, 0, 0, 0, now.Location())
@@ -1248,7 +1271,11 @@ func (m *Manager) GetStatsHistory(duration string, endpoint string) (*StatsHisto
 		} else {
 			interval = 15 * time.Minute
 		}
-		durationLabel = "today"
+		if duration == "today" {
+			durationLabel = "today"
+		} else {
+			durationLabel = "period"
+		}
 	default:
 		since = now.Add(-1 * time.Hour)
 		interval = 1 * time.Minute
@@ -1260,6 +1287,7 @@ func (m *Manager) GetStatsHistory(duration string, endpoint string) (*StatsHisto
 		SELECT
 			initial_time,
 			status,
+			COALESCE(duration_ms, 0) as duration_ms,
 			COALESCE(input_tokens, 0) as input_tokens,
 			COALESCE(output_tokens, 0) as output_tokens,
 			COALESCE(cache_creation_input_tokens, 0) as cache_creation,
@@ -1284,17 +1312,21 @@ func (m *Manager) GetStatsHistory(duration string, endpoint string) (*StatsHisto
 	defer rows.Close()
 
 	// Create time buckets
-	buckets := make(map[int64]*StatsHistoryDataPoint)
+	buckets := make(map[int64]*statsHistoryBucket)
 	var summary StatsHistorySummary
 	summary.Duration = durationLabel
+
+	var latencyDurations []int64
+	var latencySumMs int64
 
 	for rows.Next() {
 		var initialTimeStr string
 		var status string
+		var durationMs int64
 		var inputTokens, outputTokens, cacheCreation, cacheRead int64
 		var price float64
 
-		if err := rows.Scan(&initialTimeStr, &status, &inputTokens, &outputTokens, &cacheCreation, &cacheRead, &price); err != nil {
+		if err := rows.Scan(&initialTimeStr, &status, &durationMs, &inputTokens, &outputTokens, &cacheCreation, &cacheRead, &price); err != nil {
 			continue
 		}
 
@@ -1309,26 +1341,36 @@ func (m *Manager) GetStatsHistory(duration string, endpoint string) (*StatsHisto
 
 		// Get or create bucket
 		if _, exists := buckets[bucketKey]; !exists {
-			buckets[bucketKey] = &StatsHistoryDataPoint{
-				Timestamp: bucketTime,
+			buckets[bucketKey] = &statsHistoryBucket{
+				dp: &StatsHistoryDataPoint{
+					Timestamp: bucketTime,
+				},
 			}
 		}
 
 		bucket := buckets[bucketKey]
-		bucket.Requests++
-		bucket.InputTokens += inputTokens
-		bucket.OutputTokens += outputTokens
-		bucket.CacheCreationInputTokens += cacheCreation
-		bucket.CacheReadInputTokens += cacheRead
-		bucket.Cost += price
+		bucket.dp.Requests++
+		bucket.dp.InputTokens += inputTokens
+		bucket.dp.OutputTokens += outputTokens
+		bucket.dp.CacheCreationInputTokens += cacheCreation
+		bucket.dp.CacheReadInputTokens += cacheRead
+		bucket.dp.Cost += price
 
 		// Count success/failure
 		if status == StatusCompleted {
-			bucket.Success++
+			bucket.dp.Success++
 			summary.TotalSuccess++
 		} else if status == StatusError || status == StatusTimeout {
-			bucket.Failure++
+			bucket.dp.Failure++
 			summary.TotalFailure++
+		}
+
+		// Aggregate latency (exclude empty/unknown durations)
+		if durationMs > 0 {
+			bucket.durationsMs = append(bucket.durationsMs, durationMs)
+			bucket.durationSumMs += durationMs
+			latencyDurations = append(latencyDurations, durationMs)
+			latencySumMs += durationMs
 		}
 
 		// Update summary
@@ -1345,24 +1387,792 @@ func (m *Manager) GetStatsHistory(duration string, endpoint string) (*StatsHisto
 		summary.AvgSuccessRate = float64(summary.TotalSuccess) / float64(summary.TotalRequests) * 100
 	}
 
+	// Calculate latency summary
+	if len(latencyDurations) > 0 {
+		summary.AvgDurationMs = float64(latencySumMs) / float64(len(latencyDurations))
+		sort.Slice(latencyDurations, func(i, j int) bool { return latencyDurations[i] < latencyDurations[j] })
+		summary.P50DurationMs = percentileMs(latencyDurations, 50)
+		summary.P95DurationMs = percentileMs(latencyDurations, 95)
+	}
+
 	// Convert buckets map to sorted slice
 	dataPoints := make([]StatsHistoryDataPoint, 0, len(buckets))
-	for _, dp := range buckets {
-		dataPoints = append(dataPoints, *dp)
+	for _, bucket := range buckets {
+		if len(bucket.durationsMs) > 0 {
+			bucket.dp.AvgDurationMs = float64(bucket.durationSumMs) / float64(len(bucket.durationsMs))
+			sort.Slice(bucket.durationsMs, func(i, j int) bool { return bucket.durationsMs[i] < bucket.durationsMs[j] })
+			bucket.dp.P50DurationMs = percentileMs(bucket.durationsMs, 50)
+			bucket.dp.P95DurationMs = percentileMs(bucket.durationsMs, 95)
+		}
+		dataPoints = append(dataPoints, *bucket.dp)
 	}
 
 	// Sort by timestamp
-	for i := 0; i < len(dataPoints)-1; i++ {
-		for j := i + 1; j < len(dataPoints); j++ {
-			if dataPoints[i].Timestamp.After(dataPoints[j].Timestamp) {
-				dataPoints[i], dataPoints[j] = dataPoints[j], dataPoints[i]
-			}
-		}
-	}
+	sort.Slice(dataPoints, func(i, j int) bool { return dataPoints[i].Timestamp.Before(dataPoints[j].Timestamp) })
 
 	return &StatsHistoryResponse{
 		DataPoints: dataPoints,
 		Summary:    summary,
+	}, nil
+}
+
+// GetStatsHistoryRange returns time-series statistics for charts within a custom date range.
+// duration: window size to display (e.g., "1h", "6h", "24h", or "period" for the whole range)
+// from/to: RFC3339 timestamps defining the selected period (typically from the logs page)
+// endpoint: optional filter for endpoint ("/v1/messages" or "/v1/responses")
+func (m *Manager) GetStatsHistoryRange(duration string, from, to time.Time, endpoint string) (*StatsHistoryResponse, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	now := time.Now()
+	rangeStart := from
+	rangeEnd := to
+	if rangeEnd.After(now) {
+		rangeEnd = now
+	}
+	if rangeEnd.Before(rangeStart) {
+		return &StatsHistoryResponse{
+			DataPoints: []StatsHistoryDataPoint{},
+			Summary:    StatsHistorySummary{Duration: duration},
+		}, nil
+	}
+
+	windowEnd := rangeEnd
+	windowStart := rangeStart
+	durationLabel := duration
+
+	switch duration {
+	case "period", "today":
+		windowStart = rangeStart
+		if duration == "today" {
+			durationLabel = "today"
+		} else {
+			durationLabel = "period"
+		}
+	case "1h":
+		windowStart = windowEnd.Add(-1 * time.Hour)
+		durationLabel = "1h"
+	case "6h":
+		windowStart = windowEnd.Add(-6 * time.Hour)
+		durationLabel = "6h"
+	case "24h":
+		windowStart = windowEnd.Add(-24 * time.Hour)
+		durationLabel = "24h"
+	default:
+		windowStart = windowEnd.Add(-1 * time.Hour)
+		durationLabel = "1h"
+	}
+
+	if windowStart.Before(rangeStart) {
+		windowStart = rangeStart
+	}
+
+	interval := intervalForStatsHistoryWindow(windowEnd.Sub(windowStart))
+
+	query := `
+		SELECT
+			initial_time,
+			status,
+			COALESCE(duration_ms, 0) as duration_ms,
+			COALESCE(input_tokens, 0) as input_tokens,
+			COALESCE(output_tokens, 0) as output_tokens,
+			COALESCE(cache_creation_input_tokens, 0) as cache_creation,
+			COALESCE(cache_read_input_tokens, 0) as cache_read,
+			COALESCE(price, 0) as price
+		FROM request_logs
+		WHERE initial_time >= ? AND initial_time <= ?
+	`
+	args := []interface{}{windowStart, windowEnd}
+	if endpoint != "" {
+		query += ` AND endpoint = ?`
+		args = append(args, endpoint)
+	}
+	query += ` ORDER BY initial_time ASC`
+
+	rows, err := m.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query stats history (range): %w", err)
+	}
+	defer rows.Close()
+
+	buckets := make(map[int64]*statsHistoryBucket)
+	var summary StatsHistorySummary
+	summary.Duration = durationLabel
+
+	var latencyDurations []int64
+	var latencySumMs int64
+
+	for rows.Next() {
+		var initialTimeStr string
+		var status string
+		var durationMs int64
+		var inputTokens, outputTokens, cacheCreation, cacheRead int64
+		var price float64
+
+		if err := rows.Scan(&initialTimeStr, &status, &durationMs, &inputTokens, &outputTokens, &cacheCreation, &cacheRead, &price); err != nil {
+			continue
+		}
+
+		initialTime := parseTimeString(initialTimeStr)
+		if initialTime.IsZero() {
+			continue
+		}
+
+		bucketTime := initialTime.Truncate(interval)
+		bucketKey := bucketTime.Unix()
+
+		if _, exists := buckets[bucketKey]; !exists {
+			buckets[bucketKey] = &statsHistoryBucket{
+				dp: &StatsHistoryDataPoint{
+					Timestamp: bucketTime,
+				},
+			}
+		}
+
+		bucket := buckets[bucketKey]
+		bucket.dp.Requests++
+		bucket.dp.InputTokens += inputTokens
+		bucket.dp.OutputTokens += outputTokens
+		bucket.dp.CacheCreationInputTokens += cacheCreation
+		bucket.dp.CacheReadInputTokens += cacheRead
+		bucket.dp.Cost += price
+
+		if status == StatusCompleted {
+			bucket.dp.Success++
+			summary.TotalSuccess++
+		} else if status == StatusError || status == StatusTimeout {
+			bucket.dp.Failure++
+			summary.TotalFailure++
+		}
+
+		if durationMs > 0 {
+			bucket.durationsMs = append(bucket.durationsMs, durationMs)
+			bucket.durationSumMs += durationMs
+			latencyDurations = append(latencyDurations, durationMs)
+			latencySumMs += durationMs
+		}
+
+		summary.TotalRequests++
+		summary.TotalInputTokens += inputTokens
+		summary.TotalOutputTokens += outputTokens
+		summary.TotalCacheCreationTokens += cacheCreation
+		summary.TotalCacheReadTokens += cacheRead
+		summary.TotalCost += price
+	}
+
+	if summary.TotalRequests > 0 {
+		summary.AvgSuccessRate = float64(summary.TotalSuccess) / float64(summary.TotalRequests) * 100
+	}
+
+	if len(latencyDurations) > 0 {
+		summary.AvgDurationMs = float64(latencySumMs) / float64(len(latencyDurations))
+		sort.Slice(latencyDurations, func(i, j int) bool { return latencyDurations[i] < latencyDurations[j] })
+		summary.P50DurationMs = percentileMs(latencyDurations, 50)
+		summary.P95DurationMs = percentileMs(latencyDurations, 95)
+	}
+
+	dataPoints := make([]StatsHistoryDataPoint, 0, len(buckets))
+	for _, bucket := range buckets {
+		if len(bucket.durationsMs) > 0 {
+			bucket.dp.AvgDurationMs = float64(bucket.durationSumMs) / float64(len(bucket.durationsMs))
+			sort.Slice(bucket.durationsMs, func(i, j int) bool { return bucket.durationsMs[i] < bucket.durationsMs[j] })
+			bucket.dp.P50DurationMs = percentileMs(bucket.durationsMs, 50)
+			bucket.dp.P95DurationMs = percentileMs(bucket.durationsMs, 95)
+		}
+		dataPoints = append(dataPoints, *bucket.dp)
+	}
+	sort.Slice(dataPoints, func(i, j int) bool { return dataPoints[i].Timestamp.Before(dataPoints[j].Timestamp) })
+
+	return &StatsHistoryResponse{
+		DataPoints: dataPoints,
+		Summary:    summary,
+	}, nil
+}
+
+// GetProviderStatsHistory returns time-series statistics grouped by provider/channel name.
+// duration: time range to query (e.g., "1h", "6h", "24h", or "today")
+// endpoint: optional filter for endpoint ("/v1/messages" or "/v1/responses")
+func (m *Manager) GetProviderStatsHistory(duration string, endpoint string) (*ProviderStatsHistoryResponse, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Calculate time range and interval (same logic as GetStatsHistory)
+	now := time.Now()
+	year, month, day := now.Date()
+	periodStart := time.Date(year, month, day, 0, 0, 0, 0, now.Location())
+	var since time.Time
+	var interval time.Duration
+	var durationLabel string
+
+	switch duration {
+	case "1h":
+		since = now.Add(-1 * time.Hour)
+		interval = 1 * time.Minute
+		durationLabel = "1h"
+	case "6h":
+		since = now.Add(-6 * time.Hour)
+		interval = 5 * time.Minute
+		durationLabel = "6h"
+	case "24h":
+		since = now.Add(-24 * time.Hour)
+		interval = 15 * time.Minute
+		durationLabel = "24h"
+	case "today", "period":
+		since = periodStart
+		elapsed := now.Sub(since)
+		if elapsed < time.Hour {
+			interval = 1 * time.Minute
+		} else if elapsed < 6*time.Hour {
+			interval = 5 * time.Minute
+		} else {
+			interval = 15 * time.Minute
+		}
+		if duration == "today" {
+			durationLabel = "today"
+		} else {
+			durationLabel = "period"
+		}
+	default:
+		since = now.Add(-1 * time.Hour)
+		interval = 1 * time.Minute
+		durationLabel = "1h"
+	}
+	if since.Before(periodStart) {
+		since = periodStart
+	}
+
+	// Precompute all bucket timestamps to keep series aligned (fill missing with 0).
+	bucketStart := since.Truncate(interval)
+	bucketEnd := now.Truncate(interval)
+	bucketTimes := make([]time.Time, 0, int(bucketEnd.Sub(bucketStart)/interval)+1)
+	for t := bucketStart; !t.After(bucketEnd); t = t.Add(interval) {
+		bucketTimes = append(bucketTimes, t)
+	}
+
+	// Baseline cost per provider before the selected time range (within today's period)
+	baselineCost := make(map[string]float64)
+	baselineQuery := `
+		SELECT
+			COALESCE(provider_name, provider) as provider,
+			COALESCE(SUM(price), 0) as cost
+		FROM request_logs
+		WHERE initial_time >= ? AND initial_time < ? AND status NOT IN (?, ?)
+	`
+	baselineArgs := []interface{}{periodStart, since, StatusPending, StatusTimeout}
+	if endpoint != "" {
+		baselineQuery += ` AND endpoint = ?`
+		baselineArgs = append(baselineArgs, endpoint)
+	}
+	baselineQuery += ` GROUP BY COALESCE(provider_name, provider)`
+
+	baselineRows, err := m.db.Query(baselineQuery, baselineArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query provider baseline cost: %w", err)
+	}
+	for baselineRows.Next() {
+		var provider string
+		var cost float64
+		if err := baselineRows.Scan(&provider, &cost); err != nil {
+			continue
+		}
+		baselineCost[provider] = cost
+	}
+	baselineRows.Close()
+
+		// Build query with optional endpoint filter
+		query := `
+			SELECT
+				initial_time,
+				status,
+				COALESCE(provider_name, provider) as provider,
+				COALESCE(duration_ms, 0) as duration_ms,
+				COALESCE(input_tokens, 0) as input_tokens,
+				COALESCE(output_tokens, 0) as output_tokens,
+				COALESCE(cache_creation_input_tokens, 0) as cache_creation,
+				COALESCE(cache_read_input_tokens, 0) as cache_read,
+				COALESCE(price, 0) as price
+			FROM request_logs
+			WHERE initial_time >= ? AND initial_time <= ?
+		`
+		args := []interface{}{since, now}
+
+	if endpoint != "" {
+		query += ` AND endpoint = ?`
+		args = append(args, endpoint)
+	}
+
+	query += ` ORDER BY initial_time ASC`
+
+	rows, err := m.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query provider stats history: %w", err)
+	}
+	defer rows.Close()
+
+	providerBuckets := make(map[string]map[int64]*statsHistoryBucket)
+	providerSummary := make(map[string]*StatsHistorySummary)
+	providerLatency := make(map[string][]int64)
+	providerLatencySum := make(map[string]int64)
+
+	var summary StatsHistorySummary
+	summary.Duration = durationLabel
+	var latencyDurations []int64
+	var latencySumMs int64
+
+	for rows.Next() {
+		var initialTimeStr string
+		var status string
+		var provider string
+		var durationMs int64
+		var inputTokens, outputTokens, cacheCreation, cacheRead int64
+		var price float64
+
+		if err := rows.Scan(&initialTimeStr, &status, &provider, &durationMs, &inputTokens, &outputTokens, &cacheCreation, &cacheRead, &price); err != nil {
+			continue
+		}
+
+		initialTime := parseTimeString(initialTimeStr)
+		if initialTime.IsZero() {
+			continue
+		}
+
+		bucketTime := initialTime.Truncate(interval)
+		bucketKey := bucketTime.Unix()
+
+		if _, ok := providerBuckets[provider]; !ok {
+			providerBuckets[provider] = make(map[int64]*statsHistoryBucket)
+		}
+		if _, ok := providerSummary[provider]; !ok {
+			providerSummary[provider] = &StatsHistorySummary{Duration: durationLabel}
+		}
+
+			// Create bucket if needed
+			if _, ok := providerBuckets[provider][bucketKey]; !ok {
+				providerBuckets[provider][bucketKey] = &statsHistoryBucket{
+					dp: &StatsHistoryDataPoint{
+						Timestamp: bucketTime,
+					},
+				}
+			}
+
+			bucket := providerBuckets[provider][bucketKey]
+			isCostEligible := status != StatusPending && status != StatusTimeout
+			if isCostEligible {
+				bucket.dp.Requests++
+				bucket.dp.InputTokens += inputTokens
+				bucket.dp.OutputTokens += outputTokens
+				bucket.dp.CacheCreationInputTokens += cacheCreation
+				bucket.dp.CacheReadInputTokens += cacheRead
+				bucket.dp.Cost += price
+
+				if status == StatusCompleted {
+					bucket.dp.Success++
+					providerSummary[provider].TotalSuccess++
+					summary.TotalSuccess++
+				} else if status == StatusError {
+					bucket.dp.Failure++
+					providerSummary[provider].TotalFailure++
+					summary.TotalFailure++
+				}
+
+				if durationMs > 0 {
+					bucket.durationsMs = append(bucket.durationsMs, durationMs)
+					bucket.durationSumMs += durationMs
+
+					providerLatency[provider] = append(providerLatency[provider], durationMs)
+					providerLatencySum[provider] += durationMs
+
+					latencyDurations = append(latencyDurations, durationMs)
+					latencySumMs += durationMs
+				}
+
+				providerSummary[provider].TotalRequests++
+				providerSummary[provider].TotalInputTokens += inputTokens
+				providerSummary[provider].TotalOutputTokens += outputTokens
+				providerSummary[provider].TotalCacheCreationTokens += cacheCreation
+				providerSummary[provider].TotalCacheReadTokens += cacheRead
+				providerSummary[provider].TotalCost += price
+
+				summary.TotalRequests++
+				summary.TotalInputTokens += inputTokens
+				summary.TotalOutputTokens += outputTokens
+				summary.TotalCacheCreationTokens += cacheCreation
+				summary.TotalCacheReadTokens += cacheRead
+				summary.TotalCost += price
+			}
+		}
+
+	// Finalize summaries
+	if summary.TotalRequests > 0 {
+		summary.AvgSuccessRate = float64(summary.TotalSuccess) / float64(summary.TotalRequests) * 100
+	}
+	if len(latencyDurations) > 0 {
+		summary.AvgDurationMs = float64(latencySumMs) / float64(len(latencyDurations))
+		sort.Slice(latencyDurations, func(i, j int) bool { return latencyDurations[i] < latencyDurations[j] })
+		summary.P50DurationMs = percentileMs(latencyDurations, 50)
+		summary.P95DurationMs = percentileMs(latencyDurations, 95)
+	}
+
+	providerSet := make(map[string]struct{}, len(providerBuckets)+len(baselineCost))
+	for p := range providerBuckets {
+		providerSet[p] = struct{}{}
+	}
+	for p, cost := range baselineCost {
+		if cost > 0 {
+			providerSet[p] = struct{}{}
+		}
+	}
+
+	providers := make([]string, 0, len(providerSet))
+	for p := range providerSet {
+		providers = append(providers, p)
+	}
+	sort.Slice(providers, func(i, j int) bool { return providers[i] < providers[j] })
+
+	series := make([]ProviderStatsHistorySeries, 0, len(providers))
+	for _, provider := range providers {
+		if _, ok := providerBuckets[provider]; !ok {
+			providerBuckets[provider] = make(map[int64]*statsHistoryBucket)
+		}
+		if _, ok := providerSummary[provider]; !ok {
+			providerSummary[provider] = &StatsHistorySummary{Duration: durationLabel}
+		}
+
+		// Finalize bucket latency stats
+		for _, bucket := range providerBuckets[provider] {
+			if len(bucket.durationsMs) > 0 {
+				bucket.dp.AvgDurationMs = float64(bucket.durationSumMs) / float64(len(bucket.durationsMs))
+				sort.Slice(bucket.durationsMs, func(i, j int) bool { return bucket.durationsMs[i] < bucket.durationsMs[j] })
+				bucket.dp.P50DurationMs = percentileMs(bucket.durationsMs, 50)
+				bucket.dp.P95DurationMs = percentileMs(bucket.durationsMs, 95)
+			}
+		}
+
+		// Finalize provider latency summary
+		if ps := providerSummary[provider]; ps != nil {
+			if ps.TotalRequests > 0 {
+				ps.AvgSuccessRate = float64(ps.TotalSuccess) / float64(ps.TotalRequests) * 100
+			}
+			if durations := providerLatency[provider]; len(durations) > 0 {
+				ps.AvgDurationMs = float64(providerLatencySum[provider]) / float64(len(durations))
+				sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
+				ps.P50DurationMs = percentileMs(durations, 50)
+				ps.P95DurationMs = percentileMs(durations, 95)
+			}
+		}
+
+		dataPoints := make([]StatsHistoryDataPoint, 0, len(bucketTimes))
+		for _, bt := range bucketTimes {
+			key := bt.Unix()
+			if bucket, ok := providerBuckets[provider][key]; ok && bucket.dp != nil {
+				dataPoints = append(dataPoints, *bucket.dp)
+			} else {
+				dataPoints = append(dataPoints, StatsHistoryDataPoint{Timestamp: bt})
+			}
+		}
+
+		series = append(series, ProviderStatsHistorySeries{
+			Provider:     provider,
+			BaselineCost: baselineCost[provider],
+			DataPoints:   dataPoints,
+			Summary:      *providerSummary[provider],
+		})
+	}
+
+	return &ProviderStatsHistoryResponse{
+		Providers: series,
+		Summary:   summary,
+	}, nil
+}
+
+// GetProviderStatsHistoryRange returns provider/channel grouped time-series statistics within a custom date range.
+// duration: window size to display (e.g., "1h", "6h", "24h", or "period" for the whole range)
+// from/to: RFC3339 timestamps defining the selected period (typically from the logs page)
+// endpoint: optional filter for endpoint ("/v1/messages" or "/v1/responses")
+func (m *Manager) GetProviderStatsHistoryRange(duration string, from, to time.Time, endpoint string) (*ProviderStatsHistoryResponse, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	now := time.Now()
+	rangeStart := from
+	rangeEnd := to
+	if rangeEnd.After(now) {
+		rangeEnd = now
+	}
+	if rangeEnd.Before(rangeStart) {
+		return &ProviderStatsHistoryResponse{
+			Providers: []ProviderStatsHistorySeries{},
+			Summary:   StatsHistorySummary{Duration: duration},
+		}, nil
+	}
+
+	windowEnd := rangeEnd
+	windowStart := rangeStart
+	durationLabel := duration
+
+	switch duration {
+	case "period", "today":
+		windowStart = rangeStart
+		if duration == "today" {
+			durationLabel = "today"
+		} else {
+			durationLabel = "period"
+		}
+	case "1h":
+		windowStart = windowEnd.Add(-1 * time.Hour)
+		durationLabel = "1h"
+	case "6h":
+		windowStart = windowEnd.Add(-6 * time.Hour)
+		durationLabel = "6h"
+	case "24h":
+		windowStart = windowEnd.Add(-24 * time.Hour)
+		durationLabel = "24h"
+	default:
+		windowStart = windowEnd.Add(-1 * time.Hour)
+		durationLabel = "1h"
+	}
+
+	if windowStart.Before(rangeStart) {
+		windowStart = rangeStart
+	}
+
+	interval := intervalForStatsHistoryWindow(windowEnd.Sub(windowStart))
+
+	bucketStart := windowStart.Truncate(interval)
+	bucketEnd := windowEnd.Truncate(interval)
+	bucketTimes := make([]time.Time, 0, int(bucketEnd.Sub(bucketStart)/interval)+1)
+	for t := bucketStart; !t.After(bucketEnd); t = t.Add(interval) {
+		bucketTimes = append(bucketTimes, t)
+	}
+
+	// Baseline cost per provider before the selected time range (within the selected period)
+	baselineCost := make(map[string]float64)
+	if windowStart.After(rangeStart) {
+		baselineQuery := `
+			SELECT
+				COALESCE(provider_name, provider) as provider,
+				COALESCE(SUM(price), 0) as cost
+			FROM request_logs
+			WHERE initial_time >= ? AND initial_time < ? AND status NOT IN (?, ?)
+		`
+		baselineArgs := []interface{}{rangeStart, windowStart, StatusPending, StatusTimeout}
+		if endpoint != "" {
+			baselineQuery += ` AND endpoint = ?`
+			baselineArgs = append(baselineArgs, endpoint)
+		}
+		baselineQuery += ` GROUP BY COALESCE(provider_name, provider)`
+
+		baselineRows, err := m.db.Query(baselineQuery, baselineArgs...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query provider baseline cost (range): %w", err)
+		}
+		for baselineRows.Next() {
+			var provider string
+			var cost float64
+			if err := baselineRows.Scan(&provider, &cost); err != nil {
+				continue
+			}
+			baselineCost[provider] = cost
+		}
+		baselineRows.Close()
+	}
+
+		query := `
+			SELECT
+				initial_time,
+				status,
+				COALESCE(provider_name, provider) as provider,
+				COALESCE(duration_ms, 0) as duration_ms,
+				COALESCE(input_tokens, 0) as input_tokens,
+				COALESCE(output_tokens, 0) as output_tokens,
+				COALESCE(cache_creation_input_tokens, 0) as cache_creation,
+				COALESCE(cache_read_input_tokens, 0) as cache_read,
+				COALESCE(price, 0) as price
+			FROM request_logs
+			WHERE initial_time >= ? AND initial_time <= ?
+		`
+		args := []interface{}{windowStart, windowEnd}
+	if endpoint != "" {
+		query += ` AND endpoint = ?`
+		args = append(args, endpoint)
+	}
+	query += ` ORDER BY initial_time ASC`
+
+	rows, err := m.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query provider stats history (range): %w", err)
+	}
+	defer rows.Close()
+
+	providerBuckets := make(map[string]map[int64]*statsHistoryBucket)
+	providerSummary := make(map[string]*StatsHistorySummary)
+	providerLatency := make(map[string][]int64)
+	providerLatencySum := make(map[string]int64)
+
+	var summary StatsHistorySummary
+	summary.Duration = durationLabel
+	var latencyDurations []int64
+	var latencySumMs int64
+
+	for rows.Next() {
+		var initialTimeStr string
+		var status string
+		var provider string
+		var durationMs int64
+		var inputTokens, outputTokens, cacheCreation, cacheRead int64
+		var price float64
+
+		if err := rows.Scan(&initialTimeStr, &status, &provider, &durationMs, &inputTokens, &outputTokens, &cacheCreation, &cacheRead, &price); err != nil {
+			continue
+		}
+
+		initialTime := parseTimeString(initialTimeStr)
+		if initialTime.IsZero() {
+			continue
+		}
+
+		bucketTime := initialTime.Truncate(interval)
+		bucketKey := bucketTime.Unix()
+
+		if _, ok := providerBuckets[provider]; !ok {
+			providerBuckets[provider] = make(map[int64]*statsHistoryBucket)
+		}
+		if _, ok := providerSummary[provider]; !ok {
+			providerSummary[provider] = &StatsHistorySummary{Duration: durationLabel}
+		}
+
+		if _, ok := providerBuckets[provider][bucketKey]; !ok {
+			providerBuckets[provider][bucketKey] = &statsHistoryBucket{
+				dp: &StatsHistoryDataPoint{
+					Timestamp: bucketTime,
+				},
+			}
+		}
+
+			bucket := providerBuckets[provider][bucketKey]
+			isCostEligible := status != StatusPending && status != StatusTimeout
+			if isCostEligible {
+				bucket.dp.Requests++
+				bucket.dp.InputTokens += inputTokens
+				bucket.dp.OutputTokens += outputTokens
+				bucket.dp.CacheCreationInputTokens += cacheCreation
+				bucket.dp.CacheReadInputTokens += cacheRead
+				bucket.dp.Cost += price
+
+				if status == StatusCompleted {
+					bucket.dp.Success++
+					providerSummary[provider].TotalSuccess++
+					summary.TotalSuccess++
+				} else if status == StatusError {
+					bucket.dp.Failure++
+					providerSummary[provider].TotalFailure++
+					summary.TotalFailure++
+				}
+
+				if durationMs > 0 {
+					bucket.durationsMs = append(bucket.durationsMs, durationMs)
+					bucket.durationSumMs += durationMs
+
+					providerLatency[provider] = append(providerLatency[provider], durationMs)
+					providerLatencySum[provider] += durationMs
+
+					latencyDurations = append(latencyDurations, durationMs)
+					latencySumMs += durationMs
+				}
+
+				providerSummary[provider].TotalRequests++
+				providerSummary[provider].TotalInputTokens += inputTokens
+				providerSummary[provider].TotalOutputTokens += outputTokens
+				providerSummary[provider].TotalCacheCreationTokens += cacheCreation
+				providerSummary[provider].TotalCacheReadTokens += cacheRead
+				providerSummary[provider].TotalCost += price
+
+				summary.TotalRequests++
+				summary.TotalInputTokens += inputTokens
+				summary.TotalOutputTokens += outputTokens
+				summary.TotalCacheCreationTokens += cacheCreation
+				summary.TotalCacheReadTokens += cacheRead
+				summary.TotalCost += price
+			}
+		}
+
+	if summary.TotalRequests > 0 {
+		summary.AvgSuccessRate = float64(summary.TotalSuccess) / float64(summary.TotalRequests) * 100
+	}
+	if len(latencyDurations) > 0 {
+		summary.AvgDurationMs = float64(latencySumMs) / float64(len(latencyDurations))
+		sort.Slice(latencyDurations, func(i, j int) bool { return latencyDurations[i] < latencyDurations[j] })
+		summary.P50DurationMs = percentileMs(latencyDurations, 50)
+		summary.P95DurationMs = percentileMs(latencyDurations, 95)
+	}
+
+	providerSet := make(map[string]struct{}, len(providerBuckets)+len(baselineCost))
+	for p := range providerBuckets {
+		providerSet[p] = struct{}{}
+	}
+	for p, cost := range baselineCost {
+		if cost > 0 {
+			providerSet[p] = struct{}{}
+		}
+	}
+
+	providers := make([]string, 0, len(providerSet))
+	for p := range providerSet {
+		providers = append(providers, p)
+	}
+	sort.Slice(providers, func(i, j int) bool { return providers[i] < providers[j] })
+
+	series := make([]ProviderStatsHistorySeries, 0, len(providers))
+	for _, provider := range providers {
+		if _, ok := providerBuckets[provider]; !ok {
+			providerBuckets[provider] = make(map[int64]*statsHistoryBucket)
+		}
+		if _, ok := providerSummary[provider]; !ok {
+			providerSummary[provider] = &StatsHistorySummary{Duration: durationLabel}
+		}
+
+		for _, bucket := range providerBuckets[provider] {
+			if len(bucket.durationsMs) > 0 {
+				bucket.dp.AvgDurationMs = float64(bucket.durationSumMs) / float64(len(bucket.durationsMs))
+				sort.Slice(bucket.durationsMs, func(i, j int) bool { return bucket.durationsMs[i] < bucket.durationsMs[j] })
+				bucket.dp.P50DurationMs = percentileMs(bucket.durationsMs, 50)
+				bucket.dp.P95DurationMs = percentileMs(bucket.durationsMs, 95)
+			}
+		}
+
+		if ps := providerSummary[provider]; ps != nil {
+			if ps.TotalRequests > 0 {
+				ps.AvgSuccessRate = float64(ps.TotalSuccess) / float64(ps.TotalRequests) * 100
+			}
+			if durations := providerLatency[provider]; len(durations) > 0 {
+				ps.AvgDurationMs = float64(providerLatencySum[provider]) / float64(len(durations))
+				sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
+				ps.P50DurationMs = percentileMs(durations, 50)
+				ps.P95DurationMs = percentileMs(durations, 95)
+			}
+		}
+
+		dataPoints := make([]StatsHistoryDataPoint, 0, len(bucketTimes))
+		for _, bt := range bucketTimes {
+			key := bt.Unix()
+			if bucket, ok := providerBuckets[provider][key]; ok && bucket.dp != nil {
+				dataPoints = append(dataPoints, *bucket.dp)
+			} else {
+				dataPoints = append(dataPoints, StatsHistoryDataPoint{Timestamp: bt})
+			}
+		}
+
+		series = append(series, ProviderStatsHistorySeries{
+			Provider:     provider,
+			BaselineCost: baselineCost[provider],
+			DataPoints:   dataPoints,
+			Summary:      *providerSummary[provider],
+		})
+	}
+
+	return &ProviderStatsHistoryResponse{
+		Providers: series,
+		Summary:   summary,
 	}, nil
 }
 
@@ -1413,6 +2223,7 @@ func (m *Manager) GetChannelStatsHistory(channelID int, duration string, endpoin
 		SELECT
 			initial_time,
 			status,
+			COALESCE(duration_ms, 0) as duration_ms,
 			channel_name,
 			COALESCE(input_tokens, 0) as input_tokens,
 			COALESCE(output_tokens, 0) as output_tokens,
@@ -1438,19 +2249,23 @@ func (m *Manager) GetChannelStatsHistory(channelID int, duration string, endpoin
 	defer rows.Close()
 
 	// Create time buckets
-	buckets := make(map[int64]*StatsHistoryDataPoint)
+	buckets := make(map[int64]*statsHistoryBucket)
 	var summary StatsHistorySummary
 	var channelName string
 	summary.Duration = durationLabel
 
+	var latencyDurations []int64
+	var latencySumMs int64
+
 	for rows.Next() {
 		var initialTimeStr string
 		var status string
+		var durationMs int64
 		var chName string
 		var inputTokens, outputTokens, cacheCreation, cacheRead int64
 		var price float64
 
-		if err := rows.Scan(&initialTimeStr, &status, &chName, &inputTokens, &outputTokens, &cacheCreation, &cacheRead, &price); err != nil {
+		if err := rows.Scan(&initialTimeStr, &status, &durationMs, &chName, &inputTokens, &outputTokens, &cacheCreation, &cacheRead, &price); err != nil {
 			continue
 		}
 
@@ -1468,25 +2283,34 @@ func (m *Manager) GetChannelStatsHistory(channelID int, duration string, endpoin
 		bucketKey := bucketTime.Unix()
 
 		if _, exists := buckets[bucketKey]; !exists {
-			buckets[bucketKey] = &StatsHistoryDataPoint{
-				Timestamp: bucketTime,
+			buckets[bucketKey] = &statsHistoryBucket{
+				dp: &StatsHistoryDataPoint{
+					Timestamp: bucketTime,
+				},
 			}
 		}
 
 		bucket := buckets[bucketKey]
-		bucket.Requests++
-		bucket.InputTokens += inputTokens
-		bucket.OutputTokens += outputTokens
-		bucket.CacheCreationInputTokens += cacheCreation
-		bucket.CacheReadInputTokens += cacheRead
-		bucket.Cost += price
+		bucket.dp.Requests++
+		bucket.dp.InputTokens += inputTokens
+		bucket.dp.OutputTokens += outputTokens
+		bucket.dp.CacheCreationInputTokens += cacheCreation
+		bucket.dp.CacheReadInputTokens += cacheRead
+		bucket.dp.Cost += price
 
 		if status == StatusCompleted {
-			bucket.Success++
+			bucket.dp.Success++
 			summary.TotalSuccess++
 		} else if status == StatusError || status == StatusTimeout {
-			bucket.Failure++
+			bucket.dp.Failure++
 			summary.TotalFailure++
+		}
+
+		if durationMs > 0 {
+			bucket.durationsMs = append(bucket.durationsMs, durationMs)
+			bucket.durationSumMs += durationMs
+			latencyDurations = append(latencyDurations, durationMs)
+			latencySumMs += durationMs
 		}
 
 		summary.TotalRequests++
@@ -1501,19 +2325,26 @@ func (m *Manager) GetChannelStatsHistory(channelID int, duration string, endpoin
 		summary.AvgSuccessRate = float64(summary.TotalSuccess) / float64(summary.TotalRequests) * 100
 	}
 
-	// Convert to sorted slice
-	dataPoints := make([]StatsHistoryDataPoint, 0, len(buckets))
-	for _, dp := range buckets {
-		dataPoints = append(dataPoints, *dp)
+	if len(latencyDurations) > 0 {
+		summary.AvgDurationMs = float64(latencySumMs) / float64(len(latencyDurations))
+		sort.Slice(latencyDurations, func(i, j int) bool { return latencyDurations[i] < latencyDurations[j] })
+		summary.P50DurationMs = percentileMs(latencyDurations, 50)
+		summary.P95DurationMs = percentileMs(latencyDurations, 95)
 	}
 
-	for i := 0; i < len(dataPoints)-1; i++ {
-		for j := i + 1; j < len(dataPoints); j++ {
-			if dataPoints[i].Timestamp.After(dataPoints[j].Timestamp) {
-				dataPoints[i], dataPoints[j] = dataPoints[j], dataPoints[i]
-			}
+	// Convert to sorted slice
+	dataPoints := make([]StatsHistoryDataPoint, 0, len(buckets))
+	for _, bucket := range buckets {
+		if len(bucket.durationsMs) > 0 {
+			bucket.dp.AvgDurationMs = float64(bucket.durationSumMs) / float64(len(bucket.durationsMs))
+			sort.Slice(bucket.durationsMs, func(i, j int) bool { return bucket.durationsMs[i] < bucket.durationsMs[j] })
+			bucket.dp.P50DurationMs = percentileMs(bucket.durationsMs, 50)
+			bucket.dp.P95DurationMs = percentileMs(bucket.durationsMs, 95)
 		}
+		dataPoints = append(dataPoints, *bucket.dp)
 	}
+
+	sort.Slice(dataPoints, func(i, j int) bool { return dataPoints[i].Timestamp.Before(dataPoints[j].Timestamp) })
 
 	return &ChannelStatsHistoryResponse{
 		ChannelID:   channelID,
@@ -1570,4 +2401,37 @@ func parseTimeString(s string) time.Time {
 		}
 	}
 	return time.Time{}
+}
+
+func percentileMs(sorted []int64, p float64) int64 {
+	n := len(sorted)
+	if n == 0 {
+		return 0
+	}
+	if n == 1 {
+		return sorted[0]
+	}
+	if p <= 0 {
+		return sorted[0]
+	}
+	if p >= 100 {
+		return sorted[n-1]
+	}
+
+	// Linear interpolation between closest ranks for smoother percentiles on small samples.
+	pos := (p / 100) * float64(n-1)
+	lower := int(math.Floor(pos))
+	upper := int(math.Ceil(pos))
+	if lower < 0 {
+		lower = 0
+	}
+	if upper >= n {
+		upper = n - 1
+	}
+	if lower == upper {
+		return sorted[lower]
+	}
+	weight := pos - float64(lower)
+	value := float64(sorted[lower]) + (float64(sorted[upper])-float64(sorted[lower]))*weight
+	return int64(math.Round(value))
 }

@@ -424,11 +424,19 @@ export default {
       '6h': '6小时',
       '24h': '24小时',
       today: '今天',
+      period: '周期',
+    },
+    endpoint: {
+      all: '全部',
+      messages: 'Claude',
+      responses: 'Codex',
     },
     view: {
       traffic: '流量',
       tokens: 'Tokens',
       cache: '缓存',
+      latency: '延迟',
+      cost: '费用',
     },
     summary: {
       totalRequests: '总请求数',
@@ -437,6 +445,10 @@ export default {
       outputTokens: '输出 Tokens',
       cacheCreate: '缓存创建',
       cacheHit: '缓存命中',
+      p50Latency: 'p50 延迟',
+      p95Latency: 'p95 延迟',
+      totalCost: '总费用',
+      avgCostPerRequest: '平均/请求',
     },
     legend: {
       totalRequests: '总请求数',
@@ -445,6 +457,8 @@ export default {
       outputTokens: '输出 Tokens',
       cacheCreate: '缓存创建',
       cacheHit: '缓存命中',
+      p50Latency: 'p50 延迟',
+      p95Latency: 'p95 延迟',
     },
     unit: {
       requests: '次请求',

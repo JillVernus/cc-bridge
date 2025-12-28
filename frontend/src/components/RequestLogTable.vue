@@ -932,12 +932,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { api, type RequestLog, type RequestLogStats, type GroupStats, type ActiveSession, type APIKey } from '../services/api'
+	import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+	import { useI18n } from 'vue-i18n'
+	import { api, type RequestLog, type RequestLogStats, type GroupStats, type ActiveSession, type APIKey } from '../services/api'
 
-// i18n
-const { t } = useI18n()
+	// i18n
+	const { t } = useI18n()
+
+	const emit = defineEmits<{
+	  (e: 'dateRangeChange', payload: { from: string; to: string }): void
+	}>()
 
 const logs = ref<RequestLog[]>([])
 const stats = ref<RequestLogStats | null>(null)
@@ -2024,13 +2028,14 @@ const refreshLogs = async () => {
 
 // Watch date/unit changes - debounced to avoid rapid re-fetches
 let dateChangeTimeout: ReturnType<typeof setTimeout> | null = null
-watch([currentDate, dateUnit], () => {
-  if (dateChangeTimeout) clearTimeout(dateChangeTimeout)
-  dateChangeTimeout = setTimeout(() => {
-    offset.value = 0
-    refreshLogs()
-  }, 100)
-}, { immediate: false })
+	watch([currentDate, dateUnit], () => {
+	  if (dateChangeTimeout) clearTimeout(dateChangeTimeout)
+	  dateChangeTimeout = setTimeout(() => {
+	    offset.value = 0
+	    emit('dateRangeChange', getDateRange())
+	    refreshLogs()
+	  }, 100)
+	}, { immediate: false })
 
 const prevPage = () => {
   if (offset.value > 0) {
@@ -2307,17 +2312,18 @@ const removeAlias = async (userId?: string) => {
   }
 }
 
-onMounted(() => {
-  loadColumnWidths()
-  loadColumnVisibility()
-  loadSummaryColumnWidths()
-  loadActiveSessionColumnWidths()
-  loadPanelWidths()
-  loadUserAliases()
-  loadAPIKeys()
-  refreshLogs()
-  startAutoRefresh()
-})
+	onMounted(() => {
+	  loadColumnWidths()
+	  loadColumnVisibility()
+	  loadSummaryColumnWidths()
+	  loadActiveSessionColumnWidths()
+	  loadPanelWidths()
+	  loadUserAliases()
+	  loadAPIKeys()
+	  emit('dateRangeChange', getDateRange())
+	  refreshLogs()
+	  startAutoRefresh()
+	})
 
 onUnmounted(() => {
   stopAutoRefresh()
