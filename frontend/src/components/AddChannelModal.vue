@@ -494,12 +494,12 @@
 
             <!-- API密钥管理（非 OAuth 类型显示） -->
             <v-col cols="12" v-if="!isOAuthChannel">
-              <v-card variant="outlined" rounded="lg" :color="form.apiKeys.length === 0 ? 'error' : undefined">
+              <v-card variant="outlined" rounded="lg" :color="totalKeyCount === 0 ? 'error' : undefined">
                 <v-card-title class="d-flex align-center justify-space-between pa-4 pb-2">
                   <div class="d-flex align-center ga-2">
-                    <v-icon :color="form.apiKeys.length > 0 ? 'primary' : 'error'">mdi-key</v-icon>
+                    <v-icon :color="totalKeyCount > 0 ? 'primary' : 'error'">mdi-key</v-icon>
                     <span class="text-body-1 font-weight-bold">{{ t('addChannel.apiKeyManagement') }}</span>
-                    <v-chip v-if="form.apiKeys.length === 0" size="x-small" color="error" variant="tonal">
+                    <v-chip v-if="totalKeyCount === 0" size="x-small" color="error" variant="tonal">
                       {{ t('addChannel.atLeastOneKeyRequired') }}
                     </v-chip>
                   </div>
@@ -507,8 +507,21 @@
                 </v-card-title>
 
                 <v-card-text class="pt-2">
-                  <!-- 现有密钥列表 -->
+                  <!-- 编辑模式：显示现有密钥数量（密钥是只写的，不返回实际值） -->
+                  <v-alert v-if="isEditing && existingKeyCount > 0" type="info" variant="tonal" class="mb-4" density="compact">
+                    <div class="d-flex align-center ga-2">
+                      <v-icon size="small">mdi-information</v-icon>
+                      <span class="text-body-2">
+                        {{ t('addChannel.existingKeysInfo', { count: existingKeyCount }) }}
+                      </span>
+                    </div>
+                  </v-alert>
+
+                  <!-- 新添加的密钥列表（创建模式显示全部，编辑模式只显示新增的） -->
                   <div v-if="form.apiKeys.length" class="mb-4">
+                    <div v-if="isEditing" class="text-caption text-medium-emphasis mb-2">
+                      {{ t('addChannel.newKeysToAdd') }}
+                    </div>
                     <v-list density="compact" class="bg-transparent">
                       <v-list-item
                         v-for="(key, index) in form.apiKeys"
@@ -1040,6 +1053,9 @@ const oauthCardColor = computed(() => {
 // 原始密钥映射 (掩码密钥 -> 原始密钥)
 const originalKeyMap = ref<Map<string, string>>(new Map())
 
+// Existing key count (for edit mode - keys are write-only)
+const existingKeyCount = ref(0)
+
 // 新API密钥输入
 const newApiKey = ref('')
 
@@ -1104,6 +1120,11 @@ const rules = {
 // 计算属性
 const isEditing = computed(() => !!props.channel)
 
+// Total key count: existing keys (edit mode) + newly added keys
+const totalKeyCount = computed(() => {
+  return existingKeyCount.value + form.apiKeys.length
+})
+
 // 动态header样式
 const headerClasses = computed(() => {
   const isDark = theme.global.current.value.dark
@@ -1140,8 +1161,9 @@ const isFormValid = computed(() => {
       form.oauthTokens !== undefined
     )
   }
+  // For regular channels: need at least one key (existing or new)
   return (
-    form.name.trim() && form.serviceType && form.baseUrl.trim() && isValidUrl(form.baseUrl) && form.apiKeys.length > 0
+    form.name.trim() && form.serviceType && form.baseUrl.trim() && isValidUrl(form.baseUrl) && totalKeyCount.value > 0
   )
 })
 
@@ -1197,6 +1219,9 @@ const resetForm = () => {
   // 清空原始密钥映射
   originalKeyMap.value.clear()
 
+  // Reset existing key count (for edit mode)
+  existingKeyCount.value = 0
+
   // 清空密钥错误状态
   apiKeyError.value = ''
   duplicateKeyIndex.value = -1
@@ -1227,10 +1252,14 @@ const loadChannelData = (channel: Channel) => {
   form.responseHeaderTimeout = channel.responseHeaderTimeout
   form.description = channel.description || ''
 
-  // 直接存储原始密钥，不需要映射关系
-  form.apiKeys = [...channel.apiKeys]
+  // In edit mode, we don't receive actual API keys from the server (security)
+  // Only new keys added during this edit session will be stored here
+  form.apiKeys = []
 
-  // 清空原始密钥映射（现在不需要了）
+  // Store the existing key count for display
+  existingKeyCount.value = channel.apiKeyCount || 0
+
+  // Clear the original key map (not needed anymore)
   originalKeyMap.value.clear()
 
   form.modelMapping = { ...(channel.modelMapping || {}) }

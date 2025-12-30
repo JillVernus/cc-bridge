@@ -4,6 +4,22 @@
 
 ---
 
+## [v1.3.105] - 2025-12-30
+
+### 🔒 安全加固
+
+- **默认关闭 key-in-path 旧接口**: 默认不再注册 `/api/*/keys/:apiKey...` 路由，避免 API keys 出现在 URL（如需兼容旧客户端可临时设置 `ALLOW_INSECURE_DEPRECATED_KEY_PATH_ENDPOINTS=true`）
+- **认证日志路径脱敏**: 认证/权限日志的 Path 对 `/keys/<apiKey>` 段做脱敏（即使启用旧接口也避免把 key 写入服务端日志）
+- **Write-only keys 编辑修复**: 编辑渠道时不再通过 `PUT /api/*` 发送 `apiKeys`（会覆盖/清空服务端已有 keys），改为只更新配置字段并通过 `POST /keys` 追加新增 keys
+- **UI Key 计数显示修复**: 渠道列表使用 `apiKeyCount` 显示 key 数量，避免 GET 不返回 `apiKeys` 导致显示 0
+
+### 📄 配置与文档
+
+- `backend-go/.env.example` 增加 `ALLOW_INSECURE_DEPRECATED_KEY_PATH_ENDPOINTS` 示例说明
+- `docs/SECURITY_TODO.md` 更新 P2 说明为默认禁用旧接口
+
+---
+
 ## [v1.3.104] - 2025-12-30
 
 ### 🔒 安全加固

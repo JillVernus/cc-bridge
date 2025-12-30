@@ -41,6 +41,14 @@
           <span v-else class="text-grey">-</span>
         </template>
 
+        <!-- Rate Limit -->
+        <template v-slot:item.rateLimitRpm="{ item }">
+          <span v-if="item.rateLimitRpm && item.rateLimitRpm > 0">
+            {{ item.rateLimitRpm }} {{ t('apiKeys.rpm') }}
+          </span>
+          <span v-else class="text-grey">{{ t('apiKeys.useGlobal') }}</span>
+        </template>
+
         <!-- Last Used -->
         <template v-slot:item.lastUsedAt="{ item }">
           <span v-if="item.lastUsedAt">{{ formatDate(item.lastUsedAt) }}</span>
@@ -148,6 +156,15 @@
               :label="t('apiKeys.isAdmin')"
               :hint="t('apiKeys.isAdminHint')"
               persistent-hint
+            />
+            <v-text-field
+              v-model.number="form.rateLimitRpm"
+              :label="t('apiKeys.rateLimitRpm')"
+              :hint="t('apiKeys.rateLimitRpmHint')"
+              persistent-hint
+              type="number"
+              min="0"
+              class="mt-2"
             />
           </v-form>
         </v-card-text>
@@ -277,7 +294,8 @@ const formValid = ref(false)
 const form = ref<CreateAPIKeyRequest>({
   name: '',
   description: '',
-  isAdmin: false
+  isAdmin: false,
+  rateLimitRpm: 0
 })
 
 // Snackbar
@@ -293,6 +311,7 @@ const headers = computed(() => [
   { title: t('apiKeys.keyPrefix'), key: 'keyPrefix', sortable: false },
   { title: t('apiKeys.status.label'), key: 'status', sortable: true },
   { title: t('apiKeys.role'), key: 'isAdmin', sortable: true },
+  { title: t('apiKeys.rateLimit'), key: 'rateLimitRpm', sortable: true },
   { title: t('apiKeys.lastUsed'), key: 'lastUsedAt', sortable: true },
   { title: t('apiKeys.createdAt'), key: 'createdAt', sortable: true },
   { title: t('apiKeys.actions'), key: 'actions', sortable: false, align: 'end' as const }
@@ -313,7 +332,7 @@ const loadKeys = async () => {
 
 const openCreateDialog = () => {
   editingKey.value = null
-  form.value = { name: '', description: '', isAdmin: false }
+  form.value = { name: '', description: '', isAdmin: false, rateLimitRpm: 0 }
   dialogOpen.value = true
 }
 
@@ -322,7 +341,8 @@ const openEditDialog = (key: APIKey) => {
   form.value = {
     name: key.name,
     description: key.description || '',
-    isAdmin: key.isAdmin
+    isAdmin: key.isAdmin,
+    rateLimitRpm: key.rateLimitRpm || 0
   }
   dialogOpen.value = true
 }
@@ -335,7 +355,8 @@ const saveKey = async () => {
     if (editingKey.value) {
       await api.updateAPIKey(editingKey.value.id, {
         name: form.value.name,
-        description: form.value.description
+        description: form.value.description,
+        rateLimitRpm: form.value.rateLimitRpm || 0
       })
       showSnackbar(t('apiKeys.updateSuccess'), 'success')
     } else {

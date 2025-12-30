@@ -453,6 +453,63 @@ PROXY_ACCESS_KEY=$(openssl rand -base64 32)
 echo "生成的密钥: $PROXY_ACCESS_KEY"
 ```
 
+### 可信代理配置（防止 IP 欺骗）
+
+当部署在反向代理（nginx、Cloudflare、AWS ALB 等）后面时，需要配置可信代理以正确获取客户端真实 IP。
+
+#### 为什么需要配置？
+
+默认情况下，Gin 会信任 `X-Forwarded-For` 等请求头来获取客户端 IP。攻击者可以伪造这些头来绑过 IP 限制（如速率限制）。
+
+#### 配置方式
+
+```bash
+# 方式1：指定可信代理 IP/CIDR（推荐）
+TRUSTED_PROXIES=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+
+# 方式2：只信任本地代理
+TRUSTED_PROXIES=127.0.0.1,::1
+
+# 方式3：信任 Cloudflare IP 范围
+TRUSTED_PROXIES=173.245.48.0/20,103.21.244.0/22,103.22.200.0/22,103.31.4.0/22
+```
+
+#### 默认行为
+
+| 环境 | TRUSTED_PROXIES 未设置时的行为 |
+|------|-------------------------------|
+| `development` | 信任所有代理（Gin 默认行为） |
+| `production` | 不信任任何代理（使用直连 IP） |
+
+#### 常见部署场景
+
+**场景1：直接暴露（无代理）**
+```bash
+# 不需要设置，生产环境默认不信任代理
+# TRUSTED_PROXIES=
+```
+
+**场景2：单层 nginx 代理**
+```bash
+# nginx 运行在同一台机器
+TRUSTED_PROXIES=127.0.0.1
+
+# nginx 运行在内网其他机器
+TRUSTED_PROXIES=192.168.1.100
+```
+
+**场景3：Docker/Kubernetes 内网**
+```bash
+# 信任常见内网 CIDR
+TRUSTED_PROXIES=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+```
+
+**场景4：Cloudflare + nginx**
+```bash
+# 信任 Cloudflare 和本地 nginx
+TRUSTED_PROXIES=173.245.48.0/20,103.21.244.0/22,127.0.0.1
+```
+
 ### 生产环境配置清单
 ```bash
 # 1. 强密钥 (必须!)

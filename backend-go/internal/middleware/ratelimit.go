@@ -1,21 +1,31 @@
 package middleware
 
 import (
+	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/JillVernus/cc-bridge/internal/config"
+	"github.com/JillVernus/cc-bridge/internal/ratelimit"
 	"github.com/gin-gonic/gin"
 )
 
-// rateLimitEntry 记录单个客户端的请求计数
+// rateLimitEntry records request count for a single client
 type rateLimitEntry struct {
 	count     int
 	windowEnd time.Time
 }
 
-// RateLimiter 速率限制器
+// RateLimitInfo contains rate limit status information
+type RateLimitInfo struct {
+	Allowed   bool
+	Limit     int
+	Remaining int
+	ResetAt   time.Time
+}
+
+// RateLimiter is a dynamic rate limiter that supports hot-reload configuration
 type RateLimiter struct {
 	mu       sync.RWMutex
 	entries  map[string]*rateLimitEntry
@@ -25,23 +35,30 @@ type RateLimiter struct {
 	stopChan chan struct{}
 }
 
-// NewRateLimiter 创建速率限制器
-func NewRateLimiter(envCfg *config.EnvConfig) *RateLimiter {
+// NewRateLimiterWithConfig creates a rate limiter with the given configuration
+func NewRateLimiterWithConfig(cfg ratelimit.EndpointRateLimit) *RateLimiter {
 	rl := &RateLimiter{
 		entries:  make(map[string]*rateLimitEntry),
-		window:   time.Duration(envCfg.RateLimitWindow) * time.Millisecond,
-		maxReqs:  envCfg.RateLimitMaxRequests,
-		enabled:  envCfg.EnableRateLimit,
+		window:   time.Minute, // Fixed 1-minute window for RPM
+		maxReqs:  cfg.RequestsPerMinute,
+		enabled:  cfg.Enabled,
 		stopChan: make(chan struct{}),
 	}
 
-	// 启动清理过期条目的 goroutine
 	go rl.cleanup()
-
 	return rl
 }
 
-// cleanup 定期清理过期的速率限制条目
+// UpdateConfig updates the rate limiter configuration dynamically
+func (rl *RateLimiter) UpdateConfig(cfg ratelimit.EndpointRateLimit) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	rl.maxReqs = cfg.RequestsPerMinute
+	rl.enabled = cfg.Enabled
+	log.Printf("🔄 Rate limiter config updated: enabled=%v, rpm=%d", cfg.Enabled, cfg.RequestsPerMinute)
+}
+
+// cleanup periodically removes expired rate limit entries
 func (rl *RateLimiter) cleanup() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
@@ -63,39 +80,35 @@ func (rl *RateLimiter) cleanup() {
 	}
 }
 
-// Stop 停止速率限制器
+// Stop stops the rate limiter
 func (rl *RateLimiter) Stop() {
 	close(rl.stopChan)
 }
 
-// getClientKey 获取客户端标识
-// 优先使用 API Key hash，其次使用 IP 地址
+// getClientKey returns the client identifier
+// Prioritizes API Key name, falls back to IP address
 func getClientKey(c *gin.Context) string {
-	// 优先使用 API Key（如果已验证）
 	if keyName, exists := c.Get(ContextKeyAPIKeyName); exists {
 		if name, ok := keyName.(string); ok && name != "" {
 			return "key:" + name
 		}
 	}
-
-	// 回退到 IP 地址
 	return "ip:" + c.ClientIP()
 }
 
-// Allow 检查是否允许请求
+// Allow checks if a request is allowed
 func (rl *RateLimiter) Allow(clientKey string) bool {
-	if !rl.enabled {
-		return true
-	}
-
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
+
+	if !rl.enabled || rl.maxReqs <= 0 {
+		return true
+	}
 
 	now := time.Now()
 	entry, exists := rl.entries[clientKey]
 
 	if !exists || now.After(entry.windowEnd) {
-		// 新窗口
 		rl.entries[clientKey] = &rateLimitEntry{
 			count:     1,
 			windowEnd: now.Add(rl.window),
@@ -103,7 +116,6 @@ func (rl *RateLimiter) Allow(clientKey string) bool {
 		return true
 	}
 
-	// 在当前窗口内
 	if entry.count >= rl.maxReqs {
 		return false
 	}
@@ -112,11 +124,70 @@ func (rl *RateLimiter) Allow(clientKey string) bool {
 	return true
 }
 
-// RateLimitMiddleware 速率限制中间件
-// 应用于所有需要保护的端点
+// AllowWithCustomLimit checks if a request is allowed with a custom per-key limit
+// If customRPM is 0, uses the default limit
+func (rl *RateLimiter) AllowWithCustomLimit(clientKey string, customRPM int) bool {
+	info := rl.CheckWithCustomLimit(clientKey, customRPM)
+	return info.Allowed
+}
+
+// CheckWithCustomLimit checks rate limit and returns detailed info
+func (rl *RateLimiter) CheckWithCustomLimit(clientKey string, customRPM int) RateLimitInfo {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	if !rl.enabled {
+		return RateLimitInfo{Allowed: true, Limit: 0, Remaining: 0}
+	}
+
+	// Determine the effective limit
+	effectiveLimit := rl.maxReqs
+	if customRPM > 0 {
+		effectiveLimit = customRPM
+	}
+	if effectiveLimit <= 0 {
+		return RateLimitInfo{Allowed: true, Limit: 0, Remaining: 0}
+	}
+
+	now := time.Now()
+	entry, exists := rl.entries[clientKey]
+
+	if !exists || now.After(entry.windowEnd) {
+		windowEnd := now.Add(rl.window)
+		rl.entries[clientKey] = &rateLimitEntry{
+			count:     1,
+			windowEnd: windowEnd,
+		}
+		return RateLimitInfo{
+			Allowed:   true,
+			Limit:     effectiveLimit,
+			Remaining: effectiveLimit - 1,
+			ResetAt:   windowEnd,
+		}
+	}
+
+	if entry.count >= effectiveLimit {
+		return RateLimitInfo{
+			Allowed:   false,
+			Limit:     effectiveLimit,
+			Remaining: 0,
+			ResetAt:   entry.windowEnd,
+		}
+	}
+
+	entry.count++
+	return RateLimitInfo{
+		Allowed:   true,
+		Limit:     effectiveLimit,
+		Remaining: effectiveLimit - entry.count,
+		ResetAt:   entry.windowEnd,
+	}
+}
+
+// RateLimitMiddleware creates a rate limit middleware for the given limiter
 func RateLimitMiddleware(rl *RateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if rl == nil || !rl.enabled {
+		if rl == nil {
 			c.Next()
 			return
 		}
@@ -124,10 +195,10 @@ func RateLimitMiddleware(rl *RateLimiter) gin.HandlerFunc {
 		clientKey := getClientKey(c)
 
 		if !rl.Allow(clientKey) {
-			log.Printf("🚫 [速率限制] 客户端 %s 超出请求限制", clientKey)
+			log.Printf("🚫 [Rate Limit] Client %s exceeded request limit", clientKey)
 			c.JSON(429, gin.H{
 				"error":   "Too Many Requests",
-				"message": "请求过于频繁，请稍后再试",
+				"message": "Request rate limit exceeded, please try again later",
 			})
 			c.Abort()
 			return
@@ -137,32 +208,117 @@ func RateLimitMiddleware(rl *RateLimiter) gin.HandlerFunc {
 	}
 }
 
-// AuthFailureRateLimiter 认证失败专用速率限制器
-// 对认证失败的请求进行更严格的限制，防止暴力破解
+// APIRateLimitMiddleware creates a rate limit middleware for API endpoints (/v1/*)
+// Supports per-key rate limits from ValidatedKey and adds rate limit headers
+func APIRateLimitMiddleware(rl *RateLimiter) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if rl == nil {
+			c.Next()
+			return
+		}
+
+		clientKey := getClientKey(c)
+
+		// Check for per-key rate limit (set by auth middleware)
+		customRPM := 0
+		if rpm, exists := c.Get(ContextKeyRateLimitRPM); exists {
+			if rpmVal, ok := rpm.(int); ok {
+				customRPM = rpmVal
+			}
+		}
+
+		info := rl.CheckWithCustomLimit(clientKey, customRPM)
+
+		// Add rate limit headers (RFC 6585 style)
+		if info.Limit > 0 {
+			c.Header("X-RateLimit-Limit", fmt.Sprintf("%d", info.Limit))
+			c.Header("X-RateLimit-Remaining", fmt.Sprintf("%d", info.Remaining))
+			c.Header("X-RateLimit-Reset", fmt.Sprintf("%d", info.ResetAt.Unix()))
+		}
+
+		if !info.Allowed {
+			log.Printf("🚫 [API Rate Limit] Client %s exceeded request limit (custom=%d)", clientKey, customRPM)
+			c.Header("Retry-After", fmt.Sprintf("%d", int(time.Until(info.ResetAt).Seconds())+1))
+			c.JSON(429, gin.H{
+				"error":   "Too Many Requests",
+				"message": "Request rate limit exceeded, please try again later",
+			})
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// PortalRateLimitMiddleware creates a rate limit middleware for portal endpoints (/api/*)
+func PortalRateLimitMiddleware(rl *RateLimiter) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if rl == nil {
+			c.Next()
+			return
+		}
+
+		// Only apply to /api/* paths
+		if !strings.HasPrefix(c.Request.URL.Path, "/api/") {
+			c.Next()
+			return
+		}
+
+		clientKey := getClientKey(c)
+
+		if !rl.Allow(clientKey) {
+			log.Printf("🚫 [Portal Rate Limit] Client %s exceeded request limit", clientKey)
+			c.JSON(429, gin.H{
+				"error":   "Too Many Requests",
+				"message": "Request rate limit exceeded, please try again later",
+			})
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// AuthFailureRateLimiter handles rate limiting for authentication failures
 type AuthFailureRateLimiter struct {
-	mu       sync.RWMutex
-	failures map[string]*authFailureEntry
-	stopChan chan struct{}
+	mu         sync.RWMutex
+	failures   map[string]*authFailureEntry
+	thresholds []ratelimit.AuthFailureThreshold
+	enabled    bool
+	stopChan   chan struct{}
 }
 
 type authFailureEntry struct {
-	count     int
-	blockEnd  time.Time
-	lastFail  time.Time
+	count    int
+	blockEnd time.Time
+	lastFail time.Time
 }
 
-// NewAuthFailureRateLimiter 创建认证失败速率限制器
-func NewAuthFailureRateLimiter() *AuthFailureRateLimiter {
+// NewAuthFailureRateLimiterWithConfig creates an auth failure rate limiter with config
+func NewAuthFailureRateLimiterWithConfig(cfg ratelimit.AuthFailureConfig) *AuthFailureRateLimiter {
 	arl := &AuthFailureRateLimiter{
-		failures: make(map[string]*authFailureEntry),
-		stopChan: make(chan struct{}),
+		failures:   make(map[string]*authFailureEntry),
+		thresholds: cfg.Thresholds,
+		enabled:    cfg.Enabled,
+		stopChan:   make(chan struct{}),
 	}
 
 	go arl.cleanup()
 	return arl
 }
 
-// cleanup 清理过期条目
+// UpdateConfig updates the auth failure limiter configuration
+func (arl *AuthFailureRateLimiter) UpdateConfig(cfg ratelimit.AuthFailureConfig) {
+	arl.mu.Lock()
+	defer arl.mu.Unlock()
+	arl.thresholds = cfg.Thresholds
+	arl.enabled = cfg.Enabled
+	log.Printf("🔄 Auth failure limiter config updated: enabled=%v, thresholds=%d", cfg.Enabled, len(cfg.Thresholds))
+}
+
+// cleanup removes expired entries
 func (arl *AuthFailureRateLimiter) cleanup() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
@@ -173,7 +329,6 @@ func (arl *AuthFailureRateLimiter) cleanup() {
 			arl.mu.Lock()
 			now := time.Now()
 			for key, entry := range arl.failures {
-				// 清理超过 1 小时未活动的条目
 				if now.Sub(entry.lastFail) > 1*time.Hour {
 					delete(arl.failures, key)
 				}
@@ -185,15 +340,19 @@ func (arl *AuthFailureRateLimiter) cleanup() {
 	}
 }
 
-// Stop 停止限制器
+// Stop stops the limiter
 func (arl *AuthFailureRateLimiter) Stop() {
 	close(arl.stopChan)
 }
 
-// RecordFailure 记录认证失败
+// RecordFailure records an authentication failure
 func (arl *AuthFailureRateLimiter) RecordFailure(clientIP string) {
 	arl.mu.Lock()
 	defer arl.mu.Unlock()
+
+	if !arl.enabled {
+		return
+	}
 
 	now := time.Now()
 	entry, exists := arl.failures[clientIP]
@@ -209,27 +368,26 @@ func (arl *AuthFailureRateLimiter) RecordFailure(clientIP string) {
 	entry.count++
 	entry.lastFail = now
 
-	// 阶梯式封禁：
-	// 5 次失败 -> 封禁 1 分钟
-	// 10 次失败 -> 封禁 5 分钟
-	// 20 次失败 -> 封禁 30 分钟
-	switch {
-	case entry.count >= 20:
-		entry.blockEnd = now.Add(30 * time.Minute)
-		log.Printf("🔒 [暴力破解防护] IP %s 已被封禁 30 分钟 (失败 %d 次)", clientIP, entry.count)
-	case entry.count >= 10:
-		entry.blockEnd = now.Add(5 * time.Minute)
-		log.Printf("🔒 [暴力破解防护] IP %s 已被封禁 5 分钟 (失败 %d 次)", clientIP, entry.count)
-	case entry.count >= 5:
-		entry.blockEnd = now.Add(1 * time.Minute)
-		log.Printf("🔒 [暴力破解防护] IP %s 已被封禁 1 分钟 (失败 %d 次)", clientIP, entry.count)
+	// Apply thresholds (sorted by failures descending for proper matching)
+	for i := len(arl.thresholds) - 1; i >= 0; i-- {
+		threshold := arl.thresholds[i]
+		if entry.count >= threshold.Failures {
+			entry.blockEnd = now.Add(time.Duration(threshold.BlockMinutes) * time.Minute)
+			log.Printf("🔒 [Brute Force Protection] IP %s blocked for %d minutes (failures: %d)",
+				clientIP, threshold.BlockMinutes, entry.count)
+			break
+		}
 	}
 }
 
-// IsBlocked 检查 IP 是否被封禁
+// IsBlocked checks if an IP is blocked
 func (arl *AuthFailureRateLimiter) IsBlocked(clientIP string) bool {
 	arl.mu.RLock()
 	defer arl.mu.RUnlock()
+
+	if !arl.enabled {
+		return false
+	}
 
 	entry, exists := arl.failures[clientIP]
 	if !exists {
@@ -239,7 +397,7 @@ func (arl *AuthFailureRateLimiter) IsBlocked(clientIP string) bool {
 	return time.Now().Before(entry.blockEnd)
 }
 
-// ClearFailures 清除某 IP 的失败记录（认证成功后调用）
+// ClearFailures clears failure records for an IP (called on successful auth)
 func (arl *AuthFailureRateLimiter) ClearFailures(clientIP string) {
 	arl.mu.Lock()
 	defer arl.mu.Unlock()

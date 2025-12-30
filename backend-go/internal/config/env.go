@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 )
 
 // EnvConfig 环境变量配置
@@ -33,6 +34,8 @@ type EnvConfig struct {
 	LogMaxAge     int  // 保留的旧日志文件最大天数
 	LogCompress   bool // 是否压缩旧日志文件
 	LogToConsole  bool // 是否同时输出到控制台
+	// 安全相关配置
+	TrustedProxies []string // 可信代理 IP/CIDR 列表（用于正确获取客户端 IP）
 }
 
 // NewEnvConfig 创建环境配置
@@ -42,6 +45,9 @@ func NewEnvConfig() *EnvConfig {
 	if env == "" {
 		env = getEnv("NODE_ENV", "development")
 	}
+
+	// 解析可信代理列表
+	trustedProxies := parseTrustedProxies(getEnv("TRUSTED_PROXIES", ""))
 
 	return &EnvConfig{
 		Port:                 getEnvAsInt("PORT", 3000),
@@ -70,6 +76,8 @@ func NewEnvConfig() *EnvConfig {
 		LogMaxAge:     getEnvAsInt("LOG_MAX_AGE", 30),     // 默认保留 30 天
 		LogCompress:   getEnv("LOG_COMPRESS", "true") != "false",
 		LogToConsole:  getEnv("LOG_TO_CONSOLE", "true") != "false",
+		// 安全配置
+		TrustedProxies: trustedProxies,
 	}
 }
 
@@ -121,4 +129,27 @@ func getEnvAsInt(key string, defaultValue int) int {
 		}
 	}
 	return defaultValue
+}
+
+// parseTrustedProxies 解析可信代理列表
+// 支持逗号分隔的 IP 地址或 CIDR 格式
+// 例如: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16" 或 "127.0.0.1,::1"
+func parseTrustedProxies(value string) []string {
+	if value == "" {
+		return nil
+	}
+
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }

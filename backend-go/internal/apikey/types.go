@@ -13,22 +13,24 @@ const (
 
 // APIKey represents an API key record
 type APIKey struct {
-	ID          int64      `json:"id"`
-	Name        string     `json:"name"`
-	KeyPrefix   string     `json:"keyPrefix"`   // First 8 chars for display "sk-abc1..."
-	Description string     `json:"description"` // Optional description
-	Status      string     `json:"status"`      // active, disabled, revoked
-	IsAdmin     bool       `json:"isAdmin"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	UpdatedAt   time.Time  `json:"updatedAt"`
-	LastUsedAt  *time.Time `json:"lastUsedAt,omitempty"`
+	ID           int64      `json:"id"`
+	Name         string     `json:"name"`
+	KeyPrefix    string     `json:"keyPrefix"`    // First 8 chars for display "sk-abc1..."
+	Description  string     `json:"description"`  // Optional description
+	Status       string     `json:"status"`       // active, disabled, revoked
+	IsAdmin      bool       `json:"isAdmin"`
+	RateLimitRPM int        `json:"rateLimitRpm"` // Requests per minute (0 = use global)
+	CreatedAt    time.Time  `json:"createdAt"`
+	UpdatedAt    time.Time  `json:"updatedAt"`
+	LastUsedAt   *time.Time `json:"lastUsedAt,omitempty"`
 }
 
 // CreateAPIKeyRequest represents a request to create a new API key
 type CreateAPIKeyRequest struct {
-	Name        string `json:"name" binding:"required"`
-	Description string `json:"description"`
-	IsAdmin     bool   `json:"isAdmin"`
+	Name         string `json:"name" binding:"required"`
+	Description  string `json:"description"`
+	IsAdmin      bool   `json:"isAdmin"`
+	RateLimitRPM int    `json:"rateLimitRpm"`
 }
 
 // CreateAPIKeyResponse represents the response after creating a new API key
@@ -40,8 +42,9 @@ type CreateAPIKeyResponse struct {
 
 // UpdateAPIKeyRequest represents a request to update an API key
 type UpdateAPIKeyRequest struct {
-	Name        *string `json:"name"`
-	Description *string `json:"description"`
+	Name         *string `json:"name"`
+	Description  *string `json:"description"`
+	RateLimitRPM *int    `json:"rateLimitRpm"`
 }
 
 // APIKeyListResponse represents the response for listing API keys
@@ -61,7 +64,8 @@ type APIKeyFilter struct {
 // ValidatedKey represents a validated API key with its metadata
 // Used internally after authentication
 type ValidatedKey struct {
-	ID      int64
-	Name    string
-	IsAdmin bool
+	ID           int64
+	Name         string
+	IsAdmin      bool
+	RateLimitRPM int
 }

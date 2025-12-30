@@ -17,6 +17,7 @@ const (
 	ContextKeyAPIKeyName    = "apiKeyName"
 	ContextKeyAPIKeyIsAdmin = "apiKeyIsAdmin"
 	ContextKeyIsBootstrap   = "isBootstrapAdmin"
+	ContextKeyRateLimitRPM  = "rateLimitRPM"
 )
 
 // secureCompare performs a constant-time comparison of two strings
@@ -109,7 +110,7 @@ func validateAndSetContext(c *gin.Context, envCfg *config.EnvConfig, apiKeyManag
 	providedKey := getAPIKey(c)
 	clientIP := c.ClientIP()
 	timestamp := time.Now().Format(time.RFC3339)
-	path := c.Request.URL.Path
+	logPath := sanitizePathForLogs(c.Request.URL.Path)
 
 	// Try SQLite API keys first (if manager is available)
 	if apiKeyManager != nil && providedKey != "" {
@@ -117,7 +118,7 @@ func validateAndSetContext(c *gin.Context, envCfg *config.EnvConfig, apiKeyManag
 			// Check admin requirement
 			if requireAdmin && !vk.IsAdmin {
 				log.Printf("🔒 [权限不足] IP: %s | Path: %s | Time: %s | Key: %s",
-					clientIP, path, timestamp, vk.Name)
+					clientIP, logPath, timestamp, vk.Name)
 				c.JSON(403, gin.H{
 					"error":   "Forbidden",
 					"message": "Admin privileges required",
@@ -131,10 +132,11 @@ func validateAndSetContext(c *gin.Context, envCfg *config.EnvConfig, apiKeyManag
 			c.Set(ContextKeyAPIKeyName, vk.Name)
 			c.Set(ContextKeyAPIKeyIsAdmin, vk.IsAdmin)
 			c.Set(ContextKeyIsBootstrap, false)
+			c.Set(ContextKeyRateLimitRPM, vk.RateLimitRPM)
 
 			if envCfg.ShouldLog("info") {
 				log.Printf("✅ [认证成功] IP: %s | Path: %s | Time: %s | Key: %s",
-					clientIP, path, timestamp, vk.Name)
+					clientIP, logPath, timestamp, vk.Name)
 			}
 			return true
 		}
@@ -150,7 +152,7 @@ func validateAndSetContext(c *gin.Context, envCfg *config.EnvConfig, apiKeyManag
 
 		if envCfg.ShouldLog("info") {
 			log.Printf("✅ [认证成功] IP: %s | Path: %s | Time: %s | Key: master",
-				clientIP, path, timestamp)
+				clientIP, logPath, timestamp)
 		}
 		return true
 	}
@@ -161,7 +163,7 @@ func validateAndSetContext(c *gin.Context, envCfg *config.EnvConfig, apiKeyManag
 		reason = "密钥缺失"
 	}
 	log.Printf("🔒 [认证失败] IP: %s | Path: %s | Time: %s | Reason: %s",
-		clientIP, path, timestamp, reason)
+		clientIP, logPath, timestamp, reason)
 
 	c.JSON(401, gin.H{
 		"error":   "Unauthorized",
@@ -220,6 +222,7 @@ func ProxyAuthMiddlewareWithAPIKey(envCfg *config.EnvConfig, apiKeyManager *apik
 				c.Set(ContextKeyAPIKeyName, vk.Name)
 				c.Set(ContextKeyAPIKeyIsAdmin, vk.IsAdmin)
 				c.Set(ContextKeyIsBootstrap, false)
+				c.Set(ContextKeyRateLimitRPM, vk.RateLimitRPM)
 				c.Next()
 				return
 			}
@@ -231,6 +234,7 @@ func ProxyAuthMiddlewareWithAPIKey(envCfg *config.EnvConfig, apiKeyManager *apik
 			c.Set(ContextKeyAPIKeyName, "master")
 			c.Set(ContextKeyAPIKeyIsAdmin, true)
 			c.Set(ContextKeyIsBootstrap, true)
+			c.Set(ContextKeyRateLimitRPM, 0) // Master key uses global limit
 			c.Next()
 			return
 		}
@@ -331,7 +335,7 @@ func validateAndSetContextWithFailureLimiter(c *gin.Context, envCfg *config.EnvC
 	providedKey := getAPIKey(c)
 	clientIP := c.ClientIP()
 	timestamp := time.Now().Format(time.RFC3339)
-	path := c.Request.URL.Path
+	logPath := sanitizePathForLogs(c.Request.URL.Path)
 
 	// Try SQLite API keys first (if manager is available)
 	if apiKeyManager != nil && providedKey != "" {
@@ -339,7 +343,7 @@ func validateAndSetContextWithFailureLimiter(c *gin.Context, envCfg *config.EnvC
 			// Check admin requirement
 			if requireAdmin && !vk.IsAdmin {
 				log.Printf("🔒 [权限不足] IP: %s | Path: %s | Time: %s | Key: %s",
-					clientIP, path, timestamp, vk.Name)
+					clientIP, logPath, timestamp, vk.Name)
 				c.JSON(403, gin.H{
 					"error":   "Forbidden",
 					"message": "Admin privileges required",
@@ -358,10 +362,11 @@ func validateAndSetContextWithFailureLimiter(c *gin.Context, envCfg *config.EnvC
 			c.Set(ContextKeyAPIKeyName, vk.Name)
 			c.Set(ContextKeyAPIKeyIsAdmin, vk.IsAdmin)
 			c.Set(ContextKeyIsBootstrap, false)
+			c.Set(ContextKeyRateLimitRPM, vk.RateLimitRPM)
 
 			if envCfg.ShouldLog("info") {
 				log.Printf("✅ [认证成功] IP: %s | Path: %s | Time: %s | Key: %s",
-					clientIP, path, timestamp, vk.Name)
+					clientIP, logPath, timestamp, vk.Name)
 			}
 			return true
 		}
@@ -379,10 +384,11 @@ func validateAndSetContextWithFailureLimiter(c *gin.Context, envCfg *config.EnvC
 		c.Set(ContextKeyAPIKeyName, "master")
 		c.Set(ContextKeyAPIKeyIsAdmin, true)
 		c.Set(ContextKeyIsBootstrap, true)
+		c.Set(ContextKeyRateLimitRPM, 0) // Master key uses global limit
 
 		if envCfg.ShouldLog("info") {
 			log.Printf("✅ [认证成功] IP: %s | Path: %s | Time: %s | Key: master",
-				clientIP, path, timestamp)
+				clientIP, logPath, timestamp)
 		}
 		return true
 	}
@@ -397,7 +403,7 @@ func validateAndSetContextWithFailureLimiter(c *gin.Context, envCfg *config.EnvC
 		reason = "密钥缺失"
 	}
 	log.Printf("🔒 [认证失败] IP: %s | Path: %s | Time: %s | Reason: %s",
-		clientIP, path, timestamp, reason)
+		clientIP, logPath, timestamp, reason)
 
 	c.JSON(401, gin.H{
 		"error":   "Unauthorized",
@@ -405,4 +411,29 @@ func validateAndSetContextWithFailureLimiter(c *gin.Context, envCfg *config.EnvC
 	})
 	c.Abort()
 	return false
+}
+
+func sanitizePathForLogs(path string) string {
+	if !strings.HasPrefix(path, "/api/channels/") && !strings.HasPrefix(path, "/api/responses/channels/") {
+		return path
+	}
+
+	keyMarker := "/keys/"
+	i := strings.Index(path, keyMarker)
+	if i == -1 {
+		return path
+	}
+
+	after := path[i+len(keyMarker):]
+	if after == "" || strings.HasPrefix(after, "index/") {
+		return path
+	}
+
+	parts := strings.Split(after, "/")
+	if len(parts) == 0 || parts[0] == "" {
+		return path
+	}
+
+	parts[0] = "<redacted>"
+	return path[:i+len(keyMarker)] + strings.Join(parts, "/")
 }

@@ -129,7 +129,7 @@
             <div class="channel-keys">
               <v-chip size="x-small" variant="outlined" class="keys-chip" @click="$emit('edit', element)">
                 <v-icon start size="x-small">mdi-key</v-icon>
-                {{ element.apiKeys?.length || 0 }}
+                {{ element.apiKeyCount ?? element.apiKeys?.length ?? 0 }}
               </v-chip>
             </div>
 
@@ -318,7 +318,7 @@
           <div class="channel-keys">
             <v-chip size="x-small" variant="outlined" color="grey" class="keys-chip" @click="$emit('edit', channel)">
               <v-icon start size="x-small">mdi-key</v-icon>
-              {{ channel.apiKeys?.length || 0 }}
+              {{ channel.apiKeyCount ?? channel.apiKeys?.length ?? 0 }}
             </v-chip>
           </div>
 

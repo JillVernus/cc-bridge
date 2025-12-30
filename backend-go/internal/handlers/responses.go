@@ -54,10 +54,12 @@ func ResponsesHandlerWithAPIKey(
 	apiKeyManager *apikey.Manager,
 ) gin.HandlerFunc {
 	return gin.HandlerFunc(func(c *gin.Context) {
-		// 先进行认证
-		middleware.ProxyAuthMiddlewareWithAPIKey(envCfg, apiKeyManager)(c)
-		if c.IsAborted() {
-			return
+		// 先进行认证（如果上游中间件尚未完成认证）
+		if _, exists := c.Get(middleware.ContextKeyAPIKeyID); !exists {
+			middleware.ProxyAuthMiddlewareWithAPIKey(envCfg, apiKeyManager)(c)
+			if c.IsAborted() {
+				return
+			}
 		}
 
 		startTime := time.Now()

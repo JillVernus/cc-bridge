@@ -58,6 +58,7 @@ func (m *Manager) initSchema() error {
 		description TEXT,
 		status TEXT NOT NULL DEFAULT 'active',
 		is_admin BOOLEAN NOT NULL DEFAULT 0,
+		rate_limit_rpm INTEGER NOT NULL DEFAULT 0,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		last_used_at DATETIME
@@ -71,6 +72,15 @@ func (m *Manager) initSchema() error {
 		return err
 	}
 
+	// Migration: add rate_limit_rpm column if it doesn't exist
+	_, err = m.db.Exec(`ALTER TABLE api_keys ADD COLUMN rate_limit_rpm INTEGER NOT NULL DEFAULT 0`)
+	if err != nil {
+		// Ignore duplicate-column errors; otherwise fail fast since later queries rely on this column.
+		if !strings.Contains(err.Error(), "duplicate column") {
+			return fmt.Errorf("rate_limit_rpm column migration failed: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -80,7 +90,7 @@ func (m *Manager) refreshCache() error {
 	defer m.mu.Unlock()
 
 	rows, err := m.db.Query(`
-		SELECT id, name, key_hash, is_admin
+		SELECT id, name, key_hash, is_admin, rate_limit_rpm
 		FROM api_keys
 		WHERE status = ?
 	`, StatusActive)
@@ -94,13 +104,15 @@ func (m *Manager) refreshCache() error {
 		var id int64
 		var name, keyHash string
 		var isAdmin bool
-		if err := rows.Scan(&id, &name, &keyHash, &isAdmin); err != nil {
+		var rateLimitRPM int
+		if err := rows.Scan(&id, &name, &keyHash, &isAdmin, &rateLimitRPM); err != nil {
 			return err
 		}
 		newCache[keyHash] = &ValidatedKey{
-			ID:      id,
-			Name:    name,
-			IsAdmin: isAdmin,
+			ID:           id,
+			Name:         name,
+			IsAdmin:      isAdmin,
+			RateLimitRPM: rateLimitRPM,
 		}
 	}
 
@@ -147,9 +159,9 @@ func (m *Manager) Create(req *CreateAPIKeyRequest) (*CreateAPIKeyResponse, error
 	now := time.Now()
 
 	result, err := m.db.Exec(`
-		INSERT INTO api_keys (name, key_hash, key_prefix, description, status, is_admin, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, req.Name, keyHash, keyPrefixStr, req.Description, StatusActive, req.IsAdmin, now, now)
+		INSERT INTO api_keys (name, key_hash, key_prefix, description, status, is_admin, rate_limit_rpm, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, req.Name, keyHash, keyPrefixStr, req.Description, StatusActive, req.IsAdmin, req.RateLimitRPM, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert API key: %w", err)
 	}
@@ -162,22 +174,24 @@ func (m *Manager) Create(req *CreateAPIKeyRequest) (*CreateAPIKeyResponse, error
 	// Add to cache
 	m.mu.Lock()
 	m.cache[keyHash] = &ValidatedKey{
-		ID:      id,
-		Name:    req.Name,
-		IsAdmin: req.IsAdmin,
+		ID:           id,
+		Name:         req.Name,
+		IsAdmin:      req.IsAdmin,
+		RateLimitRPM: req.RateLimitRPM,
 	}
 	m.mu.Unlock()
 
 	return &CreateAPIKeyResponse{
 		APIKey: APIKey{
-			ID:          id,
-			Name:        req.Name,
-			KeyPrefix:   keyPrefixStr,
-			Description: req.Description,
-			Status:      StatusActive,
-			IsAdmin:     req.IsAdmin,
-			CreatedAt:   now,
-			UpdatedAt:   now,
+			ID:           id,
+			Name:         req.Name,
+			KeyPrefix:    keyPrefixStr,
+			Description:  req.Description,
+			Status:       StatusActive,
+			IsAdmin:      req.IsAdmin,
+			RateLimitRPM: req.RateLimitRPM,
+			CreatedAt:    now,
+			UpdatedAt:    now,
 		},
 		Key: key,
 	}, nil
@@ -191,10 +205,10 @@ func (m *Manager) GetByID(id int64) (*APIKey, error) {
 	var description sql.NullString
 
 	err := m.db.QueryRow(`
-		SELECT id, name, key_prefix, description, status, is_admin, created_at, updated_at, last_used_at
+		SELECT id, name, key_prefix, description, status, is_admin, rate_limit_rpm, created_at, updated_at, last_used_at
 		FROM api_keys
 		WHERE id = ?
-	`, id).Scan(&key.ID, &key.Name, &key.KeyPrefix, &description, &key.Status, &key.IsAdmin, &createdAt, &updatedAt, &lastUsedAt)
+	`, id).Scan(&key.ID, &key.Name, &key.KeyPrefix, &description, &key.Status, &key.IsAdmin, &key.RateLimitRPM, &createdAt, &updatedAt, &lastUsedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -250,7 +264,7 @@ func (m *Manager) List(filter *APIKeyFilter) (*APIKeyListResponse, error) {
 
 	// Get records
 	query := fmt.Sprintf(`
-		SELECT id, name, key_prefix, description, status, is_admin, created_at, updated_at, last_used_at
+		SELECT id, name, key_prefix, description, status, is_admin, rate_limit_rpm, created_at, updated_at, last_used_at
 		FROM api_keys
 		%s
 		ORDER BY created_at DESC
@@ -272,7 +286,7 @@ func (m *Manager) List(filter *APIKeyFilter) (*APIKeyListResponse, error) {
 		var lastUsedAt sql.NullString
 		var description sql.NullString
 
-		err := rows.Scan(&key.ID, &key.Name, &key.KeyPrefix, &description, &key.Status, &key.IsAdmin, &createdAt, &updatedAt, &lastUsedAt)
+		err := rows.Scan(&key.ID, &key.Name, &key.KeyPrefix, &description, &key.Status, &key.IsAdmin, &key.RateLimitRPM, &createdAt, &updatedAt, &lastUsedAt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan API key: %w", err)
 		}
@@ -297,7 +311,7 @@ func (m *Manager) List(filter *APIKeyFilter) (*APIKeyListResponse, error) {
 	}, nil
 }
 
-// Update updates an API key's name and description
+// Update updates an API key's name, description, and rate limit
 func (m *Manager) Update(id int64, req *UpdateAPIKeyRequest) (*APIKey, error) {
 	// Build update query dynamically
 	var updates []string
@@ -310,6 +324,10 @@ func (m *Manager) Update(id int64, req *UpdateAPIKeyRequest) (*APIKey, error) {
 	if req.Description != nil {
 		updates = append(updates, "description = ?")
 		args = append(args, *req.Description)
+	}
+	if req.RateLimitRPM != nil {
+		updates = append(updates, "rate_limit_rpm = ?")
+		args = append(args, *req.RateLimitRPM)
 	}
 
 	if len(updates) == 0 {
@@ -331,8 +349,8 @@ func (m *Manager) Update(id int64, req *UpdateAPIKeyRequest) (*APIKey, error) {
 		return nil, fmt.Errorf("API key not found")
 	}
 
-	// Update cache if name changed
-	if req.Name != nil {
+	// Update cache if name or rate limit changed
+	if req.Name != nil || req.RateLimitRPM != nil {
 		m.refreshCache()
 	}
 
@@ -461,20 +479,22 @@ func (m *Manager) Validate(key string) *ValidatedKey {
 	var id int64
 	var name, status string
 	var isAdmin bool
+	var rateLimitRPM int
 	err := m.db.QueryRow(`
-		SELECT id, name, status, is_admin
+		SELECT id, name, status, is_admin, rate_limit_rpm
 		FROM api_keys
 		WHERE key_hash = ?
-	`, keyHash).Scan(&id, &name, &status, &isAdmin)
+	`, keyHash).Scan(&id, &name, &status, &isAdmin, &rateLimitRPM)
 
 	if err != nil || status != StatusActive {
 		return nil
 	}
 
 	vk := &ValidatedKey{
-		ID:      id,
-		Name:    name,
-		IsAdmin: isAdmin,
+		ID:           id,
+		Name:         name,
+		IsAdmin:      isAdmin,
+		RateLimitRPM: rateLimitRPM,
 	}
 
 	// Add to cache

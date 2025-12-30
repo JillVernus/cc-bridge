@@ -7,10 +7,21 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// HealthCheck 健康检查处理器
-func HealthCheck(envCfg *config.EnvConfig, cfgManager *config.ConfigManager) gin.HandlerFunc {
+// HealthCheck 健康检查处理器（最小化响应，无需认证）
+// 🔒 安全修复: 只返回基本状态，不暴露系统信息
+func HealthCheck() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		config := cfgManager.GetConfig()
+		c.JSON(200, gin.H{
+			"status": "healthy",
+		})
+	}
+}
+
+// HealthCheckDetailed 详细健康检查处理器（需要认证）
+// 返回完整的系统信息，仅供管理员使用
+func HealthCheckDetailed(envCfg *config.EnvConfig, cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		cfg := cfgManager.GetConfig()
 
 		healthData := gin.H{
 			"status":    "healthy",
@@ -19,9 +30,10 @@ func HealthCheck(envCfg *config.EnvConfig, cfgManager *config.ConfigManager) gin
 			"mode":      envCfg.Env,
 			"version":   getVersion(),
 			"config": gin.H{
-				"upstreamCount":        len(config.Upstream),
-				"loadBalance":          config.LoadBalance,
-				"responsesLoadBalance": config.ResponsesLoadBalance,
+				"upstreamCount":          len(cfg.Upstream),
+				"responsesUpstreamCount": len(cfg.ResponsesUpstream),
+				"loadBalance":            cfg.LoadBalance,
+				"responsesLoadBalance":   cfg.ResponsesLoadBalance,
 			},
 		}
 

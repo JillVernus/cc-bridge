@@ -76,6 +76,12 @@
               </template>
               <v-list-item-title>{{ t('app.pricingSettings') }}</v-list-item-title>
             </v-list-item>
+            <v-list-item @click="showRateLimitSettings = true">
+              <template #prepend>
+                <v-icon size="small">mdi-speedometer</v-icon>
+              </template>
+              <v-list-item-title>{{ t('app.rateLimitSettings') }}</v-list-item-title>
+            </v-list-item>
             <v-list-item @click="openBackupRestore">
               <template #prepend>
                 <v-icon size="small">mdi-backup-restore</v-icon>
@@ -416,6 +422,9 @@
     <!-- 定价设置对话框 -->
     <PricingSettings v-model="showPricingSettings" />
 
+    <!-- 速率限制设置对话框 -->
+    <RateLimitSettings v-model="showRateLimitSettings" />
+
     <!-- 备份恢复对话框 -->
     <v-dialog v-model="showBackupRestore" max-width="600">
       <v-card>
@@ -540,6 +549,7 @@ import ChannelOrchestration from './components/ChannelOrchestration.vue'
 import RequestLogTable from './components/RequestLogTable.vue'
 import APIKeyManagement from './components/APIKeyManagement.vue'
 import PricingSettings from './components/PricingSettings.vue'
+import RateLimitSettings from './components/RateLimitSettings.vue'
 import GlobalStatsChart from './components/GlobalStatsChart.vue'
 import { useAppTheme } from './composables/useTheme'
 import { useLocale } from './composables/useLocale'
@@ -576,6 +586,7 @@ const isPingingAll = ref(false)
 const darkModePreference = ref<'light' | 'dark' | 'auto'>('auto')
 const appVersion = ref('') // 应用版本号
 const showPricingSettings = ref(false) // 定价设置对话框
+const showRateLimitSettings = ref(false) // 速率限制设置对话框
 const showBackupRestore = ref(false) // 备份恢复对话框
 const showGlobalStatsChart = ref(true) // 全局统计图表显示状态
 
@@ -704,12 +715,36 @@ const saveChannel = async (channel: Omit<Channel, 'index' | 'latency' | 'status'
   try {
     const isResponses = activeTab.value === 'responses'
     if (editingChannel.value) {
+      const { apiKeys, ...channelUpdate } = channel
+
       if (isResponses) {
-        await api.updateResponsesChannel(editingChannel.value.index, channel)
+        await api.updateResponsesChannel(editingChannel.value.index, channelUpdate)
       } else {
-        await api.updateChannel(editingChannel.value.index, channel)
+        await api.updateChannel(editingChannel.value.index, channelUpdate)
       }
+
+      const keysToAdd = (apiKeys || []).map(k => k.trim()).filter(Boolean)
+      const keyAddErrors: string[] = []
+      for (const key of keysToAdd) {
+        try {
+          if (isResponses) {
+            await api.addResponsesApiKey(editingChannel.value.index, key)
+          } else {
+            await api.addApiKey(editingChannel.value.index, key)
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          if (message.includes('认证失败')) {
+            throw err
+          }
+          keyAddErrors.push(message)
+        }
+      }
+
       showToast(t('channel.updateSuccess'), 'success')
+      if (keyAddErrors.length > 0) {
+        showToast(keyAddErrors[0], 'warning')
+      }
     } else {
       if (isResponses) {
         await api.addResponsesChannel(channel)

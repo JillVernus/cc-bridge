@@ -39,7 +39,6 @@ func GetUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				"name":                  up.Name,
 				"serviceType":           up.ServiceType,
 				"baseUrl":               up.BaseURL,
-				"apiKeys":               maskAPIKeys(up.APIKeys),
 				"apiKeyCount":           len(up.APIKeys),
 				"description":           up.Description,
 				"website":               up.Website,
@@ -188,6 +187,7 @@ func AddApiKey(cfgManager *config.ConfigManager) gin.HandlerFunc {
 }
 
 // DeleteApiKey 删除 API 密钥 (支持URL路径参数)
+// Deprecated: Use DeleteApiKeyByIndex instead to avoid exposing keys in URLs
 func DeleteApiKey(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		idStr := c.Param("id")
@@ -218,6 +218,186 @@ func DeleteApiKey(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		c.JSON(200, gin.H{
 			"message": "API密钥已删除",
 		})
+	}
+}
+
+// DeleteApiKeyByIndex 通过索引删除 API 密钥（安全：不在URL中暴露密钥）
+func DeleteApiKeyByIndex(cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		channelID, err := strconv.Atoi(c.Param("id"))
+		if err != nil {
+			c.JSON(400, gin.H{"error": "Invalid channel ID"})
+			return
+		}
+
+		keyIndex, err := strconv.Atoi(c.Param("keyIndex"))
+		if err != nil {
+			c.JSON(400, gin.H{"error": "Invalid key index"})
+			return
+		}
+
+		if err := cfgManager.RemoveAPIKeyByIndex(channelID, keyIndex); err != nil {
+			if strings.Contains(err.Error(), "无效的上游索引") {
+				c.JSON(404, gin.H{"error": "Channel not found"})
+			} else if strings.Contains(err.Error(), "无效的密钥索引") {
+				c.JSON(404, gin.H{"error": "Key index not found"})
+			} else {
+				c.JSON(500, gin.H{"error": "Failed to save config"})
+			}
+			return
+		}
+
+		c.JSON(200, gin.H{"message": "API密钥已删除", "success": true})
+	}
+}
+
+// MoveApiKeyToTopByIndex 通过索引将 API 密钥移到最前面（安全：不在URL中暴露密钥）
+func MoveApiKeyToTopByIndex(cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		channelID, err := strconv.Atoi(c.Param("id"))
+		if err != nil {
+			c.JSON(400, gin.H{"error": "Invalid channel ID"})
+			return
+		}
+
+		keyIndex, err := strconv.Atoi(c.Param("keyIndex"))
+		if err != nil {
+			c.JSON(400, gin.H{"error": "Invalid key index"})
+			return
+		}
+
+		if err := cfgManager.MoveAPIKeyToTopByIndex(channelID, keyIndex); err != nil {
+			if strings.Contains(err.Error(), "无效的上游索引") {
+				c.JSON(404, gin.H{"error": "Channel not found"})
+			} else if strings.Contains(err.Error(), "无效的密钥索引") {
+				c.JSON(404, gin.H{"error": "Key index not found"})
+			} else {
+				c.JSON(500, gin.H{"error": "Failed to save config"})
+			}
+			return
+		}
+
+		c.JSON(200, gin.H{"message": "API密钥已置顶", "success": true})
+	}
+}
+
+// MoveApiKeyToBottomByIndex 通过索引将 API 密钥移到最后面（安全：不在URL中暴露密钥）
+func MoveApiKeyToBottomByIndex(cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		channelID, err := strconv.Atoi(c.Param("id"))
+		if err != nil {
+			c.JSON(400, gin.H{"error": "Invalid channel ID"})
+			return
+		}
+
+		keyIndex, err := strconv.Atoi(c.Param("keyIndex"))
+		if err != nil {
+			c.JSON(400, gin.H{"error": "Invalid key index"})
+			return
+		}
+
+		if err := cfgManager.MoveAPIKeyToBottomByIndex(channelID, keyIndex); err != nil {
+			if strings.Contains(err.Error(), "无效的上游索引") {
+				c.JSON(404, gin.H{"error": "Channel not found"})
+			} else if strings.Contains(err.Error(), "无效的密钥索引") {
+				c.JSON(404, gin.H{"error": "Key index not found"})
+			} else {
+				c.JSON(500, gin.H{"error": "Failed to save config"})
+			}
+			return
+		}
+
+		c.JSON(200, gin.H{"message": "API密钥已置底", "success": true})
+	}
+}
+
+// DeleteResponsesApiKeyByIndex 通过索引删除 Responses 渠道 API 密钥（安全：不在URL中暴露密钥）
+func DeleteResponsesApiKeyByIndex(cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		channelID, err := strconv.Atoi(c.Param("id"))
+		if err != nil {
+			c.JSON(400, gin.H{"error": "Invalid channel ID"})
+			return
+		}
+
+		keyIndex, err := strconv.Atoi(c.Param("keyIndex"))
+		if err != nil {
+			c.JSON(400, gin.H{"error": "Invalid key index"})
+			return
+		}
+
+		if err := cfgManager.RemoveResponsesAPIKeyByIndex(channelID, keyIndex); err != nil {
+			if strings.Contains(err.Error(), "无效的上游索引") {
+				c.JSON(404, gin.H{"error": "Channel not found"})
+			} else if strings.Contains(err.Error(), "无效的密钥索引") {
+				c.JSON(404, gin.H{"error": "Key index not found"})
+			} else {
+				c.JSON(500, gin.H{"error": "Failed to save config"})
+			}
+			return
+		}
+
+		c.JSON(200, gin.H{"message": "API密钥已删除", "success": true})
+	}
+}
+
+// MoveResponsesApiKeyToTopByIndex 通过索引将 Responses 渠道 API 密钥移到最前面
+func MoveResponsesApiKeyToTopByIndex(cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		channelID, err := strconv.Atoi(c.Param("id"))
+		if err != nil {
+			c.JSON(400, gin.H{"error": "Invalid channel ID"})
+			return
+		}
+
+		keyIndex, err := strconv.Atoi(c.Param("keyIndex"))
+		if err != nil {
+			c.JSON(400, gin.H{"error": "Invalid key index"})
+			return
+		}
+
+		if err := cfgManager.MoveResponsesAPIKeyToTopByIndex(channelID, keyIndex); err != nil {
+			if strings.Contains(err.Error(), "无效的上游索引") {
+				c.JSON(404, gin.H{"error": "Channel not found"})
+			} else if strings.Contains(err.Error(), "无效的密钥索引") {
+				c.JSON(404, gin.H{"error": "Key index not found"})
+			} else {
+				c.JSON(500, gin.H{"error": "Failed to save config"})
+			}
+			return
+		}
+
+		c.JSON(200, gin.H{"message": "API密钥已置顶", "success": true})
+	}
+}
+
+// MoveResponsesApiKeyToBottomByIndex 通过索引将 Responses 渠道 API 密钥移到最后面
+func MoveResponsesApiKeyToBottomByIndex(cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		channelID, err := strconv.Atoi(c.Param("id"))
+		if err != nil {
+			c.JSON(400, gin.H{"error": "Invalid channel ID"})
+			return
+		}
+
+		keyIndex, err := strconv.Atoi(c.Param("keyIndex"))
+		if err != nil {
+			c.JSON(400, gin.H{"error": "Invalid key index"})
+			return
+		}
+
+		if err := cfgManager.MoveResponsesAPIKeyToBottomByIndex(channelID, keyIndex); err != nil {
+			if strings.Contains(err.Error(), "无效的上游索引") {
+				c.JSON(404, gin.H{"error": "Channel not found"})
+			} else if strings.Contains(err.Error(), "无效的密钥索引") {
+				c.JSON(404, gin.H{"error": "Key index not found"})
+			} else {
+				c.JSON(500, gin.H{"error": "Failed to save config"})
+			}
+			return
+		}
+
+		c.JSON(200, gin.H{"message": "API密钥已置底", "success": true})
 	}
 }
 
@@ -398,7 +578,6 @@ func GetResponsesUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				"name":                  up.Name,
 				"serviceType":           up.ServiceType,
 				"baseUrl":               up.BaseURL,
-				"apiKeys":               maskAPIKeys(up.APIKeys),
 				"apiKeyCount":           len(up.APIKeys),
 				"description":           up.Description,
 				"website":               up.Website,

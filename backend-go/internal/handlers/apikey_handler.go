@@ -65,6 +65,12 @@ func (h *APIKeyHandler) CreateKey(c *gin.Context) {
 		return
 	}
 
+	const maxRateLimitRPM = 10000
+	if req.RateLimitRPM < 0 || req.RateLimitRPM > maxRateLimitRPM {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "rateLimitRpm must be between 0 and 10000"})
+		return
+	}
+
 	result, err := h.manager.Create(&req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -109,6 +115,14 @@ func (h *APIKeyHandler) UpdateKey(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
+	}
+
+	if req.RateLimitRPM != nil {
+		const maxRateLimitRPM = 10000
+		if *req.RateLimitRPM < 0 || *req.RateLimitRPM > maxRateLimitRPM {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "rateLimitRpm must be between 0 and 10000"})
+			return
+		}
 	}
 
 	key, err := h.manager.Update(id, &req)

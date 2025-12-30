@@ -14,6 +14,7 @@ import (
 	"github.com/JillVernus/cc-bridge/internal/metrics"
 	"github.com/JillVernus/cc-bridge/internal/middleware"
 	"github.com/JillVernus/cc-bridge/internal/pricing"
+	"github.com/JillVernus/cc-bridge/internal/ratelimit"
 	"github.com/JillVernus/cc-bridge/internal/requestlog"
 	"github.com/JillVernus/cc-bridge/internal/scheduler"
 	"github.com/JillVernus/cc-bridge/internal/session"
@@ -132,22 +133,69 @@ func main() {
 		log.Printf("✅ 定价管理器已初始化")
 	}
 
+	// 初始化速率限制配置管理器
+	rateLimitCfgManager, err := ratelimit.InitManager(".config/ratelimit.json")
+	if err != nil {
+		log.Printf("⚠️ 速率限制配置管理器初始化失败: %v (将使用默认配置)", err)
+	} else {
+		log.Printf("✅ 速率限制配置管理器已初始化")
+	}
+
 	// 设置 Gin 模式
 	if envCfg.IsProduction() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	// 初始化速率限制器
-	rateLimiter := middleware.NewRateLimiter(envCfg)
-	authFailureLimiter := middleware.NewAuthFailureRateLimiter()
-	if envCfg.EnableRateLimit {
-		log.Printf("✅ 速率限制器已初始化 (窗口: %dms, 最大请求: %d)",
-			envCfg.RateLimitWindow, envCfg.RateLimitMaxRequests)
+	// 初始化速率限制器（使用配置管理器的配置）
+	var apiRateLimiter, portalRateLimiter *middleware.RateLimiter
+	var authFailureLimiter *middleware.AuthFailureRateLimiter
+
+	if rateLimitCfgManager != nil {
+		cfg := rateLimitCfgManager.GetConfig()
+		apiRateLimiter = middleware.NewRateLimiterWithConfig(cfg.API)
+		portalRateLimiter = middleware.NewRateLimiterWithConfig(cfg.Portal)
+		authFailureLimiter = middleware.NewAuthFailureRateLimiterWithConfig(cfg.AuthFailure)
+
+		// 设置配置变更回调
+		rateLimitCfgManager.SetOnChangeCallback(func(newCfg ratelimit.RateLimitConfig) {
+			apiRateLimiter.UpdateConfig(newCfg.API)
+			portalRateLimiter.UpdateConfig(newCfg.Portal)
+			authFailureLimiter.UpdateConfig(newCfg.AuthFailure)
+		})
+
+		log.Printf("✅ 速率限制器已初始化 (API: %d rpm, Portal: %d rpm)",
+			cfg.API.RequestsPerMinute, cfg.Portal.RequestsPerMinute)
+	} else {
+		// Fallback to default config
+		defaultCfg := ratelimit.GetDefaultConfig()
+		apiRateLimiter = middleware.NewRateLimiterWithConfig(defaultCfg.API)
+		portalRateLimiter = middleware.NewRateLimiterWithConfig(defaultCfg.Portal)
+		authFailureLimiter = middleware.NewAuthFailureRateLimiterWithConfig(defaultCfg.AuthFailure)
+		log.Printf("✅ 速率限制器已初始化 (使用默认配置)")
 	}
 
 	// 创建路由器（不使用 gin.Default() 以避免默认的 Logger 中间件产生大量日志）
 	r := gin.New()
 	r.Use(gin.Recovery()) // 只添加 Recovery 中间件，不添加 Logger
+
+	// 🔒 配置可信代理（防止 IP 欺骗攻击）
+	// 如果设置了 TRUSTED_PROXIES 环境变量，只信任指定的代理 IP
+	// 如果未设置，在生产环境默认不信任任何代理（使用直连 IP）
+	if len(envCfg.TrustedProxies) > 0 {
+		if err := r.SetTrustedProxies(envCfg.TrustedProxies); err != nil {
+			log.Printf("⚠️ 设置可信代理失败: %v", err)
+		} else {
+			log.Printf("✅ 已配置可信代理: %v", envCfg.TrustedProxies)
+		}
+	} else if envCfg.IsProduction() {
+		// 生产环境默认不信任任何代理，使用直连 IP
+		if err := r.SetTrustedProxies(nil); err != nil {
+			log.Printf("⚠️ 禁用可信代理失败: %v", err)
+		} else {
+			log.Printf("✅ 生产环境: 已禁用代理信任 (使用直连 IP)")
+		}
+	}
+	// 开发环境保持 Gin 默认行为（信任所有代理）
 
 	// 配置安全响应头（仅影响 Web UI）
 	r.Use(middleware.SecurityHeadersMiddleware())
@@ -155,21 +203,32 @@ func main() {
 	// 配置 CORS
 	r.Use(middleware.CORSMiddleware(envCfg))
 
-	// 🔒 速率限制中间件（在认证之前，防止暴力破解）
-	r.Use(middleware.RateLimitMiddleware(rateLimiter))
+	// 🔒 Portal 速率限制中间件（用于 /api/* 端点）
+	r.Use(middleware.PortalRateLimitMiddleware(portalRateLimiter))
 
 	// Web UI 访问控制中间件
 	r.Use(middleware.WebAuthMiddlewareWithAPIKeyAndFailureLimiter(envCfg, cfgManager, apiKeyManager, authFailureLimiter))
 
-	// 健康检查端点
-	r.GET(envCfg.HealthCheckPath, handlers.HealthCheck(envCfg, cfgManager))
+	// 🔒 健康检查端点（最小化响应，无需认证）
+	// 只返回 {"status": "healthy"}，不暴露系统信息
+	r.GET(envCfg.HealthCheckPath, handlers.HealthCheck())
 
 	// 配置重载端点
 	r.POST("/admin/config/reload", handlers.ReloadConfig(cfgManager))
 
+	// 详细健康检查端点（需要认证，返回完整系统信息）
+	r.GET("/api/health/details", handlers.HealthCheckDetailed(envCfg, cfgManager))
+
 	// 开发信息端点
 	if envCfg.IsDevelopment() {
 		r.GET("/admin/dev/info", handlers.DevInfo(envCfg, cfgManager))
+	}
+
+	// 🔒 Deprecated endpoints toggle (insecure: puts API keys in URL path)
+	// Only enable for backwards compatibility with legacy clients.
+	allowDeprecatedKeyPathEndpoints := os.Getenv("ALLOW_INSECURE_DEPRECATED_KEY_PATH_ENDPOINTS") == "true"
+	if allowDeprecatedKeyPathEndpoints {
+		log.Printf("⚠️ 已启用不安全的旧版 API Key 路径端点 (keys in URL path) - 建议仅用于临时兼容旧客户端")
 	}
 
 	// Web 管理界面 API 路由
@@ -181,9 +240,14 @@ func main() {
 		apiGroup.PUT("/channels/:id", handlers.UpdateUpstream(cfgManager, channelScheduler))
 		apiGroup.DELETE("/channels/:id", handlers.DeleteUpstream(cfgManager))
 		apiGroup.POST("/channels/:id/keys", handlers.AddApiKey(cfgManager))
-		apiGroup.DELETE("/channels/:id/keys/:apiKey", handlers.DeleteApiKey(cfgManager))
-		apiGroup.POST("/channels/:id/keys/:apiKey/top", handlers.MoveApiKeyToTop(cfgManager))
-		apiGroup.POST("/channels/:id/keys/:apiKey/bottom", handlers.MoveApiKeyToBottom(cfgManager))
+		if allowDeprecatedKeyPathEndpoints {
+			apiGroup.DELETE("/channels/:id/keys/:apiKey", handlers.DeleteApiKey(cfgManager))            // Deprecated: use index-based endpoint
+			apiGroup.POST("/channels/:id/keys/:apiKey/top", handlers.MoveApiKeyToTop(cfgManager))       // Deprecated: use index-based endpoint
+			apiGroup.POST("/channels/:id/keys/:apiKey/bottom", handlers.MoveApiKeyToBottom(cfgManager)) // Deprecated: use index-based endpoint
+		}
+		apiGroup.DELETE("/channels/:id/keys/index/:keyIndex", handlers.DeleteApiKeyByIndex(cfgManager))  // Secure: uses key index
+		apiGroup.POST("/channels/:id/keys/index/:keyIndex/top", handlers.MoveApiKeyToTopByIndex(cfgManager))
+		apiGroup.POST("/channels/:id/keys/index/:keyIndex/bottom", handlers.MoveApiKeyToBottomByIndex(cfgManager))
 
 		// 多渠道调度 API
 		apiGroup.POST("/channels/reorder", handlers.ReorderChannels(cfgManager))
@@ -199,9 +263,14 @@ func main() {
 		apiGroup.PUT("/responses/channels/:id", handlers.UpdateResponsesUpstream(cfgManager, channelScheduler))
 		apiGroup.DELETE("/responses/channels/:id", handlers.DeleteResponsesUpstream(cfgManager))
 		apiGroup.POST("/responses/channels/:id/keys", handlers.AddResponsesApiKey(cfgManager))
-		apiGroup.DELETE("/responses/channels/:id/keys/:apiKey", handlers.DeleteResponsesApiKey(cfgManager))
-		apiGroup.POST("/responses/channels/:id/keys/:apiKey/top", handlers.MoveResponsesApiKeyToTop(cfgManager))
-		apiGroup.POST("/responses/channels/:id/keys/:apiKey/bottom", handlers.MoveResponsesApiKeyToBottom(cfgManager))
+		if allowDeprecatedKeyPathEndpoints {
+			apiGroup.DELETE("/responses/channels/:id/keys/:apiKey", handlers.DeleteResponsesApiKey(cfgManager))            // Deprecated: use index-based endpoint
+			apiGroup.POST("/responses/channels/:id/keys/:apiKey/top", handlers.MoveResponsesApiKeyToTop(cfgManager))       // Deprecated: use index-based endpoint
+			apiGroup.POST("/responses/channels/:id/keys/:apiKey/bottom", handlers.MoveResponsesApiKeyToBottom(cfgManager)) // Deprecated: use index-based endpoint
+		}
+		apiGroup.DELETE("/responses/channels/:id/keys/index/:keyIndex", handlers.DeleteResponsesApiKeyByIndex(cfgManager))  // Secure: uses key index
+		apiGroup.POST("/responses/channels/:id/keys/index/:keyIndex/top", handlers.MoveResponsesApiKeyToTopByIndex(cfgManager))
+		apiGroup.POST("/responses/channels/:id/keys/index/:keyIndex/bottom", handlers.MoveResponsesApiKeyToBottomByIndex(cfgManager))
 		apiGroup.PUT("/responses/loadbalance", handlers.UpdateResponsesLoadBalance(cfgManager))
 
 		// Responses 多渠道调度 API
@@ -258,6 +327,11 @@ func main() {
 		apiGroup.DELETE("/pricing/models/:model", handlers.DeleteModelPricing())
 		apiGroup.POST("/pricing/reset", handlers.ResetPricingToDefault())
 
+		// 速率限制配置 API
+		apiGroup.GET("/ratelimit", handlers.GetRateLimitConfig())
+		apiGroup.PUT("/ratelimit", handlers.UpdateRateLimitConfig())
+		apiGroup.POST("/ratelimit/reset", handlers.ResetRateLimitConfig())
+
 		// 备份/恢复 API
 		apiGroup.POST("/config/backup", handlers.CreateBackup(cfgManager))
 		apiGroup.GET("/config/backups", handlers.ListBackups())
@@ -265,11 +339,15 @@ func main() {
 		apiGroup.DELETE("/config/backups/:filename", handlers.DeleteBackup())
 	}
 
-	// 代理端点 - 统一入口
-	r.POST("/v1/messages", handlers.ProxyHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, apiKeyManager))
-
-	// Responses API 端点
-	r.POST("/v1/responses", handlers.ResponsesHandlerWithAPIKey(envCfg, cfgManager, sessionManager, channelScheduler, reqLogManager, apiKeyManager))
+	// 代理端点 - 统一入口（带 API 速率限制）
+	v1Group := r.Group("/v1")
+	// 先认证再限流：支持按 API Key 应用自定义 RPM
+	v1Group.Use(middleware.ProxyAuthMiddlewareWithAPIKey(envCfg, apiKeyManager))
+	v1Group.Use(middleware.APIRateLimitMiddleware(apiRateLimiter))
+	{
+		v1Group.POST("/messages", handlers.ProxyHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, apiKeyManager))
+		v1Group.POST("/responses", handlers.ResponsesHandlerWithAPIKey(envCfg, cfgManager, sessionManager, channelScheduler, reqLogManager, apiKeyManager))
+	}
 
 	// 静态文件服务 (嵌入的前端)
 	if envCfg.EnableWebUI {

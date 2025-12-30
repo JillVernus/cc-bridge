@@ -76,7 +76,8 @@ export interface Channel {
   name: string
   serviceType: 'openai' | 'openai_chat' | 'openaiold' | 'gemini' | 'claude' | 'responses' | 'openai-oauth'
   baseUrl: string
-  apiKeys: string[]
+  apiKeys?: string[]        // Only present when creating/updating, not in GET responses
+  apiKeyCount?: number      // Number of API keys (returned by GET)
   description?: string
   website?: string
   insecureSkipVerify?: boolean
@@ -214,7 +215,14 @@ class ApiService {
   }
 
   async removeApiKey(channelId: number, apiKey: string): Promise<void> {
+    // Deprecated: Use removeApiKeyByIndex instead
     await this.request(`/channels/${channelId}/keys/${encodeURIComponent(apiKey)}`, {
+      method: 'DELETE'
+    })
+  }
+
+  async removeApiKeyByIndex(channelId: number, keyIndex: number): Promise<void> {
+    await this.request(`/channels/${channelId}/keys/index/${keyIndex}`, {
       method: 'DELETE'
     })
   }
@@ -275,31 +283,66 @@ class ApiService {
   }
 
   async removeResponsesApiKey(channelId: number, apiKey: string): Promise<void> {
+    // Deprecated: Use removeResponsesApiKeyByIndex instead
     await this.request(`/responses/channels/${channelId}/keys/${encodeURIComponent(apiKey)}`, {
       method: 'DELETE'
     })
   }
 
+  async removeResponsesApiKeyByIndex(channelId: number, keyIndex: number): Promise<void> {
+    await this.request(`/responses/channels/${channelId}/keys/index/${keyIndex}`, {
+      method: 'DELETE'
+    })
+  }
+
   async moveApiKeyToTop(channelId: number, apiKey: string): Promise<void> {
+    // Deprecated: Use moveApiKeyToTopByIndex instead
     await this.request(`/channels/${channelId}/keys/${encodeURIComponent(apiKey)}/top`, {
       method: 'POST'
     })
   }
 
+  async moveApiKeyToTopByIndex(channelId: number, keyIndex: number): Promise<void> {
+    await this.request(`/channels/${channelId}/keys/index/${keyIndex}/top`, {
+      method: 'POST'
+    })
+  }
+
   async moveApiKeyToBottom(channelId: number, apiKey: string): Promise<void> {
+    // Deprecated: Use moveApiKeyToBottomByIndex instead
     await this.request(`/channels/${channelId}/keys/${encodeURIComponent(apiKey)}/bottom`, {
       method: 'POST'
     })
   }
 
+  async moveApiKeyToBottomByIndex(channelId: number, keyIndex: number): Promise<void> {
+    await this.request(`/channels/${channelId}/keys/index/${keyIndex}/bottom`, {
+      method: 'POST'
+    })
+  }
+
   async moveResponsesApiKeyToTop(channelId: number, apiKey: string): Promise<void> {
+    // Deprecated: Use moveResponsesApiKeyToTopByIndex instead
     await this.request(`/responses/channels/${channelId}/keys/${encodeURIComponent(apiKey)}/top`, {
       method: 'POST'
     })
   }
 
+  async moveResponsesApiKeyToTopByIndex(channelId: number, keyIndex: number): Promise<void> {
+    await this.request(`/responses/channels/${channelId}/keys/index/${keyIndex}/top`, {
+      method: 'POST'
+    })
+  }
+
   async moveResponsesApiKeyToBottom(channelId: number, apiKey: string): Promise<void> {
+    // Deprecated: Use moveResponsesApiKeyToBottomByIndex instead
     await this.request(`/responses/channels/${channelId}/keys/${encodeURIComponent(apiKey)}/bottom`, {
+      method: 'POST'
+    })
+  }
+
+  async moveResponsesApiKeyToBottomByIndex(channelId: number, keyIndex: number): Promise<void> {
+    await this.request(`/responses/channels/${channelId}/keys/index/${keyIndex}/bottom`, {
       method: 'POST'
     })
   }
@@ -508,6 +551,28 @@ class ApiService {
     })
   }
 
+  // ============== 速率限制配置 API ==============
+
+  // 获取速率限制配置
+  async getRateLimitConfig(): Promise<RateLimitConfig> {
+    return this.request('/ratelimit')
+  }
+
+  // 更新速率限制配置
+  async updateRateLimitConfig(config: RateLimitConfig): Promise<{ message: string; config: RateLimitConfig }> {
+    return this.request('/ratelimit', {
+      method: 'PUT',
+      body: JSON.stringify(config)
+    })
+  }
+
+  // 重置速率限制配置为默认值
+  async resetRateLimitConfig(): Promise<{ message: string; config: RateLimitConfig }> {
+    return this.request('/ratelimit/reset', {
+      method: 'POST'
+    })
+  }
+
   // ============== 备份/恢复 API ==============
 
   // 创建备份
@@ -538,18 +603,14 @@ class ApiService {
 
   // ============== 系统信息 API ==============
 
-  // 获取版本信息（从 /health 端点）
+  // 获取版本信息（从 /api/health/details 端点，需要认证）
   async getVersion(): Promise<{ version: string; buildTime: string; gitCommit: string }> {
-    // health 端点不在 /api 路径下，需要直接访问
-    const baseUrl = import.meta.env.PROD ? '' : (import.meta.env.VITE_BACKEND_URL || '')
-    const response = await fetch(`${baseUrl}/health`, {
-      headers: this.apiKey ? { 'x-api-key': this.apiKey } : {}
-    })
-    if (!response.ok) {
-      throw new Error('Failed to fetch version')
+    try {
+      const data = await this.request('/health/details')
+      return data.version || { version: 'unknown', buildTime: 'unknown', gitCommit: 'unknown' }
+    } catch {
+      return { version: 'unknown', buildTime: 'unknown', gitCommit: 'unknown' }
     }
-    const data = await response.json()
-    return data.version || { version: 'unknown', buildTime: 'unknown', gitCommit: 'unknown' }
   }
 
   // ============== API Key 管理 API ==============
@@ -773,6 +834,28 @@ export interface BackupRestoreResponse {
   restoredAt: string
 }
 
+// Rate Limit Configuration Types
+export interface EndpointRateLimit {
+  enabled: boolean
+  requestsPerMinute: number
+}
+
+export interface AuthFailureThreshold {
+  failures: number
+  blockMinutes: number
+}
+
+export interface AuthFailureConfig {
+  enabled: boolean
+  thresholds: AuthFailureThreshold[]
+}
+
+export interface RateLimitConfig {
+  api: EndpointRateLimit
+  portal: EndpointRateLimit
+  authFailure: AuthFailureConfig
+}
+
 // 活跃会话类型
 export interface ActiveSession {
   sessionId: string
@@ -797,6 +880,7 @@ export interface APIKey {
   description: string
   status: APIKeyStatus
   isAdmin: boolean
+  rateLimitRpm: number  // Requests per minute (0 = use global)
   createdAt: string
   updatedAt: string
   lastUsedAt?: string
@@ -806,6 +890,7 @@ export interface CreateAPIKeyRequest {
   name: string
   description?: string
   isAdmin: boolean
+  rateLimitRpm?: number
 }
 
 export interface CreateAPIKeyResponse extends APIKey {
@@ -815,6 +900,7 @@ export interface CreateAPIKeyResponse extends APIKey {
 export interface UpdateAPIKeyRequest {
   name?: string
   description?: string
+  rateLimitRpm?: number
 }
 
 export interface APIKeyListResponse {
