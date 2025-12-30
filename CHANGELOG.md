@@ -4,6 +4,38 @@
 
 ---
 
+## [v1.3.104] - 2025-12-30
+
+### 🔒 安全加固
+
+#### 认证与访问控制
+
+- **禁止默认访问密钥**: 服务器启动时检查 `PROXY_ACCESS_KEY`，禁止使用默认值 `your-proxy-access-key`（除非显式设置 `ALLOW_INSECURE_DEFAULT_KEY=true` 且为开发环境）
+- **强制密钥长度**: `PROXY_ACCESS_KEY` 必须至少 16 个字符
+- **管理 API 权限收紧**: 所有 `/api/*` 端点现在都需要 admin 权限（之前仅 `/api/keys` 需要）
+
+#### 速率限制与暴力破解防护
+
+- **服务端速率限制**: 实现 `RateLimitMiddleware`，使用 `ENABLE_RATE_LIMIT`、`RATE_LIMIT_WINDOW`、`RATE_LIMIT_MAX_REQUESTS` 配置
+- **认证失败限制**: 新增 `AuthFailureRateLimiter`，阶梯式封禁：
+  - 5 次失败 → 封禁 1 分钟
+  - 10 次失败 → 封禁 5 分钟
+  - 20 次失败 → 封禁 30 分钟
+- **认证成功自动解封**: 成功认证后清除失败记录
+
+#### 敏感信息保护
+
+- **API 密钥脱敏**: `/api/channels` 和 `/api/responses/channels` 返回的 `apiKeys` 字段现在显示为掩码格式（如 `sk-ant-a***...`）
+- **新增 `apiKeyCount` 字段**: 返回密钥数量，方便前端显示
+- **DevInfo 端点脱敏**: `/admin/dev/info` 不再返回完整配置和环境变量，仅返回安全摘要
+- **变更响应脱敏**: `AddUpstream`、`UpdateUpstream`、`DeleteUpstream` 不再返回 upstream 数据
+
+### 📁 新增文件
+
+- `backend-go/internal/middleware/ratelimit.go` - 速率限制中间件
+
+---
+
 ## [v1.3.103] - 2025-12-28
 
 ### 🐛 修复

@@ -92,9 +92,9 @@ func WebAuthMiddlewareWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.Co
 
 		// 检查访问密钥（仅对管理 API 请求）
 		if strings.HasPrefix(path, "/api") {
-			// API Key 管理端点需要 admin 权限
-			requireAdmin := strings.HasPrefix(path, "/api/keys")
-			if !validateAndSetContext(c, envCfg, apiKeyManager, requireAdmin) {
+			// 🔒 安全修复: 所有管理 API 端点都需要 admin 权限
+			// 管理操作包括: 渠道配置、日志查看、定价设置、备份恢复等
+			if !validateAndSetContext(c, envCfg, apiKeyManager, true) {
 				return
 			}
 		}
@@ -244,4 +244,165 @@ func ProxyAuthMiddlewareWithAPIKey(envCfg *config.EnvConfig, apiKeyManager *apik
 		})
 		c.Abort()
 	}
+}
+
+// WebAuthMiddlewareWithAPIKeyAndFailureLimiter Web 访问控制中间件（支持认证失败限制）
+func WebAuthMiddlewareWithAPIKeyAndFailureLimiter(envCfg *config.EnvConfig, cfgManager *config.ConfigManager, apiKeyManager *apikey.Manager, failureLimiter *AuthFailureRateLimiter) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		path := c.Request.URL.Path
+		clientIP := c.ClientIP()
+
+		// 检查 IP 是否被封禁
+		if failureLimiter != nil && failureLimiter.IsBlocked(clientIP) {
+			c.JSON(429, gin.H{
+				"error":   "Too Many Requests",
+				"message": "由于多次认证失败，您的 IP 已被临时封禁",
+			})
+			c.Abort()
+			return
+		}
+
+		// 公开端点直接放行
+		if path == envCfg.HealthCheckPath {
+			c.Next()
+			return
+		}
+
+		// 管理端点需要访问密钥（即使 Web UI 被禁用）
+		if envCfg.IsDevelopment() && path == "/admin/dev/info" {
+			if !validateAndSetContextWithFailureLimiter(c, envCfg, apiKeyManager, true, failureLimiter) {
+				return
+			}
+			c.Next()
+			return
+		}
+
+		if path == "/admin/config/reload" {
+			if !validateAndSetContextWithFailureLimiter(c, envCfg, apiKeyManager, true, failureLimiter) {
+				return
+			}
+			c.Next()
+			return
+		}
+
+		// 静态资源文件直接放行
+		if isStaticResource(path) {
+			c.Next()
+			return
+		}
+
+		// API 代理端点后续处理
+		if strings.HasPrefix(path, "/v1/") {
+			c.Next()
+			return
+		}
+
+		// 如果禁用了 Web UI，返回 404
+		if !envCfg.EnableWebUI {
+			c.JSON(404, gin.H{
+				"error":   "Web界面已禁用",
+				"message": "此服务器运行在纯API模式下，请通过API端点访问服务",
+			})
+			c.Abort()
+			return
+		}
+
+		// SPA 页面路由直接交给前端处理，但需要排除 /api* 路径
+		if path == "/" || path == "/index.html" || (!strings.Contains(path, ".") && !strings.HasPrefix(path, "/api")) {
+			c.Next()
+			return
+		}
+
+		// 检查访问密钥（仅对管理 API 请求）
+		if strings.HasPrefix(path, "/api") {
+			// 🔒 安全修复: 所有管理 API 端点都需要 admin 权限
+			// 管理操作包括: 渠道配置、日志查看、定价设置、备份恢复等
+			if !validateAndSetContextWithFailureLimiter(c, envCfg, apiKeyManager, true, failureLimiter) {
+				return
+			}
+		}
+
+		c.Next()
+	}
+}
+
+// validateAndSetContextWithFailureLimiter 验证 API 密钥并记录失败（支持暴力破解防护）
+func validateAndSetContextWithFailureLimiter(c *gin.Context, envCfg *config.EnvConfig, apiKeyManager *apikey.Manager, requireAdmin bool, failureLimiter *AuthFailureRateLimiter) bool {
+	providedKey := getAPIKey(c)
+	clientIP := c.ClientIP()
+	timestamp := time.Now().Format(time.RFC3339)
+	path := c.Request.URL.Path
+
+	// Try SQLite API keys first (if manager is available)
+	if apiKeyManager != nil && providedKey != "" {
+		if vk := apiKeyManager.Validate(providedKey); vk != nil {
+			// Check admin requirement
+			if requireAdmin && !vk.IsAdmin {
+				log.Printf("🔒 [权限不足] IP: %s | Path: %s | Time: %s | Key: %s",
+					clientIP, path, timestamp, vk.Name)
+				c.JSON(403, gin.H{
+					"error":   "Forbidden",
+					"message": "Admin privileges required",
+				})
+				c.Abort()
+				return false
+			}
+
+			// 认证成功，清除失败记录
+			if failureLimiter != nil {
+				failureLimiter.ClearFailures(clientIP)
+			}
+
+			// Set context values
+			c.Set(ContextKeyAPIKeyID, vk.ID)
+			c.Set(ContextKeyAPIKeyName, vk.Name)
+			c.Set(ContextKeyAPIKeyIsAdmin, vk.IsAdmin)
+			c.Set(ContextKeyIsBootstrap, false)
+
+			if envCfg.ShouldLog("info") {
+				log.Printf("✅ [认证成功] IP: %s | Path: %s | Time: %s | Key: %s",
+					clientIP, path, timestamp, vk.Name)
+			}
+			return true
+		}
+	}
+
+	// Fallback to bootstrap admin key (PROXY_ACCESS_KEY)
+	if secureCompare(providedKey, envCfg.ProxyAccessKey) {
+		// 认证成功，清除失败记录
+		if failureLimiter != nil {
+			failureLimiter.ClearFailures(clientIP)
+		}
+
+		// Bootstrap admin has full admin privileges
+		c.Set(ContextKeyAPIKeyID, int64(0))
+		c.Set(ContextKeyAPIKeyName, "master")
+		c.Set(ContextKeyAPIKeyIsAdmin, true)
+		c.Set(ContextKeyIsBootstrap, true)
+
+		if envCfg.ShouldLog("info") {
+			log.Printf("✅ [认证成功] IP: %s | Path: %s | Time: %s | Key: master",
+				clientIP, path, timestamp)
+		}
+		return true
+	}
+
+	// 认证失败，记录失败次数
+	if failureLimiter != nil {
+		failureLimiter.RecordFailure(clientIP)
+	}
+
+	reason := "密钥无效"
+	if providedKey == "" {
+		reason = "密钥缺失"
+	}
+	log.Printf("🔒 [认证失败] IP: %s | Path: %s | Time: %s | Reason: %s",
+		clientIP, path, timestamp, reason)
+
+	c.JSON(401, gin.H{
+		"error":   "Unauthorized",
+		"message": "Invalid or missing access key",
+	})
+	c.Abort()
+	return false
 }

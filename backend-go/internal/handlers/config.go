@@ -13,6 +13,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// maskAPIKeys 掩码 API 密钥列表（使用 proxy.go 中的 maskAPIKey）
+func maskAPIKeys(keys []string) []string {
+	masked := make([]string, len(keys))
+	for i, key := range keys {
+		masked[i] = maskAPIKey(key)
+	}
+	return masked
+}
+
 // GetUpstreams 获取上游列表 (兼容前端 channels 字段名)
 func GetUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -30,7 +39,8 @@ func GetUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				"name":                  up.Name,
 				"serviceType":           up.ServiceType,
 				"baseUrl":               up.BaseURL,
-				"apiKeys":               up.APIKeys,
+				"apiKeys":               maskAPIKeys(up.APIKeys),
+				"apiKeyCount":           len(up.APIKeys),
 				"description":           up.Description,
 				"website":               up.Website,
 				"insecureSkipVerify":    up.InsecureSkipVerify,
@@ -64,9 +74,10 @@ func AddUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			return
 		}
 
+		// 🔒 安全修复: 不返回 upstream 数据，防止 API 密钥泄露
 		c.JSON(200, gin.H{
-			"message":  "上游已添加",
-			"upstream": upstream,
+			"success": true,
+			"message": "上游已添加",
 		})
 	}
 }
@@ -103,10 +114,10 @@ func UpdateUpstream(cfgManager *config.ConfigManager, sch *scheduler.ChannelSche
 			sch.ResetChannelMetrics(id, false)
 		}
 
-		cfg := cfgManager.GetConfig()
+		// 🔒 安全修复: 不返回 upstream 数据，防止 API 密钥泄露
 		c.JSON(200, gin.H{
-			"message":  "上游已更新",
-			"upstream": cfg.Upstream[id],
+			"success": true,
+			"message": "上游已更新",
 		})
 	}
 }
@@ -131,9 +142,11 @@ func DeleteUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			return
 		}
 
+		// 🔒 安全修复: 不返回 removed 数据，防止 API 密钥泄露
+		_ = removed // 忽略返回值，仅用于确认删除成功
 		c.JSON(200, gin.H{
+			"success": true,
 			"message": "上游已删除",
-			"removed": removed,
 		})
 	}
 }
@@ -385,7 +398,8 @@ func GetResponsesUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				"name":                  up.Name,
 				"serviceType":           up.ServiceType,
 				"baseUrl":               up.BaseURL,
-				"apiKeys":               up.APIKeys,
+				"apiKeys":               maskAPIKeys(up.APIKeys),
+				"apiKeyCount":           len(up.APIKeys),
 				"description":           up.Description,
 				"website":               up.Website,
 				"insecureSkipVerify":    up.InsecureSkipVerify,

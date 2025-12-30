@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/JillVernus/cc-bridge/internal/apikey"
@@ -34,6 +35,19 @@ func main() {
 
 	// 初始化配置管理器
 	envCfg := config.NewEnvConfig()
+
+	// 🔒 安全检查：禁止使用默认访问密钥（除非显式允许）
+	// 防止因 ENV 配置错误导致生产环境暴露
+	if envCfg.ProxyAccessKey == "your-proxy-access-key" {
+		if os.Getenv("ALLOW_INSECURE_DEFAULT_KEY") == "true" && envCfg.IsDevelopment() {
+			log.Println("⚠️ 警告: 使用默认 PROXY_ACCESS_KEY，仅限本地开发使用")
+		} else {
+			log.Fatal("🚨 安全错误: 禁止使用默认 PROXY_ACCESS_KEY。请在 .env 文件中设置强密钥，或在开发环境设置 ALLOW_INSECURE_DEFAULT_KEY=true")
+		}
+	}
+	if len(envCfg.ProxyAccessKey) < 16 {
+		log.Fatal("🚨 安全错误: PROXY_ACCESS_KEY 必须至少16个字符。当前长度:", len(envCfg.ProxyAccessKey))
+	}
 
 	// 初始化日志系统（必须在其他初始化之前）
 	logCfg := &logger.Config{
@@ -123,6 +137,14 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
+	// 初始化速率限制器
+	rateLimiter := middleware.NewRateLimiter(envCfg)
+	authFailureLimiter := middleware.NewAuthFailureRateLimiter()
+	if envCfg.EnableRateLimit {
+		log.Printf("✅ 速率限制器已初始化 (窗口: %dms, 最大请求: %d)",
+			envCfg.RateLimitWindow, envCfg.RateLimitMaxRequests)
+	}
+
 	// 创建路由器（不使用 gin.Default() 以避免默认的 Logger 中间件产生大量日志）
 	r := gin.New()
 	r.Use(gin.Recovery()) // 只添加 Recovery 中间件，不添加 Logger
@@ -133,8 +155,11 @@ func main() {
 	// 配置 CORS
 	r.Use(middleware.CORSMiddleware(envCfg))
 
+	// 🔒 速率限制中间件（在认证之前，防止暴力破解）
+	r.Use(middleware.RateLimitMiddleware(rateLimiter))
+
 	// Web UI 访问控制中间件
-	r.Use(middleware.WebAuthMiddlewareWithAPIKey(envCfg, cfgManager, apiKeyManager))
+	r.Use(middleware.WebAuthMiddlewareWithAPIKeyAndFailureLimiter(envCfg, cfgManager, apiKeyManager, authFailureLimiter))
 
 	// 健康检查端点
 	r.GET(envCfg.HealthCheckPath, handlers.HealthCheck(envCfg, cfgManager))

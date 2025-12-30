@@ -87,13 +87,30 @@ func ReloadConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 }
 
 // DevInfo 开发信息处理器
+// 🔒 安全修复: 不再返回完整配置和环境变量，防止密钥泄露
 func DevInfo(envCfg *config.EnvConfig, cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		cfg := cfgManager.GetConfig()
+
+		// 返回脱敏的配置摘要，不包含 API 密钥
 		c.JSON(200, gin.H{
-			"status":      "development",
-			"timestamp":   time.Now().Format(time.RFC3339),
-			"config":      cfgManager.GetConfig(),
-			"environment": envCfg,
+			"status":    "development",
+			"timestamp": time.Now().Format(time.RFC3339),
+			"config": gin.H{
+				"upstreamCount":          len(cfg.Upstream),
+				"responsesUpstreamCount": len(cfg.ResponsesUpstream),
+				"loadBalance":            cfg.LoadBalance,
+				"responsesLoadBalance":   cfg.ResponsesLoadBalance,
+			},
+			"environment": gin.H{
+				"env":             envCfg.Env,
+				"port":            envCfg.Port,
+				"enableWebUI":     envCfg.EnableWebUI,
+				"enableCORS":      envCfg.EnableCORS,
+				"enableRateLimit": envCfg.EnableRateLimit,
+				"logLevel":        envCfg.LogLevel,
+				// 🔒 不暴露: ProxyAccessKey, CORSOrigin 等敏感配置
+			},
 		})
 	}
 }
