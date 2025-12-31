@@ -72,6 +72,72 @@ export interface OAuthTokens {
   last_refresh?: string
 }
 
+// OAuth status for Codex channels (derived from tokens, no secrets exposed)
+export interface CodexOAuthStatus {
+  account_id?: string
+  masked_account_id?: string
+  email?: string
+  plan_type?: string
+  subscription_active_start?: string
+  subscription_active_until?: string
+  subscription_last_checked?: string
+  token_expires_at?: string
+  last_refresh?: string
+}
+
+// Codex-specific quota information from response headers
+export interface CodexQuotaInfo {
+  plan_type?: string
+  // Primary window (short-term, e.g., 5 hours)
+  primary_used_percent: number
+  primary_window_minutes?: number
+  primary_reset_at?: string
+  // Secondary window (long-term, e.g., 7 days)
+  secondary_used_percent: number
+  secondary_window_minutes?: number
+  secondary_reset_at?: string
+  // Over limit indicator
+  primary_over_secondary_limit_percent?: number
+  // Credits info
+  credits_has_credits?: boolean
+  credits_unlimited?: boolean
+  credits_balance?: string
+  updated_at?: string
+}
+
+// Rate limit information from OpenAI response headers
+export interface RateLimitInfo {
+  limit_requests?: number
+  remaining_requests?: number
+  reset_requests?: string
+  limit_tokens?: number
+  remaining_tokens?: number
+  reset_tokens?: string
+  updated_at?: string
+}
+
+// Quota status for a channel
+export interface QuotaInfo {
+  codex_quota?: CodexQuotaInfo
+  rate_limit?: RateLimitInfo
+  is_exceeded?: boolean
+  exceeded_at?: string
+  recover_at?: string
+  exceeded_reason?: string
+}
+
+export interface OAuthStatusResponse {
+  channelId: number
+  channelName: string
+  serviceType: string
+  configured: boolean
+  message?: string
+  status?: CodexOAuthStatus
+  tokenStatus?: 'valid' | 'expiring_soon' | 'expired'
+  tokenExpiresIn?: number
+  quota?: QuotaInfo
+}
+
 export interface Channel {
   name: string
   serviceType: 'openai' | 'openai_chat' | 'openaiold' | 'gemini' | 'claude' | 'responses' | 'openai-oauth'
@@ -418,6 +484,11 @@ class ApiService {
   // 获取 Responses 渠道指标
   async getResponsesChannelMetrics(): Promise<ChannelMetrics[]> {
     return this.request('/responses/channels/metrics')
+  }
+
+  // 获取 Responses 渠道 OAuth 状态（仅适用于 openai-oauth 类型）
+  async getResponsesChannelOAuthStatus(channelId: number): Promise<OAuthStatusResponse> {
+    return this.request(`/responses/channels/${channelId}/oauth/status`)
   }
 
   // ============== 促销期管理 API ==============

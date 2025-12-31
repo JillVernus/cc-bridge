@@ -14,6 +14,7 @@ import (
 	"github.com/JillVernus/cc-bridge/internal/metrics"
 	"github.com/JillVernus/cc-bridge/internal/middleware"
 	"github.com/JillVernus/cc-bridge/internal/pricing"
+	"github.com/JillVernus/cc-bridge/internal/quota"
 	"github.com/JillVernus/cc-bridge/internal/ratelimit"
 	"github.com/JillVernus/cc-bridge/internal/requestlog"
 	"github.com/JillVernus/cc-bridge/internal/scheduler"
@@ -92,6 +93,10 @@ func main() {
 		reqLogManager = nil
 	} else {
 		log.Printf("✅ 请求日志管理器已初始化")
+
+		// 初始化配额持久化（使用请求日志数据库）
+		quotaAdapter := quota.NewRequestLogAdapter(reqLogManager)
+		quota.GetManager().SetPersister(quotaAdapter)
 
 		// 启动定期清理 stale pending 请求的 goroutine
 		go func() {
@@ -279,6 +284,7 @@ func main() {
 		apiGroup.POST("/responses/channels/:id/resume", handlers.ResumeChannel(channelScheduler, true))
 		apiGroup.POST("/responses/channels/:id/promotion", handlers.SetResponsesChannelPromotion(cfgManager))
 		apiGroup.GET("/responses/channels/metrics", handlers.GetResponsesChannelMetrics(responsesMetricsManager))
+		apiGroup.GET("/responses/channels/:id/oauth/status", handlers.GetResponsesChannelOAuthStatus(cfgManager))
 
 		// 负载均衡
 		apiGroup.PUT("/loadbalance", handlers.UpdateLoadBalance(cfgManager))

@@ -22,9 +22,12 @@ type JWTClaims struct {
 
 // CodexAuthInfo contains OpenAI/Codex-specific authentication information
 type CodexAuthInfo struct {
-	ChatGPTAccountID string `json:"chatgpt_account_id"`
-	ChatGPTUserID    string `json:"chatgpt_user_id"`
-	ChatGPTPlanType  string `json:"chatgpt_plan_type"`
+	ChatGPTAccountID               string `json:"chatgpt_account_id"`
+	ChatGPTUserID                  string `json:"chatgpt_user_id"`
+	ChatGPTPlanType                string `json:"chatgpt_plan_type"`
+	ChatGPTSubscriptionActiveStart any    `json:"chatgpt_subscription_active_start,omitempty"`
+	ChatGPTSubscriptionActiveUntil any    `json:"chatgpt_subscription_active_until,omitempty"`
+	ChatGPTSubscriptionLastChecked any    `json:"chatgpt_subscription_last_checked,omitempty"`
 }
 
 // ParseJWTExpiry extracts the expiration time from a JWT token.
@@ -104,4 +107,123 @@ func base64URLDecode(s string) ([]byte, error) {
 	}
 
 	return base64.URLEncoding.DecodeString(s)
+}
+
+// ParseJWTClaims parses a JWT token and returns the full claims.
+// This is useful for extracting subscription/plan metadata from id_token.
+func ParseJWTClaims(token string) (*JWTClaims, error) {
+	return parseJWTClaims(token)
+}
+
+// CodexOAuthStatus represents the derived status of a Codex OAuth channel
+type CodexOAuthStatus struct {
+	AccountID               string     `json:"account_id,omitempty"`
+	MaskedAccountID         string     `json:"masked_account_id,omitempty"`
+	Email                   string     `json:"email,omitempty"`
+	PlanType                string     `json:"plan_type,omitempty"`
+	SubscriptionActiveStart *time.Time `json:"subscription_active_start,omitempty"`
+	SubscriptionActiveUntil *time.Time `json:"subscription_active_until,omitempty"`
+	SubscriptionLastChecked *time.Time `json:"subscription_last_checked,omitempty"`
+	TokenExpiresAt          *time.Time `json:"token_expires_at,omitempty"`
+	LastRefresh             string     `json:"last_refresh,omitempty"`
+}
+
+// ParseOAuthStatus extracts OAuth status from id_token and access_token.
+// Returns a CodexOAuthStatus with redacted sensitive information.
+func ParseOAuthStatus(idToken, accessToken, lastRefresh string) (*CodexOAuthStatus, error) {
+	status := &CodexOAuthStatus{
+		LastRefresh: lastRefresh,
+	}
+
+	// Parse id_token for subscription/plan info
+	if idToken != "" {
+		claims, err := parseJWTClaims(idToken)
+		if err == nil {
+			status.Email = claims.Email
+			if claims.CodexAuthInfo != nil {
+				status.AccountID = claims.CodexAuthInfo.ChatGPTAccountID
+				status.MaskedAccountID = maskAccountID(claims.CodexAuthInfo.ChatGPTAccountID)
+				status.PlanType = claims.CodexAuthInfo.ChatGPTPlanType
+
+				// Parse subscription timestamps
+				if t := parseTimestamp(claims.CodexAuthInfo.ChatGPTSubscriptionActiveStart); t != nil {
+					status.SubscriptionActiveStart = t
+				}
+				if t := parseTimestamp(claims.CodexAuthInfo.ChatGPTSubscriptionActiveUntil); t != nil {
+					status.SubscriptionActiveUntil = t
+				}
+				if t := parseTimestamp(claims.CodexAuthInfo.ChatGPTSubscriptionLastChecked); t != nil {
+					status.SubscriptionLastChecked = t
+				}
+			}
+		}
+	}
+
+	// Parse access_token for expiry
+	if accessToken != "" {
+		expiry, err := ParseJWTExpiry(accessToken)
+		if err == nil {
+			status.TokenExpiresAt = &expiry
+		}
+	}
+
+	return status, nil
+}
+
+// maskAccountID masks an account ID for display (shows first 8 and last 4 chars)
+func maskAccountID(accountID string) string {
+	if len(accountID) <= 12 {
+		return accountID
+	}
+	return accountID[:8] + "..." + accountID[len(accountID)-4:]
+}
+
+// parseTimestamp attempts to parse various timestamp formats
+func parseTimestamp(v any) *time.Time {
+	if v == nil {
+		return nil
+	}
+
+	switch val := v.(type) {
+	case string:
+		if val == "" {
+			return nil
+		}
+		// Try RFC3339 first
+		if t, err := time.Parse(time.RFC3339, val); err == nil {
+			return &t
+		}
+		// Try RFC3339Nano
+		if t, err := time.Parse(time.RFC3339Nano, val); err == nil {
+			return &t
+		}
+		// Try common date format
+		if t, err := time.Parse("2006-01-02", val); err == nil {
+			return &t
+		}
+	case float64:
+		if val <= 0 {
+			return nil
+		}
+		t := time.Unix(int64(val), 0)
+		return &t
+	case int64:
+		if val <= 0 {
+			return nil
+		}
+		t := time.Unix(val, 0)
+		return &t
+	case int:
+		if val <= 0 {
+			return nil
+		}
+		t := time.Unix(int64(val), 0)
+		return &t
+	case json.Number:
+		if i, err := val.Int64(); err == nil && i > 0 {
+			t := time.Unix(i, 0)
+			return &t
+		}
+	}
+	return nil
 }

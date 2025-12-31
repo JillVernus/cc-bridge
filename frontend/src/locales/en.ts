@@ -146,6 +146,8 @@ export default {
     saveOrderFailed: 'Failed to save channel order: {error}',
     setStatusFailed: 'Failed to set channel status: {error}',
     setPriorityFailed: 'Failed to set priority: {error}',
+    quotaRemaining: 'remaining',
+    clickForDetails: 'Click for details',
   },
 
   // Channel Status
@@ -556,5 +558,46 @@ export default {
     revokeError: 'Failed to revoke API key',
     deleteSuccess: 'API key deleted',
     deleteError: 'Failed to delete API key',
+  },
+
+  // OAuth Status
+  oauth: {
+    status: 'OAuth Status',
+    viewStatus: 'View OAuth Status',
+    notConfigured: 'OAuth tokens not configured',
+    configured: 'OAuth Configured',
+    email: 'Email',
+    accountId: 'Account ID',
+    planType: 'Plan Type',
+    subscriptionActiveUntil: 'Subscription Active Until',
+    subscriptionLastChecked: 'Last Checked',
+    tokenExpiry: 'Token Expires',
+    lastRefresh: 'Last Refresh',
+    tokenStatus: {
+      valid: 'Valid',
+      expiring_soon: 'Expiring Soon',
+      expired: 'Expired',
+    },
+    expiresIn: 'Expires in {seconds}s',
+    loadError: 'Failed to load OAuth status',
+    notOAuthChannel: 'Not an OAuth channel',
+    // Quota related
+    usageQuota: 'Usage Quota',
+    primaryWindow: 'Short-term',
+    secondaryWindow: 'Long-term',
+    availablePercent: '{percent}% available',
+    rateLimits: 'Rate Limits',
+    requestLimit: 'Requests',
+    tokenLimit: 'Tokens',
+    resetsAt: 'Resets at {time}',
+    lastUpdated: 'Last updated: {time}',
+    quotaExceeded: 'Quota Exceeded',
+    recoversAt: 'Recovers at {time}',
+    noQuotaData: 'No quota data available. Make a request to see usage.',
+    accountDetails: 'Account Details',
+    // Credits
+    creditsUnlimited: 'Unlimited credits',
+    creditsBalance: 'Credits: {balance}',
+    creditsAvailable: 'Credits available',
   },
 }

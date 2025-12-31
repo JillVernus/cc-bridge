@@ -42,7 +42,7 @@
       >
         <template #item="{ element, index }">
           <div class="channel-item-wrapper">
-            <div class="channel-row" :class="{ 'is-suspended': element.status === 'suspended' }">
+            <div class="channel-row" :class="{ 'is-suspended': element.status === 'suspended', 'has-quota-column': channelType === 'responses' }">
             <!-- 拖拽手柄 -->
             <div class="drag-handle">
               <v-icon size="small" color="grey">mdi-drag-vertical</v-icon>
@@ -122,6 +122,50 @@
                   </div>
                 </v-tooltip>
               </template>
+              <span v-else class="text-caption text-medium-emphasis">--</span>
+            </div>
+
+            <!-- Inline Quota Bar (only for responses tab) -->
+            <div v-if="channelType === 'responses'" class="channel-quota">
+              <template v-if="element.serviceType === 'openai-oauth'">
+                <v-tooltip location="top" :open-delay="200">
+                  <template #activator="{ props: tooltipProps }">
+                    <div v-bind="tooltipProps" class="quota-bar-container" @click="openOAuthStatus(element)">
+                      <template v-if="getChannelQuota(element.index)?.codex_quota">
+                        <div class="quota-bar-wrapper">
+                          <div
+                            class="quota-bar"
+                            :style="{
+                              width: `${100 - getChannelQuota(element.index)!.codex_quota!.primary_used_percent}%`,
+                              backgroundColor: getQuotaBarColor(getChannelQuota(element.index)!.codex_quota!.primary_used_percent)
+                            }"
+                          />
+                        </div>
+                        <span class="quota-text">{{ 100 - getChannelQuota(element.index)!.codex_quota!.primary_used_percent }}%</span>
+                      </template>
+                      <span v-else class="text-caption text-medium-emphasis">--</span>
+                    </div>
+                  </template>
+                  <div class="quota-tooltip">
+                    <template v-if="getChannelQuota(element.index)?.codex_quota">
+                      <div class="text-caption font-weight-bold mb-1">{{ t('oauth.usageQuota') }}</div>
+                      <div class="quota-tooltip-row">
+                        <span>{{ t('oauth.primaryWindow') }}:</span>
+                        <span>{{ 100 - getChannelQuota(element.index)!.codex_quota!.primary_used_percent }}% {{ t('orchestration.quotaRemaining') }}</span>
+                      </div>
+                      <div class="quota-tooltip-row">
+                        <span>{{ t('oauth.secondaryWindow') }}:</span>
+                        <span>{{ 100 - getChannelQuota(element.index)!.codex_quota!.secondary_used_percent }}% {{ t('orchestration.quotaRemaining') }}</span>
+                      </div>
+                      <div class="text-caption text-medium-emphasis mt-1">{{ t('orchestration.clickForDetails') }}</div>
+                    </template>
+                    <template v-else>
+                      <div class="text-caption">{{ t('oauth.noQuotaData') }}</div>
+                    </template>
+                  </div>
+                </v-tooltip>
+              </template>
+              <!-- Empty placeholder for non-OAuth channels in responses tab -->
               <span v-else class="text-caption text-medium-emphasis">--</span>
             </div>
 
@@ -219,6 +263,16 @@
                       <v-icon size="small">mdi-speedometer</v-icon>
                     </template>
                     <v-list-item-title>{{ t('actions.testLatency') }}</v-list-item-title>
+                  </v-list-item>
+                  <!-- OAuth Status (only for openai-oauth channels in responses mode) -->
+                  <v-list-item
+                    v-if="element.serviceType === 'openai-oauth' && channelType === 'responses'"
+                    @click="openOAuthStatus(element)"
+                  >
+                    <template #prepend>
+                      <v-icon size="small" color="info">mdi-shield-account</v-icon>
+                    </template>
+                    <v-list-item-title>{{ t('oauth.viewStatus') }}</v-list-item-title>
                   </v-list-item>
                   <v-list-item
                     v-if="element.status === 'suspended'"
@@ -363,6 +417,12 @@
 
       <div v-else class="text-center py-4 text-medium-emphasis text-caption">{{ t('orchestration.allActive') }}</div>
     </div>
+
+    <!-- OAuth Status Dialog -->
+    <OAuthStatusDialog
+      v-model="showOAuthStatusDialog"
+      :channel-id="oauthStatusChannelId"
+    />
   </v-card>
 </template>
 
@@ -370,9 +430,10 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import draggable from 'vuedraggable'
-import { api, type Channel, type ChannelMetrics, type ChannelStatus, type TimeWindowStats } from '../services/api'
+import { api, type Channel, type ChannelMetrics, type ChannelStatus, type TimeWindowStats, type QuotaInfo } from '../services/api'
 import ChannelStatusBadge from './ChannelStatusBadge.vue'
 import ChannelStatsChart from './ChannelStatsChart.vue'
+import OAuthStatusDialog from './OAuthStatusDialog.vue'
 
 // i18n
 const { t } = useI18n()
@@ -405,6 +466,57 @@ const schedulerStats = ref<{
 const isLoadingMetrics = ref(false)
 const isSavingOrder = ref(false)
 const expandedChartChannelId = ref<number | null>(null) // 展开图表的渠道ID
+
+// OAuth status dialog state
+const showOAuthStatusDialog = ref(false)
+const oauthStatusChannelId = ref<number | null>(null)
+
+// Quota data for OAuth channels (keyed by channel index)
+const channelQuotas = ref<Record<number, QuotaInfo>>({})
+
+// Get quota for a channel
+const getChannelQuota = (channelIndex: number): QuotaInfo | undefined => {
+  return channelQuotas.value[channelIndex]
+}
+
+// Fetch quota for OAuth channels
+const fetchOAuthQuotas = async () => {
+  // Only fetch for responses channels with openai-oauth service type
+  if (props.channelType !== 'responses') return
+
+  const oauthChannels = props.channels.filter(ch => ch.serviceType === 'openai-oauth')
+  if (oauthChannels.length === 0) return
+
+  // Fetch quota for each OAuth channel in parallel
+  const results = await Promise.allSettled(
+    oauthChannels.map(async (ch) => {
+      try {
+        const status = await api.getResponsesChannelOAuthStatus(ch.index)
+        if (status.quota) {
+          return { index: ch.index, quota: status.quota }
+        }
+        return null
+      } catch {
+        return null
+      }
+    })
+  )
+
+  // Update quotas
+  const newQuotas: Record<number, QuotaInfo> = {}
+  for (const result of results) {
+    if (result.status === 'fulfilled' && result.value) {
+      newQuotas[result.value.index] = result.value.quota
+    }
+  }
+  channelQuotas.value = newQuotas
+}
+
+// Open OAuth status dialog for a channel
+const openOAuthStatus = (channel: Channel) => {
+  oauthStatusChannelId.value = channel.index
+  showOAuthStatusDialog.value = true
+}
 
 // 切换渠道图表展开状态
 const toggleChannelChart = (channelId: number) => {
@@ -474,6 +586,14 @@ const getSuccessRateColor = (rate?: number): string => {
   if (rate >= 90) return 'success'
   if (rate >= 70) return 'warning'
   return 'error'
+}
+
+// 获取配额条颜色 (based on used percent)
+const getQuotaBarColor = (usedPercent: number): string => {
+  const remaining = 100 - usedPercent
+  if (remaining >= 50) return 'rgb(var(--v-theme-success))'
+  if (remaining >= 20) return 'rgb(var(--v-theme-warning))'
+  return 'rgb(var(--v-theme-error))'
 }
 
 // 格式化统计数据：有请求显示"N 请求 (X%)"，无请求显示"--"
@@ -621,11 +741,13 @@ const handleDeleteChannel = (channel: Channel) => {
 // 组件挂载时加载指标
 onMounted(() => {
   refreshMetrics()
+  fetchOAuthQuotas()
 })
 
 // 暴露方法给父组件
 defineExpose({
-  refreshMetrics
+  refreshMetrics,
+  fetchOAuthQuotas
 })
 </script>
 
@@ -664,6 +786,11 @@ defineExpose({
   box-shadow: 4px 4px 0 0 rgb(var(--v-theme-on-surface));
   min-height: 56px;
   transition: all 0.1s ease;
+}
+
+/* Responses tab has an extra quota column */
+.channel-row.has-quota-column {
+  grid-template-columns: 36px 36px 110px 1fr 130px 80px 90px 140px;
 }
 
 .channel-row:hover {
@@ -766,6 +893,69 @@ defineExpose({
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* Inline Quota Bar */
+.channel-quota {
+  display: flex;
+  align-items: center;
+  min-width: 70px;
+}
+
+.quota-bar-container {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
+}
+
+.quota-bar-container:hover {
+  background: rgba(var(--v-theme-primary), 0.1);
+}
+
+.quota-bar-wrapper {
+  width: 40px;
+  height: 6px;
+  background: rgba(var(--v-theme-on-surface), 0.15);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.quota-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.quota-text {
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 28px;
+  text-align: right;
+}
+
+/* Quota tooltip */
+.quota-tooltip {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.quota-tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0;
+}
+
+.quota-tooltip-row span:first-child {
+  color: rgba(var(--v-theme-on-surface), 0.7);
+}
+
+.quota-tooltip-row span:last-child {
+  font-weight: 500;
 }
 
 .channel-keys {
@@ -931,7 +1121,8 @@ defineExpose({
   }
 
   .channel-metrics,
-  .channel-keys {
+  .channel-keys,
+  .channel-quota {
     display: none;
   }
 

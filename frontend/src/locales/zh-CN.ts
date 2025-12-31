@@ -146,6 +146,8 @@ export default {
     saveOrderFailed: '保存渠道顺序失败: {error}',
     setStatusFailed: '设置渠道状态失败: {error}',
     setPriorityFailed: '设置优先级失败: {error}',
+    quotaRemaining: '剩余',
+    clickForDetails: '点击查看详情',
   },
 
   // Channel Status
@@ -556,5 +558,46 @@ export default {
     revokeError: '撤销 API 密钥失败',
     deleteSuccess: 'API 密钥已删除',
     deleteError: '删除 API 密钥失败',
+  },
+
+  // OAuth 状态
+  oauth: {
+    status: 'OAuth 状态',
+    viewStatus: '查看 OAuth 状态',
+    notConfigured: 'OAuth 令牌未配置',
+    configured: 'OAuth 已配置',
+    email: '邮箱',
+    accountId: '账户 ID',
+    planType: '订阅类型',
+    subscriptionActiveUntil: '订阅有效期至',
+    subscriptionLastChecked: '上次检查',
+    tokenExpiry: '令牌过期时间',
+    lastRefresh: '上次刷新',
+    tokenStatus: {
+      valid: '有效',
+      expiring_soon: '即将过期',
+      expired: '已过期',
+    },
+    expiresIn: '{seconds}秒后过期',
+    loadError: '加载 OAuth 状态失败',
+    notOAuthChannel: '非 OAuth 渠道',
+    // 配额相关
+    usageQuota: '使用配额',
+    primaryWindow: '短期',
+    secondaryWindow: '长期',
+    availablePercent: '剩余 {percent}%',
+    rateLimits: '速率限制',
+    requestLimit: '请求数',
+    tokenLimit: 'Token 数',
+    resetsAt: '重置时间: {time}',
+    lastUpdated: '最后更新: {time}',
+    quotaExceeded: '配额已超限',
+    recoversAt: '恢复时间: {time}',
+    noQuotaData: '暂无配额数据。发送请求后可查看使用情况。',
+    accountDetails: '账户详情',
+    // 积分
+    creditsUnlimited: '无限积分',
+    creditsBalance: '积分余额: {balance}',
+    creditsAvailable: '有可用积分',
   },
 }

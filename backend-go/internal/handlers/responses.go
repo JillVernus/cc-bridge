@@ -20,6 +20,7 @@ import (
 	"github.com/JillVernus/cc-bridge/internal/middleware"
 	"github.com/JillVernus/cc-bridge/internal/pricing"
 	"github.com/JillVernus/cc-bridge/internal/providers"
+	"github.com/JillVernus/cc-bridge/internal/quota"
 	"github.com/JillVernus/cc-bridge/internal/requestlog"
 	"github.com/JillVernus/cc-bridge/internal/scheduler"
 	"github.com/JillVernus/cc-bridge/internal/session"
@@ -459,6 +460,12 @@ func tryResponsesChannelWithOAuth(
 		// 更新请求日志为错误状态
 		updateErrorLog(resp.StatusCode, string(respBodyBytes))
 
+		// 对于 429 错误，记录配额超限状态
+		if resp.StatusCode == 429 {
+			retryAfter := quota.ParseRetryAfter(resp.Header.Get("Retry-After"))
+			quota.GetManager().SetExceeded(upstream.Index, upstream.Name, "rate_limit_exceeded", retryAfter)
+		}
+
 		// 对于 401 错误，尝试强制刷新 token
 		if resp.StatusCode == 401 {
 			log.Printf("🔄 [OAuth] 401 错误，尝试强制刷新 token...")
@@ -478,6 +485,9 @@ func tryResponsesChannelWithOAuth(
 			Body:   respBodyBytes,
 		}
 	}
+
+	// 更新配额信息从响应头
+	quota.GetManager().UpdateFromHeaders(upstream.Index, upstream.Name, resp.Header)
 
 	provider := &providers.ResponsesProvider{SessionManager: sessionManager}
 	handleResponsesSuccess(c, resp, provider, upstream, envCfg, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID)

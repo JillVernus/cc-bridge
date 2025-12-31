@@ -288,6 +288,32 @@ func (m *Manager) initSchema() error {
 		log.Printf("✅ Migrated %d old timeout records to new status", rowsAffected)
 	}
 
+	// Create channel_quota table for persisting Codex quota data
+	quotaSchema := `
+	CREATE TABLE IF NOT EXISTS channel_quota (
+		channel_id INTEGER PRIMARY KEY,
+		channel_name TEXT NOT NULL,
+		plan_type TEXT,
+		primary_used_percent INTEGER DEFAULT 0,
+		primary_window_minutes INTEGER DEFAULT 0,
+		primary_reset_at DATETIME,
+		secondary_used_percent INTEGER DEFAULT 0,
+		secondary_window_minutes INTEGER DEFAULT 0,
+		secondary_reset_at DATETIME,
+		credits_has_credits BOOLEAN DEFAULT 0,
+		credits_unlimited BOOLEAN DEFAULT 0,
+		credits_balance TEXT,
+		is_exceeded BOOLEAN DEFAULT 0,
+		exceeded_at DATETIME,
+		recover_at DATETIME,
+		exceeded_reason TEXT,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	`
+	if _, err := m.db.Exec(quotaSchema); err != nil {
+		log.Printf("⚠️ Failed to create channel_quota table: %v", err)
+	}
+
 	return nil
 }
 
@@ -2434,4 +2460,169 @@ func percentileMs(sorted []int64, p float64) int64 {
 	weight := pos - float64(lower)
 	value := float64(sorted[lower]) + (float64(sorted[upper])-float64(sorted[lower]))*weight
 	return int64(math.Round(value))
+}
+
+// ChannelQuota represents persisted quota data for a channel
+type ChannelQuota struct {
+	ChannelID              int
+	ChannelName            string
+	PlanType               string
+	PrimaryUsedPercent     int
+	PrimaryWindowMinutes   int
+	PrimaryResetAt         *time.Time
+	SecondaryUsedPercent   int
+	SecondaryWindowMinutes int
+	SecondaryResetAt       *time.Time
+	CreditsHasCredits      bool
+	CreditsUnlimited       bool
+	CreditsBalance         string
+	IsExceeded             bool
+	ExceededAt             *time.Time
+	RecoverAt              *time.Time
+	ExceededReason         string
+	UpdatedAt              time.Time
+}
+
+// SaveChannelQuota saves or updates quota data for a channel
+func (m *Manager) SaveChannelQuota(q *ChannelQuota) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	query := `
+	INSERT INTO channel_quota (
+		channel_id, channel_name, plan_type,
+		primary_used_percent, primary_window_minutes, primary_reset_at,
+		secondary_used_percent, secondary_window_minutes, secondary_reset_at,
+		credits_has_credits, credits_unlimited, credits_balance,
+		is_exceeded, exceeded_at, recover_at, exceeded_reason, updated_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(channel_id) DO UPDATE SET
+		channel_name = excluded.channel_name,
+		plan_type = excluded.plan_type,
+		primary_used_percent = excluded.primary_used_percent,
+		primary_window_minutes = excluded.primary_window_minutes,
+		primary_reset_at = excluded.primary_reset_at,
+		secondary_used_percent = excluded.secondary_used_percent,
+		secondary_window_minutes = excluded.secondary_window_minutes,
+		secondary_reset_at = excluded.secondary_reset_at,
+		credits_has_credits = excluded.credits_has_credits,
+		credits_unlimited = excluded.credits_unlimited,
+		credits_balance = excluded.credits_balance,
+		is_exceeded = excluded.is_exceeded,
+		exceeded_at = excluded.exceeded_at,
+		recover_at = excluded.recover_at,
+		exceeded_reason = excluded.exceeded_reason,
+		updated_at = excluded.updated_at
+	`
+
+	_, err := m.db.Exec(query,
+		q.ChannelID, q.ChannelName, q.PlanType,
+		q.PrimaryUsedPercent, q.PrimaryWindowMinutes, q.PrimaryResetAt,
+		q.SecondaryUsedPercent, q.SecondaryWindowMinutes, q.SecondaryResetAt,
+		q.CreditsHasCredits, q.CreditsUnlimited, q.CreditsBalance,
+		q.IsExceeded, q.ExceededAt, q.RecoverAt, q.ExceededReason, time.Now(),
+	)
+	return err
+}
+
+// GetChannelQuota retrieves quota data for a specific channel
+func (m *Manager) GetChannelQuota(channelID int) (*ChannelQuota, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	query := `
+	SELECT channel_id, channel_name, plan_type,
+		primary_used_percent, primary_window_minutes, primary_reset_at,
+		secondary_used_percent, secondary_window_minutes, secondary_reset_at,
+		credits_has_credits, credits_unlimited, credits_balance,
+		is_exceeded, exceeded_at, recover_at, exceeded_reason, updated_at
+	FROM channel_quota WHERE channel_id = ?
+	`
+
+	var q ChannelQuota
+	var primaryResetAt, secondaryResetAt, exceededAt, recoverAt sql.NullTime
+
+	err := m.db.QueryRow(query, channelID).Scan(
+		&q.ChannelID, &q.ChannelName, &q.PlanType,
+		&q.PrimaryUsedPercent, &q.PrimaryWindowMinutes, &primaryResetAt,
+		&q.SecondaryUsedPercent, &q.SecondaryWindowMinutes, &secondaryResetAt,
+		&q.CreditsHasCredits, &q.CreditsUnlimited, &q.CreditsBalance,
+		&q.IsExceeded, &exceededAt, &recoverAt, &q.ExceededReason, &q.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if primaryResetAt.Valid {
+		q.PrimaryResetAt = &primaryResetAt.Time
+	}
+	if secondaryResetAt.Valid {
+		q.SecondaryResetAt = &secondaryResetAt.Time
+	}
+	if exceededAt.Valid {
+		q.ExceededAt = &exceededAt.Time
+	}
+	if recoverAt.Valid {
+		q.RecoverAt = &recoverAt.Time
+	}
+
+	return &q, nil
+}
+
+// GetAllChannelQuotas retrieves all stored quota data
+func (m *Manager) GetAllChannelQuotas() ([]*ChannelQuota, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	query := `
+	SELECT channel_id, channel_name, plan_type,
+		primary_used_percent, primary_window_minutes, primary_reset_at,
+		secondary_used_percent, secondary_window_minutes, secondary_reset_at,
+		credits_has_credits, credits_unlimited, credits_balance,
+		is_exceeded, exceeded_at, recover_at, exceeded_reason, updated_at
+	FROM channel_quota
+	`
+
+	rows, err := m.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var quotas []*ChannelQuota
+	for rows.Next() {
+		var q ChannelQuota
+		var primaryResetAt, secondaryResetAt, exceededAt, recoverAt sql.NullTime
+
+		err := rows.Scan(
+			&q.ChannelID, &q.ChannelName, &q.PlanType,
+			&q.PrimaryUsedPercent, &q.PrimaryWindowMinutes, &primaryResetAt,
+			&q.SecondaryUsedPercent, &q.SecondaryWindowMinutes, &secondaryResetAt,
+			&q.CreditsHasCredits, &q.CreditsUnlimited, &q.CreditsBalance,
+			&q.IsExceeded, &exceededAt, &recoverAt, &q.ExceededReason, &q.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if primaryResetAt.Valid {
+			q.PrimaryResetAt = &primaryResetAt.Time
+		}
+		if secondaryResetAt.Valid {
+			q.SecondaryResetAt = &secondaryResetAt.Time
+		}
+		if exceededAt.Valid {
+			q.ExceededAt = &exceededAt.Time
+		}
+		if recoverAt.Valid {
+			q.RecoverAt = &recoverAt.Time
+		}
+
+		quotas = append(quotas, &q)
+	}
+
+	return quotas, rows.Err()
 }
