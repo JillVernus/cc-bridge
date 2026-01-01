@@ -42,7 +42,7 @@
       >
         <template #item="{ element, index }">
           <div class="channel-item-wrapper">
-            <div class="channel-row" :class="{ 'is-suspended': element.status === 'suspended', 'has-quota-column': channelType === 'responses' }">
+            <div class="channel-row" :class="{ 'is-suspended': element.status === 'suspended', 'has-quota-column': true }">
             <!-- 拖拽手柄 -->
             <div class="drag-handle">
               <v-icon size="small" color="grey">mdi-drag-vertical</v-icon>
@@ -125,9 +125,95 @@
               <span v-else class="text-caption text-medium-emphasis">--</span>
             </div>
 
-            <!-- Inline Quota Bar (only for responses tab) -->
-            <div v-if="channelType === 'responses'" class="channel-quota">
-              <template v-if="element.serviceType === 'openai-oauth'">
+            <!-- Inline Quota Bar (usage quota or OAuth quota) -->
+            <div class="channel-quota">
+              <!-- User-configured usage quota (requests/credit) -->
+              <template v-if="hasUsageQuota(element)">
+                <v-menu location="top" :close-on-content-click="false">
+                  <template #activator="{ props: menuProps }">
+                    <v-tooltip location="top" :open-delay="300">
+                      <template #activator="{ props: tooltipProps }">
+                        <div v-bind="{ ...menuProps, ...tooltipProps }" class="quota-bar-container">
+                          <template v-if="getUsageQuota(element.index)">
+                            <div class="quota-bar-wrapper">
+                              <div
+                                class="quota-bar"
+                                :style="{
+                                  width: `${getUsageQuota(element.index)!.remainingPercent}%`,
+                                  backgroundColor: getUsageQuotaBarColor(getUsageQuota(element.index)!.remainingPercent)
+                                }"
+                              />
+                            </div>
+                            <span class="quota-text">{{ getUsageQuota(element.index)!.remainingPercent.toFixed(0) }}%</span>
+                          </template>
+                          <span v-else class="text-caption text-medium-emphasis">--</span>
+                        </div>
+                      </template>
+                      <!-- Hover tooltip (no reset button) -->
+                      <div class="quota-tooltip">
+                        <template v-if="getUsageQuota(element.index)">
+                          <div class="text-caption font-weight-bold mb-1">
+                            {{ element.quotaType === 'credit' ? t('quota.creditQuota') : t('quota.requestQuota') }}
+                          </div>
+                          <div class="quota-tooltip-row">
+                            <span>{{ t('quota.used') }}:</span>
+                            <span>{{ formatQuotaValue(getUsageQuota(element.index)!.used, element.quotaType || '') }}</span>
+                          </div>
+                          <div class="quota-tooltip-row">
+                            <span>{{ t('quota.remaining') }}:</span>
+                            <span>{{ formatQuotaValue(getUsageQuota(element.index)!.remaining, element.quotaType || '') }} ({{ getUsageQuota(element.index)!.remainingPercent.toFixed(0) }}%)</span>
+                          </div>
+                          <div class="quota-tooltip-row">
+                            <span>{{ t('quota.limit') }}:</span>
+                            <span>{{ formatQuotaValue(getUsageQuota(element.index)!.limit, element.quotaType || '') }}</span>
+                          </div>
+                          <div v-if="getUsageQuota(element.index)!.nextResetAt" class="text-caption text-medium-emphasis mt-1">
+                            {{ t('quota.nextReset') }}: {{ new Date(getUsageQuota(element.index)!.nextResetAt!).toLocaleString() }}
+                          </div>
+                        </template>
+                      </div>
+                    </v-tooltip>
+                  </template>
+                  <!-- Click menu (with reset button) -->
+                  <v-card min-width="200" class="pa-3">
+                    <template v-if="getUsageQuota(element.index)">
+                      <div class="text-caption font-weight-bold mb-1">
+                        {{ element.quotaType === 'credit' ? t('quota.creditQuota') : t('quota.requestQuota') }}
+                      </div>
+                      <div class="quota-tooltip-row">
+                        <span>{{ t('quota.used') }}:</span>
+                        <span>{{ formatQuotaValue(getUsageQuota(element.index)!.used, element.quotaType || '') }}</span>
+                      </div>
+                      <div class="quota-tooltip-row">
+                        <span>{{ t('quota.remaining') }}:</span>
+                        <span>{{ formatQuotaValue(getUsageQuota(element.index)!.remaining, element.quotaType || '') }} ({{ getUsageQuota(element.index)!.remainingPercent.toFixed(0) }}%)</span>
+                      </div>
+                      <div class="quota-tooltip-row">
+                        <span>{{ t('quota.limit') }}:</span>
+                        <span>{{ formatQuotaValue(getUsageQuota(element.index)!.limit, element.quotaType || '') }}</span>
+                      </div>
+                      <div v-if="getUsageQuota(element.index)!.nextResetAt" class="text-caption text-medium-emphasis mt-1">
+                        {{ t('quota.nextReset') }}: {{ new Date(getUsageQuota(element.index)!.nextResetAt!).toLocaleString() }}
+                      </div>
+                      <v-btn
+                        size="x-small"
+                        variant="tonal"
+                        color="warning"
+                        class="mt-2"
+                        @click="resetUsageQuota(element.index)"
+                      >
+                        <v-icon start size="small">mdi-refresh</v-icon>
+                        {{ t('quota.manualReset') }}
+                      </v-btn>
+                    </template>
+                    <template v-else>
+                      <div class="text-caption">{{ t('quota.noData') }}</div>
+                    </template>
+                  </v-card>
+                </v-menu>
+              </template>
+              <!-- OAuth quota for openai-oauth channels in responses tab -->
+              <template v-else-if="element.serviceType === 'openai-oauth' && channelType === 'responses'">
                 <v-tooltip location="top" :open-delay="200">
                   <template #activator="{ props: tooltipProps }">
                     <div v-bind="tooltipProps" class="quota-bar-container" @click="openOAuthStatus(element)">
@@ -165,7 +251,7 @@
                   </div>
                 </v-tooltip>
               </template>
-              <!-- Empty placeholder for non-OAuth channels in responses tab -->
+              <!-- No quota configured -->
               <span v-else class="text-caption text-medium-emphasis">--</span>
             </div>
 
@@ -430,7 +516,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import draggable from 'vuedraggable'
-import { api, type Channel, type ChannelMetrics, type ChannelStatus, type TimeWindowStats, type QuotaInfo } from '../services/api'
+import { api, type Channel, type ChannelMetrics, type ChannelStatus, type TimeWindowStats, type QuotaInfo, type ChannelUsageStatus } from '../services/api'
 import ChannelStatusBadge from './ChannelStatusBadge.vue'
 import ChannelStatsChart from './ChannelStatsChart.vue'
 import OAuthStatusDialog from './OAuthStatusDialog.vue'
@@ -510,6 +596,61 @@ const fetchOAuthQuotas = async () => {
     }
   }
   channelQuotas.value = newQuotas
+}
+
+// User-configured usage quotas (keyed by channel index)
+const usageQuotas = ref<Record<number, ChannelUsageStatus>>({})
+
+// Get usage quota for a channel
+const getUsageQuota = (channelIndex: number): ChannelUsageStatus | undefined => {
+  return usageQuotas.value[channelIndex]
+}
+
+// Check if a channel has usage quota configured
+const hasUsageQuota = (channel: Channel): boolean => {
+  return channel.quotaType === 'requests' || channel.quotaType === 'credit'
+}
+
+// Get usage quota bar color based on remaining percent
+const getUsageQuotaBarColor = (remainingPercent: number): string => {
+  if (remainingPercent >= 50) return 'rgb(76, 175, 80)'   // success - green
+  if (remainingPercent >= 20) return 'rgb(255, 193, 7)'   // warning - yellow
+  return 'rgb(244, 67, 54)'                                // error - red
+}
+
+// Format usage quota value for display
+const formatQuotaValue = (value: number, quotaType: string): string => {
+  if (quotaType === 'credit') {
+    return `$${value.toFixed(2)}`
+  }
+  return Math.round(value).toString()
+}
+
+// Fetch usage quotas for all channels
+const fetchUsageQuotas = async () => {
+  try {
+    if (props.channelType === 'messages') {
+      usageQuotas.value = await api.getAllChannelUsageQuotas()
+    } else {
+      usageQuotas.value = await api.getAllResponsesChannelUsageQuotas()
+    }
+  } catch (error) {
+    console.warn('Failed to fetch usage quotas:', error)
+  }
+}
+
+// Reset usage quota for a channel
+const resetUsageQuota = async (channelIndex: number) => {
+  try {
+    if (props.channelType === 'messages') {
+      await api.resetChannelUsageQuota(channelIndex)
+    } else {
+      await api.resetResponsesChannelUsageQuota(channelIndex)
+    }
+    await fetchUsageQuotas()
+  } catch (error) {
+    console.error('Failed to reset usage quota:', error)
+  }
 }
 
 // Open OAuth status dialog for a channel
@@ -742,12 +883,20 @@ const handleDeleteChannel = (channel: Channel) => {
 onMounted(() => {
   refreshMetrics()
   fetchOAuthQuotas()
+  fetchUsageQuotas()
+})
+
+// Re-fetch quotas when tab changes
+watch(() => props.channelType, () => {
+  fetchOAuthQuotas()
+  fetchUsageQuotas()
 })
 
 // 暴露方法给父组件
 defineExpose({
   refreshMetrics,
-  fetchOAuthQuotas
+  fetchOAuthQuotas,
+  fetchUsageQuotas
 })
 </script>
 

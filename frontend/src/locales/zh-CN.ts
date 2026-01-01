@@ -271,6 +271,9 @@ export default {
     oauthMissingRefreshToken: 'JSON 中缺少 refresh_token',
     oauthInvalidJson: 'JSON 格式无效',
     oauthFixedUrl: '固定 API 端点',
+    // Tabs
+    configTab: '配置',
+    quotaTab: '配额',
   },
 
   // Request Log
@@ -599,5 +602,40 @@ export default {
     creditsUnlimited: '无限积分',
     creditsBalance: '积分余额: {balance}',
     creditsAvailable: '有可用积分',
+  },
+
+  // Quota (用户配置的渠道配额)
+  quota: {
+    title: '配额设置',
+    description: '为该渠道配置用量限制。配额仅用于信息展示，超出配额时不会阻止请求。',
+    requestQuota: '请求配额',
+    creditQuota: '额度配额',
+    used: '已使用',
+    remaining: '剩余',
+    limit: '上限',
+    nextReset: '下次重置',
+    noData: '暂无配额数据',
+    quotaType: '配额类型',
+    quotaTypeNone: '无',
+    quotaTypeRequests: '请求次数',
+    quotaTypeCredit: '额度金额',
+    quotaLimit: '配额上限',
+    quotaLimitHint: '该配额周期内允许的最大值',
+    resetConfig: '重置配置',
+    firstResetAt: '首次重置时间',
+    firstResetAtHint: '首次配额重置的时间',
+    resetInterval: '重置间隔',
+    resetIntervalHint: '首次重置后，配额多久重置一次',
+    intervalUnit: {
+      hours: '小时',
+      days: '天',
+      weeks: '周',
+      months: '月',
+    },
+    manualReset: '立即重置',
+    manualResetConfirm: '重置配额',
+    manualResetDesc: '将已使用配额重置为 0，确定继续吗？',
+    resetSuccess: '配额重置成功',
+    resetFailed: '配额重置失败',
   },
 }

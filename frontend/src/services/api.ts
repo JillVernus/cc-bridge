@@ -161,6 +161,23 @@ export interface Channel {
   priceMultipliers?: Record<string, TokenPriceMultipliers>
   // OAuth tokens for openai-oauth service type
   oauthTokens?: OAuthTokens
+  // 配额设置
+  quotaType?: 'requests' | 'credit' | ''  // 配额类型：请求数 | 额度 | 无
+  quotaLimit?: number                      // 最大配额值
+  quotaResetAt?: string                    // 首次/下次重置时间 (ISO datetime)
+  quotaResetInterval?: number              // 重置间隔值
+  quotaResetUnit?: 'hours' | 'days' | 'weeks' | 'months'  // 重置间隔单位
+}
+
+// 渠道用量配额状态
+export interface ChannelUsageStatus {
+  quotaType: '' | 'requests' | 'credit'  // 配额类型
+  limit: number                           // 最大配额值
+  used: number                            // 已使用量
+  remaining: number                       // 剩余量
+  remainingPercent: number                // 剩余百分比 (0-100)
+  lastResetAt?: string                    // 上次重置时间 (ISO datetime)
+  nextResetAt?: string                    // 下次重置时间 (ISO datetime)
 }
 
 export interface ChannelsResponse {
@@ -773,6 +790,42 @@ class ApiService {
     params.set('duration', duration)
     if (endpoint) params.set('endpoint', endpoint)
     return this.request(`/logs/channels/${channelId}/stats/history?${params.toString()}`)
+  }
+
+  // ============== 用量配额 API ==============
+
+  // 获取所有 Messages 渠道的用量配额状态
+  async getAllChannelUsageQuotas(): Promise<Record<number, ChannelUsageStatus>> {
+    return this.request('/channels/usage')
+  }
+
+  // 获取单个 Messages 渠道的用量配额状态
+  async getChannelUsageQuota(channelId: number): Promise<ChannelUsageStatus> {
+    return this.request(`/channels/${channelId}/usage`)
+  }
+
+  // 重置 Messages 渠道的用量配额
+  async resetChannelUsageQuota(channelId: number): Promise<{ success: boolean; usage: ChannelUsageStatus }> {
+    return this.request(`/channels/${channelId}/usage/reset`, {
+      method: 'POST'
+    })
+  }
+
+  // 获取所有 Responses 渠道的用量配额状态
+  async getAllResponsesChannelUsageQuotas(): Promise<Record<number, ChannelUsageStatus>> {
+    return this.request('/responses/channels/usage')
+  }
+
+  // 获取单个 Responses 渠道的用量配额状态
+  async getResponsesChannelUsageQuota(channelId: number): Promise<ChannelUsageStatus> {
+    return this.request(`/responses/channels/${channelId}/usage`)
+  }
+
+  // 重置 Responses 渠道的用量配额
+  async resetResponsesChannelUsageQuota(channelId: number): Promise<{ success: boolean; usage: ChannelUsageStatus }> {
+    return this.request(`/responses/channels/${channelId}/usage/reset`, {
+      method: 'POST'
+    })
   }
 }
 

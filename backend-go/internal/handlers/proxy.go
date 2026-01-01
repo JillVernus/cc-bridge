@@ -17,6 +17,7 @@ import (
 	"github.com/JillVernus/cc-bridge/internal/middleware"
 	"github.com/JillVernus/cc-bridge/internal/pricing"
 	"github.com/JillVernus/cc-bridge/internal/providers"
+	"github.com/JillVernus/cc-bridge/internal/quota"
 	"github.com/JillVernus/cc-bridge/internal/requestlog"
 	"github.com/JillVernus/cc-bridge/internal/scheduler"
 	"github.com/JillVernus/cc-bridge/internal/types"
@@ -27,11 +28,11 @@ import (
 // ProxyHandler 代理处理器
 // 支持多渠道调度：当配置多个渠道时自动启用
 func ProxyHandler(envCfg *config.EnvConfig, cfgManager *config.ConfigManager, channelScheduler *scheduler.ChannelScheduler, reqLogManager *requestlog.Manager) gin.HandlerFunc {
-	return ProxyHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, nil)
+	return ProxyHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, nil, nil)
 }
 
 // ProxyHandlerWithAPIKey 代理处理器（支持 API Key 验证）
-func ProxyHandlerWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.ConfigManager, channelScheduler *scheduler.ChannelScheduler, reqLogManager *requestlog.Manager, apiKeyManager *apikey.Manager) gin.HandlerFunc {
+func ProxyHandlerWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.ConfigManager, channelScheduler *scheduler.ChannelScheduler, reqLogManager *requestlog.Manager, apiKeyManager *apikey.Manager, usageManager *quota.UsageManager) gin.HandlerFunc {
 	return gin.HandlerFunc(func(c *gin.Context) {
 		// 先进行认证（如果上游中间件尚未完成认证）
 		if _, exists := c.Get(middleware.ContextKeyAPIKeyID); !exists {
@@ -109,10 +110,10 @@ func ProxyHandlerWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.ConfigM
 
 		if isMultiChannel {
 			// 多渠道模式：使用调度器
-			handleMultiChannelProxy(c, envCfg, cfgManager, channelScheduler, bodyBytes, claudeReq, compoundUserID, startTime, reqLogManager, requestLogID)
+			handleMultiChannelProxy(c, envCfg, cfgManager, channelScheduler, bodyBytes, claudeReq, compoundUserID, startTime, reqLogManager, requestLogID, usageManager)
 		} else {
 			// 单渠道模式：使用现有逻辑
-			handleSingleChannelProxy(c, envCfg, cfgManager, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID)
+			handleSingleChannelProxy(c, envCfg, cfgManager, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID, usageManager)
 		}
 	})
 }
@@ -164,6 +165,7 @@ func handleMultiChannelProxy(
 	startTime time.Time,
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
+	usageManager *quota.UsageManager,
 ) {
 	failedChannels := make(map[int]bool)
 	var lastError error
@@ -193,7 +195,7 @@ func handleMultiChannelProxy(
 		}
 
 		// 尝试使用该渠道的所有 key
-		success, failoverErr := tryChannelWithAllKeys(c, envCfg, cfgManager, upstream, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID)
+		success, failoverErr := tryChannelWithAllKeys(c, envCfg, cfgManager, upstream, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID, usageManager)
 
 		if success {
 			// 记录成功，更新 Trace 亲和
@@ -281,6 +283,7 @@ func tryChannelWithAllKeys(
 	startTime time.Time,
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
+	usageManager *quota.UsageManager,
 ) (bool, *struct {
 	Status int
 	Body   []byte
@@ -370,9 +373,9 @@ func tryChannelWithAllKeys(
 		}
 
 		if claudeReq.Stream {
-			handleStreamResponse(c, resp, provider, envCfg, startTime, upstream, reqLogManager, requestLogID, claudeReq.Model)
+			handleStreamResponse(c, resp, provider, envCfg, startTime, upstream, reqLogManager, requestLogID, claudeReq.Model, usageManager)
 		} else {
-			handleNormalResponse(c, resp, provider, envCfg, startTime, upstream, reqLogManager, requestLogID, claudeReq.Model)
+			handleNormalResponse(c, resp, provider, envCfg, startTime, upstream, reqLogManager, requestLogID, claudeReq.Model, usageManager)
 		}
 		return true, nil
 	}
@@ -390,6 +393,7 @@ func handleSingleChannelProxy(
 	startTime time.Time,
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
+	usageManager *quota.UsageManager,
 ) {
 	// 获取当前上游配置
 	upstream, err := cfgManager.GetCurrentUpstream()
@@ -571,9 +575,9 @@ func handleSingleChannelProxy(
 		}
 
 		if claudeReq.Stream {
-			handleStreamResponse(c, resp, provider, envCfg, startTime, upstream, reqLogManager, requestLogID, claudeReq.Model)
+			handleStreamResponse(c, resp, provider, envCfg, startTime, upstream, reqLogManager, requestLogID, claudeReq.Model, usageManager)
 		} else {
-			handleNormalResponse(c, resp, provider, envCfg, startTime, upstream, reqLogManager, requestLogID, claudeReq.Model)
+			handleNormalResponse(c, resp, provider, envCfg, startTime, upstream, reqLogManager, requestLogID, claudeReq.Model, usageManager)
 		}
 		return
 	}
@@ -682,8 +686,29 @@ func sendRequest(req *http.Request, upstream *config.UpstreamConfig, envCfg *con
 	return client.Do(req)
 }
 
+// trackMessagesUsage tracks usage for Messages API channels based on quota type
+func trackMessagesUsage(usageManager *quota.UsageManager, upstream *config.UpstreamConfig, cost float64) {
+	if usageManager == nil || upstream.QuotaType == "" {
+		return
+	}
+
+	var amount float64
+	switch upstream.QuotaType {
+	case "requests":
+		amount = 1
+	case "credit":
+		amount = cost
+	default:
+		return
+	}
+
+	if err := usageManager.IncrementUsage(upstream.Index, amount); err != nil {
+		log.Printf("⚠️ 配额使用量追踪失败 (Messages, channelIndex=%d): %v", upstream.Index, err)
+	}
+}
+
 // handleNormalResponse 处理非流式响应
-func handleNormalResponse(c *gin.Context, resp *http.Response, provider providers.Provider, envCfg *config.EnvConfig, startTime time.Time, upstream *config.UpstreamConfig, reqLogManager *requestlog.Manager, requestLogID string, requestModel string) {
+func handleNormalResponse(c *gin.Context, resp *http.Response, provider providers.Provider, envCfg *config.EnvConfig, startTime time.Time, upstream *config.UpstreamConfig, reqLogManager *requestlog.Manager, requestLogID string, requestModel string, usageManager *quota.UsageManager) {
 	defer resp.Body.Close()
 
 	bodyBytes, err := io.ReadAll(resp.Body)
@@ -828,11 +853,16 @@ func handleNormalResponse(c *gin.Context, resp *http.Response, provider provider
 			if err := reqLogManager.Update(requestLogID, record); err != nil {
 				log.Printf("⚠️ 请求日志更新失败: %v", err)
 			}
+
+			// Track usage for quota (only on successful responses)
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				trackMessagesUsage(usageManager, upstream, record.Price)
+			}
 		}
 	}
 
 // handleStreamResponse 处理流式响应
-func handleStreamResponse(c *gin.Context, resp *http.Response, provider providers.Provider, envCfg *config.EnvConfig, startTime time.Time, upstream *config.UpstreamConfig, reqLogManager *requestlog.Manager, requestLogID string, requestModel string) {
+func handleStreamResponse(c *gin.Context, resp *http.Response, provider providers.Provider, envCfg *config.EnvConfig, startTime time.Time, upstream *config.UpstreamConfig, reqLogManager *requestlog.Manager, requestLogID string, requestModel string, usageManager *quota.UsageManager) {
 	defer resp.Body.Close()
 
 	eventChan, errChan, err := provider.HandleStreamResponse(resp.Body)
@@ -964,6 +994,9 @@ func handleStreamResponse(c *gin.Context, resp *http.Response, provider provider
 						if err := reqLogManager.Update(requestLogID, record); err != nil {
 							log.Printf("⚠️ 请求日志更新失败: %v", err)
 						}
+
+						// Track usage for quota (stream responses are successful when channel closed)
+						trackMessagesUsage(usageManager, upstream, record.Price)
 					}
 					return
 				}

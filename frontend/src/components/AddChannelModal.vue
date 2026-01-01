@@ -103,6 +103,21 @@
 
         <!-- 详细表单模式（原有表单） -->
         <v-form v-else ref="formRef" @submit.prevent="handleSubmit">
+          <!-- Tabs for Configuration and Quota -->
+          <v-tabs v-model="activeTab" color="primary" class="mb-4">
+            <v-tab value="config">
+              <v-icon start size="small">mdi-cog</v-icon>
+              {{ t('addChannel.configTab') }}
+            </v-tab>
+            <v-tab value="quota" :disabled="!form.serviceType">
+              <v-icon start size="small">mdi-gauge</v-icon>
+              {{ t('addChannel.quotaTab') }}
+            </v-tab>
+          </v-tabs>
+
+          <v-tabs-window v-model="activeTab">
+            <!-- Configuration Tab -->
+            <v-tabs-window-item value="config">
           <v-row>
             <!-- 基本信息 -->
             <v-col cols="12" md="6">
@@ -437,7 +452,109 @@
                 </v-card-text>
               </v-card>
             </v-col>
+          </v-row>
+            </v-tabs-window-item>
 
+            <!-- Quota Tab -->
+            <v-tabs-window-item value="quota">
+              <v-card variant="outlined" rounded="lg" class="mb-4">
+                <v-card-title class="d-flex align-center justify-space-between pa-4 pb-2">
+                  <div class="d-flex align-center ga-2">
+                    <v-icon color="info">mdi-gauge</v-icon>
+                    <span class="text-body-1 font-weight-bold">{{ t('quota.title') }}</span>
+                  </div>
+                  <v-chip size="small" color="info" variant="tonal">{{ t('common.optional') }}</v-chip>
+                </v-card-title>
+
+                <v-card-text class="pt-2">
+                  <div class="text-body-2 text-medium-emphasis mb-4">
+                    {{ t('quota.description') }}
+                  </div>
+
+                  <!-- Quota Type -->
+                  <div class="d-flex align-center ga-3 mb-4">
+                    <v-select
+                      v-model="form.quotaType"
+                      :label="t('quota.quotaType')"
+                      :items="[
+                        { title: t('quota.quotaTypeNone'), value: '' },
+                        { title: t('quota.quotaTypeRequests'), value: 'requests' },
+                        { title: t('quota.quotaTypeCredit'), value: 'credit' }
+                      ]"
+                      variant="outlined"
+                      density="comfortable"
+                      hide-details
+                      style="max-width: 200px;"
+                    />
+
+                    <v-text-field
+                      v-if="form.quotaType"
+                      v-model.number="form.quotaLimit"
+                      :label="t('quota.quotaLimit')"
+                      :placeholder="form.quotaType === 'credit' ? '100.00' : '1000'"
+                      type="number"
+                      :step="form.quotaType === 'credit' ? 0.01 : 1"
+                      min="0"
+                      variant="outlined"
+                      density="comfortable"
+                      :hint="t('quota.quotaLimitHint')"
+                      persistent-hint
+                      style="max-width: 180px;"
+                    />
+                  </div>
+
+                  <!-- Reset Configuration (only if quota type selected) -->
+                  <div v-if="form.quotaType" class="mt-4">
+                    <div class="text-body-2 text-medium-emphasis mb-3">{{ t('quota.resetConfig') }}</div>
+                    <div class="d-flex align-center ga-3 flex-wrap">
+                      <!-- First Reset Time -->
+                      <v-text-field
+                        v-model="form.quotaResetAt"
+                        :label="t('quota.firstResetAt')"
+                        type="datetime-local"
+                        variant="outlined"
+                        density="comfortable"
+                        :hint="t('quota.firstResetAtHint')"
+                        persistent-hint
+                        style="min-width: 220px; max-width: 260px;"
+                      />
+
+                      <!-- Reset Interval -->
+                      <v-text-field
+                        v-model.number="form.quotaResetInterval"
+                        :label="t('quota.resetInterval')"
+                        type="number"
+                        min="1"
+                        placeholder="1"
+                        variant="outlined"
+                        density="comfortable"
+                        :hint="t('quota.resetIntervalHint')"
+                        persistent-hint
+                        style="min-width: 100px; max-width: 120px;"
+                      />
+
+                      <!-- Interval Unit -->
+                      <v-select
+                        v-model="form.quotaResetUnit"
+                        :items="[
+                          { title: t('quota.intervalUnit.hours'), value: 'hours' },
+                          { title: t('quota.intervalUnit.days'), value: 'days' },
+                          { title: t('quota.intervalUnit.weeks'), value: 'weeks' },
+                          { title: t('quota.intervalUnit.months'), value: 'months' }
+                        ]"
+                        variant="outlined"
+                        density="comfortable"
+                        hide-details
+                        style="min-width: 100px; max-width: 140px;"
+                      />
+                    </div>
+                  </div>
+                </v-card-text>
+              </v-card>
+            </v-tabs-window-item>
+          </v-tabs-window>
+
+          <v-row>
             <!-- OAuth 认证配置（仅 openai-oauth 类型显示） -->
             <v-col cols="12" v-if="isOAuthChannel">
               <v-card variant="outlined" rounded="lg" :color="oauthCardColor">
@@ -729,6 +846,9 @@ const formRef = ref()
 // 模式切换: 快速添加 vs 详细表单
 const isQuickMode = ref(true)
 
+// Tab for detailed form mode
+const activeTab = ref('config')
+
 // 快速添加模式的数据
 const quickInput = ref('')
 const detectedBaseUrl = ref('')
@@ -962,7 +1082,13 @@ const form = reactive({
   apiKeys: [] as string[],
   modelMapping: {} as Record<string, string>,
   priceMultipliers: {} as Record<string, { inputMultiplier?: number; outputMultiplier?: number; cacheCreationMultiplier?: number; cacheReadMultiplier?: number }>,
-  oauthTokens: undefined as OAuthTokens | undefined
+  oauthTokens: undefined as OAuthTokens | undefined,
+  // Quota settings
+  quotaType: '' as '' | 'requests' | 'credit',
+  quotaLimit: undefined as number | undefined,
+  quotaResetAt: undefined as string | undefined,
+  quotaResetInterval: undefined as number | undefined,
+  quotaResetUnit: 'days' as 'hours' | 'days' | 'weeks' | 'months'
 })
 
 // OAuth 相关状态
@@ -1207,6 +1333,12 @@ const resetForm = () => {
   form.modelMapping = {}
   form.priceMultipliers = {}
   form.oauthTokens = undefined
+  // Reset quota settings
+  form.quotaType = ''
+  form.quotaLimit = undefined
+  form.quotaResetAt = undefined
+  form.quotaResetInterval = undefined
+  form.quotaResetUnit = 'days'
   newApiKey.value = ''
   newMapping.source = ''
   newMapping.target = ''
@@ -1264,6 +1396,24 @@ const loadChannelData = (channel: Channel) => {
 
   form.modelMapping = { ...(channel.modelMapping || {}) }
   form.priceMultipliers = { ...(channel.priceMultipliers || {}) }
+
+  // Load quota settings
+  form.quotaType = channel.quotaType || ''
+  form.quotaLimit = channel.quotaLimit
+  // Convert ISO datetime to datetime-local format (YYYY-MM-DDTHH:mm) in local timezone
+  if (channel.quotaResetAt) {
+    const date = new Date(channel.quotaResetAt)
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    form.quotaResetAt = `${year}-${month}-${day}T${hours}:${minutes}`
+  } else {
+    form.quotaResetAt = undefined
+  }
+  form.quotaResetInterval = channel.quotaResetInterval
+  form.quotaResetUnit = channel.quotaResetUnit || 'days'
 
   // 加载 OAuth tokens（如果存在）
   if (channel.oauthTokens) {
@@ -1472,7 +1622,13 @@ const handleSubmit = async () => {
     apiKeys: processedApiKeys,
     modelMapping: form.modelMapping,
     // 始终发送 priceMultipliers，即使为空对象（用于清除已有配置）
-    priceMultipliers: form.priceMultipliers
+    priceMultipliers: form.priceMultipliers,
+    // Quota settings
+    quotaType: form.quotaType || undefined,
+    quotaLimit: form.quotaType ? form.quotaLimit : undefined,
+    quotaResetAt: form.quotaType && form.quotaResetAt ? new Date(form.quotaResetAt).toISOString() : undefined,
+    quotaResetInterval: form.quotaType ? form.quotaResetInterval : undefined,
+    quotaResetUnit: form.quotaType ? form.quotaResetUnit : undefined
   }
 
   // 对于 OAuth 渠道，添加 OAuth tokens
@@ -1493,6 +1649,8 @@ watch(
   () => props.show,
   newShow => {
     if (newShow) {
+      // Reset tab to config when dialog opens
+      activeTab.value = 'config'
       if (props.channel) {
         // 编辑模式：使用表单模式
         isQuickMode.value = false

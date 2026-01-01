@@ -271,6 +271,9 @@ export default {
     oauthMissingRefreshToken: 'Missing refresh_token in JSON',
     oauthInvalidJson: 'Invalid JSON format',
     oauthFixedUrl: 'Fixed API endpoint',
+    // Tabs
+    configTab: 'Configuration',
+    quotaTab: 'Quota',
   },
 
   // Request Log
@@ -599,5 +602,40 @@ export default {
     creditsUnlimited: 'Unlimited credits',
     creditsBalance: 'Credits: {balance}',
     creditsAvailable: 'Credits available',
+  },
+
+  // Quota (user-configured channel quotas)
+  quota: {
+    title: 'Quota Settings',
+    description: 'Configure usage limits for this channel. Quotas are tracked for informational purposes and do not block requests when exceeded.',
+    requestQuota: 'Request Quota',
+    creditQuota: 'Credit Quota',
+    used: 'Used',
+    remaining: 'Remaining',
+    limit: 'Limit',
+    nextReset: 'Next reset',
+    noData: 'No quota data',
+    quotaType: 'Quota Type',
+    quotaTypeNone: 'None',
+    quotaTypeRequests: 'Request Count',
+    quotaTypeCredit: 'Credit Amount',
+    quotaLimit: 'Quota Limit',
+    quotaLimitHint: 'Maximum allowed value for the quota period',
+    resetConfig: 'Reset Configuration',
+    firstResetAt: 'First Reset Time',
+    firstResetAtHint: 'When the first quota reset will occur',
+    resetInterval: 'Reset Interval',
+    resetIntervalHint: 'How often the quota resets after the first reset',
+    intervalUnit: {
+      hours: 'Hours',
+      days: 'Days',
+      weeks: 'Weeks',
+      months: 'Months',
+    },
+    manualReset: 'Reset Now',
+    manualResetConfirm: 'Reset Quota',
+    manualResetDesc: 'This will reset the used quota to 0. Continue?',
+    resetSuccess: 'Quota reset successfully',
+    resetFailed: 'Failed to reset quota',
   },
 }

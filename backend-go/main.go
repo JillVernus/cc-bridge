@@ -118,6 +118,15 @@ func main() {
 		}()
 	}
 
+	// 初始化用量配额管理器（用于渠道配额追踪）
+	usageQuotaManager, err := quota.NewUsageManager(".config", cfgManager)
+	if err != nil {
+		log.Printf("⚠️ 用量配额管理器初始化失败: %v (配额追踪将被禁用)", err)
+		usageQuotaManager = nil
+	} else {
+		log.Printf("✅ 用量配额管理器已初始化")
+	}
+
 	// 初始化 API Key 管理器（使用与请求日志相同的数据库）
 	var apiKeyManager *apikey.Manager
 	if reqLogManager != nil {
@@ -326,6 +335,19 @@ func main() {
 			apiGroup.POST("/keys/:id/revoke", apiKeyHandler.RevokeKey)
 		}
 
+		// 用量配额 API (渠道配额追踪)
+		if usageQuotaManager != nil {
+			usageQuotaHandler := handlers.NewUsageQuotaHandler(usageQuotaManager)
+			// Messages 渠道配额
+			apiGroup.GET("/channels/usage", usageQuotaHandler.GetAllChannelUsageQuotas)
+			apiGroup.GET("/channels/:id/usage", usageQuotaHandler.GetChannelUsageQuota)
+			apiGroup.POST("/channels/:id/usage/reset", usageQuotaHandler.ResetChannelUsageQuota)
+			// Responses 渠道配额
+			apiGroup.GET("/responses/channels/usage", usageQuotaHandler.GetAllResponsesChannelUsageQuotas)
+			apiGroup.GET("/responses/channels/:id/usage", usageQuotaHandler.GetResponsesChannelUsageQuota)
+			apiGroup.POST("/responses/channels/:id/usage/reset", usageQuotaHandler.ResetResponsesChannelUsageQuota)
+		}
+
 		// 定价配置 API
 		apiGroup.GET("/pricing", handlers.GetPricing())
 		apiGroup.PUT("/pricing", handlers.UpdatePricing())
@@ -351,8 +373,8 @@ func main() {
 	v1Group.Use(middleware.ProxyAuthMiddlewareWithAPIKey(envCfg, apiKeyManager))
 	v1Group.Use(middleware.APIRateLimitMiddleware(apiRateLimiter))
 	{
-		v1Group.POST("/messages", handlers.ProxyHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, apiKeyManager))
-		v1Group.POST("/responses", handlers.ResponsesHandlerWithAPIKey(envCfg, cfgManager, sessionManager, channelScheduler, reqLogManager, apiKeyManager))
+		v1Group.POST("/messages", handlers.ProxyHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager))
+		v1Group.POST("/responses", handlers.ResponsesHandlerWithAPIKey(envCfg, cfgManager, sessionManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager))
 	}
 
 	// 静态文件服务 (嵌入的前端)

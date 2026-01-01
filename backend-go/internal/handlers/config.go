@@ -51,6 +51,11 @@ func GetUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				"latency":               nil,
 				"status":                status,
 				"priority":              priority,
+				"quotaType":             up.QuotaType,
+				"quotaLimit":            up.QuotaLimit,
+				"quotaResetAt":          up.QuotaResetAt,
+				"quotaResetInterval":    up.QuotaResetInterval,
+				"quotaResetUnit":        up.QuotaResetUnit,
 			}
 		}
 
@@ -590,6 +595,11 @@ func GetResponsesUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				"latency":               nil,
 				"status":                status,
 				"priority":              priority,
+				"quotaType":             up.QuotaType,
+				"quotaLimit":            up.QuotaLimit,
+				"quotaResetAt":          up.QuotaResetAt,
+				"quotaResetInterval":    up.QuotaResetInterval,
+				"quotaResetUnit":        up.QuotaResetUnit,
 			}
 		}
 

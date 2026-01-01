@@ -33,6 +33,27 @@ import (
 // codexTokenManager is a shared token manager for OAuth token refresh
 var codexTokenManager = codex.NewTokenManager()
 
+// trackResponsesUsage tracks usage for Responses API channels based on quota type
+func trackResponsesUsage(usageManager *quota.UsageManager, upstream *config.UpstreamConfig, cost float64) {
+	if usageManager == nil || upstream.QuotaType == "" {
+		return
+	}
+
+	var amount float64
+	switch upstream.QuotaType {
+	case "requests":
+		amount = 1
+	case "credit":
+		amount = cost
+	default:
+		return
+	}
+
+	if err := usageManager.IncrementResponsesUsage(upstream.Index, amount); err != nil {
+		log.Printf("⚠️ 配额使用量追踪失败 (Responses, channelIndex=%d): %v", upstream.Index, err)
+	}
+}
+
 // ResponsesHandler Responses API 代理处理器
 // 支持多渠道调度：当配置多个渠道时自动启用
 func ResponsesHandler(
@@ -42,7 +63,7 @@ func ResponsesHandler(
 	channelScheduler *scheduler.ChannelScheduler,
 	reqLogManager *requestlog.Manager,
 ) gin.HandlerFunc {
-	return ResponsesHandlerWithAPIKey(envCfg, cfgManager, sessionManager, channelScheduler, reqLogManager, nil)
+	return ResponsesHandlerWithAPIKey(envCfg, cfgManager, sessionManager, channelScheduler, reqLogManager, nil, nil)
 }
 
 // ResponsesHandlerWithAPIKey Responses API 代理处理器（支持 API Key 验证）
@@ -53,6 +74,7 @@ func ResponsesHandlerWithAPIKey(
 	channelScheduler *scheduler.ChannelScheduler,
 	reqLogManager *requestlog.Manager,
 	apiKeyManager *apikey.Manager,
+	usageManager *quota.UsageManager,
 ) gin.HandlerFunc {
 	return gin.HandlerFunc(func(c *gin.Context) {
 		// 先进行认证（如果上游中间件尚未完成认证）
@@ -148,10 +170,10 @@ func ResponsesHandlerWithAPIKey(
 
 		if isMultiChannel {
 			// 多渠道模式：使用调度器
-			handleMultiChannelResponses(c, envCfg, cfgManager, channelScheduler, sessionManager, bodyBytes, responsesReq, compoundUserID, startTime, reqLogManager, requestLogID)
+			handleMultiChannelResponses(c, envCfg, cfgManager, channelScheduler, sessionManager, bodyBytes, responsesReq, compoundUserID, startTime, reqLogManager, requestLogID, usageManager)
 		} else {
 			// 单渠道模式：使用现有逻辑
-			handleSingleChannelResponses(c, envCfg, cfgManager, sessionManager, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID)
+			handleSingleChannelResponses(c, envCfg, cfgManager, sessionManager, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager)
 		}
 	})
 }
@@ -169,6 +191,7 @@ func handleMultiChannelResponses(
 	startTime time.Time,
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
+	usageManager *quota.UsageManager,
 ) {
 	failedChannels := make(map[int]bool)
 	var lastError error
@@ -194,7 +217,7 @@ func handleMultiChannelResponses(
 				channelIndex, upstream.Name, selection.Reason, channelAttempt+1, maxChannelAttempts)
 		}
 
-		success, failoverErr := tryResponsesChannelWithAllKeys(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID)
+		success, failoverErr := tryResponsesChannelWithAllKeys(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager)
 
 		if success {
 			channelScheduler.RecordSuccess(channelIndex, true)
@@ -250,13 +273,14 @@ func tryResponsesChannelWithAllKeys(
 	startTime time.Time,
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
+	usageManager *quota.UsageManager,
 ) (bool, *struct {
 	Status int
 	Body   []byte
 }) {
 	// 处理 OpenAI OAuth 渠道（Codex）
 	if upstream.ServiceType == "openai-oauth" {
-		return tryResponsesChannelWithOAuth(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID)
+		return tryResponsesChannelWithOAuth(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager)
 	}
 
 	if len(upstream.APIKeys) == 0 {
@@ -334,7 +358,7 @@ func tryResponsesChannelWithAllKeys(
 			}
 		}
 
-		handleResponsesSuccess(c, resp, provider, upstream, envCfg, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID)
+		handleResponsesSuccess(c, resp, provider, upstream, envCfg, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID, usageManager)
 		return true, nil
 	}
 
@@ -353,6 +377,7 @@ func tryResponsesChannelWithOAuth(
 	startTime time.Time,
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
+	usageManager *quota.UsageManager,
 ) (bool, *struct {
 	Status int
 	Body   []byte
@@ -490,7 +515,7 @@ func tryResponsesChannelWithOAuth(
 	quota.GetManager().UpdateFromHeaders(upstream.Index, upstream.Name, resp.Header)
 
 	provider := &providers.ResponsesProvider{SessionManager: sessionManager}
-	handleResponsesSuccess(c, resp, provider, upstream, envCfg, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID)
+	handleResponsesSuccess(c, resp, provider, upstream, envCfg, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID, usageManager)
 	return true, nil
 }
 
@@ -559,6 +584,7 @@ func handleSingleChannelResponses(
 	startTime time.Time,
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
+	usageManager *quota.UsageManager,
 ) {
 	// 获取当前 Responses 上游配置
 	upstream, err := cfgManager.GetCurrentResponsesUpstream()
@@ -572,7 +598,7 @@ func handleSingleChannelResponses(
 
 	// 处理 OpenAI OAuth 渠道（Codex）
 	if upstream.ServiceType == "openai-oauth" {
-		success, failoverErr := tryResponsesChannelWithOAuth(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID)
+		success, failoverErr := tryResponsesChannelWithOAuth(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager)
 		if !success && failoverErr != nil {
 			status := failoverErr.Status
 			if status == 0 {
@@ -721,7 +747,7 @@ func handleSingleChannelResponses(
 			}
 		}
 
-		handleResponsesSuccess(c, resp, provider, upstream, envCfg, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID)
+		handleResponsesSuccess(c, resp, provider, upstream, envCfg, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID, usageManager)
 		return
 	}
 
@@ -814,6 +840,7 @@ func handleResponsesSuccess(
 	originalRequestJSON []byte, // 原始请求 JSON，用于 Chat → Responses 转换
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
+	usageManager *quota.UsageManager,
 ) {
 	defer resp.Body.Close()
 
@@ -1011,6 +1038,9 @@ func handleResponsesSuccess(
 			if err := reqLogManager.Update(requestLogID, record); err != nil {
 				log.Printf("⚠️ 请求日志更新失败: %v", err)
 			}
+
+			// Track usage for quota (streaming response completed)
+			trackResponsesUsage(usageManager, upstream, record.Price)
 		}
 		return
 	}
@@ -1123,6 +1153,11 @@ func handleResponsesSuccess(
 
 		if err := reqLogManager.Update(requestLogID, record); err != nil {
 			log.Printf("⚠️ 请求日志更新失败: %v", err)
+		}
+
+		// Track usage for quota (non-streaming response)
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			trackResponsesUsage(usageManager, upstream, record.Price)
 		}
 	}
 

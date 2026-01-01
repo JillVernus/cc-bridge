@@ -72,6 +72,12 @@ type UpstreamConfig struct {
 	PriceMultipliers map[string]TokenPriceMultipliers `json:"priceMultipliers,omitempty"`
 	// OpenAI OAuth configuration (for serviceType="openai-oauth")
 	OAuthTokens *OAuthTokens `json:"oauthTokens,omitempty"`
+	// 配额设置（可选）
+	QuotaType          string     `json:"quotaType,omitempty"`          // "requests" | "credit" | "" (无配额)
+	QuotaLimit         float64    `json:"quotaLimit,omitempty"`         // 最大配额值（请求数或金额）
+	QuotaResetAt       *time.Time `json:"quotaResetAt,omitempty"`       // 首次/下次重置时间
+	QuotaResetInterval int        `json:"quotaResetInterval,omitempty"` // 重置间隔值
+	QuotaResetUnit     string     `json:"quotaResetUnit,omitempty"`     // "hours" | "days" | "weeks" | "months"
 }
 
 // GetResponseHeaderTimeout 获取响应头超时时间（秒），默认30秒
@@ -160,6 +166,12 @@ type UpstreamUpdate struct {
 	PriceMultipliers map[string]TokenPriceMultipliers `json:"priceMultipliers"`
 	// OpenAI OAuth configuration
 	OAuthTokens *OAuthTokens `json:"oauthTokens"`
+	// 配额设置
+	QuotaType          *string    `json:"quotaType"`
+	QuotaLimit         *float64   `json:"quotaLimit"`
+	QuotaResetAt       *time.Time `json:"quotaResetAt"`
+	QuotaResetInterval *int       `json:"quotaResetInterval"`
+	QuotaResetUnit     *string    `json:"quotaResetUnit"`
 }
 
 // Config 配置结构
@@ -847,6 +859,22 @@ func (cm *ConfigManager) UpdateUpstream(index int, updates UpstreamUpdate) (shou
 	if updates.PriceMultipliers != nil {
 		upstream.PriceMultipliers = updates.PriceMultipliers
 	}
+	// 配额设置
+	if updates.QuotaType != nil {
+		upstream.QuotaType = *updates.QuotaType
+	}
+	if updates.QuotaLimit != nil {
+		upstream.QuotaLimit = *updates.QuotaLimit
+	}
+	if updates.QuotaResetAt != nil {
+		upstream.QuotaResetAt = updates.QuotaResetAt
+	}
+	if updates.QuotaResetInterval != nil {
+		upstream.QuotaResetInterval = *updates.QuotaResetInterval
+	}
+	if updates.QuotaResetUnit != nil {
+		upstream.QuotaResetUnit = *updates.QuotaResetUnit
+	}
 
 	if err := cm.saveConfigLocked(cm.config); err != nil {
 		return false, err
@@ -1457,6 +1485,22 @@ func (cm *ConfigManager) UpdateResponsesUpstream(index int, updates UpstreamUpda
 			shouldResetMetrics = true
 			log.Printf("Responses 渠道 [%d] %s 已从暂停状态自动激活（OAuth tokens 更新）", index, upstream.Name)
 		}
+	}
+	// 配额设置
+	if updates.QuotaType != nil {
+		upstream.QuotaType = *updates.QuotaType
+	}
+	if updates.QuotaLimit != nil {
+		upstream.QuotaLimit = *updates.QuotaLimit
+	}
+	if updates.QuotaResetAt != nil {
+		upstream.QuotaResetAt = updates.QuotaResetAt
+	}
+	if updates.QuotaResetInterval != nil {
+		upstream.QuotaResetInterval = *updates.QuotaResetInterval
+	}
+	if updates.QuotaResetUnit != nil {
+		upstream.QuotaResetUnit = *updates.QuotaResetUnit
 	}
 
 	if err := cm.saveConfigLocked(cm.config); err != nil {
