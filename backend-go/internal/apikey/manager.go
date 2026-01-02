@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -81,6 +82,21 @@ func (m *Manager) initSchema() error {
 		}
 	}
 
+	// Migration: add permission columns if they don't exist
+	permissionColumns := []string{
+		"allowed_endpoints TEXT",
+		"allowed_channels_msg TEXT",
+		"allowed_channels_resp TEXT",
+		"allowed_models TEXT",
+	}
+	for _, col := range permissionColumns {
+		colName := strings.Split(col, " ")[0]
+		_, err = m.db.Exec(fmt.Sprintf(`ALTER TABLE api_keys ADD COLUMN %s`, col))
+		if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			log.Printf("Warning: failed to add %s column: %v", colName, err)
+		}
+	}
+
 	return nil
 }
 
@@ -90,7 +106,8 @@ func (m *Manager) refreshCache() error {
 	defer m.mu.Unlock()
 
 	rows, err := m.db.Query(`
-		SELECT id, name, key_hash, is_admin, rate_limit_rpm
+		SELECT id, name, key_hash, is_admin, rate_limit_rpm,
+			   allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_models
 		FROM api_keys
 		WHERE status = ?
 	`, StatusActive)
@@ -105,14 +122,21 @@ func (m *Manager) refreshCache() error {
 		var name, keyHash string
 		var isAdmin bool
 		var rateLimitRPM int
-		if err := rows.Scan(&id, &name, &keyHash, &isAdmin, &rateLimitRPM); err != nil {
+		var allowedEndpoints, allowedChannelsMsg, allowedChannelsResp, allowedModels sql.NullString
+
+		if err := rows.Scan(&id, &name, &keyHash, &isAdmin, &rateLimitRPM,
+			&allowedEndpoints, &allowedChannelsMsg, &allowedChannelsResp, &allowedModels); err != nil {
 			return err
 		}
 		newCache[keyHash] = &ValidatedKey{
-			ID:           id,
-			Name:         name,
-			IsAdmin:      isAdmin,
-			RateLimitRPM: rateLimitRPM,
+			ID:                  id,
+			Name:                name,
+			IsAdmin:             isAdmin,
+			RateLimitRPM:        rateLimitRPM,
+			AllowedEndpoints:    unmarshalStringSlice(allowedEndpoints),
+			AllowedChannelsMsg:  unmarshalIntSlice(allowedChannelsMsg),
+			AllowedChannelsResp: unmarshalIntSlice(allowedChannelsResp),
+			AllowedModels:       unmarshalStringSlice(allowedModels),
 		}
 	}
 
@@ -158,10 +182,19 @@ func (m *Manager) Create(req *CreateAPIKeyRequest) (*CreateAPIKeyResponse, error
 	keyPrefixStr := getKeyPrefix(key)
 	now := time.Now()
 
+	// Marshal permission fields to JSON
+	allowedEndpoints := marshalJSONNullable(req.AllowedEndpoints)
+	allowedChannelsMsg := marshalJSONNullable(req.AllowedChannelsMsg)
+	allowedChannelsResp := marshalJSONNullable(req.AllowedChannelsResp)
+	allowedModels := marshalJSONNullable(req.AllowedModels)
+
 	result, err := m.db.Exec(`
-		INSERT INTO api_keys (name, key_hash, key_prefix, description, status, is_admin, rate_limit_rpm, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, req.Name, keyHash, keyPrefixStr, req.Description, StatusActive, req.IsAdmin, req.RateLimitRPM, now, now)
+		INSERT INTO api_keys (name, key_hash, key_prefix, description, status, is_admin, rate_limit_rpm,
+			allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_models,
+			created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, req.Name, keyHash, keyPrefixStr, req.Description, StatusActive, req.IsAdmin, req.RateLimitRPM,
+		allowedEndpoints, allowedChannelsMsg, allowedChannelsResp, allowedModels, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert API key: %w", err)
 	}
@@ -174,24 +207,32 @@ func (m *Manager) Create(req *CreateAPIKeyRequest) (*CreateAPIKeyResponse, error
 	// Add to cache
 	m.mu.Lock()
 	m.cache[keyHash] = &ValidatedKey{
-		ID:           id,
-		Name:         req.Name,
-		IsAdmin:      req.IsAdmin,
-		RateLimitRPM: req.RateLimitRPM,
+		ID:                  id,
+		Name:                req.Name,
+		IsAdmin:             req.IsAdmin,
+		RateLimitRPM:        req.RateLimitRPM,
+		AllowedEndpoints:    req.AllowedEndpoints,
+		AllowedChannelsMsg:  req.AllowedChannelsMsg,
+		AllowedChannelsResp: req.AllowedChannelsResp,
+		AllowedModels:       req.AllowedModels,
 	}
 	m.mu.Unlock()
 
 	return &CreateAPIKeyResponse{
 		APIKey: APIKey{
-			ID:           id,
-			Name:         req.Name,
-			KeyPrefix:    keyPrefixStr,
-			Description:  req.Description,
-			Status:       StatusActive,
-			IsAdmin:      req.IsAdmin,
-			RateLimitRPM: req.RateLimitRPM,
-			CreatedAt:    now,
-			UpdatedAt:    now,
+			ID:                  id,
+			Name:                req.Name,
+			KeyPrefix:           keyPrefixStr,
+			Description:         req.Description,
+			Status:              StatusActive,
+			IsAdmin:             req.IsAdmin,
+			RateLimitRPM:        req.RateLimitRPM,
+			AllowedEndpoints:    req.AllowedEndpoints,
+			AllowedChannelsMsg:  req.AllowedChannelsMsg,
+			AllowedChannelsResp: req.AllowedChannelsResp,
+			AllowedModels:       req.AllowedModels,
+			CreatedAt:           now,
+			UpdatedAt:           now,
 		},
 		Key: key,
 	}, nil
@@ -203,12 +244,17 @@ func (m *Manager) GetByID(id int64) (*APIKey, error) {
 	var createdAt, updatedAt string
 	var lastUsedAt sql.NullString
 	var description sql.NullString
+	var allowedEndpoints, allowedChannelsMsg, allowedChannelsResp, allowedModels sql.NullString
 
 	err := m.db.QueryRow(`
-		SELECT id, name, key_prefix, description, status, is_admin, rate_limit_rpm, created_at, updated_at, last_used_at
+		SELECT id, name, key_prefix, description, status, is_admin, rate_limit_rpm,
+			   allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_models,
+			   created_at, updated_at, last_used_at
 		FROM api_keys
 		WHERE id = ?
-	`, id).Scan(&key.ID, &key.Name, &key.KeyPrefix, &description, &key.Status, &key.IsAdmin, &key.RateLimitRPM, &createdAt, &updatedAt, &lastUsedAt)
+	`, id).Scan(&key.ID, &key.Name, &key.KeyPrefix, &description, &key.Status, &key.IsAdmin, &key.RateLimitRPM,
+		&allowedEndpoints, &allowedChannelsMsg, &allowedChannelsResp, &allowedModels,
+		&createdAt, &updatedAt, &lastUsedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -226,6 +272,12 @@ func (m *Manager) GetByID(id int64) (*APIKey, error) {
 		t := parseTimeString(lastUsedAt.String)
 		key.LastUsedAt = &t
 	}
+
+	// Parse permission fields
+	key.AllowedEndpoints = unmarshalStringSlice(allowedEndpoints)
+	key.AllowedChannelsMsg = unmarshalIntSlice(allowedChannelsMsg)
+	key.AllowedChannelsResp = unmarshalIntSlice(allowedChannelsResp)
+	key.AllowedModels = unmarshalStringSlice(allowedModels)
 
 	return &key, nil
 }
@@ -264,7 +316,9 @@ func (m *Manager) List(filter *APIKeyFilter) (*APIKeyListResponse, error) {
 
 	// Get records
 	query := fmt.Sprintf(`
-		SELECT id, name, key_prefix, description, status, is_admin, rate_limit_rpm, created_at, updated_at, last_used_at
+		SELECT id, name, key_prefix, description, status, is_admin, rate_limit_rpm,
+			   allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_models,
+			   created_at, updated_at, last_used_at
 		FROM api_keys
 		%s
 		ORDER BY created_at DESC
@@ -285,8 +339,11 @@ func (m *Manager) List(filter *APIKeyFilter) (*APIKeyListResponse, error) {
 		var createdAt, updatedAt string
 		var lastUsedAt sql.NullString
 		var description sql.NullString
+		var allowedEndpoints, allowedChannelsMsg, allowedChannelsResp, allowedModels sql.NullString
 
-		err := rows.Scan(&key.ID, &key.Name, &key.KeyPrefix, &description, &key.Status, &key.IsAdmin, &key.RateLimitRPM, &createdAt, &updatedAt, &lastUsedAt)
+		err := rows.Scan(&key.ID, &key.Name, &key.KeyPrefix, &description, &key.Status, &key.IsAdmin, &key.RateLimitRPM,
+			&allowedEndpoints, &allowedChannelsMsg, &allowedChannelsResp, &allowedModels,
+			&createdAt, &updatedAt, &lastUsedAt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan API key: %w", err)
 		}
@@ -301,6 +358,12 @@ func (m *Manager) List(filter *APIKeyFilter) (*APIKeyListResponse, error) {
 			key.LastUsedAt = &t
 		}
 
+		// Parse permission fields
+		key.AllowedEndpoints = unmarshalStringSlice(allowedEndpoints)
+		key.AllowedChannelsMsg = unmarshalIntSlice(allowedChannelsMsg)
+		key.AllowedChannelsResp = unmarshalIntSlice(allowedChannelsResp)
+		key.AllowedModels = unmarshalStringSlice(allowedModels)
+
 		keys = append(keys, key)
 	}
 
@@ -311,11 +374,12 @@ func (m *Manager) List(filter *APIKeyFilter) (*APIKeyListResponse, error) {
 	}, nil
 }
 
-// Update updates an API key's name, description, and rate limit
+// Update updates an API key's name, description, rate limit, and permissions
 func (m *Manager) Update(id int64, req *UpdateAPIKeyRequest) (*APIKey, error) {
 	// Build update query dynamically
 	var updates []string
 	var args []interface{}
+	permissionsChanged := false
 
 	if req.Name != nil {
 		updates = append(updates, "name = ?")
@@ -328,6 +392,28 @@ func (m *Manager) Update(id int64, req *UpdateAPIKeyRequest) (*APIKey, error) {
 	if req.RateLimitRPM != nil {
 		updates = append(updates, "rate_limit_rpm = ?")
 		args = append(args, *req.RateLimitRPM)
+	}
+
+	// Handle permission fields
+	if req.AllowedEndpoints != nil {
+		updates = append(updates, "allowed_endpoints = ?")
+		args = append(args, marshalJSONNullable(*req.AllowedEndpoints))
+		permissionsChanged = true
+	}
+	if req.AllowedChannelsMsg != nil {
+		updates = append(updates, "allowed_channels_msg = ?")
+		args = append(args, marshalJSONNullable(*req.AllowedChannelsMsg))
+		permissionsChanged = true
+	}
+	if req.AllowedChannelsResp != nil {
+		updates = append(updates, "allowed_channels_resp = ?")
+		args = append(args, marshalJSONNullable(*req.AllowedChannelsResp))
+		permissionsChanged = true
+	}
+	if req.AllowedModels != nil {
+		updates = append(updates, "allowed_models = ?")
+		args = append(args, marshalJSONNullable(*req.AllowedModels))
+		permissionsChanged = true
 	}
 
 	if len(updates) == 0 {
@@ -349,8 +435,8 @@ func (m *Manager) Update(id int64, req *UpdateAPIKeyRequest) (*APIKey, error) {
 		return nil, fmt.Errorf("API key not found")
 	}
 
-	// Update cache if name or rate limit changed
-	if req.Name != nil || req.RateLimitRPM != nil {
+	// Update cache if name, rate limit, or permissions changed
+	if req.Name != nil || req.RateLimitRPM != nil || permissionsChanged {
 		m.refreshCache()
 	}
 
@@ -480,21 +566,29 @@ func (m *Manager) Validate(key string) *ValidatedKey {
 	var name, status string
 	var isAdmin bool
 	var rateLimitRPM int
+	var allowedEndpoints, allowedChannelsMsg, allowedChannelsResp, allowedModels sql.NullString
+
 	err := m.db.QueryRow(`
-		SELECT id, name, status, is_admin, rate_limit_rpm
+		SELECT id, name, status, is_admin, rate_limit_rpm,
+			   allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_models
 		FROM api_keys
 		WHERE key_hash = ?
-	`, keyHash).Scan(&id, &name, &status, &isAdmin, &rateLimitRPM)
+	`, keyHash).Scan(&id, &name, &status, &isAdmin, &rateLimitRPM,
+		&allowedEndpoints, &allowedChannelsMsg, &allowedChannelsResp, &allowedModels)
 
 	if err != nil || status != StatusActive {
 		return nil
 	}
 
 	vk := &ValidatedKey{
-		ID:           id,
-		Name:         name,
-		IsAdmin:      isAdmin,
-		RateLimitRPM: rateLimitRPM,
+		ID:                  id,
+		Name:                name,
+		IsAdmin:             isAdmin,
+		RateLimitRPM:        rateLimitRPM,
+		AllowedEndpoints:    unmarshalStringSlice(allowedEndpoints),
+		AllowedChannelsMsg:  unmarshalIntSlice(allowedChannelsMsg),
+		AllowedChannelsResp: unmarshalIntSlice(allowedChannelsResp),
+		AllowedModels:       unmarshalStringSlice(allowedModels),
 	}
 
 	// Add to cache
@@ -553,4 +647,48 @@ func parseTimeString(s string) time.Time {
 		}
 	}
 	return time.Time{}
+}
+
+// marshalJSONNullable marshals a slice to JSON for database storage
+// Returns sql.NullString with Valid=false if slice is nil or empty
+func marshalJSONNullable(v interface{}) sql.NullString {
+	if v == nil {
+		return sql.NullString{}
+	}
+
+	data, err := json.Marshal(v)
+	if err != nil || string(data) == "null" || string(data) == "[]" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: string(data), Valid: true}
+}
+
+// unmarshalStringSlice unmarshals a JSON string slice from database
+func unmarshalStringSlice(s sql.NullString) []string {
+	if !s.Valid || s.String == "" || s.String == "null" || s.String == "[]" {
+		return nil
+	}
+	var result []string
+	if err := json.Unmarshal([]byte(s.String), &result); err != nil {
+		return nil
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+// unmarshalIntSlice unmarshals a JSON int slice from database
+func unmarshalIntSlice(s sql.NullString) []int {
+	if !s.Valid || s.String == "" || s.String == "null" || s.String == "[]" {
+		return nil
+	}
+	var result []int
+	if err := json.Unmarshal([]byte(s.String), &result); err != nil {
+		return nil
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }

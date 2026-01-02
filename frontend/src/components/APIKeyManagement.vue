@@ -132,7 +132,7 @@
     </v-card>
 
     <!-- Create/Edit Dialog -->
-    <v-dialog v-model="dialogOpen" max-width="500">
+    <v-dialog v-model="dialogOpen" max-width="700">
       <v-card>
         <v-card-title>
           {{ editingKey ? t('apiKeys.editTitle') : t('apiKeys.createTitle') }}
@@ -164,6 +164,66 @@
               persistent-hint
               type="number"
               min="0"
+              class="mt-2"
+            />
+
+            <!-- Permissions Section -->
+            <v-divider class="my-4" />
+            <div class="text-subtitle-1 mb-2">{{ t('apiKeys.permissions') }}</div>
+            <div class="text-caption text-grey mb-3">{{ t('apiKeys.permissionsHint') }}</div>
+
+            <!-- Allowed Endpoints -->
+            <v-select
+              v-model="form.allowedEndpoints"
+              :label="t('apiKeys.allowedEndpoints')"
+              :hint="t('apiKeys.allowedEndpointsHint')"
+              :items="[
+                { title: t('apiKeys.endpointMessages'), value: 'messages' },
+                { title: t('apiKeys.endpointResponses'), value: 'responses' }
+              ]"
+              multiple
+              chips
+              closable-chips
+              clearable
+              persistent-hint
+              class="mt-2"
+            />
+
+            <!-- Allowed Models -->
+            <v-textarea
+              v-model="form.allowedModelsText"
+              :label="t('apiKeys.allowedModels')"
+              :hint="t('apiKeys.allowedModelsHint')"
+              persistent-hint
+              rows="3"
+              class="mt-2"
+            />
+
+            <!-- Allowed Channels (Messages) -->
+            <v-select
+              v-model="form.allowedChannelsMsg"
+              :label="t('apiKeys.allowedChannelsMsg')"
+              :hint="t('apiKeys.allowedChannelsMsgHint')"
+              :items="messagesChannels.map(c => ({ title: `[${c.index}] ${c.name}`, value: c.index }))"
+              multiple
+              chips
+              closable-chips
+              clearable
+              persistent-hint
+              class="mt-2"
+            />
+
+            <!-- Allowed Channels (Responses) -->
+            <v-select
+              v-model="form.allowedChannelsResp"
+              :label="t('apiKeys.allowedChannelsResp')"
+              :hint="t('apiKeys.allowedChannelsRespHint')"
+              :items="responsesChannels.map(c => ({ title: `[${c.index}] ${c.name}`, value: c.index }))"
+              multiple
+              chips
+              closable-chips
+              clearable
+              persistent-hint
               class="mt-2"
             />
           </v-form>
@@ -266,7 +326,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { api, type APIKey, type CreateAPIKeyRequest } from '../services/api'
+import { api, type APIKey, type CreateAPIKeyRequest, type Channel } from '../services/api'
 
 const { t } = useI18n()
 
@@ -276,6 +336,10 @@ const loading = ref(false)
 const saving = ref(false)
 const revoking = ref(false)
 const deleting = ref(false)
+
+// Channels for permission selection
+const messagesChannels = ref<Channel[]>([])
+const responsesChannels = ref<Channel[]>([])
 
 // Dialog state
 const dialogOpen = ref(false)
@@ -288,14 +352,23 @@ const keyToRevoke = ref<APIKey | null>(null)
 const keyToDelete = ref<APIKey | null>(null)
 const newKey = ref('')
 
-// Form state
+// Form state with permissions
+interface FormState extends CreateAPIKeyRequest {
+  allowedModelsText: string  // For textarea input
+}
+
 const formRef = ref()
 const formValid = ref(false)
-const form = ref<CreateAPIKeyRequest>({
+const form = ref<FormState>({
   name: '',
   description: '',
   isAdmin: false,
-  rateLimitRpm: 0
+  rateLimitRpm: 0,
+  allowedEndpoints: [],
+  allowedChannelsMsg: [],
+  allowedChannelsResp: [],
+  allowedModels: [],
+  allowedModelsText: ''
 })
 
 // Snackbar
@@ -330,9 +403,32 @@ const loadKeys = async () => {
   }
 }
 
+const loadChannels = async () => {
+  try {
+    const [msgResp, respResp] = await Promise.all([
+      api.getChannels(),
+      api.getResponsesChannels()
+    ])
+    messagesChannels.value = msgResp.channels || []
+    responsesChannels.value = respResp.channels || []
+  } catch (error) {
+    console.error('Failed to load channels:', error)
+  }
+}
+
 const openCreateDialog = () => {
   editingKey.value = null
-  form.value = { name: '', description: '', isAdmin: false, rateLimitRpm: 0 }
+  form.value = {
+    name: '',
+    description: '',
+    isAdmin: false,
+    rateLimitRpm: 0,
+    allowedEndpoints: [],
+    allowedChannelsMsg: [],
+    allowedChannelsResp: [],
+    allowedModels: [],
+    allowedModelsText: ''
+  }
   dialogOpen.value = true
 }
 
@@ -342,7 +438,12 @@ const openEditDialog = (key: APIKey) => {
     name: key.name,
     description: key.description || '',
     isAdmin: key.isAdmin,
-    rateLimitRpm: key.rateLimitRpm || 0
+    rateLimitRpm: key.rateLimitRpm || 0,
+    allowedEndpoints: key.allowedEndpoints || [],
+    allowedChannelsMsg: key.allowedChannelsMsg || [],
+    allowedChannelsResp: key.allowedChannelsResp || [],
+    allowedModels: key.allowedModels || [],
+    allowedModelsText: (key.allowedModels || []).join('\n')
   }
   dialogOpen.value = true
 }
@@ -350,17 +451,30 @@ const openEditDialog = (key: APIKey) => {
 const saveKey = async () => {
   if (!formValid.value) return
 
+  // Parse models from textarea
+  const allowedModels = form.value.allowedModelsText
+    .split('\n')
+    .map(s => s.trim())
+    .filter(s => s.length > 0)
+
   saving.value = true
   try {
     if (editingKey.value) {
       await api.updateAPIKey(editingKey.value.id, {
         name: form.value.name,
         description: form.value.description,
-        rateLimitRpm: form.value.rateLimitRpm || 0
+        rateLimitRpm: form.value.rateLimitRpm || 0,
+        allowedEndpoints: form.value.allowedEndpoints,
+        allowedChannelsMsg: form.value.allowedChannelsMsg,
+        allowedChannelsResp: form.value.allowedChannelsResp,
+        allowedModels: allowedModels
       })
       showSnackbar(t('apiKeys.updateSuccess'), 'success')
     } else {
-      const response = await api.createAPIKey(form.value)
+      const response = await api.createAPIKey({
+        ...form.value,
+        allowedModels: allowedModels
+      })
       newKey.value = response.key
       newKeyDialogOpen.value = true
       showSnackbar(t('apiKeys.createSuccess'), 'success')
@@ -487,6 +601,7 @@ const showSnackbar = (text: string, color: string) => {
 // Lifecycle
 onMounted(() => {
   loadKeys()
+  loadChannels()
 })
 </script>
 

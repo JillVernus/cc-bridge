@@ -90,6 +90,19 @@ func ResponsesHandlerWithAPIKey(
 			}
 		}
 
+		// Check endpoint permission
+		if vk, exists := c.Get(middleware.ContextKeyValidatedKey); exists {
+			if validatedKey, ok := vk.(*apikey.ValidatedKey); ok && validatedKey != nil {
+				if !validatedKey.CheckEndpointPermission("responses") {
+					c.JSON(403, gin.H{
+						"error": "Endpoint /v1/responses not allowed for this API key",
+						"code":  "ENDPOINT_NOT_ALLOWED",
+					})
+					return
+				}
+			}
+		}
+
 		startTime := time.Now()
 
 		// 读取原始请求体
@@ -119,6 +132,19 @@ func ResponsesHandlerWithAPIKey(
 		var responsesReq types.ResponsesRequest
 		if len(bodyBytes) > 0 {
 			_ = json.Unmarshal(bodyBytes, &responsesReq)
+		}
+
+		// Check model permission
+		if vk, exists := c.Get(middleware.ContextKeyValidatedKey); exists {
+			if validatedKey, ok := vk.(*apikey.ValidatedKey); ok && validatedKey != nil {
+				if !validatedKey.CheckModelPermission(responsesReq.Model) {
+					c.JSON(403, gin.H{
+						"error": fmt.Sprintf("Model %s not allowed for this API key", responsesReq.Model),
+						"code":  "MODEL_NOT_ALLOWED",
+					})
+					return
+				}
+			}
 		}
 
 		// 提取对话标识用于 Trace 亲和性 + 记录 user/session
@@ -173,12 +199,20 @@ func ResponsesHandlerWithAPIKey(
 		// 检查是否为多渠道模式
 		isMultiChannel := channelScheduler.IsMultiChannelMode(true) // true = isResponses
 
+		// Get allowed channels from API key permissions
+		var allowedChannels []int
+		if vk, exists := c.Get(middleware.ContextKeyValidatedKey); exists {
+			if validatedKey, ok := vk.(*apikey.ValidatedKey); ok && validatedKey != nil {
+				allowedChannels = validatedKey.GetAllowedChannels(true) // true = Responses API
+			}
+		}
+
 		if isMultiChannel {
 			// 多渠道模式：使用调度器
-			handleMultiChannelResponses(c, envCfg, cfgManager, channelScheduler, sessionManager, bodyBytes, responsesReq, compoundUserID, startTime, reqLogManager, requestLogID, usageManager)
+			handleMultiChannelResponses(c, envCfg, cfgManager, channelScheduler, sessionManager, bodyBytes, responsesReq, compoundUserID, startTime, reqLogManager, requestLogID, usageManager, allowedChannels)
 		} else {
 			// 单渠道模式：使用现有逻辑
-			handleSingleChannelResponses(c, envCfg, cfgManager, sessionManager, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager)
+			handleSingleChannelResponses(c, envCfg, cfgManager, sessionManager, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager, allowedChannels)
 		}
 	})
 }
@@ -197,6 +231,7 @@ func handleMultiChannelResponses(
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
 	usageManager *quota.UsageManager,
+	allowedChannels []int,
 ) {
 	failedChannels := make(map[int]bool)
 	var lastError error
@@ -208,7 +243,7 @@ func handleMultiChannelResponses(
 	maxChannelAttempts := channelScheduler.GetActiveChannelCount(true) // true = isResponses
 
 	for channelAttempt := 0; channelAttempt < maxChannelAttempts; channelAttempt++ {
-		selection, err := channelScheduler.SelectChannel(c.Request.Context(), userID, failedChannels, true)
+		selection, err := channelScheduler.SelectChannel(c.Request.Context(), userID, failedChannels, true, allowedChannels)
 		if err != nil {
 			lastError = err
 			break
@@ -590,6 +625,7 @@ func handleSingleChannelResponses(
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
 	usageManager *quota.UsageManager,
+	allowedChannels []int,
 ) {
 	// 获取当前 Responses 上游配置
 	upstream, err := cfgManager.GetCurrentResponsesUpstream()
@@ -599,6 +635,24 @@ func handleSingleChannelResponses(
 			"code":  "NO_RESPONSES_UPSTREAM",
 		})
 		return
+	}
+
+	// Check if this channel is allowed by API key permissions
+	if len(allowedChannels) > 0 {
+		allowed := false
+		for _, idx := range allowedChannels {
+			if idx == upstream.Index {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			c.JSON(403, gin.H{
+				"error": fmt.Sprintf("Channel %s (index %d) not allowed for this API key", upstream.Name, upstream.Index),
+				"code":  "CHANNEL_NOT_ALLOWED",
+			})
+			return
+		}
 	}
 
 	// 处理 OpenAI OAuth 渠道（Codex）

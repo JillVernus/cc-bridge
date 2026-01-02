@@ -18,6 +18,7 @@ const (
 	ContextKeyAPIKeyIsAdmin = "apiKeyIsAdmin"
 	ContextKeyIsBootstrap   = "isBootstrapAdmin"
 	ContextKeyRateLimitRPM  = "rateLimitRPM"
+	ContextKeyValidatedKey  = "validatedKey" // Full ValidatedKey struct for permission checks
 )
 
 // secureCompare performs a constant-time comparison of two strings
@@ -223,6 +224,7 @@ func ProxyAuthMiddlewareWithAPIKey(envCfg *config.EnvConfig, apiKeyManager *apik
 				c.Set(ContextKeyAPIKeyIsAdmin, vk.IsAdmin)
 				c.Set(ContextKeyIsBootstrap, false)
 				c.Set(ContextKeyRateLimitRPM, vk.RateLimitRPM)
+				c.Set(ContextKeyValidatedKey, vk) // Store full ValidatedKey for permission checks
 				c.Next()
 				return
 			}
@@ -235,6 +237,7 @@ func ProxyAuthMiddlewareWithAPIKey(envCfg *config.EnvConfig, apiKeyManager *apik
 			c.Set(ContextKeyAPIKeyIsAdmin, true)
 			c.Set(ContextKeyIsBootstrap, true)
 			c.Set(ContextKeyRateLimitRPM, 0) // Master key uses global limit
+			c.Set(ContextKeyValidatedKey, (*apikey.ValidatedKey)(nil)) // Bootstrap key has no restrictions
 			c.Next()
 			return
 		}

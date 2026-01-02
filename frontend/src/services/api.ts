@@ -1011,6 +1011,11 @@ export interface APIKey {
   createdAt: string
   updatedAt: string
   lastUsedAt?: string
+  // Permission fields (nil/empty = unrestricted)
+  allowedEndpoints?: string[]    // ["messages"], ["responses"], or both
+  allowedChannelsMsg?: number[]  // channel indices for /v1/messages
+  allowedChannelsResp?: number[] // channel indices for /v1/responses
+  allowedModels?: string[]       // glob patterns: ["claude-sonnet-*"]
 }
 
 export interface CreateAPIKeyRequest {
@@ -1018,6 +1023,11 @@ export interface CreateAPIKeyRequest {
   description?: string
   isAdmin: boolean
   rateLimitRpm?: number
+  // Permission fields (nil/empty = unrestricted)
+  allowedEndpoints?: string[]
+  allowedChannelsMsg?: number[]
+  allowedChannelsResp?: number[]
+  allowedModels?: string[]
 }
 
 export interface CreateAPIKeyResponse extends APIKey {
@@ -1028,6 +1038,11 @@ export interface UpdateAPIKeyRequest {
   name?: string
   description?: string
   rateLimitRpm?: number
+  // Permission fields (nil = no change, empty array = clear/unrestrict)
+  allowedEndpoints?: string[]
+  allowedChannelsMsg?: number[]
+  allowedChannelsResp?: number[]
+  allowedModels?: string[]
 }
 
 export interface APIKeyListResponse {

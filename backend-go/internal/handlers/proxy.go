@@ -42,6 +42,19 @@ func ProxyHandlerWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.ConfigM
 			}
 		}
 
+		// Check endpoint permission
+		if vk, exists := c.Get(middleware.ContextKeyValidatedKey); exists {
+			if validatedKey, ok := vk.(*apikey.ValidatedKey); ok && validatedKey != nil {
+				if !validatedKey.CheckEndpointPermission("messages") {
+					c.JSON(403, gin.H{
+						"error": "Endpoint /v1/messages not allowed for this API key",
+						"code":  "ENDPOINT_NOT_ALLOWED",
+					})
+					return
+				}
+			}
+		}
+
 		startTime := time.Now()
 
 		// 读取原始请求体
@@ -71,6 +84,19 @@ func ProxyHandlerWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.ConfigM
 		var claudeReq types.ClaudeRequest
 		if len(bodyBytes) > 0 {
 			_ = json.Unmarshal(bodyBytes, &claudeReq)
+		}
+
+		// Check model permission
+		if vk, exists := c.Get(middleware.ContextKeyValidatedKey); exists {
+			if validatedKey, ok := vk.(*apikey.ValidatedKey); ok && validatedKey != nil {
+				if !validatedKey.CheckModelPermission(claudeReq.Model) {
+					c.JSON(403, gin.H{
+						"error": fmt.Sprintf("Model %s not allowed for this API key", claudeReq.Model),
+						"code":  "MODEL_NOT_ALLOWED",
+					})
+					return
+				}
+			}
 		}
 
 		// 提取 user_id 用于 Trace 亲和性
@@ -108,12 +134,20 @@ func ProxyHandlerWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.ConfigM
 		// 检查是否为多渠道模式
 		isMultiChannel := channelScheduler.IsMultiChannelMode(false)
 
+		// Get allowed channels from API key permissions
+		var allowedChannels []int
+		if vk, exists := c.Get(middleware.ContextKeyValidatedKey); exists {
+			if validatedKey, ok := vk.(*apikey.ValidatedKey); ok && validatedKey != nil {
+				allowedChannels = validatedKey.GetAllowedChannels(false) // false = Messages API
+			}
+		}
+
 		if isMultiChannel {
 			// 多渠道模式：使用调度器
-			handleMultiChannelProxy(c, envCfg, cfgManager, channelScheduler, bodyBytes, claudeReq, compoundUserID, startTime, reqLogManager, requestLogID, usageManager)
+			handleMultiChannelProxy(c, envCfg, cfgManager, channelScheduler, bodyBytes, claudeReq, compoundUserID, startTime, reqLogManager, requestLogID, usageManager, allowedChannels)
 		} else {
 			// 单渠道模式：使用现有逻辑
-			handleSingleChannelProxy(c, envCfg, cfgManager, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID, usageManager)
+			handleSingleChannelProxy(c, envCfg, cfgManager, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID, usageManager, allowedChannels)
 		}
 	})
 }
@@ -166,6 +200,7 @@ func handleMultiChannelProxy(
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
 	usageManager *quota.UsageManager,
+	allowedChannels []int,
 ) {
 	failedChannels := make(map[int]bool)
 	var lastError error
@@ -180,7 +215,7 @@ func handleMultiChannelProxy(
 
 	for channelAttempt := 0; channelAttempt < maxChannelAttempts; channelAttempt++ {
 		// 使用调度器选择渠道
-		selection, err := channelScheduler.SelectChannel(c.Request.Context(), userID, failedChannels, false)
+		selection, err := channelScheduler.SelectChannel(c.Request.Context(), userID, failedChannels, false, allowedChannels)
 		if err != nil {
 			lastError = err
 			break
@@ -394,6 +429,7 @@ func handleSingleChannelProxy(
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
 	usageManager *quota.UsageManager,
+	allowedChannels []int,
 ) {
 	// 获取当前上游配置
 	upstream, err := cfgManager.GetCurrentUpstream()
@@ -403,6 +439,24 @@ func handleSingleChannelProxy(
 			"code":  "NO_UPSTREAM",
 		})
 		return
+	}
+
+	// Check if this channel is allowed by API key permissions
+	if len(allowedChannels) > 0 {
+		allowed := false
+		for _, idx := range allowedChannels {
+			if idx == upstream.Index {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			c.JSON(403, gin.H{
+				"error": fmt.Sprintf("Channel %s (index %d) not allowed for this API key", upstream.Name, upstream.Index),
+				"code":  "CHANNEL_NOT_ALLOWED",
+			})
+			return
+		}
 	}
 
 	if len(upstream.APIKeys) == 0 {

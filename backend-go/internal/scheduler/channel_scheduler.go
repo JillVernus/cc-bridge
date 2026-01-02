@@ -53,11 +53,13 @@ type SelectionResult struct {
 
 // SelectChannel 选择最佳渠道
 // 优先级: 促销期渠道 > Trace亲和（促销渠道失败时回退） > 渠道优先级顺序
+// allowedChannels: API key 允许的渠道索引列表，nil 表示允许所有渠道
 func (s *ChannelScheduler) SelectChannel(
 	ctx context.Context,
 	userID string,
 	failedChannels map[int]bool,
 	isResponses bool,
+	allowedChannels []int,
 ) (*SelectionResult, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -66,6 +68,14 @@ func (s *ChannelScheduler) SelectChannel(
 	activeChannels := s.getActiveChannels(isResponses)
 	if len(activeChannels) == 0 {
 		return nil, fmt.Errorf("没有可用的活跃渠道")
+	}
+
+	// Filter by allowed channels if specified
+	if len(allowedChannels) > 0 {
+		activeChannels = s.filterByAllowedChannels(activeChannels, allowedChannels)
+		if len(activeChannels) == 0 {
+			return nil, fmt.Errorf("no available channel (allowed channels: %v)", allowedChannels)
+		}
 	}
 
 	// 获取对应类型的指标管理器
@@ -172,6 +182,24 @@ func (s *ChannelScheduler) findPromotedChannel(activeChannels []ChannelInfo, isR
 		}
 	}
 	return nil
+}
+
+// filterByAllowedChannels filters channels to only those in the allowed list
+func (s *ChannelScheduler) filterByAllowedChannels(channels []ChannelInfo, allowed []int) []ChannelInfo {
+	if len(allowed) == 0 {
+		return channels
+	}
+	allowedSet := make(map[int]bool)
+	for _, idx := range allowed {
+		allowedSet[idx] = true
+	}
+	var filtered []ChannelInfo
+	for _, ch := range channels {
+		if allowedSet[ch.Index] {
+			filtered = append(filtered, ch)
+		}
+	}
+	return filtered
 }
 
 // selectFallbackChannel 选择降级渠道（失败率最低的）

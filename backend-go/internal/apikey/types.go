@@ -23,6 +23,12 @@ type APIKey struct {
 	CreatedAt    time.Time  `json:"createdAt"`
 	UpdatedAt    time.Time  `json:"updatedAt"`
 	LastUsedAt   *time.Time `json:"lastUsedAt,omitempty"`
+
+	// Permission fields (nil/empty = unrestricted)
+	AllowedEndpoints    []string `json:"allowedEndpoints,omitempty"`    // ["messages"], ["responses"], or both
+	AllowedChannelsMsg  []int    `json:"allowedChannelsMsg,omitempty"`  // channel indices for /v1/messages
+	AllowedChannelsResp []int    `json:"allowedChannelsResp,omitempty"` // channel indices for /v1/responses
+	AllowedModels       []string `json:"allowedModels,omitempty"`       // glob patterns: ["claude-sonnet-*"]
 }
 
 // CreateAPIKeyRequest represents a request to create a new API key
@@ -31,6 +37,12 @@ type CreateAPIKeyRequest struct {
 	Description  string `json:"description"`
 	IsAdmin      bool   `json:"isAdmin"`
 	RateLimitRPM int    `json:"rateLimitRpm"`
+
+	// Permission fields (nil/empty = unrestricted)
+	AllowedEndpoints    []string `json:"allowedEndpoints,omitempty"`
+	AllowedChannelsMsg  []int    `json:"allowedChannelsMsg,omitempty"`
+	AllowedChannelsResp []int    `json:"allowedChannelsResp,omitempty"`
+	AllowedModels       []string `json:"allowedModels,omitempty"`
 }
 
 // CreateAPIKeyResponse represents the response after creating a new API key
@@ -45,6 +57,12 @@ type UpdateAPIKeyRequest struct {
 	Name         *string `json:"name"`
 	Description  *string `json:"description"`
 	RateLimitRPM *int    `json:"rateLimitRpm"`
+
+	// Permission fields (nil = no change, empty slice = clear/unrestrict)
+	AllowedEndpoints    *[]string `json:"allowedEndpoints,omitempty"`
+	AllowedChannelsMsg  *[]int    `json:"allowedChannelsMsg,omitempty"`
+	AllowedChannelsResp *[]int    `json:"allowedChannelsResp,omitempty"`
+	AllowedModels       *[]string `json:"allowedModels,omitempty"`
 }
 
 // APIKeyListResponse represents the response for listing API keys
@@ -68,4 +86,10 @@ type ValidatedKey struct {
 	Name         string
 	IsAdmin      bool
 	RateLimitRPM int
+
+	// Permission fields
+	AllowedEndpoints    []string
+	AllowedChannelsMsg  []int
+	AllowedChannelsResp []int
+	AllowedModels       []string
 }
