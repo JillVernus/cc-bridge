@@ -588,7 +588,7 @@ const appVersion = ref('') // 应用版本号
 const showPricingSettings = ref(false) // 定价设置对话框
 const showRateLimitSettings = ref(false) // 速率限制设置对话框
 const showBackupRestore = ref(false) // 备份恢复对话框
-const showGlobalStatsChart = ref(true) // 全局统计图表显示状态
+const showGlobalStatsChart = ref(false) // 全局统计图表显示状态
 
 // GlobalStatsChart 组件引用
 const globalStatsChartRef = ref<InstanceType<typeof GlobalStatsChart> | null>(null)
