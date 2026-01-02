@@ -79,14 +79,15 @@ type UpstreamConfig struct {
 	QuotaResetInterval int        `json:"quotaResetInterval,omitempty"` // 重置间隔值
 	QuotaResetUnit     string     `json:"quotaResetUnit,omitempty"`     // "hours" | "days" | "weeks" | "months"
 	QuotaModels        []string   `json:"quotaModels,omitempty"`        // 配额计数模型过滤（子字符串匹配），空数组=全部模型
+	QuotaResetMode     string     `json:"quotaResetMode,omitempty"`     // "fixed" | "rolling", 默认 "fixed"
 }
 
-// GetResponseHeaderTimeout 获取响应头超时时间（秒），默认30秒
+// GetResponseHeaderTimeout 获取响应头超时时间（秒），默认120秒
 func (u *UpstreamConfig) GetResponseHeaderTimeout() int {
 	if u.ResponseHeaderTimeoutSecs > 0 {
 		return u.ResponseHeaderTimeoutSecs
 	}
-	return 30 // 默认30秒
+	return 120 // 默认120秒
 }
 
 // GetPriceMultipliers 获取指定模型的价格乘数（累积模式：特定模型乘数 × _default 乘数）
@@ -189,6 +190,7 @@ type UpstreamUpdate struct {
 	QuotaResetInterval *int       `json:"quotaResetInterval"`
 	QuotaResetUnit     *string    `json:"quotaResetUnit"`
 	QuotaModels        []string   `json:"quotaModels"`
+	QuotaResetMode     *string    `json:"quotaResetMode"`
 }
 
 // Config 配置结构
@@ -895,6 +897,9 @@ func (cm *ConfigManager) UpdateUpstream(index int, updates UpstreamUpdate) (shou
 	if updates.QuotaModels != nil {
 		upstream.QuotaModels = updates.QuotaModels
 	}
+	if updates.QuotaResetMode != nil {
+		upstream.QuotaResetMode = *updates.QuotaResetMode
+	}
 
 	if err := cm.saveConfigLocked(cm.config); err != nil {
 		return false, err
@@ -1525,6 +1530,9 @@ func (cm *ConfigManager) UpdateResponsesUpstream(index int, updates UpstreamUpda
 	if updates.QuotaModels != nil {
 		upstream.QuotaModels = updates.QuotaModels
 	}
+	if updates.QuotaResetMode != nil {
+		upstream.QuotaResetMode = *updates.QuotaResetMode
+	}
 
 	if err := cm.saveConfigLocked(cm.config); err != nil {
 		return false, err
@@ -1532,6 +1540,28 @@ func (cm *ConfigManager) UpdateResponsesUpstream(index int, updates UpstreamUpda
 
 	log.Printf("已更新 Responses 上游: [%d] %s", index, cm.config.ResponsesUpstream[index].Name)
 	return shouldResetMetrics, nil
+}
+
+// UpdateChannelQuotaResetAt updates the quotaResetAt for a channel (internal use for rolling mode)
+func (cm *ConfigManager) UpdateChannelQuotaResetAt(index int, isResponses bool, newTime time.Time) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if isResponses {
+		if index < 0 || index >= len(cm.config.ResponsesUpstream) {
+			return fmt.Errorf("invalid responses channel index: %d", index)
+		}
+		cm.config.ResponsesUpstream[index].QuotaResetAt = &newTime
+		log.Printf("🔄 Rolling mode: Updated quotaResetAt for Responses channel [%d] to %s", index, newTime.Format(time.RFC3339))
+	} else {
+		if index < 0 || index >= len(cm.config.Upstream) {
+			return fmt.Errorf("invalid channel index: %d", index)
+		}
+		cm.config.Upstream[index].QuotaResetAt = &newTime
+		log.Printf("🔄 Rolling mode: Updated quotaResetAt for Messages channel [%d] to %s", index, newTime.Format(time.RFC3339))
+	}
+
+	return cm.saveConfigLocked(cm.config)
 }
 
 // RemoveResponsesUpstream 删除 Responses 上游

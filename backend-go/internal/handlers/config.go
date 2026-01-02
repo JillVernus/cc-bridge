@@ -24,6 +24,24 @@ func maskAPIKeys(keys []string) []string {
 	return masked
 }
 
+// MaskedKey represents a masked API key with its index
+type MaskedKey struct {
+	Index  int    `json:"index"`
+	Masked string `json:"masked"`
+}
+
+// buildMaskedKeys creates a list of masked keys with their indices
+func buildMaskedKeys(keys []string) []MaskedKey {
+	maskedKeys := make([]MaskedKey, len(keys))
+	for i, key := range keys {
+		maskedKeys[i] = MaskedKey{
+			Index:  i,
+			Masked: maskAPIKey(key),
+		}
+	}
+	return maskedKeys
+}
+
 // GetUpstreams 获取上游列表 (兼容前端 channels 字段名)
 func GetUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -42,6 +60,7 @@ func GetUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				"serviceType":           up.ServiceType,
 				"baseUrl":               up.BaseURL,
 				"apiKeyCount":           len(up.APIKeys),
+				"maskedKeys":            buildMaskedKeys(up.APIKeys),
 				"description":           up.Description,
 				"website":               up.Website,
 				"insecureSkipVerify":    up.InsecureSkipVerify,
@@ -587,6 +606,7 @@ func GetResponsesUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				"serviceType":           up.ServiceType,
 				"baseUrl":               up.BaseURL,
 				"apiKeyCount":           len(up.APIKeys),
+				"maskedKeys":            buildMaskedKeys(up.APIKeys),
 				"description":           up.Description,
 				"website":               up.Website,
 				"insecureSkipVerify":    up.InsecureSkipVerify,

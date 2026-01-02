@@ -144,6 +144,7 @@ export interface Channel {
   baseUrl: string
   apiKeys?: string[]        // Only present when creating/updating, not in GET responses
   apiKeyCount?: number      // Number of API keys (returned by GET)
+  maskedKeys?: Array<{ index: number; masked: string }>  // Masked keys for display/deletion
   description?: string
   website?: string
   insecureSkipVerify?: boolean
@@ -168,6 +169,7 @@ export interface Channel {
   quotaResetInterval?: number              // 重置间隔值
   quotaResetUnit?: 'hours' | 'days' | 'weeks' | 'months'  // 重置间隔单位
   quotaModels?: string[]                   // 配额计数模型过滤（子字符串匹配），空数组=全部模型
+  quotaResetMode?: 'fixed' | 'rolling'     // 重置模式：固定周期 | 滚动周期，默认 fixed
 }
 
 // 渠道用量配额状态

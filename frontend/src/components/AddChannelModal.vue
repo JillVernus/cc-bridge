@@ -574,6 +574,23 @@
                     </div>
                   </div>
 
+                  <!-- Reset Mode (only if quota type selected) -->
+                  <div v-if="form.quotaType" class="mt-4">
+                    <div class="d-flex align-center mb-2">
+                      <span class="text-body-2 text-medium-emphasis">{{ t('quota.resetMode') }}</span>
+                      <v-tooltip location="top">
+                        <template #activator="{ props }">
+                          <v-icon v-bind="props" size="small" color="grey" class="ml-1">mdi-information-outline</v-icon>
+                        </template>
+                        {{ form.quotaResetMode === 'fixed' ? t('quota.resetModeFixedHint') : t('quota.resetModeRollingHint') }}
+                      </v-tooltip>
+                    </div>
+                    <v-radio-group v-model="form.quotaResetMode" inline density="compact" hide-details>
+                      <v-radio :label="t('quota.resetModeFixed')" value="fixed" />
+                      <v-radio :label="t('quota.resetModeRolling')" value="rolling" />
+                    </v-radio-group>
+                  </div>
+
                   <!-- Model Filter (only if quota type selected) -->
                   <div v-if="form.quotaType" class="mt-4">
                     <div class="d-flex align-center mb-2">
@@ -672,15 +689,105 @@
                 </v-card-title>
 
                 <v-card-text class="pt-2">
-                  <!-- 编辑模式：显示现有密钥数量（密钥是只写的，不返回实际值） -->
-                  <v-alert v-if="isEditing && existingKeyCount > 0" type="info" variant="tonal" class="mb-4" density="compact">
-                    <div class="d-flex align-center ga-2">
-                      <v-icon size="small">mdi-information</v-icon>
-                      <span class="text-body-2">
-                        {{ t('addChannel.existingKeysInfo', { count: existingKeyCount }) }}
-                      </span>
+                  <!-- 编辑模式：显示现有密钥列表（可删除/重排序） -->
+                  <div v-if="isEditing && existingMaskedKeys.length > 0" class="mb-4">
+                    <div class="text-caption text-medium-emphasis mb-2">
+                      {{ t('addChannel.existingKeysLabel', { count: existingMaskedKeys.length }) }}
                     </div>
-                  </v-alert>
+                    <v-list density="compact" class="bg-transparent">
+                      <v-list-item
+                        v-for="maskedKey in existingMaskedKeys"
+                        :key="maskedKey.index"
+                        class="mb-2"
+                        rounded="lg"
+                        variant="tonal"
+                        color="surface-variant"
+                      >
+                        <template v-slot:prepend>
+                          <v-icon size="small" color="primary">mdi-key</v-icon>
+                        </template>
+
+                        <v-list-item-title>
+                          <code class="text-caption">{{ maskedKey.masked }}</code>
+                        </v-list-item-title>
+
+                        <template v-slot:append>
+                          <div class="d-flex align-center ga-1">
+                            <!-- Move to top (only show for last key when multiple keys exist) -->
+                            <v-tooltip
+                              v-if="maskedKey.index === existingMaskedKeys.length - 1 && existingMaskedKeys.length > 1"
+                              :text="t('addChannel.moveToTop')"
+                              location="top"
+                              :open-delay="150"
+                              content-class="key-tooltip"
+                            >
+                              <template #activator="{ props: tooltipProps }">
+                                <v-btn
+                                  v-bind="tooltipProps"
+                                  size="small"
+                                  color="warning"
+                                  icon
+                                  variant="text"
+                                  rounded="md"
+                                  :loading="existingKeyLoading === maskedKey.index"
+                                  :disabled="existingKeyLoading !== null"
+                                  @click="moveExistingKeyToTop(maskedKey.index)"
+                                >
+                                  <v-icon size="small">mdi-arrow-up-bold</v-icon>
+                                </v-btn>
+                              </template>
+                            </v-tooltip>
+                            <!-- Move to bottom (only show for first key when multiple keys exist) -->
+                            <v-tooltip
+                              v-if="maskedKey.index === 0 && existingMaskedKeys.length > 1"
+                              :text="t('addChannel.moveToBottom')"
+                              location="top"
+                              :open-delay="150"
+                              content-class="key-tooltip"
+                            >
+                              <template #activator="{ props: tooltipProps }">
+                                <v-btn
+                                  v-bind="tooltipProps"
+                                  size="small"
+                                  color="warning"
+                                  icon
+                                  variant="text"
+                                  rounded="md"
+                                  :loading="existingKeyLoading === maskedKey.index"
+                                  :disabled="existingKeyLoading !== null"
+                                  @click="moveExistingKeyToBottom(maskedKey.index)"
+                                >
+                                  <v-icon size="small">mdi-arrow-down-bold</v-icon>
+                                </v-btn>
+                              </template>
+                            </v-tooltip>
+                            <!-- Delete button -->
+                            <v-tooltip
+                              :text="t('addChannel.deleteKey')"
+                              location="top"
+                              :open-delay="150"
+                              content-class="key-tooltip"
+                            >
+                              <template #activator="{ props: tooltipProps }">
+                                <v-btn
+                                  v-bind="tooltipProps"
+                                  size="small"
+                                  color="error"
+                                  icon
+                                  variant="text"
+                                  :loading="existingKeyLoading === maskedKey.index"
+                                  :disabled="existingKeyLoading !== null"
+                                  @click="deleteExistingKey(maskedKey.index)"
+                                >
+                                  <v-icon size="small" color="error">mdi-close</v-icon>
+                                </v-btn>
+                              </template>
+                            </v-tooltip>
+                          </div>
+                        </template>
+                      </v-list-item>
+                    </v-list>
+                  </div>
 
                   <!-- 新添加的密钥列表（创建模式显示全部，编辑模式只显示新增的） -->
                   <div v-if="form.apiKeys.length" class="mb-4">
@@ -866,6 +973,7 @@ import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useTheme } from 'vuetify'
 import { useI18n } from 'vue-i18n'
 import type { Channel, OAuthTokens } from '../services/api'
+import { api } from '../services/api'
 
 // i18n
 const { t } = useI18n()
@@ -1137,7 +1245,8 @@ const form = reactive({
   quotaResetAt: undefined as string | undefined,
   quotaResetInterval: undefined as number | undefined,
   quotaResetUnit: 'days' as 'hours' | 'days' | 'weeks' | 'months',
-  quotaModels: [] as string[]
+  quotaModels: [] as string[],
+  quotaResetMode: 'fixed' as 'fixed' | 'rolling'
 })
 
 // OAuth 相关状态
@@ -1230,6 +1339,12 @@ const originalKeyMap = ref<Map<string, string>>(new Map())
 
 // Existing key count (for edit mode - keys are write-only)
 const existingKeyCount = ref(0)
+
+// Existing masked keys (for edit mode - allows deletion/reordering)
+const existingMaskedKeys = ref<Array<{ index: number; masked: string }>>([])
+
+// Loading state for existing key operations
+const existingKeyLoading = ref<number | null>(null)
 
 // 新API密钥输入
 const newApiKey = ref('')
@@ -1389,6 +1504,7 @@ const resetForm = () => {
   form.quotaResetInterval = undefined
   form.quotaResetUnit = 'days'
   form.quotaModels = []
+  form.quotaResetMode = 'fixed'
   newApiKey.value = ''
   newMapping.source = ''
   newMapping.target = ''
@@ -1403,6 +1519,10 @@ const resetForm = () => {
 
   // Reset existing key count (for edit mode)
   existingKeyCount.value = 0
+
+  // Reset existing masked keys
+  existingMaskedKeys.value = []
+  existingKeyLoading.value = null
 
   // 清空密钥错误状态
   apiKeyError.value = ''
@@ -1441,6 +1561,9 @@ const loadChannelData = (channel: Channel) => {
   // Store the existing key count for display
   existingKeyCount.value = channel.apiKeyCount || 0
 
+  // Store masked keys for display and deletion
+  existingMaskedKeys.value = channel.maskedKeys || []
+
   // Clear the original key map (not needed anymore)
   originalKeyMap.value.clear()
 
@@ -1465,6 +1588,7 @@ const loadChannelData = (channel: Channel) => {
   form.quotaResetInterval = channel.quotaResetInterval
   form.quotaResetUnit = channel.quotaResetUnit || 'days'
   form.quotaModels = channel.quotaModels || []
+  form.quotaResetMode = channel.quotaResetMode || 'fixed'
 
   // 加载 OAuth tokens（如果存在）
   if (channel.oauthTokens) {
@@ -1591,6 +1715,83 @@ const copyApiKey = async (key: string, index: number) => {
   }
 }
 
+// ============== Existing Key Operations (Edit Mode) ==============
+
+// Delete an existing key by index
+const deleteExistingKey = async (keyIndex: number) => {
+  if (!props.channel) return
+  existingKeyLoading.value = keyIndex
+
+  try {
+    if (props.channelType === 'responses') {
+      await api.removeResponsesApiKeyByIndex(props.channel.index, keyIndex)
+    } else {
+      await api.removeApiKeyByIndex(props.channel.index, keyIndex)
+    }
+    // Remove from local state
+    existingMaskedKeys.value = existingMaskedKeys.value.filter(k => k.index !== keyIndex)
+    // Re-index remaining keys
+    existingMaskedKeys.value = existingMaskedKeys.value.map((k, i) => ({ ...k, index: i }))
+    existingKeyCount.value = existingMaskedKeys.value.length
+  } catch (err) {
+    console.error('Failed to delete existing key:', err)
+  } finally {
+    existingKeyLoading.value = null
+  }
+}
+
+// Move an existing key to top
+const moveExistingKeyToTop = async (keyIndex: number) => {
+  if (!props.channel || keyIndex === 0) return
+  existingKeyLoading.value = keyIndex
+
+  try {
+    if (props.channelType === 'responses') {
+      await api.moveResponsesApiKeyToTopByIndex(props.channel.index, keyIndex)
+    } else {
+      await api.moveApiKeyToTopByIndex(props.channel.index, keyIndex)
+    }
+    // Reorder local state
+    const keyToMove = existingMaskedKeys.value.find(k => k.index === keyIndex)
+    if (keyToMove) {
+      existingMaskedKeys.value = existingMaskedKeys.value.filter(k => k.index !== keyIndex)
+      existingMaskedKeys.value.unshift(keyToMove)
+      // Re-index
+      existingMaskedKeys.value = existingMaskedKeys.value.map((k, i) => ({ ...k, index: i }))
+    }
+  } catch (err) {
+    console.error('Failed to move key to top:', err)
+  } finally {
+    existingKeyLoading.value = null
+  }
+}
+
+// Move an existing key to bottom
+const moveExistingKeyToBottom = async (keyIndex: number) => {
+  if (!props.channel || keyIndex === existingMaskedKeys.value.length - 1) return
+  existingKeyLoading.value = keyIndex
+
+  try {
+    if (props.channelType === 'responses') {
+      await api.moveResponsesApiKeyToBottomByIndex(props.channel.index, keyIndex)
+    } else {
+      await api.moveApiKeyToBottomByIndex(props.channel.index, keyIndex)
+    }
+    // Reorder local state
+    const keyToMove = existingMaskedKeys.value.find(k => k.index === keyIndex)
+    if (keyToMove) {
+      existingMaskedKeys.value = existingMaskedKeys.value.filter(k => k.index !== keyIndex)
+      existingMaskedKeys.value.push(keyToMove)
+      // Re-index
+      existingMaskedKeys.value = existingMaskedKeys.value.map((k, i) => ({ ...k, index: i }))
+    }
+  } catch (err) {
+    console.error('Failed to move key to bottom:', err)
+  } finally {
+    existingKeyLoading.value = null
+  }
+}
+
 const addModelMapping = () => {
   const source = newMapping.source.trim()
   const target = newMapping.target.trim()
@@ -1680,7 +1881,8 @@ const handleSubmit = async () => {
     quotaResetAt: form.quotaType && form.quotaResetAt ? new Date(form.quotaResetAt).toISOString() : undefined,
     quotaResetInterval: form.quotaType ? form.quotaResetInterval : undefined,
     quotaResetUnit: form.quotaType ? form.quotaResetUnit : undefined,
-    quotaModels: form.quotaType && form.quotaModels.length > 0 ? form.quotaModels : undefined
+    quotaModels: form.quotaType && form.quotaModels.length > 0 ? form.quotaModels : undefined,
+    quotaResetMode: form.quotaType ? form.quotaResetMode : undefined
   }
 
   // 对于 OAuth 渠道，添加 OAuth tokens

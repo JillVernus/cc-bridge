@@ -125,6 +125,21 @@ func (m *UsageManager) IncrementUsage(channelIndex int, amount float64) error {
 	}
 	m.usage.Messages[key] = usage
 
+	// For rolling mode: update quotaResetAt if it's in the past
+	cfg := m.configMgr.GetConfig()
+	if channelIndex >= 0 && channelIndex < len(cfg.Upstream) {
+		upstream := cfg.Upstream[channelIndex]
+		if upstream.QuotaResetMode == "rolling" &&
+			upstream.QuotaResetAt != nil &&
+			upstream.QuotaResetAt.Before(time.Now()) &&
+			upstream.QuotaResetInterval > 0 {
+			newResetAt := m.calculateNextResetFromNow(upstream.QuotaResetInterval, upstream.QuotaResetUnit)
+			if err := m.configMgr.UpdateChannelQuotaResetAt(channelIndex, false, newResetAt); err != nil {
+				log.Printf("⚠️ Failed to update quotaResetAt for rolling mode: %v", err)
+			}
+		}
+	}
+
 	return m.save()
 }
 
@@ -140,6 +155,21 @@ func (m *UsageManager) IncrementResponsesUsage(channelIndex int, amount float64)
 		usage.LastResetAt = time.Now()
 	}
 	m.usage.Responses[key] = usage
+
+	// For rolling mode: update quotaResetAt if it's in the past
+	cfg := m.configMgr.GetConfig()
+	if channelIndex >= 0 && channelIndex < len(cfg.ResponsesUpstream) {
+		upstream := cfg.ResponsesUpstream[channelIndex]
+		if upstream.QuotaResetMode == "rolling" &&
+			upstream.QuotaResetAt != nil &&
+			upstream.QuotaResetAt.Before(time.Now()) &&
+			upstream.QuotaResetInterval > 0 {
+			newResetAt := m.calculateNextResetFromNow(upstream.QuotaResetInterval, upstream.QuotaResetUnit)
+			if err := m.configMgr.UpdateChannelQuotaResetAt(channelIndex, true, newResetAt); err != nil {
+				log.Printf("⚠️ Failed to update quotaResetAt for Responses rolling mode: %v", err)
+			}
+		}
+	}
 
 	return m.save()
 }
@@ -317,6 +347,23 @@ func (m *UsageManager) calculateNextReset(firstReset *time.Time, interval int, u
 	}
 
 	return &next
+}
+
+// calculateNextResetFromNow calculates the next reset time from now based on interval and unit
+func (m *UsageManager) calculateNextResetFromNow(interval int, unit string) time.Time {
+	now := time.Now()
+	switch unit {
+	case "hours":
+		return now.Add(time.Duration(interval) * time.Hour)
+	case "days":
+		return now.AddDate(0, 0, interval)
+	case "weeks":
+		return now.AddDate(0, 0, interval*7)
+	case "months":
+		return now.AddDate(0, interval, 0)
+	default:
+		return now.AddDate(0, 0, interval) // default to days
+	}
 }
 
 // autoResetLoop periodically checks if any channels need auto-reset
