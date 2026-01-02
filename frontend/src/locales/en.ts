@@ -637,5 +637,10 @@ export default {
     manualResetDesc: 'This will reset the used quota to 0. Continue?',
     resetSuccess: 'Quota reset successfully',
     resetFailed: 'Failed to reset quota',
+    quotaModels: 'Model Filter',
+    quotaModelsLabel: 'Model Patterns',
+    quotaModelsPlaceholder: 'Type pattern and press Enter',
+    quotaModelsHint: 'Only count quota for models matching these patterns (substring match). Leave empty for all models.',
+    quotaModelsApplied: 'Models',
   },
 }

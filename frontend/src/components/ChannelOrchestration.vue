@@ -170,6 +170,9 @@
                           <div v-if="getUsageQuota(element.index)!.nextResetAt" class="text-caption text-medium-emphasis mt-1">
                             {{ t('quota.nextReset') }}: {{ new Date(getUsageQuota(element.index)!.nextResetAt!).toLocaleString() }}
                           </div>
+                          <div v-if="element.quotaModels && element.quotaModels.length > 0" class="text-caption text-medium-emphasis mt-1">
+                            {{ t('quota.quotaModelsApplied') }}: {{ element.quotaModels.join(', ') }}
+                          </div>
                         </template>
                       </div>
                     </v-tooltip>
@@ -194,6 +197,9 @@
                       </div>
                       <div v-if="getUsageQuota(element.index)!.nextResetAt" class="text-caption text-medium-emphasis mt-1">
                         {{ t('quota.nextReset') }}: {{ new Date(getUsageQuota(element.index)!.nextResetAt!).toLocaleString() }}
+                      </div>
+                      <div v-if="element.quotaModels && element.quotaModels.length > 0" class="text-caption text-medium-emphasis mt-1">
+                        {{ t('quota.quotaModelsApplied') }}: {{ element.quotaModels.join(', ') }}
                       </div>
                       <v-btn
                         size="x-small"

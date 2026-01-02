@@ -637,5 +637,10 @@ export default {
     manualResetDesc: '将已使用配额重置为 0，确定继续吗？',
     resetSuccess: '配额重置成功',
     resetFailed: '配额重置失败',
+    quotaModels: '模型过滤',
+    quotaModelsLabel: '模型匹配规则',
+    quotaModelsPlaceholder: '输入匹配规则后按回车',
+    quotaModelsHint: '仅对匹配规则的模型计入配额（子字符串匹配）。留空则对所有模型计数。',
+    quotaModelsApplied: '适用模型',
   },
 }

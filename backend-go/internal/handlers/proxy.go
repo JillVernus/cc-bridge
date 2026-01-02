@@ -687,8 +687,13 @@ func sendRequest(req *http.Request, upstream *config.UpstreamConfig, envCfg *con
 }
 
 // trackMessagesUsage tracks usage for Messages API channels based on quota type
-func trackMessagesUsage(usageManager *quota.UsageManager, upstream *config.UpstreamConfig, cost float64) {
+func trackMessagesUsage(usageManager *quota.UsageManager, upstream *config.UpstreamConfig, model string, cost float64) {
 	if usageManager == nil || upstream.QuotaType == "" {
+		return
+	}
+
+	// Check if this model should be counted for quota
+	if !upstream.ShouldCountQuota(model) {
 		return
 	}
 
@@ -856,7 +861,7 @@ func handleNormalResponse(c *gin.Context, resp *http.Response, provider provider
 
 			// Track usage for quota (only on successful responses)
 			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-				trackMessagesUsage(usageManager, upstream, record.Price)
+				trackMessagesUsage(usageManager, upstream, requestModel, record.Price)
 			}
 		}
 	}
@@ -996,7 +1001,7 @@ func handleStreamResponse(c *gin.Context, resp *http.Response, provider provider
 						}
 
 						// Track usage for quota (stream responses are successful when channel closed)
-						trackMessagesUsage(usageManager, upstream, record.Price)
+						trackMessagesUsage(usageManager, upstream, requestModel, record.Price)
 					}
 					return
 				}

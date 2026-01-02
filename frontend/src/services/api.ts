@@ -167,6 +167,7 @@ export interface Channel {
   quotaResetAt?: string                    // 首次/下次重置时间 (ISO datetime)
   quotaResetInterval?: number              // 重置间隔值
   quotaResetUnit?: 'hours' | 'days' | 'weeks' | 'months'  // 重置间隔单位
+  quotaModels?: string[]                   // 配额计数模型过滤（子字符串匹配），空数组=全部模型
 }
 
 // 渠道用量配额状态

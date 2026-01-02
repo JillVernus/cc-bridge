@@ -78,6 +78,7 @@ type UpstreamConfig struct {
 	QuotaResetAt       *time.Time `json:"quotaResetAt,omitempty"`       // 首次/下次重置时间
 	QuotaResetInterval int        `json:"quotaResetInterval,omitempty"` // 重置间隔值
 	QuotaResetUnit     string     `json:"quotaResetUnit,omitempty"`     // "hours" | "days" | "weeks" | "months"
+	QuotaModels        []string   `json:"quotaModels,omitempty"`        // 配额计数模型过滤（子字符串匹配），空数组=全部模型
 }
 
 // GetResponseHeaderTimeout 获取响应头超时时间（秒），默认30秒
@@ -148,6 +149,21 @@ func multiplyEffective(a, b float64) float64 {
 	return a * b
 }
 
+// ShouldCountQuota checks if the given model should be counted for quota
+// Returns true if QuotaModels is empty (count all) or if model matches any pattern (substring match)
+func (u *UpstreamConfig) ShouldCountQuota(model string) bool {
+	if len(u.QuotaModels) == 0 {
+		return true
+	}
+	modelLower := strings.ToLower(model)
+	for _, pattern := range u.QuotaModels {
+		if strings.Contains(modelLower, strings.ToLower(pattern)) {
+			return true
+		}
+	}
+	return false
+}
+
 // UpstreamUpdate 用于部分更新 UpstreamConfig
 type UpstreamUpdate struct {
 	Name                      *string           `json:"name"`
@@ -172,6 +188,7 @@ type UpstreamUpdate struct {
 	QuotaResetAt       *time.Time `json:"quotaResetAt"`
 	QuotaResetInterval *int       `json:"quotaResetInterval"`
 	QuotaResetUnit     *string    `json:"quotaResetUnit"`
+	QuotaModels        []string   `json:"quotaModels"`
 }
 
 // Config 配置结构
@@ -875,6 +892,9 @@ func (cm *ConfigManager) UpdateUpstream(index int, updates UpstreamUpdate) (shou
 	if updates.QuotaResetUnit != nil {
 		upstream.QuotaResetUnit = *updates.QuotaResetUnit
 	}
+	if updates.QuotaModels != nil {
+		upstream.QuotaModels = updates.QuotaModels
+	}
 
 	if err := cm.saveConfigLocked(cm.config); err != nil {
 		return false, err
@@ -1501,6 +1521,9 @@ func (cm *ConfigManager) UpdateResponsesUpstream(index int, updates UpstreamUpda
 	}
 	if updates.QuotaResetUnit != nil {
 		upstream.QuotaResetUnit = *updates.QuotaResetUnit
+	}
+	if updates.QuotaModels != nil {
+		upstream.QuotaModels = updates.QuotaModels
 	}
 
 	if err := cm.saveConfigLocked(cm.config); err != nil {

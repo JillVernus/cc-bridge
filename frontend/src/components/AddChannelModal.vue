@@ -497,10 +497,18 @@
                       min="0"
                       variant="outlined"
                       density="comfortable"
-                      :hint="t('quota.quotaLimitHint')"
-                      persistent-hint
+                      hide-details
                       style="max-width: 180px;"
-                    />
+                    >
+                      <template #append-inner>
+                        <v-tooltip location="top">
+                          <template #activator="{ props }">
+                            <v-icon v-bind="props" size="small" color="grey">mdi-information-outline</v-icon>
+                          </template>
+                          {{ t('quota.quotaLimitHint') }}
+                        </v-tooltip>
+                      </template>
+                    </v-text-field>
                   </div>
 
                   <!-- Reset Configuration (only if quota type selected) -->
@@ -514,10 +522,18 @@
                         type="datetime-local"
                         variant="outlined"
                         density="comfortable"
-                        :hint="t('quota.firstResetAtHint')"
-                        persistent-hint
-                        style="min-width: 220px; max-width: 260px;"
-                      />
+                        hide-details
+                        style="min-width: 280px; max-width: 320px;"
+                      >
+                        <template #append-inner>
+                          <v-tooltip location="top">
+                            <template #activator="{ props }">
+                              <v-icon v-bind="props" size="small" color="grey">mdi-information-outline</v-icon>
+                            </template>
+                            {{ t('quota.firstResetAtHint') }}
+                          </v-tooltip>
+                        </template>
+                      </v-text-field>
 
                       <!-- Reset Interval -->
                       <v-text-field
@@ -528,10 +544,18 @@
                         placeholder="1"
                         variant="outlined"
                         density="comfortable"
-                        :hint="t('quota.resetIntervalHint')"
-                        persistent-hint
+                        hide-details
                         style="min-width: 100px; max-width: 120px;"
-                      />
+                      >
+                        <template #append-inner>
+                          <v-tooltip location="top">
+                            <template #activator="{ props }">
+                              <v-icon v-bind="props" size="small" color="grey">mdi-information-outline</v-icon>
+                            </template>
+                            {{ t('quota.resetIntervalHint') }}
+                          </v-tooltip>
+                        </template>
+                      </v-text-field>
 
                       <!-- Interval Unit -->
                       <v-select
@@ -548,6 +572,30 @@
                         style="min-width: 100px; max-width: 140px;"
                       />
                     </div>
+                  </div>
+
+                  <!-- Model Filter (only if quota type selected) -->
+                  <div v-if="form.quotaType" class="mt-4">
+                    <div class="d-flex align-center mb-2">
+                      <span class="text-body-2 text-medium-emphasis">{{ t('quota.quotaModels') }}</span>
+                      <v-tooltip location="top">
+                        <template #activator="{ props }">
+                          <v-icon v-bind="props" size="small" color="grey" class="ml-1">mdi-information-outline</v-icon>
+                        </template>
+                        {{ t('quota.quotaModelsHint') }}
+                      </v-tooltip>
+                    </div>
+                    <v-combobox
+                      v-model="form.quotaModels"
+                      :label="t('quota.quotaModelsLabel')"
+                      :placeholder="t('quota.quotaModelsPlaceholder')"
+                      variant="outlined"
+                      density="comfortable"
+                      chips
+                      closable-chips
+                      multiple
+                      hide-details
+                    />
                   </div>
                 </v-card-text>
               </v-card>
@@ -1088,7 +1136,8 @@ const form = reactive({
   quotaLimit: undefined as number | undefined,
   quotaResetAt: undefined as string | undefined,
   quotaResetInterval: undefined as number | undefined,
-  quotaResetUnit: 'days' as 'hours' | 'days' | 'weeks' | 'months'
+  quotaResetUnit: 'days' as 'hours' | 'days' | 'weeks' | 'months',
+  quotaModels: [] as string[]
 })
 
 // OAuth 相关状态
@@ -1339,6 +1388,7 @@ const resetForm = () => {
   form.quotaResetAt = undefined
   form.quotaResetInterval = undefined
   form.quotaResetUnit = 'days'
+  form.quotaModels = []
   newApiKey.value = ''
   newMapping.source = ''
   newMapping.target = ''
@@ -1414,6 +1464,7 @@ const loadChannelData = (channel: Channel) => {
   }
   form.quotaResetInterval = channel.quotaResetInterval
   form.quotaResetUnit = channel.quotaResetUnit || 'days'
+  form.quotaModels = channel.quotaModels || []
 
   // 加载 OAuth tokens（如果存在）
   if (channel.oauthTokens) {
@@ -1628,7 +1679,8 @@ const handleSubmit = async () => {
     quotaLimit: form.quotaType ? form.quotaLimit : undefined,
     quotaResetAt: form.quotaType && form.quotaResetAt ? new Date(form.quotaResetAt).toISOString() : undefined,
     quotaResetInterval: form.quotaType ? form.quotaResetInterval : undefined,
-    quotaResetUnit: form.quotaType ? form.quotaResetUnit : undefined
+    quotaResetUnit: form.quotaType ? form.quotaResetUnit : undefined,
+    quotaModels: form.quotaType && form.quotaModels.length > 0 ? form.quotaModels : undefined
   }
 
   // 对于 OAuth 渠道，添加 OAuth tokens

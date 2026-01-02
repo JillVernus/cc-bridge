@@ -4,6 +4,25 @@
 
 ---
 
+## [v1.3.110] - 2026-01-02
+
+### ✨ 新功能
+
+- **渠道配额模型过滤**: 支持为渠道配额设置模型过滤规则 (⚠️ 未经测试)
+  - 新增 `quotaModels` 配置项，支持多个模型匹配规则
+  - 使用子字符串匹配（如输入 `opus` 可匹配 `claude-opus-4`、`claude-opus-4-5-20251101` 等）
+  - 留空则对所有模型计数（向后兼容）
+  - 后端：`UpstreamConfig.ShouldCountQuota()` 方法实现模型匹配逻辑
+  - 前端：AddChannelModal 添加 chips 输入组件，支持自由文本输入
+
+### 🔧 技术改进
+
+- **配额设置 UI 优化**: 将字段描述从 persistent-hint 改为 info 图标 + tooltip
+  - 解决 hint 文字导致字段被向上推挤的布局问题
+  - 增加 First Reset Time 字段宽度以完整显示 AM/PM
+
+---
+
 ## [v1.3.109] - 2026-01-02
 
 ### 🔧 技术改进

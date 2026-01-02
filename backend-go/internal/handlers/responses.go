@@ -34,8 +34,13 @@ import (
 var codexTokenManager = codex.NewTokenManager()
 
 // trackResponsesUsage tracks usage for Responses API channels based on quota type
-func trackResponsesUsage(usageManager *quota.UsageManager, upstream *config.UpstreamConfig, cost float64) {
+func trackResponsesUsage(usageManager *quota.UsageManager, upstream *config.UpstreamConfig, model string, cost float64) {
 	if usageManager == nil || upstream.QuotaType == "" {
+		return
+	}
+
+	// Check if this model should be counted for quota
+	if !upstream.ShouldCountQuota(model) {
 		return
 	}
 
@@ -1040,7 +1045,7 @@ func handleResponsesSuccess(
 			}
 
 			// Track usage for quota (streaming response completed)
-			trackResponsesUsage(usageManager, upstream, record.Price)
+			trackResponsesUsage(usageManager, upstream, originalReq.Model, record.Price)
 		}
 		return
 	}
@@ -1157,7 +1162,7 @@ func handleResponsesSuccess(
 
 		// Track usage for quota (non-streaming response)
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			trackResponsesUsage(usageManager, upstream, record.Price)
+			trackResponsesUsage(usageManager, upstream, originalReq.Model, record.Price)
 		}
 	}
 
