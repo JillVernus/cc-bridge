@@ -619,10 +619,10 @@
               :style="{ width: column.width }"
               class="v-data-table__th"
             >
-              <div :class="column.key === 'httpStatus' ? 'resizable-header-last' : 'resizable-header'">
+              <div :class="column.key === 'status' ? 'resizable-header-last' : 'resizable-header'">
                 <span :class="getHeaderColorClass(column.key ?? '')">{{ column.title }}</span>
                 <div
-                  v-if="column.key && column.key !== 'httpStatus'"
+                  v-if="column.key && column.key !== 'status'"
                   class="resize-handle"
                   @mousedown="startResize($event, column.key)"
                 ></div>
@@ -639,13 +639,35 @@
             width="2"
             color="warning"
           />
+          <v-tooltip v-else-if="item.error || item.upstreamError" location="top" max-width="400">
+            <template v-slot:activator="{ props }">
+              <v-chip
+                v-bind="props"
+                size="x-small"
+                :color="getRequestStatusColor(item.status)"
+                variant="flat"
+              >
+                {{ item.httpStatus || getRequestStatusLabel(item.status) }}
+              </v-chip>
+            </template>
+            <div class="error-tooltip">
+              <div v-if="item.error" class="error-line">
+                <span class="error-label">{{ t('requestLog.error') }}:</span>
+                <span>{{ item.error }}</span>
+              </div>
+              <div v-if="item.upstreamError" class="upstream-error-line">
+                <span class="error-label">{{ t('requestLog.upstreamResponse') }}:</span>
+                <span class="upstream-error-text">{{ item.upstreamError }}</span>
+              </div>
+            </div>
+          </v-tooltip>
           <v-chip
             v-else
             size="x-small"
             :color="getRequestStatusColor(item.status)"
             variant="flat"
           >
-            {{ getRequestStatusLabel(item.status) }}
+            {{ item.httpStatus || getRequestStatusLabel(item.status) }}
           </v-chip>
         </template>
 
@@ -849,36 +871,6 @@
           <span v-else class="text-caption price-value" :class="{ 'price-zero': !item.price }">
             {{ formatPriceDetailed(item.price) }}
           </span>
-        </template>
-
-        <template v-slot:item.httpStatus="{ item }">
-          <v-progress-circular
-            v-if="item.status === 'pending'"
-            indeterminate
-            size="16"
-            width="2"
-            color="grey"
-          />
-          <v-tooltip v-else-if="item.error || item.upstreamError" location="top" max-width="400">
-            <template v-slot:activator="{ props }">
-              <v-chip v-bind="props" size="x-small" :color="getStatusColor(item.httpStatus)" variant="tonal">
-                {{ item.httpStatus }}
-              </v-chip>
-            </template>
-            <div class="error-tooltip">
-              <div v-if="item.error" class="error-line">
-                <span class="error-label">错误:</span>
-                <span>{{ item.error }}</span>
-              </div>
-              <div v-if="item.upstreamError" class="upstream-error-line">
-                <span class="error-label">上游响应:</span>
-                <span class="upstream-error-text">{{ item.upstreamError }}</span>
-              </div>
-            </div>
-          </v-tooltip>
-          <v-chip v-else size="x-small" :color="getStatusColor(item.httpStatus)" variant="tonal">
-            {{ item.httpStatus }}
-          </v-chip>
         </template>
 
         <template v-slot:bottom>
@@ -1805,7 +1797,7 @@ let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
 
 // Column widths with defaults
 const defaultColumnWidths: Record<string, number> = {
-  status: 80,
+  status: 70,
   initialTime: 140,
   durationMs: 100,
   providerName: 120,
@@ -1818,7 +1810,6 @@ const defaultColumnWidths: Record<string, number> = {
   cacheCreation: 100,
   cacheHit: 100,
   price: 80,
-  httpStatus: 70
 }
 
 const columnWidths = ref<Record<string, number>>({ ...defaultColumnWidths })
@@ -1838,7 +1829,6 @@ const defaultColumnVisibility: Record<string, boolean> = {
   cacheCreation: true,
   cacheHit: true,
   price: true,
-  httpStatus: true
 }
 
 const columnVisibility = ref<Record<string, boolean>>({ ...defaultColumnVisibility })
@@ -1858,7 +1848,6 @@ const columnDisplayNames = computed(() => ({
   cacheCreation: t('requestLog.cacheCreation'),
   cacheHit: t('requestLog.cacheHit'),
   price: t('requestLog.price'),
-  httpStatus: t('requestLog.http')
 }))
 
 // Load column visibility from localStorage
@@ -1941,7 +1930,6 @@ const resetColumnWidths = () => {
 }
 
 const allHeaders = [
-  { title: () => t('requestLog.status'), key: 'status', sortable: false },
   { title: () => t('requestLog.time'), key: 'initialTime', sortable: false },
   { title: () => t('requestLog.duration'), key: 'durationMs', sortable: false },
   { title: () => t('requestLog.channel'), key: 'providerName', sortable: false },
@@ -1954,7 +1942,7 @@ const allHeaders = [
   { title: () => t('requestLog.cacheCreation'), key: 'cacheCreation', sortable: false },
   { title: () => t('requestLog.cacheHit'), key: 'cacheHit', sortable: false },
   { title: () => t('requestLog.price'), key: 'price', sortable: false },
-  { title: () => t('requestLog.http'), key: 'httpStatus', sortable: false },
+  { title: () => t('requestLog.status'), key: 'status', sortable: false },
 ]
 
 const headers = computed(() =>
@@ -2212,12 +2200,6 @@ const getProviderColor = (provider: string) => {
     gemini: 'blue'
   }
   return colors[provider] || 'grey'
-}
-
-const getStatusColor = (status: number) => {
-  if (status >= 200 && status < 300) return 'success'
-  if (status >= 400 && status < 500) return 'warning'
-  return 'error'
 }
 
 const getRequestStatusColor = (status: string) => {
