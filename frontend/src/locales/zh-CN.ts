@@ -400,6 +400,7 @@ export default {
     confirmDeleteModel: '确定要删除模型 "{model}" 的定价配置吗？',
     confirmReset: '确认重置',
     confirmResetDesc: '确定要将所有定价配置重置为默认值吗？自定义的定价将会丢失。',
+    duplicate: '复制',
   },
 
   // Backup & Restore

@@ -1160,8 +1160,8 @@ func handleResponsesSuccess(
 			log.Printf("⚠️ 请求日志更新失败: %v", err)
 		}
 
-		// Track usage for quota (non-streaming response)
-		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		// Track usage for quota (count 2xx and 400 as successful - 400 is client error but still counts as a request)
+		if (resp.StatusCode >= 200 && resp.StatusCode < 300) || resp.StatusCode == 400 {
 			trackResponsesUsage(usageManager, upstream, originalReq.Model, record.Price)
 		}
 	}

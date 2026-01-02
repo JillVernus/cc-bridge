@@ -53,10 +53,13 @@
               <td class="text-end text-caption">{{ formatCachePrice(pricing.cacheCreationPrice) }}</td>
               <td class="text-end text-caption">{{ formatCachePrice(pricing.cacheReadPrice) }}</td>
               <td class="text-center">
-                <v-btn icon size="x-small" variant="text" @click="editModel(String(model))">
+                <v-btn icon size="x-small" variant="text" @click="editModel(String(model))" :title="t('common.edit')">
                   <v-icon size="16">mdi-pencil</v-icon>
                 </v-btn>
-                <v-btn icon size="x-small" variant="text" color="error" @click="confirmDeleteModel(String(model))">
+                <v-btn icon size="x-small" variant="text" @click="duplicateModel(String(model))" :title="t('pricing.duplicate')">
+                  <v-icon size="16">mdi-content-copy</v-icon>
+                </v-btn>
+                <v-btn icon size="x-small" variant="text" color="error" @click="confirmDeleteModel(String(model))" :title="t('common.delete')">
                   <v-icon size="16">mdi-delete</v-icon>
                 </v-btn>
               </td>
@@ -249,6 +252,22 @@ const editModel = (model: string) => {
   }
 }
 
+const duplicateModel = (model: string) => {
+  const pricing = pricingConfig.value?.models[model]
+  if (pricing) {
+    editingModel.value = null
+    modelForm.value = {
+      name: model + '-copy',
+      description: pricing.description || '',
+      inputPrice: pricing.inputPrice,
+      outputPrice: pricing.outputPrice,
+      cacheCreationPrice: pricing.cacheCreationPrice || 0,
+      cacheReadPrice: pricing.cacheReadPrice || 0
+    }
+    showAddModelDialog.value = true
+  }
+}
+
 const cancelModelEdit = () => {
   showAddModelDialog.value = false
   editingModel.value = null
@@ -270,8 +289,8 @@ const saveModelPricing = async () => {
     const pricing: ModelPricing = {
       inputPrice: modelForm.value.inputPrice,
       outputPrice: modelForm.value.outputPrice,
-      cacheCreationPrice: modelForm.value.cacheCreationPrice || undefined,
-      cacheReadPrice: modelForm.value.cacheReadPrice || undefined,
+      cacheCreationPrice: modelForm.value.cacheCreationPrice === 0 ? 0 : (modelForm.value.cacheCreationPrice || undefined),
+      cacheReadPrice: modelForm.value.cacheReadPrice === 0 ? 0 : (modelForm.value.cacheReadPrice || undefined),
       description: modelForm.value.description || undefined
     }
     await api.setModelPricing(modelForm.value.name, pricing)

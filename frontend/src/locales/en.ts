@@ -400,6 +400,7 @@ export default {
     confirmDeleteModel: 'Are you sure you want to delete pricing for model "{model}"?',
     confirmReset: 'Confirm Reset',
     confirmResetDesc: 'Are you sure you want to reset all pricing to defaults? Custom prices will be lost.',
+    duplicate: 'Duplicate',
   },
 
   // Backup & Restore
