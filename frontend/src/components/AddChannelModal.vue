@@ -1875,8 +1875,8 @@ const handleSubmit = async () => {
     modelMapping: form.modelMapping,
     // 始终发送 priceMultipliers，即使为空对象（用于清除已有配置）
     priceMultipliers: form.priceMultipliers,
-    // Quota settings
-    quotaType: form.quotaType || undefined,
+    // Quota settings - always send quotaType (empty string clears quota)
+    quotaType: form.quotaType,
     quotaLimit: form.quotaType ? form.quotaLimit : undefined,
     quotaResetAt: form.quotaType && form.quotaResetAt ? new Date(form.quotaResetAt).toISOString() : undefined,
     quotaResetInterval: form.quotaType ? form.quotaResetInterval : undefined,
