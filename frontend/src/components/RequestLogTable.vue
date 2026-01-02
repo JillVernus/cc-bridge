@@ -610,76 +610,25 @@
         class="log-table resizable-table"
         :row-props="getRowProps"
       >
-        <!-- Custom headers with resize handles -->
-        <template v-slot:[`header.status`]="{ column }">
-          <div class="resizable-header">
-            {{ column.title }}
-            <div class="resize-handle" @mousedown="startResize($event, 'status')"></div>
-          </div>
-        </template>
-        <template v-slot:[`header.initialTime`]="{ column }">
-          <div class="resizable-header">
-            {{ column.title }}
-            <div class="resize-handle" @mousedown="startResize($event, 'initialTime')"></div>
-          </div>
-        </template>
-        <template v-slot:[`header.durationMs`]="{ column }">
-          <div class="resizable-header">
-            {{ column.title }}
-            <div class="resize-handle" @mousedown="startResize($event, 'durationMs')"></div>
-          </div>
-        </template>
-        <template v-slot:[`header.providerName`]="{ column }">
-          <div class="resizable-header">
-            {{ column.title }}
-            <div class="resize-handle" @mousedown="startResize($event, 'providerName')"></div>
-          </div>
-        </template>
-        <template v-slot:[`header.model`]="{ column }">
-          <div class="resizable-header">
-            {{ column.title }}
-            <div class="resize-handle" @mousedown="startResize($event, 'model')"></div>
-          </div>
-        </template>
-        <template v-slot:[`header.apiKeyId`]="{ column }">
-          <div class="resizable-header">
-            {{ column.title }}
-            <div class="resize-handle" @mousedown="startResize($event, 'apiKeyId')"></div>
-          </div>
-        </template>
-        <template v-slot:[`header.clientId`]="{ column }">
-          <div class="resizable-header">
-            {{ column.title }}
-            <div class="resize-handle" @mousedown="startResize($event, 'clientId')"></div>
-          </div>
-        </template>
-        <template v-slot:[`header.sessionId`]="{ column }">
-          <div class="resizable-header">
-            {{ column.title }}
-            <div class="resize-handle" @mousedown="startResize($event, 'sessionId')"></div>
-          </div>
-        </template>
-        <template v-slot:[`header.tokens`]>
-          <div class="resizable-header tokens-header">
-            <div class="tokens-header-row">
-              <span class="token-label input-color">In</span>
-              <span class="token-label output-color">Out</span>
-              <span class="token-label cache-create-color">Cache</span>
-              <span class="token-label cache-hit-color">Hit</span>
-            </div>
-            <div class="resize-handle" @mousedown="startResize($event, 'tokens')"></div>
-          </div>
-        </template>
-        <template v-slot:[`header.price`]="{ column }">
-          <div class="resizable-header">
-            {{ column.title }}
-            <div class="resize-handle" @mousedown="startResize($event, 'price')"></div>
-          </div>
-        </template>
-        <template v-slot:[`header.httpStatus`]="{ column }">
-          <div class="resizable-header-last">
-            {{ column.title }}
-          </div>
+        <!-- Custom headers with resize handles - using headers slot for proper dynamic binding -->
+        <template v-slot:headers="{ columns }">
+          <tr>
+            <th
+              v-for="column in columns"
+              :key="column.key ?? column.title"
+              :style="{ width: column.width }"
+              class="v-data-table__th"
+            >
+              <div :class="column.key === 'httpStatus' ? 'resizable-header-last' : 'resizable-header'">
+                <span :class="getHeaderColorClass(column.key ?? '')">{{ column.title }}</span>
+                <div
+                  v-if="column.key && column.key !== 'httpStatus'"
+                  class="resize-handle"
+                  @mousedown="startResize($event, column.key)"
+                ></div>
+              </div>
+            </th>
+          </tr>
         </template>
 
         <template v-slot:item.status="{ item }">
@@ -713,7 +662,7 @@
             color="grey"
           />
           <span v-else class="duration-text" :class="'duration-' + getDurationColor(item.durationMs)">
-            {{ item.durationMs }} ms
+            {{ formatDuration(item.durationMs) }}
           </span>
         </template>
 
@@ -815,19 +764,48 @@
           <span v-else class="text-caption mono-text id-cell">—</span>
         </template>
 
-        <template v-slot:item.tokens="{ item }">
-          <div v-if="item.status === 'pending'" class="tokens-cell">
-            <span class="token-value"><v-progress-circular indeterminate size="14" width="2" color="grey" /></span>
-            <span class="token-value"><v-progress-circular indeterminate size="14" width="2" color="grey" /></span>
-            <span class="token-value"><v-progress-circular indeterminate size="14" width="2" color="grey" /></span>
-            <span class="token-value"><v-progress-circular indeterminate size="14" width="2" color="grey" /></span>
-          </div>
-          <div v-else class="tokens-cell">
-            <span class="token-value input-color">{{ formatNumber(item.inputTokens) }} (<v-icon size="12">mdi-arrow-up</v-icon>)</span>
-            <span class="token-value output-color">{{ formatNumber(item.outputTokens) }} (<v-icon size="12">mdi-arrow-down</v-icon>)</span>
-            <span class="token-value cache-create-color">{{ formatNumber(item.cacheCreationInputTokens) }} (<v-icon size="12">mdi-arrow-up</v-icon>)</span>
-            <span class="token-value cache-hit-color">{{ formatNumber(item.cacheReadInputTokens) }} (<v-icon size="12">mdi-flash</v-icon>)</span>
-          </div>
+        <template v-slot:item.inputTokens="{ item }">
+          <v-progress-circular
+            v-if="item.status === 'pending'"
+            indeterminate
+            size="14"
+            width="2"
+            color="grey"
+          />
+          <span v-else class="token-text input-color">{{ formatTokens(item.inputTokens, '(↑)') }}</span>
+        </template>
+
+        <template v-slot:item.outputTokens="{ item }">
+          <v-progress-circular
+            v-if="item.status === 'pending'"
+            indeterminate
+            size="14"
+            width="2"
+            color="grey"
+          />
+          <span v-else class="token-text output-color">{{ formatTokens(item.outputTokens, '(↓)') }}</span>
+        </template>
+
+        <template v-slot:item.cacheCreation="{ item }">
+          <v-progress-circular
+            v-if="item.status === 'pending'"
+            indeterminate
+            size="14"
+            width="2"
+            color="grey"
+          />
+          <span v-else class="token-text cache-create-color">{{ formatTokens(item.cacheCreationInputTokens, '(+)') }}</span>
+        </template>
+
+        <template v-slot:item.cacheHit="{ item }">
+          <v-progress-circular
+            v-if="item.status === 'pending'"
+            indeterminate
+            size="14"
+            width="2"
+            color="grey"
+          />
+          <span v-else class="token-text cache-hit-color">{{ formatTokens(item.cacheReadInputTokens, '(⚡)') }}</span>
         </template>
 
         <template v-slot:item.price="{ item }">
@@ -1829,13 +1807,16 @@ let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
 const defaultColumnWidths: Record<string, number> = {
   status: 80,
   initialTime: 140,
-  durationMs: 80,
+  durationMs: 100,
   providerName: 120,
   model: 200,
   apiKeyId: 120,
   clientId: 220,
   sessionId: 240,
-  tokens: 400,
+  inputTokens: 100,
+  outputTokens: 100,
+  cacheCreation: 100,
+  cacheHit: 100,
   price: 80,
   httpStatus: 70
 }
@@ -1852,7 +1833,10 @@ const defaultColumnVisibility: Record<string, boolean> = {
   apiKeyId: true,
   clientId: true,
   sessionId: true,
-  tokens: true,
+  inputTokens: true,
+  outputTokens: true,
+  cacheCreation: true,
+  cacheHit: true,
   price: true,
   httpStatus: true
 }
@@ -1869,7 +1853,10 @@ const columnDisplayNames = computed(() => ({
   apiKeyId: t('requestLog.apiKey'),
   clientId: t('requestLog.client'),
   sessionId: t('requestLog.session'),
-  tokens: t('requestLog.tokens'),
+  inputTokens: t('requestLog.input'),
+  outputTokens: t('requestLog.output'),
+  cacheCreation: t('requestLog.cacheCreation'),
+  cacheHit: t('requestLog.cacheHit'),
   price: t('requestLog.price'),
   httpStatus: t('requestLog.http')
 }))
@@ -1879,7 +1866,14 @@ const loadColumnVisibility = () => {
   try {
     const saved = localStorage.getItem('requestlog-column-visibility')
     if (saved) {
-      columnVisibility.value = { ...defaultColumnVisibility, ...JSON.parse(saved) }
+      const parsed = JSON.parse(saved)
+      // Migration: remove old 'tokens' key if present
+      if ('tokens' in parsed) {
+        delete parsed.tokens
+      }
+      columnVisibility.value = { ...defaultColumnVisibility, ...parsed }
+      // Save migrated data
+      saveColumnVisibility()
     }
   } catch (e) {
     console.error('Failed to load column visibility:', e)
@@ -1917,7 +1911,14 @@ const loadColumnWidths = () => {
   try {
     const saved = localStorage.getItem('requestlog-column-widths')
     if (saved) {
-      columnWidths.value = { ...defaultColumnWidths, ...JSON.parse(saved) }
+      const parsed = JSON.parse(saved)
+      // Migration: remove old 'tokens' key if present
+      if ('tokens' in parsed) {
+        delete parsed.tokens
+      }
+      columnWidths.value = { ...defaultColumnWidths, ...parsed }
+      // Save migrated data
+      saveColumnWidths()
     }
   } catch (e) {
     console.error('Failed to load column widths:', e)
@@ -1942,13 +1943,16 @@ const resetColumnWidths = () => {
 const allHeaders = [
   { title: () => t('requestLog.status'), key: 'status', sortable: false },
   { title: () => t('requestLog.time'), key: 'initialTime', sortable: false },
-  { title: () => t('requestLog.duration'), key: 'durationMs', sortable: false, align: 'end' as const },
+  { title: () => t('requestLog.duration'), key: 'durationMs', sortable: false },
   { title: () => t('requestLog.channel'), key: 'providerName', sortable: false },
   { title: () => t('requestLog.model'), key: 'model', sortable: false },
   { title: () => t('requestLog.apiKey'), key: 'apiKeyId', sortable: false },
   { title: () => t('requestLog.client'), key: 'clientId', sortable: false },
   { title: () => t('requestLog.session'), key: 'sessionId', sortable: false },
-  { title: () => t('requestLog.tokens'), key: 'tokens', sortable: false },
+  { title: () => t('requestLog.input'), key: 'inputTokens', sortable: false },
+  { title: () => t('requestLog.output'), key: 'outputTokens', sortable: false },
+  { title: () => t('requestLog.cacheCreation'), key: 'cacheCreation', sortable: false },
+  { title: () => t('requestLog.cacheHit'), key: 'cacheHit', sortable: false },
   { title: () => t('requestLog.price'), key: 'price', sortable: false },
   { title: () => t('requestLog.http'), key: 'httpStatus', sortable: false },
 ]
@@ -2064,6 +2068,27 @@ const formatNumber = (n: number) => {
   if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'
   if (n >= 1000) return (n / 1000).toFixed(1) + 'K'
   return String(n)
+}
+
+// Format duration: 7-digit left-padded number + space + "ms" (e.g., "    352 ms")
+// Max 9999999ms = ~2.7 hours, sufficient for most requests
+const formatDuration = (ms: number) => {
+  const numStr = String(ms).slice(0, 7)
+  return numStr.padStart(7, '\u00A0') + '\u00A0ms'
+}
+
+// Format tokens: 6-char left-padded abbreviated number + space + symbol (e.g., " 1.2K (↑)")
+// Uses K/M abbreviations for readability
+const formatTokens = (tokens: number, symbol: string) => {
+  let numStr: string
+  if (tokens >= 1000000) {
+    numStr = (tokens / 1000000).toFixed(1) + 'M'
+  } else if (tokens >= 1000) {
+    numStr = (tokens / 1000).toFixed(1) + 'K'
+  } else {
+    numStr = String(tokens)
+  }
+  return numStr.padStart(6, '\u00A0') + '\u00A0' + symbol
 }
 
 const formatPrice = (price: number) => {
@@ -2213,6 +2238,22 @@ const getRequestStatusLabel = (status: string) => {
     timeout: t('requestLog.timeout')
   }
   return labels[status] || status
+}
+
+// Get color class for header based on column key
+const getHeaderColorClass = (key: string): string => {
+  switch (key) {
+    case 'inputTokens':
+      return 'input-color'
+    case 'outputTokens':
+      return 'output-color'
+    case 'cacheCreation':
+      return 'cache-create-color'
+    case 'cacheHit':
+      return 'cache-hit-color'
+    default:
+      return ''
+  }
 }
 
 const getRowProps = ({ item }: { item: RequestLog }) => {
@@ -2882,6 +2923,12 @@ const silentRefresh = async () => {
   font-family: 'Courier New', monospace;
 }
 
+/* Override Vuetify table cell padding for tighter layout */
+.log-table :deep(.v-table__wrapper > table > thead > tr > th),
+.log-table :deep(.v-table__wrapper > table > tbody > tr > td) {
+  padding: 0 4px;
+}
+
 .log-table :deep(th) {
   font-weight: 700 !important;
   font-size: 0.9rem !important;
@@ -2972,7 +3019,7 @@ const silentRefresh = async () => {
 .resizable-header,
 .resizable-header-last {
   position: relative;
-  display: inline-block;
+  display: block;
   width: 100%;
 }
 
@@ -2981,10 +3028,10 @@ const silentRefresh = async () => {
   top: -8px;
   right: -4px;
   bottom: -8px;
-  width: 8px;
+  width: 12px;
   cursor: col-resize;
   user-select: none;
-  z-index: 100;
+  z-index: 200;
   background: transparent;
   transition: all 0.2s ease;
 }
@@ -3004,7 +3051,7 @@ const silentRefresh = async () => {
 
 .resize-handle:hover {
   background: rgba(var(--v-theme-primary), 0.2);
-  width: 12px;
+  width: 16px;
   right: -6px;
 }
 
@@ -3017,63 +3064,22 @@ const silentRefresh = async () => {
   overflow: visible !important;
 }
 
+/* Ensure resize handles are above adjacent cells */
+.resizable-table :deep(thead th:hover) {
+  z-index: 20 !important;
+}
+
 .resizable-table :deep(thead) {
   position: relative;
   z-index: 10;
 }
 
 /* Token column styles */
-.tokens-header {
-  font-size: 0.75rem;
-  text-align: left;
-}
-
-.tokens-header-row {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 2px;
-}
-
-.token-label {
-  font-size: 0.7rem;
-  font-weight: 600;
-  min-width: 90px;
-  display: inline-block;
-  text-align: right;
-}
-
-.token-separator {
-  opacity: 0.4;
-  font-size: 0.7rem;
-}
-
-.tokens-cell {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 4px;
-  font-size: 0.85rem;
-  font-family: inherit;
-  white-space: nowrap;
-}
-
-.token-value {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
+.token-text {
+  font-family: 'Courier New', monospace;
   font-weight: 500;
-  min-width: 90px;
-}
-
-.token-value .v-icon {
-  margin: 0 !important;
-}
-
-.token-separator {
-  opacity: 0.4;
-  font-size: 0.7rem;
-  flex-shrink: 0;
+  font-size: 0.85rem;
+  white-space: pre;
 }
 
 /* Token color coding */
