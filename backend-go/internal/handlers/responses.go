@@ -933,6 +933,9 @@ func handleResponsesSuccess(
 		var logBuffer bytes.Buffer
 		streamLoggingEnabled := envCfg.IsDevelopment() && envCfg.EnableResponseLogs
 
+		// Check if debug logging is enabled (need to capture response body)
+		debugLogEnabled := cfgManager.GetDebugLogConfig().Enabled
+
 		// 对于 responses 类型（包括 openai-oauth），我们需要 synthesizer 来提取 usage，不论日志是否启用
 		needsSynthesizer := (upstreamType == "responses" || upstreamType == "openai-oauth") && reqLogManager != nil
 		if streamLoggingEnabled || needsSynthesizer {
@@ -961,8 +964,8 @@ func handleResponsesSuccess(
 		for scanner.Scan() {
 			line := scanner.Text()
 
-			// 记录日志（仅在开发模式下）
-			if streamLoggingEnabled {
+			// 记录日志（仅在开发模式下或调试日志启用时）
+			if streamLoggingEnabled || debugLogEnabled {
 				logBuffer.WriteString(line + "\n")
 			}
 			if synthesizer != nil {

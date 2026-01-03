@@ -954,6 +954,9 @@ func handleStreamResponse(c *gin.Context, resp *http.Response, provider provider
 	needsSynthesizer := (upstream.ServiceType == "claude" || upstream.ServiceType == "openai_chat") && reqLogManager != nil
 	streamLoggingEnabled := envCfg.IsDevelopment() && envCfg.EnableResponseLogs
 
+	// Check if debug logging is enabled (need to capture response body)
+	debugLogEnabled := cfgManager.GetDebugLogConfig().Enabled
+
 	if streamLoggingEnabled || needsSynthesizer {
 		synthesizer = utils.NewStreamSynthesizer(upstream.ServiceType)
 	}
@@ -1070,8 +1073,8 @@ func handleStreamResponse(c *gin.Context, resp *http.Response, provider provider
 				}
 
 			// 缓存事件用于最后的日志输出和 usage 提取
-			if streamLoggingEnabled || needsSynthesizer {
-				if streamLoggingEnabled {
+			if streamLoggingEnabled || needsSynthesizer || debugLogEnabled {
+				if streamLoggingEnabled || debugLogEnabled {
 					logBuffer.WriteString(event)
 				}
 				if synthesizer != nil {
