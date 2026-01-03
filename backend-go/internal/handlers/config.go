@@ -1113,3 +1113,54 @@ func GetResponsesChannelOAuthStatus(cfgManager *config.ConfigManager) gin.Handle
 		c.JSON(http.StatusOK, response)
 	}
 }
+
+// GetDebugLogConfig 获取调试日志配置
+func GetDebugLogConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		cfg := cfgManager.GetDebugLogConfig()
+		c.JSON(http.StatusOK, gin.H{
+			"enabled":        cfg.Enabled,
+			"retentionHours": cfg.GetRetentionHours(),
+			"maxBodySize":    cfg.GetMaxBodySize(),
+		})
+	}
+}
+
+// UpdateDebugLogConfig 更新调试日志配置
+func UpdateDebugLogConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Enabled        *bool `json:"enabled"`
+			RetentionHours *int  `json:"retentionHours"`
+			MaxBodySize    *int  `json:"maxBodySize"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		cfg := cfgManager.GetDebugLogConfig()
+
+		if req.Enabled != nil {
+			cfg.Enabled = *req.Enabled
+		}
+		if req.RetentionHours != nil {
+			cfg.RetentionHours = *req.RetentionHours
+		}
+		if req.MaxBodySize != nil {
+			cfg.MaxBodySize = *req.MaxBodySize
+		}
+
+		if err := cfgManager.UpdateDebugLogConfig(cfg); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"enabled":        cfg.Enabled,
+			"retentionHours": cfg.GetRetentionHours(),
+			"maxBodySize":    cfg.GetMaxBodySize(),
+		})
+	}
+}

@@ -40,6 +40,7 @@ export default {
     authenticatingWithSavedKey: '使用保存的访问密钥进行身份验证...',
     pricingSettings: '定价设置',
     rateLimitSettings: '速率限制设置',
+    debugLogSettings: '调试日志设置',
     logout: '注销',
     loggedOut: '已安全注销',
   },
@@ -668,5 +669,39 @@ export default {
     resetModeRolling: '滚动周期',
     resetModeFixedHint: '按首次重置时间的固定周期重置',
     resetModeRollingHint: '每次重置后从首次请求开始计算下一次重置时间',
+  },
+
+  // 调试日志设置
+  debugLog: {
+    title: '调试日志设置',
+    enabled: '已启用',
+    disabled: '已禁用',
+    enableDescription: '启用后，将记录完整的请求和响应数据（包括请求头和请求体）用于调试目的。',
+    retentionSection: '日志保留期',
+    retentionHours: '保留时长',
+    retentionDescription: '超过此时间的调试日志将被自动清理。',
+    maxSizeSection: '请求体大小限制',
+    maxBodySize: '最大请求体大小',
+    maxSizeDescription: '超过此大小的请求/响应体将被截断。',
+    storedLogs: '已存储 {count} 条调试日志',
+    purgeAll: '全部清除',
+    confirmPurge: '清除调试日志',
+    confirmPurgeDesc: '确定要删除所有调试日志吗？此操作无法撤销。',
+    purged: '已清除 {count} 条调试日志',
+    purgeFailed: '清除调试日志失败',
+    loadFailed: '加载调试日志配置失败',
+    saveFailed: '保存调试日志配置失败',
+  },
+
+  // 调试详情弹窗
+  debugModal: {
+    title: '请求调试详情',
+    request: '请求',
+    response: '响应',
+    headers: '请求头',
+    body: '请求体',
+    noHeaders: '未捕获请求头',
+    noData: '该请求没有调试数据',
+    loadFailed: '加载调试数据失败',
   },
 }

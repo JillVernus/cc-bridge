@@ -664,6 +664,36 @@ class ApiService {
     })
   }
 
+  // ============== 调试日志配置 API ==============
+
+  // 获取调试日志配置
+  async getDebugLogConfig(): Promise<DebugLogConfig> {
+    return this.request('/config/debug-log')
+  }
+
+  // 更新调试日志配置
+  async updateDebugLogConfig(config: Partial<DebugLogConfig>): Promise<DebugLogConfig> {
+    return this.request('/config/debug-log', {
+      method: 'PUT',
+      body: JSON.stringify(config)
+    })
+  }
+
+  // 获取请求的调试日志
+  async getDebugLog(requestId: string): Promise<DebugLogEntry> {
+    return this.request(`/logs/${encodeURIComponent(requestId)}/debug`)
+  }
+
+  // 清除所有调试日志
+  async purgeDebugLogs(): Promise<{ message: string; deleted: number }> {
+    return this.request('/logs/debug', { method: 'DELETE' })
+  }
+
+  // 获取调试日志统计
+  async getDebugLogStats(): Promise<{ count: number }> {
+    return this.request('/logs/debug/stats')
+  }
+
   // ============== 备份/恢复 API ==============
 
   // 创建备份
@@ -981,6 +1011,23 @@ export interface RateLimitConfig {
   api: EndpointRateLimit
   portal: EndpointRateLimit
   authFailure: AuthFailureConfig
+}
+
+// Debug Log Configuration Types
+export interface DebugLogConfig {
+  enabled: boolean
+  retentionHours: number
+  maxBodySize: number
+}
+
+// Debug Log Entry
+export interface DebugLogEntry {
+  requestId: string
+  requestHeaders: Record<string, string>
+  requestBody: string
+  responseHeaders: Record<string, string>
+  responseBody: string
+  createdAt: string
 }
 
 // 活跃会话类型

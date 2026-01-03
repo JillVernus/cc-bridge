@@ -57,6 +57,14 @@ export default defineConfig(({ mode }) => {
           }
         }
       }
+    },
+    css: {
+      preprocessorOptions: {
+        scss: {
+          // Suppress Sass deprecation warnings
+          silenceDeprecations: ['legacy-js-api', 'import', 'global-builtin']
+        }
+      }
     }
   }
 })

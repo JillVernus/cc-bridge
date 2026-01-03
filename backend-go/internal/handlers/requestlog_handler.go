@@ -408,3 +408,52 @@ func (h *RequestLogHandler) GetChannelStatsHistory(c *gin.Context) {
 
 	c.JSON(http.StatusOK, result)
 }
+
+// GetDebugLog 获取请求的调试日志
+func (h *RequestLogHandler) GetDebugLog(c *gin.Context) {
+	requestID := c.Param("id")
+	if requestID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Request ID is required"})
+		return
+	}
+
+	entry, err := h.manager.GetDebugLog(requestID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if entry == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Debug log not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, entry)
+}
+
+// PurgeDebugLogs 清除所有调试日志
+func (h *RequestLogHandler) PurgeDebugLogs(c *gin.Context) {
+	deleted, err := h.manager.PurgeAllDebugLogs()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Debug logs purged",
+		"deleted": deleted,
+	})
+}
+
+// GetDebugLogStats 获取调试日志统计信息
+func (h *RequestLogHandler) GetDebugLogStats(c *gin.Context) {
+	count, err := h.manager.GetDebugLogCount()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"count": count,
+	})
+}

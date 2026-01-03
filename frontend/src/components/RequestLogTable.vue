@@ -898,6 +898,12 @@
         </template>
       </v-data-table>
     </v-card>
+
+    <!-- Debug Modal -->
+    <RequestDebugModal
+      v-model="showDebugModal"
+      :request-id="selectedRequestId"
+    />
   </div>
 </template>
 
@@ -905,6 +911,7 @@
 	import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 	import { useI18n } from 'vue-i18n'
 	import { api, type RequestLog, type RequestLogStats, type GroupStats, type ActiveSession, type APIKey } from '../services/api'
+	import RequestDebugModal from './RequestDebugModal.vue'
 
 	// i18n
 	const { t } = useI18n()
@@ -937,6 +944,10 @@ const showAliasDialog = ref(false)
 const editingUserId = ref<string>('')
 const aliasInput = ref<string>('')
 const aliasError = ref<string>('')
+
+// Debug modal state
+const showDebugModal = ref(false)
+const selectedRequestId = ref<string | null>(null)
 
 // API keys state (for displaying key names by ID)
 const apiKeys = ref<APIKey[]>([])
@@ -2240,8 +2251,14 @@ const getHeaderColorClass = (key: string): string => {
 
 const getRowProps = ({ item }: { item: RequestLog }) => {
   return {
-    class: updatedIds.value.has(item.id) ? 'row-flash' : ''
+    class: updatedIds.value.has(item.id) ? 'row-flash clickable-row' : 'clickable-row',
+    onClick: () => openDebugModal(item.id)
   }
+}
+
+const openDebugModal = (requestId: string) => {
+  selectedRequestId.value = requestId
+  showDebugModal.value = true
 }
 
 const confirmClearLogs = () => {
@@ -2953,6 +2970,16 @@ const silentRefresh = async () => {
 
 .log-table :deep(tr.row-flash) {
   animation: row-flash 1s ease-out;
+}
+
+/* Clickable row style */
+.log-table :deep(tr.clickable-row) {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.log-table :deep(tr.clickable-row:hover) {
+  background-color: rgba(var(--v-theme-primary), 0.08) !important;
 }
 
 /* Summary table row flash animation */

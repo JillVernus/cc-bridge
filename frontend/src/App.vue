@@ -82,6 +82,12 @@
               </template>
               <v-list-item-title>{{ t('app.rateLimitSettings') }}</v-list-item-title>
             </v-list-item>
+            <v-list-item @click="showDebugLogSettings = true">
+              <template #prepend>
+                <v-icon size="small">mdi-bug</v-icon>
+              </template>
+              <v-list-item-title>{{ t('app.debugLogSettings') }}</v-list-item-title>
+            </v-list-item>
             <v-list-item @click="openBackupRestore">
               <template #prepend>
                 <v-icon size="small">mdi-backup-restore</v-icon>
@@ -425,6 +431,9 @@
     <!-- 速率限制设置对话框 -->
     <RateLimitSettings v-model="showRateLimitSettings" />
 
+    <!-- 调试日志设置对话框 -->
+    <DebugLogSettings v-model="showDebugLogSettings" />
+
     <!-- 备份恢复对话框 -->
     <v-dialog v-model="showBackupRestore" max-width="600">
       <v-card>
@@ -550,6 +559,7 @@ import RequestLogTable from './components/RequestLogTable.vue'
 import APIKeyManagement from './components/APIKeyManagement.vue'
 import PricingSettings from './components/PricingSettings.vue'
 import RateLimitSettings from './components/RateLimitSettings.vue'
+import DebugLogSettings from './components/DebugLogSettings.vue'
 import GlobalStatsChart from './components/GlobalStatsChart.vue'
 import { useAppTheme } from './composables/useTheme'
 import { useLocale } from './composables/useLocale'
@@ -587,6 +597,7 @@ const darkModePreference = ref<'light' | 'dark' | 'auto'>('auto')
 const appVersion = ref('') // 应用版本号
 const showPricingSettings = ref(false) // 定价设置对话框
 const showRateLimitSettings = ref(false) // 速率限制设置对话框
+const showDebugLogSettings = ref(false) // 调试日志设置对话框
 const showBackupRestore = ref(false) // 备份恢复对话框
 const showGlobalStatsChart = ref(false) // 全局统计图表显示状态
 
@@ -1222,6 +1233,8 @@ const handleKeydown = (event: KeyboardEvent) => {
     showDeleteChannelConfirm.value = false
     showDeleteApiKeyConfirm.value = false
     showPricingSettings.value = false
+    showRateLimitSettings.value = false
+    showDebugLogSettings.value = false
     showBackupRestore.value = false
     showRestoreConfirm.value = false
     return

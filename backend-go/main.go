@@ -116,6 +116,12 @@ func main() {
 				}
 			}
 		}()
+
+		// 启动调试日志清理 goroutine（每小时执行一次）
+		reqLogManager.StartDebugLogCleanup(func() int {
+			cfg := cfgManager.GetDebugLogConfig()
+			return cfg.GetRetentionHours()
+		})
 	}
 
 	// 初始化用量配额管理器（用于渠道配额追踪）
@@ -315,6 +321,11 @@ func main() {
 			apiGroup.DELETE("/logs", reqLogHandler.ClearLogs)
 			apiGroup.POST("/logs/cleanup", reqLogHandler.CleanupLogs)
 
+			// 调试日志 API
+			apiGroup.GET("/logs/:id/debug", reqLogHandler.GetDebugLog)
+			apiGroup.DELETE("/logs/debug", reqLogHandler.PurgeDebugLogs)
+			apiGroup.GET("/logs/debug/stats", reqLogHandler.GetDebugLogStats)
+
 			// 用户别名 API
 			apiGroup.GET("/aliases", reqLogHandler.GetAliases)
 			apiGroup.PUT("/aliases/:userId", reqLogHandler.SetAlias)
@@ -359,6 +370,10 @@ func main() {
 		apiGroup.GET("/ratelimit", handlers.GetRateLimitConfig())
 		apiGroup.PUT("/ratelimit", handlers.UpdateRateLimitConfig())
 		apiGroup.POST("/ratelimit/reset", handlers.ResetRateLimitConfig())
+
+		// 调试日志配置 API
+		apiGroup.GET("/config/debug-log", handlers.GetDebugLogConfig(cfgManager))
+		apiGroup.PUT("/config/debug-log", handlers.UpdateDebugLogConfig(cfgManager))
 
 		// 备份/恢复 API
 		apiGroup.POST("/config/backup", handlers.CreateBackup(cfgManager))

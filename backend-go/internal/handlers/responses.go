@@ -128,6 +128,9 @@ func ResponsesHandlerWithAPIKey(
 		// 恢复请求体供后续使用
 		c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
+		// Store request data for debug logging
+		StoreDebugRequestData(c, bodyBytes)
+
 		// 解析 Responses 请求
 		var responsesReq types.ResponsesRequest
 		if len(bodyBytes) > 0 {
@@ -398,7 +401,7 @@ func tryResponsesChannelWithAllKeys(
 			}
 		}
 
-		handleResponsesSuccess(c, resp, provider, upstream, envCfg, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID, usageManager)
+		handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID, usageManager)
 		return true, nil
 	}
 
@@ -555,7 +558,7 @@ func tryResponsesChannelWithOAuth(
 	quota.GetManager().UpdateFromHeaders(upstream.Index, upstream.Name, resp.Header)
 
 	provider := &providers.ResponsesProvider{SessionManager: sessionManager}
-	handleResponsesSuccess(c, resp, provider, upstream, envCfg, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID, usageManager)
+	handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID, usageManager)
 	return true, nil
 }
 
@@ -806,7 +809,7 @@ func handleSingleChannelResponses(
 			}
 		}
 
-		handleResponsesSuccess(c, resp, provider, upstream, envCfg, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID, usageManager)
+		handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID, usageManager)
 		return
 	}
 
@@ -893,6 +896,7 @@ func handleResponsesSuccess(
 	provider *providers.ResponsesProvider,
 	upstream *config.UpstreamConfig,
 	envCfg *config.EnvConfig,
+	cfgManager *config.ConfigManager,
 	sessionManager *session.SessionManager,
 	startTime time.Time,
 	originalReq *types.ResponsesRequest,
@@ -1098,6 +1102,9 @@ func handleResponsesSuccess(
 				log.Printf("⚠️ 请求日志更新失败: %v", err)
 			}
 
+			// Save debug log if enabled (use logBuffer for stream response body)
+			SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, logBuffer.Bytes())
+
 			// Track usage for quota (streaming response completed)
 			trackResponsesUsage(usageManager, upstream, originalReq.Model, record.Price)
 		}
@@ -1213,6 +1220,9 @@ func handleResponsesSuccess(
 		if err := reqLogManager.Update(requestLogID, record); err != nil {
 			log.Printf("⚠️ 请求日志更新失败: %v", err)
 		}
+
+		// Save debug log if enabled
+		SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, bodyBytes)
 
 		// Track usage for quota (count 2xx and 400 as successful - 400 is client error but still counts as a request)
 		if (resp.StatusCode >= 200 && resp.StatusCode < 300) || resp.StatusCode == 400 {

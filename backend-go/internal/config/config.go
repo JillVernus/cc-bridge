@@ -194,6 +194,29 @@ type UpstreamUpdate struct {
 }
 
 // Config 配置结构
+// DebugLogConfig 调试日志配置
+type DebugLogConfig struct {
+	Enabled        bool `json:"enabled"`        // 是否启用调试日志，默认 false
+	RetentionHours int  `json:"retentionHours"` // 保留时间（小时），默认 24
+	MaxBodySize    int  `json:"maxBodySize"`    // 最大请求体大小（字节），默认 1MB
+}
+
+// GetRetentionHours 获取保留时间，默认 24 小时
+func (d *DebugLogConfig) GetRetentionHours() int {
+	if d.RetentionHours <= 0 {
+		return 24
+	}
+	return d.RetentionHours
+}
+
+// GetMaxBodySize 获取最大请求体大小，默认 1MB
+func (d *DebugLogConfig) GetMaxBodySize() int {
+	if d.MaxBodySize <= 0 {
+		return 1048576 // 1MB
+	}
+	return d.MaxBodySize
+}
+
 type Config struct {
 	Upstream        []UpstreamConfig `json:"upstream"`
 	CurrentUpstream int              `json:"currentUpstream,omitempty"` // 已废弃：旧格式兼容用
@@ -203,6 +226,9 @@ type Config struct {
 	ResponsesUpstream        []UpstreamConfig `json:"responsesUpstream"`
 	CurrentResponsesUpstream int              `json:"currentResponsesUpstream,omitempty"` // 已废弃：旧格式兼容用
 	ResponsesLoadBalance     string           `json:"responsesLoadBalance"`
+
+	// 调试日志配置
+	DebugLog DebugLogConfig `json:"debugLog,omitempty"`
 }
 
 // FailedKey 失败密钥记录
@@ -1932,4 +1958,20 @@ func (cm *ConfigManager) GetPromotedResponsesChannel() (int, bool) {
 		}
 	}
 	return -1, false
+}
+
+// GetDebugLogConfig 获取调试日志配置
+func (cm *ConfigManager) GetDebugLogConfig() DebugLogConfig {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	return cm.config.DebugLog
+}
+
+// UpdateDebugLogConfig 更新调试日志配置
+func (cm *ConfigManager) UpdateDebugLogConfig(config DebugLogConfig) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cm.config.DebugLog = config
+	return cm.saveConfigLocked(cm.config)
 }

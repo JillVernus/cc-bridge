@@ -40,6 +40,7 @@ export default {
     authenticatingWithSavedKey: 'Authenticating with saved access key...',
     pricingSettings: 'Pricing Settings',
     rateLimitSettings: 'Rate Limit Settings',
+    debugLogSettings: 'Debug Log Settings',
     logout: 'Logout',
     loggedOut: 'Logged out safely',
   },
@@ -668,5 +669,39 @@ export default {
     resetModeRolling: 'Rolling Interval',
     resetModeFixedHint: 'Reset at fixed schedule based on first reset time',
     resetModeRollingHint: 'Reset interval starts from first request after each reset',
+  },
+
+  // Debug Log Settings
+  debugLog: {
+    title: 'Debug Log Settings',
+    enabled: 'Enabled',
+    disabled: 'Disabled',
+    enableDescription: 'When enabled, full request and response bodies (headers + body) will be captured for debugging purposes.',
+    retentionSection: 'Log Retention',
+    retentionHours: 'Retention Hours',
+    retentionDescription: 'Debug logs older than this will be automatically cleaned up.',
+    maxSizeSection: 'Body Size Limit',
+    maxBodySize: 'Max Body Size',
+    maxSizeDescription: 'Request/response bodies larger than this will be truncated.',
+    storedLogs: '{count} debug log entries stored',
+    purgeAll: 'Purge All',
+    confirmPurge: 'Purge Debug Logs',
+    confirmPurgeDesc: 'Are you sure you want to delete all debug logs? This cannot be undone.',
+    purged: 'Purged {count} debug log entries',
+    purgeFailed: 'Failed to purge debug logs',
+    loadFailed: 'Failed to load debug log configuration',
+    saveFailed: 'Failed to save debug log configuration',
+  },
+
+  // Debug Modal (for viewing request/response details)
+  debugModal: {
+    title: 'Request Debug Details',
+    request: 'Request',
+    response: 'Response',
+    headers: 'Headers',
+    body: 'Body',
+    noHeaders: 'No headers captured',
+    noData: 'No debug data available for this request',
+    loadFailed: 'Failed to load debug data',
   },
 }

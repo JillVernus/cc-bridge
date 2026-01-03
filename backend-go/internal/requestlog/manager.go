@@ -314,6 +314,28 @@ func (m *Manager) initSchema() error {
 		log.Printf("⚠️ Failed to create channel_quota table: %v", err)
 	}
 
+	// Create request_debug_logs table for storing full request/response data
+	debugSchema := `
+	CREATE TABLE IF NOT EXISTS request_debug_logs (
+		request_id TEXT PRIMARY KEY,
+		request_method TEXT NOT NULL,
+		request_path TEXT NOT NULL,
+		request_headers BLOB,
+		request_body BLOB,
+		request_body_size INTEGER DEFAULT 0,
+		response_status INTEGER DEFAULT 0,
+		response_headers BLOB,
+		response_body BLOB,
+		response_body_size INTEGER DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (request_id) REFERENCES request_logs(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_debug_logs_created ON request_debug_logs(created_at);
+	`
+	if _, err := m.db.Exec(debugSchema); err != nil {
+		log.Printf("⚠️ Failed to create request_debug_logs table: %v", err)
+	}
+
 	return nil
 }
 
