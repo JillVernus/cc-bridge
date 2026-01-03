@@ -197,6 +197,7 @@ cc-bridge/
 
 ## 重要提示
 
+- **Go 构建**: 本机未安装 Go 环境，**不要执行** `go build`、`go test` 等 Go 命令。用户会通过 Docker 构建和测试。
 - **Git 操作**: 未经用户明确要求，不要执行 git commit/push/branch 操作
 - **版本更新**: 当用户要求或批准 commit 时，**必须**同时更新 `VERSION` 文件和 `frontend/package.json` 中的版本号（patch 版本 +1），并在 `CHANGELOG.md` 顶部添加对应版本的更新记录
 - **配置热重载**: `backend-go/.config/config.json` 修改后自动生效，无需重启

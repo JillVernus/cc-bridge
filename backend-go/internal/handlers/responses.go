@@ -496,6 +496,23 @@ func tryResponsesChannelWithAllKeys(
 				continue
 			}
 
+			// 非 failover 错误，更新请求日志并返回
+			if reqLogManager != nil && requestLogID != "" {
+				completeTime := time.Now()
+				record := &requestlog.RequestLog{
+					Status:        requestlog.StatusError,
+					CompleteTime:  completeTime,
+					DurationMs:    completeTime.Sub(startTime).Milliseconds(),
+					Type:          upstream.ServiceType,
+					ProviderName:  upstream.Name,
+					HTTPStatus:    resp.StatusCode,
+					ChannelID:     upstream.Index,
+					ChannelName:   upstream.Name,
+					Error:         fmt.Sprintf("upstream returned status %d", resp.StatusCode),
+					UpstreamError: string(respBodyBytes),
+				}
+				_ = reqLogManager.Update(requestLogID, record)
+			}
 			c.Data(resp.StatusCode, "application/json", respBodyBytes)
 			return true, nil
 		}
