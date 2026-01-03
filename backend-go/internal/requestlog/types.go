@@ -7,15 +7,16 @@ import (
 // Request status constants
 const (
 	StatusPending   = "pending"   // Request received, waiting for response
-	StatusCompleted = "completed" // Response received successfully
-	StatusError     = "error"     // Request failed with error
+	StatusCompleted = "completed" // Request succeeded (2xx response)
+	StatusError     = "error"     // Request failed (final failure, no more retries)
 	StatusTimeout   = "timeout"   // Request timed out (stale pending)
+	StatusFailover  = "failover"  // Request failed, switching to next channel
 )
 
 // RequestLog represents a single API request/response record
 type RequestLog struct {
 	ID                       string    `json:"id"`
-	Status                   string    `json:"status"` // pending, completed, error, timeout
+	Status                   string    `json:"status"` // pending, completed, error, timeout, failover (see StatusXxx constants)
 	InitialTime              time.Time `json:"initialTime"`
 	CompleteTime             time.Time `json:"completeTime"`
 	DurationMs               int64     `json:"durationMs"`

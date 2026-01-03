@@ -211,8 +211,8 @@ func ResponsesHandlerWithAPIKey(
 		}
 
 		if isMultiChannel {
-			// 多渠道模式：使用调度器
-			handleMultiChannelResponses(c, envCfg, cfgManager, channelScheduler, sessionManager, bodyBytes, responsesReq, compoundUserID, startTime, reqLogManager, requestLogID, usageManager, allowedChannels)
+			// Multi-channel mode: use scheduler with failover
+			handleMultiChannelResponses(c, envCfg, cfgManager, channelScheduler, sessionManager, bodyBytes, responsesReq, userID, sessionID, apiKeyID, reasoningEffort, startTime, reqLogManager, requestLogID, usageManager, allowedChannels)
 		} else {
 			// 单渠道模式：使用现有逻辑
 			handleSingleChannelResponses(c, envCfg, cfgManager, sessionManager, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager, allowedChannels)
@@ -220,7 +220,9 @@ func ResponsesHandlerWithAPIKey(
 	})
 }
 
-// handleMultiChannelResponses 处理多渠道 Responses 请求
+// handleMultiChannelResponses handles multi-channel Responses API requests with failover support.
+// When a channel fails and there are more channels to try, it logs the failed attempt
+// with StatusFailover and creates a new pending log for the next attempt.
 func handleMultiChannelResponses(
 	c *gin.Context,
 	envCfg *config.EnvConfig,
@@ -229,7 +231,10 @@ func handleMultiChannelResponses(
 	sessionManager *session.SessionManager,
 	bodyBytes []byte,
 	responsesReq types.ResponsesRequest,
-	userID string,
+	clientID string,
+	sessionID string,
+	apiKeyID *int64,
+	reasoningEffort string,
 	startTime time.Time,
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
@@ -242,11 +247,12 @@ func handleMultiChannelResponses(
 		Status int
 		Body   []byte
 	}
+	var lastFailedUpstream *config.UpstreamConfig
 
 	maxChannelAttempts := channelScheduler.GetActiveChannelCount(true) // true = isResponses
 
 	for channelAttempt := 0; channelAttempt < maxChannelAttempts; channelAttempt++ {
-		selection, err := channelScheduler.SelectChannel(c.Request.Context(), userID, failedChannels, true, allowedChannels)
+		selection, err := channelScheduler.SelectChannel(c.Request.Context(), clientID, failedChannels, true, allowedChannels)
 		if err != nil {
 			lastError = err
 			break
@@ -256,7 +262,7 @@ func handleMultiChannelResponses(
 		channelIndex := selection.ChannelIndex
 
 		if envCfg.ShouldLog("info") {
-			log.Printf("🎯 [多渠道/Responses] 选择渠道: [%d] %s (原因: %s, 尝试 %d/%d)",
+			log.Printf("🎯 [Multi-Channel/Responses] Selected channel: [%d] %s (reason: %s, attempt %d/%d)",
 				channelIndex, upstream.Name, selection.Reason, channelAttempt+1, maxChannelAttempts)
 		}
 
@@ -264,23 +270,112 @@ func handleMultiChannelResponses(
 
 		if success {
 			channelScheduler.RecordSuccess(channelIndex, true)
-			channelScheduler.SetTraceAffinity(userID, channelIndex)
+			channelScheduler.SetTraceAffinity(clientID, channelIndex)
 			return
 		}
 
+		// Channel failed: record failure metrics
 		channelScheduler.RecordFailure(channelIndex, true)
 		failedChannels[channelIndex] = true
 
-		if failoverErr != nil {
-			lastFailoverError = failoverErr
-			lastError = fmt.Errorf("渠道 [%d] %s 失败", channelIndex, upstream.Name)
+		// Check if there are more channels to try
+		hasMoreChannels := channelAttempt < maxChannelAttempts-1 && len(failedChannels) < maxChannelAttempts
+
+		if hasMoreChannels {
+			// Failover case: log this failed attempt and create new pending log for next attempt
+			if reqLogManager != nil && requestLogID != "" {
+				completeTime := time.Now()
+				httpStatus := 0
+				upstreamErr := ""
+				if failoverErr != nil {
+					httpStatus = failoverErr.Status
+					upstreamErr = string(failoverErr.Body)
+				}
+
+				// Update current log as failover (keeping original error info)
+				failoverRecord := &requestlog.RequestLog{
+					Status:          requestlog.StatusFailover,
+					CompleteTime:    completeTime,
+					DurationMs:      completeTime.Sub(startTime).Milliseconds(),
+					Type:            upstream.ServiceType,
+					ProviderName:    upstream.Name,
+					Model:           responsesReq.Model,
+					ReasoningEffort: reasoningEffort,
+					ChannelID:       channelIndex,
+					ChannelName:     upstream.Name,
+					HTTPStatus:      httpStatus,
+					Error:           fmt.Sprintf("failover to next channel (%d/%d)", channelAttempt+1, maxChannelAttempts),
+					UpstreamError:   upstreamErr,
+				}
+				if err := reqLogManager.Update(requestLogID, failoverRecord); err != nil {
+					log.Printf("⚠️ Failed to update failover log: %v", err)
+				}
+
+				// Create new pending log for next channel attempt
+				newPendingLog := &requestlog.RequestLog{
+					Status:          requestlog.StatusPending,
+					InitialTime:     time.Now(),
+					Model:           responsesReq.Model,
+					ReasoningEffort: reasoningEffort,
+					Stream:          responsesReq.Stream,
+					Endpoint:        "/v1/responses",
+					ClientID:        clientID,
+					SessionID:       sessionID,
+					APIKeyID:        apiKeyID,
+				}
+				if err := reqLogManager.Add(newPendingLog); err != nil {
+					log.Printf("⚠️ Failed to create failover pending log: %v", err)
+				} else {
+					requestLogID = newPendingLog.ID
+					startTime = newPendingLog.InitialTime
+				}
+			}
+
+			log.Printf("⚠️ [Multi-Channel/Responses] Channel [%d] %s all keys failed, trying next channel", channelIndex, upstream.Name)
 		}
 
-		log.Printf("⚠️ [多渠道/Responses] 渠道 [%d] %s 所有密钥都失败，尝试下一个渠道", channelIndex, upstream.Name)
+		if failoverErr != nil {
+			lastFailoverError = failoverErr
+			lastError = fmt.Errorf("channel [%d] %s failed", channelIndex, upstream.Name)
+			lastFailedUpstream = upstream
+		}
 	}
 
-	log.Printf("💥 [多渠道/Responses] 所有渠道都失败了")
+	// All channels failed
+	log.Printf("💥 [Multi-Channel/Responses] All channels failed")
 
+	// Update request log with final error status
+	if reqLogManager != nil && requestLogID != "" {
+		httpStatus := 503
+		errMsg := "all channels unavailable"
+		upstreamErr := ""
+		if lastFailoverError != nil && lastFailoverError.Status != 0 {
+			httpStatus = lastFailoverError.Status
+			upstreamErr = string(lastFailoverError.Body)
+		}
+		if lastError != nil {
+			errMsg = lastError.Error()
+		}
+		record := &requestlog.RequestLog{
+			Status:          requestlog.StatusError,
+			CompleteTime:    time.Now(),
+			DurationMs:      time.Since(startTime).Milliseconds(),
+			Model:           responsesReq.Model,
+			ReasoningEffort: reasoningEffort,
+			HTTPStatus:      httpStatus,
+			Error:           errMsg,
+			UpstreamError:   upstreamErr,
+		}
+		if lastFailedUpstream != nil {
+			record.Type = lastFailedUpstream.ServiceType
+			record.ProviderName = lastFailedUpstream.Name
+			record.ChannelID = lastFailedUpstream.Index
+			record.ChannelName = lastFailedUpstream.Name
+		}
+		_ = reqLogManager.Update(requestLogID, record)
+	}
+
+	// Return error response to client
 	if lastFailoverError != nil {
 		status := lastFailoverError.Status
 		if status == 0 {
@@ -293,12 +388,12 @@ func handleMultiChannelResponses(
 			c.JSON(status, gin.H{"error": string(lastFailoverError.Body)})
 		}
 	} else {
-		errMsg := "所有渠道都不可用"
+		errMsg := "all channels unavailable"
 		if lastError != nil {
 			errMsg = lastError.Error()
 		}
 		c.JSON(503, gin.H{
-			"error":   "所有 Responses 渠道都不可用",
+			"error":   "all Responses channels unavailable",
 			"details": errMsg,
 		})
 	}

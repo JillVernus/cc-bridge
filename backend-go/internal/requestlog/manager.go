@@ -664,13 +664,13 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 		filter = &RequestLogFilter{}
 	}
 
-	// Build where clause - exclude pending and timeout requests from statistics
+	// Build where clause - exclude pending, timeout, and failover requests from statistics
 	var conditions []string
 	var args []interface{}
 
-	// Only count completed requests in statistics (exclude pending/timeout requests)
-	conditions = append(conditions, "status NOT IN (?, ?)")
-	args = append(args, StatusPending, StatusTimeout)
+	// Only count completed/error requests in statistics (exclude pending/timeout/failover)
+	conditions = append(conditions, "status NOT IN (?, ?, ?)")
+	args = append(args, StatusPending, StatusTimeout, StatusFailover)
 
 	if filter.From != nil {
 		conditions = append(conditions, "initial_time >= ?")
@@ -1045,13 +1045,13 @@ func (m *Manager) GetActiveSessions(threshold time.Duration) ([]ActiveSession, e
 		WHERE session_id != ''
 		  AND session_id IS NOT NULL
 		  AND TRIM(session_id) != ''
-		  AND status NOT IN (?, ?)
+		  AND status NOT IN (?, ?, ?)
 		GROUP BY session_id
 		HAVING MAX(initial_time) > ?
 		ORDER BY last_request_time DESC
 	`
 
-	rows, err := m.db.Query(query, StatusPending, StatusTimeout, cutoff)
+	rows, err := m.db.Query(query, StatusPending, StatusTimeout, StatusFailover, cutoff)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query active sessions: %w", err)
 	}
@@ -1704,9 +1704,9 @@ func (m *Manager) GetProviderStatsHistory(duration string, endpoint string) (*Pr
 			COALESCE(provider_name, provider) as provider,
 			COALESCE(SUM(price), 0) as cost
 		FROM request_logs
-		WHERE initial_time >= ? AND initial_time < ? AND status NOT IN (?, ?)
+		WHERE initial_time >= ? AND initial_time < ? AND status NOT IN (?, ?, ?)
 	`
-	baselineArgs := []interface{}{periodStart, since, StatusPending, StatusTimeout}
+	baselineArgs := []interface{}{periodStart, since, StatusPending, StatusTimeout, StatusFailover}
 	if endpoint != "" {
 		baselineQuery += ` AND endpoint = ?`
 		baselineArgs = append(baselineArgs, endpoint)
@@ -1804,7 +1804,7 @@ func (m *Manager) GetProviderStatsHistory(duration string, endpoint string) (*Pr
 			}
 
 			bucket := providerBuckets[provider][bucketKey]
-			isCostEligible := status != StatusPending && status != StatusTimeout
+			isCostEligible := status != StatusPending && status != StatusTimeout && status != StatusFailover
 			if isCostEligible {
 				bucket.dp.Requests++
 				bucket.dp.InputTokens += inputTokens
@@ -2001,9 +2001,9 @@ func (m *Manager) GetProviderStatsHistoryRange(duration string, from, to time.Ti
 				COALESCE(provider_name, provider) as provider,
 				COALESCE(SUM(price), 0) as cost
 			FROM request_logs
-			WHERE initial_time >= ? AND initial_time < ? AND status NOT IN (?, ?)
+			WHERE initial_time >= ? AND initial_time < ? AND status NOT IN (?, ?, ?)
 		`
-		baselineArgs := []interface{}{rangeStart, windowStart, StatusPending, StatusTimeout}
+		baselineArgs := []interface{}{rangeStart, windowStart, StatusPending, StatusTimeout, StatusFailover}
 		if endpoint != "" {
 			baselineQuery += ` AND endpoint = ?`
 			baselineArgs = append(baselineArgs, endpoint)
@@ -2098,7 +2098,7 @@ func (m *Manager) GetProviderStatsHistoryRange(duration string, from, to time.Ti
 		}
 
 			bucket := providerBuckets[provider][bucketKey]
-			isCostEligible := status != StatusPending && status != StatusTimeout
+			isCostEligible := status != StatusPending && status != StatusTimeout && status != StatusFailover
 			if isCostEligible {
 				bucket.dp.Requests++
 				bucket.dp.InputTokens += inputTokens

@@ -2218,7 +2218,8 @@ const getRequestStatusColor = (status: string) => {
     pending: 'warning',
     completed: 'success',
     error: 'error',
-    timeout: 'grey'
+    timeout: 'grey',
+    failover: 'orange'
   }
   return colors[status] || 'grey'
 }
@@ -2228,7 +2229,8 @@ const getRequestStatusLabel = (status: string) => {
     pending: t('requestLog.pending'),
     completed: t('requestLog.completed'),
     error: t('requestLog.error'),
-    timeout: t('requestLog.timeout')
+    timeout: t('requestLog.timeout'),
+    failover: t('requestLog.failover')
   }
   return labels[status] || status
 }

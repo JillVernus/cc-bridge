@@ -346,6 +346,7 @@ export default {
     pending: '进行中',
     completed: '完成',
     timeout: '超时',
+    failover: '故障转移',
     error: '错误',
     upstreamResponse: '上游响应',
     reasoningEffort: 'Reasoning Effort:',

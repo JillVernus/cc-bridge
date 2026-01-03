@@ -346,6 +346,7 @@ export default {
     pending: 'Pending',
     completed: 'Completed',
     timeout: 'Timeout',
+    failover: 'Failover',
     error: 'Error',
     upstreamResponse: 'Upstream Response',
     reasoningEffort: 'Reasoning Effort:',
