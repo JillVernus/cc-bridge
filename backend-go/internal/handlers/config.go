@@ -1164,3 +1164,68 @@ func UpdateDebugLogConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		})
 	}
 }
+
+// GetFailoverConfig 获取故障转移配置
+func GetFailoverConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		cfg := cfgManager.GetFailoverConfig()
+		c.JSON(http.StatusOK, gin.H{
+			"enabled": cfg.Enabled,
+			"rules":   cfg.Rules,
+		})
+	}
+}
+
+// UpdateFailoverConfig 更新故障转移配置
+func UpdateFailoverConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Enabled *bool                 `json:"enabled"`
+			Rules   []config.FailoverRule `json:"rules"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		cfg := cfgManager.GetFailoverConfig()
+
+		if req.Enabled != nil {
+			cfg.Enabled = *req.Enabled
+		}
+		if req.Rules != nil {
+			cfg.Rules = req.Rules
+		}
+
+		if err := cfgManager.UpdateFailoverConfig(cfg); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"enabled": cfg.Enabled,
+			"rules":   cfg.Rules,
+		})
+	}
+}
+
+// ResetFailoverConfig 重置故障转移配置为默认值
+func ResetFailoverConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		cfg := config.FailoverConfig{
+			Enabled: false,
+			Rules:   config.GetDefaultFailoverRules(),
+		}
+
+		if err := cfgManager.UpdateFailoverConfig(cfg); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"enabled": cfg.Enabled,
+			"rules":   cfg.Rules,
+		})
+	}
+}

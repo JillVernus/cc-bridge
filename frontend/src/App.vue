@@ -88,6 +88,12 @@
               </template>
               <v-list-item-title>{{ t('app.debugLogSettings') }}</v-list-item-title>
             </v-list-item>
+            <v-list-item @click="showFailoverSettings = true">
+              <template #prepend>
+                <v-icon size="small">mdi-swap-horizontal</v-icon>
+              </template>
+              <v-list-item-title>{{ t('app.failoverSettings') }}</v-list-item-title>
+            </v-list-item>
             <v-list-item @click="openBackupRestore">
               <template #prepend>
                 <v-icon size="small">mdi-backup-restore</v-icon>
@@ -434,6 +440,9 @@
     <!-- 调试日志设置对话框 -->
     <DebugLogSettings v-model="showDebugLogSettings" />
 
+    <!-- 故障转移设置对话框 -->
+    <FailoverSettings v-model="showFailoverSettings" />
+
     <!-- 备份恢复对话框 -->
     <v-dialog v-model="showBackupRestore" max-width="600">
       <v-card>
@@ -560,6 +569,7 @@ import APIKeyManagement from './components/APIKeyManagement.vue'
 import PricingSettings from './components/PricingSettings.vue'
 import RateLimitSettings from './components/RateLimitSettings.vue'
 import DebugLogSettings from './components/DebugLogSettings.vue'
+import FailoverSettings from './components/FailoverSettings.vue'
 import GlobalStatsChart from './components/GlobalStatsChart.vue'
 import { useAppTheme } from './composables/useTheme'
 import { useLocale } from './composables/useLocale'
@@ -598,6 +608,7 @@ const appVersion = ref('') // 应用版本号
 const showPricingSettings = ref(false) // 定价设置对话框
 const showRateLimitSettings = ref(false) // 速率限制设置对话框
 const showDebugLogSettings = ref(false) // 调试日志设置对话框
+const showFailoverSettings = ref(false) // 故障转移设置对话框
 const showBackupRestore = ref(false) // 备份恢复对话框
 const showGlobalStatsChart = ref(false) // 全局统计图表显示状态
 
@@ -1235,6 +1246,7 @@ const handleKeydown = (event: KeyboardEvent) => {
     showPricingSettings.value = false
     showRateLimitSettings.value = false
     showDebugLogSettings.value = false
+    showFailoverSettings.value = false
     showBackupRestore.value = false
     showRestoreConfirm.value = false
     return

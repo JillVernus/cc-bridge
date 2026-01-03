@@ -68,7 +68,7 @@ func ResponsesHandler(
 	channelScheduler *scheduler.ChannelScheduler,
 	reqLogManager *requestlog.Manager,
 ) gin.HandlerFunc {
-	return ResponsesHandlerWithAPIKey(envCfg, cfgManager, sessionManager, channelScheduler, reqLogManager, nil, nil)
+	return ResponsesHandlerWithAPIKey(envCfg, cfgManager, sessionManager, channelScheduler, reqLogManager, nil, nil, nil)
 }
 
 // ResponsesHandlerWithAPIKey Responses API 代理处理器（支持 API Key 验证）
@@ -80,6 +80,7 @@ func ResponsesHandlerWithAPIKey(
 	reqLogManager *requestlog.Manager,
 	apiKeyManager *apikey.Manager,
 	usageManager *quota.UsageManager,
+	failoverTracker *config.FailoverTracker,
 ) gin.HandlerFunc {
 	return gin.HandlerFunc(func(c *gin.Context) {
 		// 先进行认证（如果上游中间件尚未完成认证）
@@ -212,10 +213,10 @@ func ResponsesHandlerWithAPIKey(
 
 		if isMultiChannel {
 			// Multi-channel mode: use scheduler with failover
-			handleMultiChannelResponses(c, envCfg, cfgManager, channelScheduler, sessionManager, bodyBytes, responsesReq, userID, sessionID, apiKeyID, reasoningEffort, startTime, reqLogManager, requestLogID, usageManager, allowedChannels)
+			handleMultiChannelResponses(c, envCfg, cfgManager, channelScheduler, sessionManager, bodyBytes, responsesReq, userID, sessionID, apiKeyID, reasoningEffort, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker)
 		} else {
 			// 单渠道模式：使用现有逻辑
-			handleSingleChannelResponses(c, envCfg, cfgManager, sessionManager, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager, allowedChannels)
+			handleSingleChannelResponses(c, envCfg, cfgManager, sessionManager, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker)
 		}
 	})
 }
@@ -240,6 +241,7 @@ func handleMultiChannelResponses(
 	requestLogID string,
 	usageManager *quota.UsageManager,
 	allowedChannels []int,
+	failoverTracker *config.FailoverTracker,
 ) {
 	failedChannels := make(map[int]bool)
 	var lastError error
@@ -266,7 +268,7 @@ func handleMultiChannelResponses(
 				channelIndex, upstream.Name, selection.Reason, channelAttempt+1, maxChannelAttempts)
 		}
 
-		success, failoverErr := tryResponsesChannelWithAllKeys(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager)
+		success, failoverErr := tryResponsesChannelWithAllKeys(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager, failoverTracker)
 
 		if success {
 			channelScheduler.RecordSuccess(channelIndex, true)
@@ -412,6 +414,7 @@ func tryResponsesChannelWithAllKeys(
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
 	usageManager *quota.UsageManager,
+	failoverTracker *config.FailoverTracker,
 ) (bool, *struct {
 	Status int
 	Body   []byte
@@ -466,7 +469,14 @@ func tryResponsesChannelWithAllKeys(
 			resp.Body.Close()
 			respBodyBytes = utils.DecompressGzipIfNeeded(resp, respBodyBytes)
 
-			shouldFailover, isQuotaRelated := shouldRetryWithNextKey(resp.StatusCode, respBodyBytes)
+			// Use configurable failover tracker if available, otherwise fall back to legacy behavior
+			var shouldFailover, isQuotaRelated bool
+			if failoverTracker != nil {
+				failoverConfig := cfgManager.GetFailoverConfig()
+				shouldFailover, isQuotaRelated = failoverTracker.ShouldFailover(upstream.Index, apiKey, resp.StatusCode, &failoverConfig)
+			} else {
+				shouldFailover, isQuotaRelated = shouldRetryWithNextKey(resp.StatusCode, respBodyBytes)
+			}
 			if shouldFailover {
 				failedKeys[apiKey] = true
 				cfgManager.MarkKeyAsFailed(apiKey)
@@ -494,6 +504,11 @@ func tryResponsesChannelWithAllKeys(
 			for key := range deprioritizeCandidates {
 				_ = cfgManager.DeprioritizeAPIKey(key)
 			}
+		}
+
+		// Reset error counters on success
+		if failoverTracker != nil {
+			failoverTracker.ResetOnSuccess(upstream.Index, apiKey)
 		}
 
 		handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID, usageManager)
@@ -724,6 +739,7 @@ func handleSingleChannelResponses(
 	requestLogID string,
 	usageManager *quota.UsageManager,
 	allowedChannels []int,
+	failoverTracker *config.FailoverTracker,
 ) {
 	// 获取当前 Responses 上游配置
 	upstream, err := cfgManager.GetCurrentResponsesUpstream()
@@ -848,7 +864,14 @@ func handleSingleChannelResponses(
 			resp.Body.Close()
 			respBodyBytes = utils.DecompressGzipIfNeeded(resp, respBodyBytes)
 
-			shouldFailover, isQuotaRelated := shouldRetryWithNextKey(resp.StatusCode, respBodyBytes)
+			// Use configurable failover tracker if available, otherwise fall back to legacy behavior
+			var shouldFailover, isQuotaRelated bool
+			if failoverTracker != nil {
+				failoverConfig := cfgManager.GetFailoverConfig()
+				shouldFailover, isQuotaRelated = failoverTracker.ShouldFailover(upstream.Index, apiKey, resp.StatusCode, &failoverConfig)
+			} else {
+				shouldFailover, isQuotaRelated = shouldRetryWithNextKey(resp.StatusCode, respBodyBytes)
+			}
 			if shouldFailover {
 				lastError = fmt.Errorf("上游错误: %d", resp.StatusCode)
 				failedKeys[apiKey] = true
@@ -902,6 +925,11 @@ func handleSingleChannelResponses(
 					log.Printf("⚠️ 密钥降级失败: %v", err)
 				}
 			}
+		}
+
+		// Reset error counters on success
+		if failoverTracker != nil {
+			failoverTracker.ResetOnSuccess(upstream.Index, apiKey)
 		}
 
 		handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID, usageManager)

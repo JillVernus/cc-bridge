@@ -694,6 +694,26 @@ class ApiService {
     return this.request('/logs/debug/stats')
   }
 
+  // ============== 故障转移配置 API ==============
+
+  // 获取故障转移配置
+  async getFailoverConfig(): Promise<FailoverConfig> {
+    return this.request('/config/failover')
+  }
+
+  // 更新故障转移配置
+  async updateFailoverConfig(config: Partial<FailoverConfig>): Promise<FailoverConfig> {
+    return this.request('/config/failover', {
+      method: 'PUT',
+      body: JSON.stringify(config)
+    })
+  }
+
+  // 重置故障转移配置为默认值
+  async resetFailoverConfig(): Promise<FailoverConfig> {
+    return this.request('/config/failover/reset', { method: 'POST' })
+  }
+
   // ============== 备份/恢复 API ==============
 
   // 创建备份
@@ -1155,6 +1175,17 @@ export interface ProviderStatsHistorySeries {
 export interface ProviderStatsHistoryResponse {
   providers: ProviderStatsHistorySeries[]
   summary: StatsHistorySummary
+}
+
+// Failover Configuration Types
+export interface FailoverRule {
+  errorCodes: string    // Comma-separated error codes or "others"
+  threshold: number // Number of consecutive errors before failover
+}
+
+export interface FailoverConfig {
+  enabled: boolean
+  rules: FailoverRule[]
 }
 
 export const api = new ApiService()

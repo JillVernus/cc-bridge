@@ -217,6 +217,28 @@ func (d *DebugLogConfig) GetMaxBodySize() int {
 	return d.MaxBodySize
 }
 
+// FailoverRule 单条故障转移规则
+type FailoverRule struct {
+	ErrorCodes string `json:"errorCodes"` // 逗号分隔的错误码: "401,403" 或 "others"
+	Threshold  int    `json:"threshold"`  // 触发故障转移前的连续错误次数
+}
+
+// FailoverConfig 故障转移配置
+type FailoverConfig struct {
+	Enabled bool           `json:"enabled"` // 启用自定义故障转移规则（false=使用传统行为）
+	Rules   []FailoverRule `json:"rules"`   // 规则列表
+}
+
+// GetDefaultFailoverRules 获取默认故障转移规则
+func GetDefaultFailoverRules() []FailoverRule {
+	return []FailoverRule{
+		{ErrorCodes: "401,403", Threshold: 1},
+		{ErrorCodes: "429", Threshold: 3},
+		{ErrorCodes: "500,502,503,504", Threshold: 2},
+		{ErrorCodes: "others", Threshold: 1},
+	}
+}
+
 type Config struct {
 	Upstream        []UpstreamConfig `json:"upstream"`
 	CurrentUpstream int              `json:"currentUpstream,omitempty"` // 已废弃：旧格式兼容用
@@ -229,6 +251,9 @@ type Config struct {
 
 	// 调试日志配置
 	DebugLog DebugLogConfig `json:"debugLog,omitempty"`
+
+	// 故障转移阈值配置
+	Failover FailoverConfig `json:"failover,omitempty"`
 }
 
 // FailedKey 失败密钥记录
@@ -1973,5 +1998,21 @@ func (cm *ConfigManager) UpdateDebugLogConfig(config DebugLogConfig) error {
 	defer cm.mu.Unlock()
 
 	cm.config.DebugLog = config
+	return cm.saveConfigLocked(cm.config)
+}
+
+// GetFailoverConfig 获取故障转移配置
+func (cm *ConfigManager) GetFailoverConfig() FailoverConfig {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	return cm.config.Failover
+}
+
+// UpdateFailoverConfig 更新故障转移配置
+func (cm *ConfigManager) UpdateFailoverConfig(config FailoverConfig) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cm.config.Failover = config
 	return cm.saveConfigLocked(cm.config)
 }

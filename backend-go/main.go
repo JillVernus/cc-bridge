@@ -86,6 +86,10 @@ func main() {
 	log.Printf("✅ 多渠道调度器已初始化 (失败率阈值: %.0f%%, 滑动窗口: %d)",
 		messagesMetricsManager.GetFailureThreshold()*100, messagesMetricsManager.GetWindowSize())
 
+	// 初始化故障转移阈值跟踪器
+	failoverTracker := config.NewFailoverTracker()
+	log.Printf("✅ 故障转移阈值跟踪器已初始化")
+
 	// 初始化请求日志管理器
 	reqLogManager, err := requestlog.NewManager(".config/request_logs.db")
 	if err != nil {
@@ -375,6 +379,11 @@ func main() {
 		apiGroup.GET("/config/debug-log", handlers.GetDebugLogConfig(cfgManager))
 		apiGroup.PUT("/config/debug-log", handlers.UpdateDebugLogConfig(cfgManager))
 
+		// 故障转移配置 API
+		apiGroup.GET("/config/failover", handlers.GetFailoverConfig(cfgManager))
+		apiGroup.PUT("/config/failover", handlers.UpdateFailoverConfig(cfgManager))
+		apiGroup.POST("/config/failover/reset", handlers.ResetFailoverConfig(cfgManager))
+
 		// 备份/恢复 API
 		apiGroup.POST("/config/backup", handlers.CreateBackup(cfgManager))
 		apiGroup.GET("/config/backups", handlers.ListBackups())
@@ -388,8 +397,8 @@ func main() {
 	v1Group.Use(middleware.ProxyAuthMiddlewareWithAPIKey(envCfg, apiKeyManager))
 	v1Group.Use(middleware.APIRateLimitMiddleware(apiRateLimiter))
 	{
-		v1Group.POST("/messages", handlers.ProxyHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager))
-		v1Group.POST("/responses", handlers.ResponsesHandlerWithAPIKey(envCfg, cfgManager, sessionManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager))
+		v1Group.POST("/messages", handlers.ProxyHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker))
+		v1Group.POST("/responses", handlers.ResponsesHandlerWithAPIKey(envCfg, cfgManager, sessionManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker))
 	}
 
 	// 静态文件服务 (嵌入的前端)

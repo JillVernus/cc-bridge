@@ -28,11 +28,11 @@ import (
 // ProxyHandler 代理处理器
 // 支持多渠道调度：当配置多个渠道时自动启用
 func ProxyHandler(envCfg *config.EnvConfig, cfgManager *config.ConfigManager, channelScheduler *scheduler.ChannelScheduler, reqLogManager *requestlog.Manager) gin.HandlerFunc {
-	return ProxyHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, nil, nil)
+	return ProxyHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, nil, nil, nil)
 }
 
 // ProxyHandlerWithAPIKey 代理处理器（支持 API Key 验证）
-func ProxyHandlerWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.ConfigManager, channelScheduler *scheduler.ChannelScheduler, reqLogManager *requestlog.Manager, apiKeyManager *apikey.Manager, usageManager *quota.UsageManager) gin.HandlerFunc {
+func ProxyHandlerWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.ConfigManager, channelScheduler *scheduler.ChannelScheduler, reqLogManager *requestlog.Manager, apiKeyManager *apikey.Manager, usageManager *quota.UsageManager, failoverTracker *config.FailoverTracker) gin.HandlerFunc {
 	return gin.HandlerFunc(func(c *gin.Context) {
 		// 先进行认证（如果上游中间件尚未完成认证）
 		if _, exists := c.Get(middleware.ContextKeyAPIKeyID); !exists {
@@ -147,10 +147,10 @@ func ProxyHandlerWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.ConfigM
 
 		if isMultiChannel {
 			// 多渠道模式：使用调度器
-			handleMultiChannelProxy(c, envCfg, cfgManager, channelScheduler, bodyBytes, claudeReq, userID, sessionID, apiKeyID, startTime, reqLogManager, requestLogID, usageManager, allowedChannels)
+			handleMultiChannelProxy(c, envCfg, cfgManager, channelScheduler, bodyBytes, claudeReq, userID, sessionID, apiKeyID, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker)
 		} else {
 			// 单渠道模式：使用现有逻辑
-			handleSingleChannelProxy(c, envCfg, cfgManager, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID, usageManager, allowedChannels)
+			handleSingleChannelProxy(c, envCfg, cfgManager, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker)
 		}
 	})
 }
@@ -208,6 +208,7 @@ func handleMultiChannelProxy(
 	requestLogID string,
 	usageManager *quota.UsageManager,
 	allowedChannels []int,
+	failoverTracker *config.FailoverTracker,
 ) {
 	failedChannels := make(map[int]bool)
 	var lastError error
@@ -237,7 +238,7 @@ func handleMultiChannelProxy(
 		}
 
 		// Try all keys for this channel
-		success, failoverErr := tryChannelWithAllKeys(c, envCfg, cfgManager, upstream, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID, usageManager)
+		success, failoverErr := tryChannelWithAllKeys(c, envCfg, cfgManager, upstream, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID, usageManager, failoverTracker)
 
 		if success {
 			// Success: record and update trace affinity
@@ -381,6 +382,7 @@ func tryChannelWithAllKeys(
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
 	usageManager *quota.UsageManager,
+	failoverTracker *config.FailoverTracker,
 ) (bool, *struct {
 	Status int
 	Body   []byte
@@ -437,7 +439,15 @@ func tryChannelWithAllKeys(
 			resp.Body.Close()
 			respBodyBytes = utils.DecompressGzipIfNeeded(resp, respBodyBytes)
 
-			shouldFailover, isQuotaRelated := shouldRetryWithNextKey(resp.StatusCode, respBodyBytes)
+			// Use configurable failover tracker if available, otherwise fall back to legacy behavior
+			var shouldFailover, isQuotaRelated bool
+			if failoverTracker != nil {
+				failoverConfig := cfgManager.GetFailoverConfig()
+				shouldFailover, isQuotaRelated = failoverTracker.ShouldFailover(upstream.Index, apiKey, resp.StatusCode, &failoverConfig)
+			} else {
+				shouldFailover, isQuotaRelated = shouldRetryWithNextKey(resp.StatusCode, respBodyBytes)
+			}
+
 			if shouldFailover {
 				failedKeys[apiKey] = true
 				cfgManager.MarkKeyAsFailed(apiKey)
@@ -462,7 +472,10 @@ func tryChannelWithAllKeys(
 			return true, nil // 返回 true 表示请求已处理（虽然是错误响应）
 		}
 
-		// 处理成功响应
+		// 处理成功响应 - reset error counters on success
+		if failoverTracker != nil {
+			failoverTracker.ResetOnSuccess(upstream.Index, apiKey)
+		}
 		if len(deprioritizeCandidates) > 0 {
 			for key := range deprioritizeCandidates {
 				_ = cfgManager.DeprioritizeAPIKey(key)
@@ -492,6 +505,7 @@ func handleSingleChannelProxy(
 	requestLogID string,
 	usageManager *quota.UsageManager,
 	allowedChannels []int,
+	failoverTracker *config.FailoverTracker,
 ) {
 	// 获取当前上游配置
 	upstream, err := cfgManager.GetCurrentUpstream()
@@ -615,7 +629,15 @@ func handleSingleChannelProxy(
 			resp.Body.Close()
 			respBodyBytes = utils.DecompressGzipIfNeeded(resp, respBodyBytes)
 
-			shouldFailover, isQuotaRelated := shouldRetryWithNextKey(resp.StatusCode, respBodyBytes)
+			// Use configurable failover tracker if available, otherwise fall back to legacy behavior
+			var shouldFailover, isQuotaRelated bool
+			if failoverTracker != nil {
+				failoverConfig := cfgManager.GetFailoverConfig()
+				shouldFailover, isQuotaRelated = failoverTracker.ShouldFailover(upstream.Index, apiKey, resp.StatusCode, &failoverConfig)
+			} else {
+				shouldFailover, isQuotaRelated = shouldRetryWithNextKey(resp.StatusCode, respBodyBytes)
+			}
+
 			if shouldFailover {
 				lastError = fmt.Errorf("上游错误: %d", resp.StatusCode)
 				failedKeys[apiKey] = true
@@ -681,7 +703,10 @@ func handleSingleChannelProxy(
 				return
 			}
 
-		// 处理成功响应
+		// 处理成功响应 - reset error counters on success
+		if failoverTracker != nil {
+			failoverTracker.ResetOnSuccess(upstream.Index, apiKey)
+		}
 		if len(deprioritizeCandidates) > 0 {
 			for key := range deprioritizeCandidates {
 				if err := cfgManager.DeprioritizeAPIKey(key); err != nil {
