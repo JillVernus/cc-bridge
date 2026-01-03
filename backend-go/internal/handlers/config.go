@@ -76,6 +76,7 @@ func GetUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				"quotaResetInterval":    up.QuotaResetInterval,
 				"quotaResetUnit":        up.QuotaResetUnit,
 				"quotaModels":           up.QuotaModels,
+				"quotaResetMode":        up.QuotaResetMode,
 			}
 		}
 
@@ -622,6 +623,7 @@ func GetResponsesUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				"quotaResetInterval":    up.QuotaResetInterval,
 				"quotaResetUnit":        up.QuotaResetUnit,
 				"quotaModels":           up.QuotaModels,
+				"quotaResetMode":        up.QuotaResetMode,
 			}
 		}
 

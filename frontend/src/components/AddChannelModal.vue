@@ -1876,10 +1876,11 @@ const handleSubmit = async () => {
     // 始终发送 priceMultipliers，即使为空对象（用于清除已有配置）
     priceMultipliers: form.priceMultipliers,
     // Quota settings - always send quotaType (empty string clears quota)
+    // Note: Use validNumber helper to convert NaN to undefined (v-model.number returns NaN for empty inputs)
     quotaType: form.quotaType,
-    quotaLimit: form.quotaType ? form.quotaLimit : undefined,
+    quotaLimit: form.quotaType && typeof form.quotaLimit === 'number' && !Number.isNaN(form.quotaLimit) ? form.quotaLimit : undefined,
     quotaResetAt: form.quotaType && form.quotaResetAt ? new Date(form.quotaResetAt).toISOString() : undefined,
-    quotaResetInterval: form.quotaType ? form.quotaResetInterval : undefined,
+    quotaResetInterval: form.quotaType && typeof form.quotaResetInterval === 'number' && !Number.isNaN(form.quotaResetInterval) ? form.quotaResetInterval : undefined,
     quotaResetUnit: form.quotaType ? form.quotaResetUnit : undefined,
     quotaModels: form.quotaType && form.quotaModels.length > 0 ? form.quotaModels : undefined,
     quotaResetMode: form.quotaType ? form.quotaResetMode : undefined

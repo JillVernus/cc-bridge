@@ -881,6 +881,15 @@ func (cm *ConfigManager) UpdateUpstream(index int, updates UpstreamUpdate) (shou
 	// 配额设置
 	if updates.QuotaType != nil {
 		upstream.QuotaType = *updates.QuotaType
+		// 当 quotaType 设置为空时，清除所有其他配额字段
+		if *updates.QuotaType == "" {
+			upstream.QuotaLimit = 0
+			upstream.QuotaResetAt = nil
+			upstream.QuotaResetInterval = 0
+			upstream.QuotaResetUnit = ""
+			upstream.QuotaModels = nil
+			upstream.QuotaResetMode = ""
+		}
 	}
 	if updates.QuotaLimit != nil {
 		upstream.QuotaLimit = *updates.QuotaLimit
@@ -1514,6 +1523,15 @@ func (cm *ConfigManager) UpdateResponsesUpstream(index int, updates UpstreamUpda
 	// 配额设置
 	if updates.QuotaType != nil {
 		upstream.QuotaType = *updates.QuotaType
+		// 当 quotaType 设置为空时，清除所有其他配额字段
+		if *updates.QuotaType == "" {
+			upstream.QuotaLimit = 0
+			upstream.QuotaResetAt = nil
+			upstream.QuotaResetInterval = 0
+			upstream.QuotaResetUnit = ""
+			upstream.QuotaModels = nil
+			upstream.QuotaResetMode = ""
+		}
 	}
 	if updates.QuotaLimit != nil {
 		upstream.QuotaLimit = *updates.QuotaLimit

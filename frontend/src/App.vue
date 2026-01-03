@@ -745,6 +745,8 @@ const saveChannel = async (channel: Omit<Channel, 'index' | 'latency' | 'status'
       if (keyAddErrors.length > 0) {
         showToast(keyAddErrors[0], 'warning')
       }
+      // Refresh channels to get updated data from server
+      await refreshChannels()
     } else {
       if (isResponses) {
         await api.addResponsesChannel(channel)
