@@ -365,6 +365,7 @@ export default {
     sessions: '个会话',
     live: '时长',
     noActiveSessions: '暂无活跃会话',
+    hasDebugData: '调试数据可用（请求头 + 请求体）',
     // User alias
     alias: '别名',
     assignAlias: '设置别名',

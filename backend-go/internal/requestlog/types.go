@@ -41,12 +41,13 @@ type RequestLog struct {
 	Stream        bool      `json:"stream"`
 	ChannelID     int       `json:"channelId"`
 	ChannelName   string    `json:"channelName"`
-	Endpoint      string    `json:"endpoint"` // /v1/messages or /v1/responses
+	Endpoint      string    `json:"endpoint"`           // /v1/messages or /v1/responses
 	ClientID      string    `json:"clientId,omitempty"` // Client/machine identifier
 	SessionID     string    `json:"sessionId,omitempty"` // Claude Code conversation session ID
-	APIKeyID      *int64    `json:"apiKeyId"`  // API key ID for tracking (nil = not set, 0 = master key)
+	APIKeyID      *int64    `json:"apiKeyId"`           // API key ID for tracking (nil = not set, 0 = master key)
 	Error         string    `json:"error,omitempty"`
 	UpstreamError string    `json:"upstreamError,omitempty"` // 上游服务原始错误信息
+	HasDebugData  bool      `json:"hasDebugData"`            // Whether debug data (headers/body) is available
 	CreatedAt     time.Time `json:"createdAt"`
 }
 

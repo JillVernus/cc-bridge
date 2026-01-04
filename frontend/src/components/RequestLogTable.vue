@@ -632,43 +632,52 @@
         </template>
 
         <template v-slot:item.status="{ item }">
-          <v-progress-circular
-            v-if="item.status === 'pending'"
-            indeterminate
-            size="16"
-            width="2"
-            color="warning"
-          />
-          <v-tooltip v-else-if="item.error || item.upstreamError" location="top" max-width="400">
-            <template v-slot:activator="{ props }">
-              <v-chip
-                v-bind="props"
-                size="x-small"
-                :color="getRequestStatusColor(item.status)"
-                variant="flat"
-              >
-                {{ item.httpStatus || getRequestStatusLabel(item.status) }}
-              </v-chip>
-            </template>
-            <div class="error-tooltip">
-              <div v-if="item.error" class="error-line">
-                <span class="error-label">{{ t('requestLog.error') }}:</span>
-                <span>{{ item.error }}</span>
+          <div class="d-flex align-center ga-1">
+            <v-progress-circular
+              v-if="item.status === 'pending'"
+              indeterminate
+              size="16"
+              width="2"
+              color="warning"
+            />
+            <v-tooltip v-else-if="item.error || item.upstreamError" location="top" max-width="400">
+              <template v-slot:activator="{ props }">
+                <v-chip
+                  v-bind="props"
+                  size="x-small"
+                  :color="getRequestStatusColor(item.status)"
+                  variant="flat"
+                >
+                  {{ item.httpStatus || getRequestStatusLabel(item.status) }}
+                </v-chip>
+              </template>
+              <div class="error-tooltip">
+                <div v-if="item.error" class="error-line">
+                  <span class="error-label">{{ t('requestLog.error') }}:</span>
+                  <span>{{ item.error }}</span>
+                </div>
+                <div v-if="item.upstreamError" class="upstream-error-line">
+                  <span class="error-label">{{ t('requestLog.upstreamResponse') }}:</span>
+                  <span class="upstream-error-text">{{ item.upstreamError }}</span>
+                </div>
               </div>
-              <div v-if="item.upstreamError" class="upstream-error-line">
-                <span class="error-label">{{ t('requestLog.upstreamResponse') }}:</span>
-                <span class="upstream-error-text">{{ item.upstreamError }}</span>
-              </div>
-            </div>
-          </v-tooltip>
-          <v-chip
-            v-else
-            size="x-small"
-            :color="getRequestStatusColor(item.status)"
-            variant="flat"
-          >
-            {{ item.httpStatus || getRequestStatusLabel(item.status) }}
-          </v-chip>
+            </v-tooltip>
+            <v-chip
+              v-else
+              size="x-small"
+              :color="getRequestStatusColor(item.status)"
+              variant="flat"
+            >
+              {{ item.httpStatus || getRequestStatusLabel(item.status) }}
+            </v-chip>
+            <!-- Debug data indicator -->
+            <v-tooltip v-if="item.hasDebugData" location="top">
+              <template v-slot:activator="{ props }">
+                <v-icon v-bind="props" size="14" color="info" class="debug-indicator">mdi-bug-outline</v-icon>
+              </template>
+              {{ t('requestLog.hasDebugData') }}
+            </v-tooltip>
+          </div>
         </template>
 
         <template v-slot:item.initialTime="{ item }">

@@ -512,35 +512,35 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 	var args []interface{}
 
 	if filter.Provider != "" {
-		conditions = append(conditions, "provider = ?")
+		conditions = append(conditions, "r.provider = ?")
 		args = append(args, filter.Provider)
 	}
 	if filter.Model != "" {
-		conditions = append(conditions, "model = ?")
+		conditions = append(conditions, "r.model = ?")
 		args = append(args, filter.Model)
 	}
 	if filter.HTTPStatus != 0 {
-		conditions = append(conditions, "http_status = ?")
+		conditions = append(conditions, "r.http_status = ?")
 		args = append(args, filter.HTTPStatus)
 	}
 	if filter.Endpoint != "" {
-		conditions = append(conditions, "endpoint = ?")
+		conditions = append(conditions, "r.endpoint = ?")
 		args = append(args, filter.Endpoint)
 	}
 	if filter.ClientID != "" {
-		conditions = append(conditions, "client_id = ?")
+		conditions = append(conditions, "r.client_id = ?")
 		args = append(args, filter.ClientID)
 	}
 	if filter.SessionID != "" {
-		conditions = append(conditions, "session_id = ?")
+		conditions = append(conditions, "r.session_id = ?")
 		args = append(args, filter.SessionID)
 	}
 	if filter.From != nil {
-		conditions = append(conditions, "initial_time >= ?")
+		conditions = append(conditions, "r.initial_time >= ?")
 		args = append(args, *filter.From)
 	}
 	if filter.To != nil {
-		conditions = append(conditions, "initial_time <= ?")
+		conditions = append(conditions, "r.initial_time <= ?")
 		args = append(args, *filter.To)
 	}
 
@@ -549,24 +549,26 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		whereClause = "WHERE " + strings.Join(conditions, " AND ")
 	}
 
-	// Get total count
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM request_logs %s", whereClause)
+	// Get total count (use same alias for consistency with conditions)
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM request_logs r %s", whereClause)
 	var total int64
 	if err := m.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
 		return nil, fmt.Errorf("failed to count request logs: %w", err)
 	}
 
-	// Get records
+	// Get records with debug data check via LEFT JOIN
 	query := fmt.Sprintf(`
-		SELECT id, status, initial_time, complete_time, duration_ms,
-			   provider, provider_name, model, response_model, reasoning_effort, input_tokens, output_tokens,
-			   cache_creation_input_tokens, cache_read_input_tokens, total_tokens,
-			   price, input_cost, output_cost, cache_creation_cost, cache_read_cost,
-			   http_status, stream, channel_id, channel_name,
-			   endpoint, client_id, session_id, api_key_id, error, upstream_error, created_at
-		FROM request_logs
+		SELECT r.id, r.status, r.initial_time, r.complete_time, r.duration_ms,
+			   r.provider, r.provider_name, r.model, r.response_model, r.reasoning_effort, r.input_tokens, r.output_tokens,
+			   r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
+			   r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
+			   r.http_status, r.stream, r.channel_id, r.channel_name,
+			   r.endpoint, r.client_id, r.session_id, r.api_key_id, r.error, r.upstream_error, r.created_at,
+			   CASE WHEN d.request_id IS NOT NULL THEN 1 ELSE 0 END as has_debug_data
+		FROM request_logs r
+		LEFT JOIN request_debug_logs d ON r.id = d.request_id
 		%s
-		ORDER BY initial_time DESC
+		ORDER BY r.initial_time DESC
 		LIMIT ? OFFSET ?
 	`, whereClause)
 
@@ -584,6 +586,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		var channelID, apiKeyID sql.NullInt64
 		var channelName, endpoint, clientID, sessionID, errorStr, upstreamErrorStr, status, providerName, responseModel, reasoningEffort sql.NullString
 		var initialTime, completeTime, createdAt sql.NullString
+		var hasDebugData int
 
 		err := rows.Scan(
 			&r.ID, &status, &initialTime, &completeTime, &r.DurationMs,
@@ -592,10 +595,13 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 			&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
 			&r.HTTPStatus, &r.Stream, &channelID, &channelName,
 			&endpoint, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &createdAt,
+			&hasDebugData,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan request log: %w", err)
 		}
+
+		r.HasDebugData = hasDebugData == 1
 
 		if status.Valid {
 			r.Status = status.String

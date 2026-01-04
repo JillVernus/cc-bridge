@@ -365,6 +365,7 @@ export default {
     sessions: 'sessions',
     live: 'Live',
     noActiveSessions: 'No active sessions',
+    hasDebugData: 'Debug data available (headers + body)',
     // User alias
     alias: 'Alias',
     assignAlias: 'Assign Alias',
