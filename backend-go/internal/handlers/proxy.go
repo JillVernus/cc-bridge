@@ -266,6 +266,12 @@ func handleMultiChannelProxy(
 				}
 
 				// Update current log as failover (keeping original error info)
+				// Build error message with HTTP status for better visibility
+				errorMsg := fmt.Sprintf("failover to next channel (%d/%d)", channelAttempt+1, maxChannelAttempts)
+				if httpStatus > 0 {
+					errorMsg = fmt.Sprintf("%d: %s", httpStatus, errorMsg)
+				}
+
 				failoverRecord := &requestlog.RequestLog{
 					Status:        requestlog.StatusFailover,
 					CompleteTime:  completeTime,
@@ -276,7 +282,7 @@ func handleMultiChannelProxy(
 					ChannelID:     channelIndex,
 					ChannelName:   upstream.Name,
 					HTTPStatus:    httpStatus,
-					Error:         fmt.Sprintf("failover to next channel (%d/%d)", channelAttempt+1, maxChannelAttempts),
+					Error:         errorMsg,
 					UpstreamError: upstreamErr,
 				}
 				if err := reqLogManager.Update(requestLogID, failoverRecord); err != nil {
@@ -505,6 +511,11 @@ func tryChannelWithAllKeys(
 						suspendedUntil := time.Now().Add(5 * time.Minute)
 						if upstream.QuotaResetAt != nil && upstream.QuotaResetAt.After(time.Now()) {
 							suspendedUntil = *upstream.QuotaResetAt
+							log.Printf("⏸️ [Messages] Channel [%d] %s: using QuotaResetAt %s for suspension",
+								upstream.Index, upstream.Name, suspendedUntil.Format(time.RFC3339))
+						} else {
+							log.Printf("⏸️ [Messages] Channel [%d] %s: using default 5min suspension (QuotaResetAt: %v)",
+								upstream.Index, upstream.Name, upstream.QuotaResetAt)
 						}
 						channelType := "messages" // Multi-channel proxy is always Messages API
 						if err := reqLogManager.SuspendChannel(upstream.Index, channelType, suspendedUntil, decision.Reason); err != nil {

@@ -2720,8 +2720,11 @@ func (m *Manager) IsChannelSuspended(channelID int, channelType string) (bool, t
 	}
 
 	// Check if suspension has expired
-	if time.Now().After(suspendedUntil) {
+	now := time.Now()
+	if now.After(suspendedUntil) {
 		// Suspension expired - periodic cleanup will handle removal
+		log.Printf("⏸️ Channel [%d] (%s) suspension expired (until: %s, now: %s)",
+			channelID, channelType, suspendedUntil.Format(time.RFC3339), now.Format(time.RFC3339))
 		return false, time.Time{}, ""
 	}
 
@@ -2729,6 +2732,8 @@ func (m *Manager) IsChannelSuspended(channelID int, channelType string) (bool, t
 	if reason.Valid {
 		reasonStr = reason.String
 	}
+	log.Printf("⏸️ Channel [%d] (%s) is suspended until %s (reason: %s)",
+		channelID, channelType, suspendedUntil.Format(time.RFC3339), reasonStr)
 	return true, suspendedUntil, reasonStr
 }
 
