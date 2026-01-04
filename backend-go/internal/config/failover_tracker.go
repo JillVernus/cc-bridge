@@ -4,7 +4,38 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
+
+// RetryAction defines what the handler should do after a failed request
+type RetryAction int
+
+const (
+	ActionNone         RetryAction = iota // Return error to client (no retry)
+	ActionFailoverKey                     // Switch to next key/channel
+	ActionRetrySameKey                    // Wait and retry with same key
+)
+
+// String returns a human-readable name for the action
+func (a RetryAction) String() string {
+	switch a {
+	case ActionFailoverKey:
+		return "failover_key"
+	case ActionRetrySameKey:
+		return "retry_same_key"
+	default:
+		return "none"
+	}
+}
+
+// FailoverDecision contains the complete decision for handlers
+type FailoverDecision struct {
+	Action          RetryAction   // What action to take
+	Wait            time.Duration // How long to wait (for RetrySameKey)
+	MarkKeyFailed   bool          // Should mark key as failed in config manager
+	DeprioritizeKey bool          // Should deprioritize key (quota-related)
+	Reason          string        // For logging: "quota_exhausted", "model_cooldown", etc.
+}
 
 // FailoverTracker 跟踪每个渠道/API key 组合的连续错误计数
 type FailoverTracker struct {
@@ -142,4 +173,76 @@ func (ft *FailoverTracker) GetErrorCount(channelIdx int, apiKey string, errorGro
 		return counts[errorGroup]
 	}
 	return 0
+}
+
+// Decide429Action determines the action for a 429 error based on response body analysis.
+// This method provides smart handling for different 429 subtypes:
+// - QuotaExhausted: Immediate failover (bypass threshold)
+// - ModelCooldown: Wait and retry same key
+// - ResourceExhausted: Wait and retry same key
+// - Unknown: Fall back to threshold-based behavior
+func (ft *FailoverTracker) Decide429Action(channelIdx int, apiKey string, respBody []byte, failoverConfig *FailoverConfig) FailoverDecision {
+	// Parse the 429 error to determine subtype
+	errorType, waitDuration := Parse429Error(respBody, failoverConfig)
+
+	switch errorType {
+	case Error429QuotaExhausted:
+		// Type 1: Quota exhausted - immediate failover, bypass threshold
+		return FailoverDecision{
+			Action:          ActionFailoverKey,
+			Wait:            0,
+			MarkKeyFailed:   true,
+			DeprioritizeKey: true,
+			Reason:          "quota_exhausted",
+		}
+
+	case Error429ModelCooldown:
+		// Type 2: Model cooldown - wait and retry same key
+		return FailoverDecision{
+			Action:          ActionRetrySameKey,
+			Wait:            waitDuration,
+			MarkKeyFailed:   false,
+			DeprioritizeKey: false,
+			Reason:          "model_cooldown",
+		}
+
+	case Error429ResourceExhausted:
+		// Type 3: Generic resource exhausted - wait and retry same key
+		return FailoverDecision{
+			Action:          ActionRetrySameKey,
+			Wait:            waitDuration,
+			MarkKeyFailed:   false,
+			DeprioritizeKey: false,
+			Reason:          "resource_exhausted",
+		}
+
+	default:
+		// Unknown 429 - fall back to threshold-based behavior
+		return ft.decide429WithThreshold(channelIdx, apiKey, failoverConfig)
+	}
+}
+
+// decide429WithThreshold handles unknown 429 errors using the existing threshold logic
+func (ft *FailoverTracker) decide429WithThreshold(channelIdx int, apiKey string, failoverConfig *FailoverConfig) FailoverDecision {
+	// Use existing ShouldFailover logic for threshold-based decision
+	shouldFailover, _ := ft.ShouldFailover(channelIdx, apiKey, 429, failoverConfig)
+
+	if shouldFailover {
+		return FailoverDecision{
+			Action:          ActionFailoverKey,
+			Wait:            0,
+			MarkKeyFailed:   true,
+			DeprioritizeKey: true,
+			Reason:          "threshold_reached",
+		}
+	}
+
+	// Threshold not reached - return error to client (no retry)
+	return FailoverDecision{
+		Action:          ActionNone,
+		Wait:            0,
+		MarkKeyFailed:   false,
+		DeprioritizeKey: false,
+		Reason:          "threshold_not_reached",
+	}
 }

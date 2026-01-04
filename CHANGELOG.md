@@ -4,6 +4,20 @@
 
 ---
 
+## [v1.3.125] - 2026-01-04
+
+### ✨ 新功能
+
+- **429 错误智能处理**: 针对 Claude Messages API 的 429 错误增加子类型检测和差异化处理
+  - **配额耗尽** (`QUOTA_EXHAUSTED`): 立即故障转移到下一个密钥，绕过阈值计数
+  - **模型冷却** (`model_cooldown`): 等待 `reset_seconds + 1s` 后使用同一密钥重试
+  - **资源耗尽** (通用 `RESOURCE_EXHAUSTED`): 等待 20 秒后使用同一密钥重试
+  - 未知 429 错误回退到现有阈值行为
+  - 新增可配置等待时间: `genericResourceWaitSeconds`, `modelCooldownExtraSeconds`, `modelCooldownMaxWaitSeconds`
+  - 仅影响 `/v1/messages` (Claude API)，不影响 `/v1/responses` (Codex)
+
+---
+
 ## [v1.3.124] - 2026-01-04
 
 ### ✨ 新功能

@@ -227,6 +227,11 @@ type FailoverRule struct {
 type FailoverConfig struct {
 	Enabled bool           `json:"enabled"` // 启用自定义故障转移规则（false=使用传统行为）
 	Rules   []FailoverRule `json:"rules"`   // 规则列表
+
+	// 429 智能处理配置 (仅适用于 Claude Messages API)
+	GenericResourceWaitSeconds  int `json:"genericResourceWaitSeconds,omitempty"`  // Type 3: 通用资源耗尽等待时间（默认 20 秒）
+	ModelCooldownExtraSeconds   int `json:"modelCooldownExtraSeconds,omitempty"`   // Type 2: 模型冷却额外等待时间（默认 1 秒）
+	ModelCooldownMaxWaitSeconds int `json:"modelCooldownMaxWaitSeconds,omitempty"` // Type 2: 模型冷却最大等待时间（默认 60 秒）
 }
 
 // GetDefaultFailoverRules 获取默认故障转移规则

@@ -403,14 +403,26 @@ func tryChannelWithAllKeys(
 		Body   []byte
 	}
 	deprioritizeCandidates := make(map[string]bool)
+	var pinnedKey string // For retry-same-key scenarios
 
-	for attempt := 0; attempt < maxRetries; attempt++ {
+	for attempt := 0; attempt < maxRetries; {
 		// 恢复请求体
 		c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
-		apiKey, err := cfgManager.GetNextAPIKey(upstream, failedKeys)
-		if err != nil {
-			break
+		var apiKey string
+		var err error
+
+		// If we have a pinned key from a previous retry-same-key decision, use it
+		if pinnedKey != "" {
+			apiKey = pinnedKey
+			pinnedKey = "" // Clear after use
+			// Don't increment attempt for retry-same-key
+		} else {
+			apiKey, err = cfgManager.GetNextAPIKey(upstream, failedKeys)
+			if err != nil {
+				break
+			}
+			attempt++ // Only increment when trying a new key
 		}
 
 		if envCfg.ShouldLog("info") {
@@ -439,7 +451,69 @@ func tryChannelWithAllKeys(
 			resp.Body.Close()
 			respBodyBytes = utils.DecompressGzipIfNeeded(resp, respBodyBytes)
 
-			// Use configurable failover tracker if available, otherwise fall back to legacy behavior
+			// Handle 429 errors with smart subtype detection (Claude API only)
+			if resp.StatusCode == 429 && failoverTracker != nil {
+				failoverConfig := cfgManager.GetFailoverConfig()
+				decision := failoverTracker.Decide429Action(upstream.Index, apiKey, respBodyBytes, &failoverConfig)
+
+				switch decision.Action {
+				case config.ActionRetrySameKey:
+					// Wait and retry with same key
+					log.Printf("⏳ 429 %s: 等待 %v 后重试同一密钥", decision.Reason, decision.Wait)
+					select {
+					case <-time.After(decision.Wait):
+						pinnedKey = apiKey // Pin for next attempt
+						continue
+					case <-c.Request.Context().Done():
+						// Client disconnected
+						return false, nil
+					}
+
+				case config.ActionFailoverKey:
+					// Immediate failover to next key
+					failedKeys[apiKey] = true
+					if decision.MarkKeyFailed {
+						cfgManager.MarkKeyAsFailed(apiKey)
+					}
+					log.Printf("⚠️ 429 %s: 立即切换到下一个密钥", decision.Reason)
+
+					lastFailoverError = &struct {
+						Status int
+						Body   []byte
+					}{
+						Status: resp.StatusCode,
+						Body:   respBodyBytes,
+					}
+
+					if decision.DeprioritizeKey {
+						deprioritizeCandidates[apiKey] = true
+					}
+					continue
+
+				default:
+					// ActionNone - return error to client
+					if reqLogManager != nil && requestLogID != "" {
+						completeTime := time.Now()
+						record := &requestlog.RequestLog{
+							Status:        requestlog.StatusError,
+							CompleteTime:  completeTime,
+							DurationMs:    completeTime.Sub(startTime).Milliseconds(),
+							Type:          upstream.ServiceType,
+							ProviderName:  upstream.Name,
+							HTTPStatus:    resp.StatusCode,
+							ChannelID:     upstream.Index,
+							ChannelName:   upstream.Name,
+							Error:         fmt.Sprintf("429 %s (threshold not reached)", decision.Reason),
+							UpstreamError: string(respBodyBytes),
+						}
+						_ = reqLogManager.Update(requestLogID, record)
+					}
+					c.Data(resp.StatusCode, "application/json", respBodyBytes)
+					return true, nil
+				}
+			}
+
+			// Non-429 errors: use existing failover logic
 			var shouldFailover, isQuotaRelated bool
 			if failoverTracker != nil {
 				failoverConfig := cfgManager.GetFailoverConfig()
@@ -576,15 +650,27 @@ func handleSingleChannelProxy(
 		Body   []byte
 	}
 	deprioritizeCandidates := make(map[string]bool)
+	var pinnedKey string // For retry-same-key scenarios
 
-	for attempt := 0; attempt < maxRetries; attempt++ {
+	for attempt := 0; attempt < maxRetries; {
 		// 恢复请求体
 		c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
-		apiKey, err := cfgManager.GetNextAPIKey(upstream, failedKeys)
-		if err != nil {
-			lastError = err
-			break
+		var apiKey string
+		var err error
+
+		// If we have a pinned key from a previous retry-same-key decision, use it
+		if pinnedKey != "" {
+			apiKey = pinnedKey
+			pinnedKey = "" // Clear after use
+			// Don't increment attempt for retry-same-key
+		} else {
+			apiKey, err = cfgManager.GetNextAPIKey(upstream, failedKeys)
+			if err != nil {
+				lastError = err
+				break
+			}
+			attempt++ // Only increment when trying a new key
 		}
 
 		if envCfg.ShouldLog("info") {
@@ -645,7 +731,77 @@ func handleSingleChannelProxy(
 			resp.Body.Close()
 			respBodyBytes = utils.DecompressGzipIfNeeded(resp, respBodyBytes)
 
-			// Use configurable failover tracker if available, otherwise fall back to legacy behavior
+			// Handle 429 errors with smart subtype detection (Claude API only)
+			if resp.StatusCode == 429 && failoverTracker != nil {
+				failoverConfig := cfgManager.GetFailoverConfig()
+				decision := failoverTracker.Decide429Action(upstream.Index, apiKey, respBodyBytes, &failoverConfig)
+
+				switch decision.Action {
+				case config.ActionRetrySameKey:
+					// Wait and retry with same key
+					log.Printf("⏳ 429 %s: 等待 %v 后重试同一密钥", decision.Reason, decision.Wait)
+					select {
+					case <-time.After(decision.Wait):
+						pinnedKey = apiKey // Pin for next attempt
+						continue
+					case <-c.Request.Context().Done():
+						// Client disconnected
+						return
+					}
+
+				case config.ActionFailoverKey:
+					// Immediate failover to next key
+					lastError = fmt.Errorf("429 %s", decision.Reason)
+					failedKeys[apiKey] = true
+					if decision.MarkKeyFailed {
+						cfgManager.MarkKeyAsFailed(apiKey)
+					}
+					log.Printf("⚠️ 429 %s: 立即切换到下一个密钥", decision.Reason)
+					if envCfg.EnableResponseLogs && envCfg.IsDevelopment() {
+						formattedBody := utils.FormatJSONBytesForLog(respBodyBytes, 500)
+						log.Printf("📦 失败原因:\n%s", formattedBody)
+					}
+
+					lastFailoverError = &struct {
+						Status int
+						Body   []byte
+					}{
+						Status: resp.StatusCode,
+						Body:   respBodyBytes,
+					}
+
+					if decision.DeprioritizeKey {
+						deprioritizeCandidates[apiKey] = true
+					}
+					continue
+
+				default:
+					// ActionNone - return error to client
+					if envCfg.EnableResponseLogs {
+						log.Printf("⚠️ 429 %s (threshold not reached)", decision.Reason)
+					}
+					if reqLogManager != nil && requestLogID != "" {
+						completeTime := time.Now()
+						record := &requestlog.RequestLog{
+							Status:        requestlog.StatusError,
+							CompleteTime:  completeTime,
+							DurationMs:    completeTime.Sub(startTime).Milliseconds(),
+							Type:          upstream.ServiceType,
+							ProviderName:  upstream.Name,
+							HTTPStatus:    resp.StatusCode,
+							ChannelID:     upstream.Index,
+							ChannelName:   upstream.Name,
+							Error:         fmt.Sprintf("429 %s (threshold not reached)", decision.Reason),
+							UpstreamError: string(respBodyBytes),
+						}
+						_ = reqLogManager.Update(requestLogID, record)
+					}
+					c.Data(resp.StatusCode, "application/json", respBodyBytes)
+					return
+				}
+			}
+
+			// Non-429 errors: use existing failover logic
 			var shouldFailover, isQuotaRelated bool
 			if failoverTracker != nil {
 				failoverConfig := cfgManager.GetFailoverConfig()
