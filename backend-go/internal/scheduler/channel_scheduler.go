@@ -267,6 +267,10 @@ func (s *ChannelScheduler) selectFallbackChannel(
 		if ch.Status != "active" {
 			continue
 		}
+		// 跳过被暂停的配额渠道
+		if suspended, _, _ := s.isChannelSuspended(ch.Index, isResponses); suspended {
+			continue
+		}
 
 		failureRate := metricsManager.CalculateFailureRate(ch.Index)
 		if failureRate < bestFailureRate {

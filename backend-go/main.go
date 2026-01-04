@@ -114,12 +114,23 @@ func main() {
 				log.Printf("✅ 启动时清理了 %d 个 stale pending 请求", updated)
 			}
 
+			// 清理过期的渠道暂停记录
+			if cleared, err := reqLogManager.ClearExpiredSuspensions(); err != nil {
+				log.Printf("⚠️ 清理过期渠道暂停记录失败: %v", err)
+			} else if cleared > 0 {
+				log.Printf("✅ 启动时清理了 %d 个过期渠道暂停记录", cleared)
+			}
+
 			// 每 60 秒检查一次
 			ticker := time.NewTicker(60 * time.Second)
 			defer ticker.Stop()
 			for range ticker.C {
 				if _, err := reqLogManager.CleanupStalePending(300); err != nil {
 					log.Printf("⚠️ 清理 stale pending 请求失败: %v", err)
+				}
+				// 同时清理过期的渠道暂停记录
+				if _, err := reqLogManager.ClearExpiredSuspensions(); err != nil {
+					log.Printf("⚠️ 清理过期渠道暂停记录失败: %v", err)
 				}
 			}
 		}()

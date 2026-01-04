@@ -2,6 +2,7 @@ package requestlog
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -2711,14 +2712,16 @@ func (m *Manager) IsChannelSuspended(channelID int, channelType string) (bool, t
 	query := `SELECT suspended_until, reason FROM channel_suspensions WHERE channel_id = ? AND channel_type = ?`
 	err := m.db.QueryRow(query, channelID, channelType).Scan(&suspendedUntil, &reason)
 	if err != nil {
-		// Not found or error - not suspended
+		if !errors.Is(err, sql.ErrNoRows) {
+			// Real DB error - log it but treat as not suspended to avoid blocking requests
+			log.Printf("⚠️ DB error checking channel [%d] (%s) suspension: %v", channelID, channelType, err)
+		}
 		return false, time.Time{}, ""
 	}
 
 	// Check if suspension has expired
 	if time.Now().After(suspendedUntil) {
-		// Suspension expired, clean it up asynchronously
-		go m.ClearChannelSuspension(channelID, channelType)
+		// Suspension expired - periodic cleanup will handle removal
 		return false, time.Time{}, ""
 	}
 
@@ -2730,20 +2733,22 @@ func (m *Manager) IsChannelSuspended(channelID int, channelType string) (bool, t
 }
 
 // ClearChannelSuspension removes the suspension for a channel
-func (m *Manager) ClearChannelSuspension(channelID int, channelType string) error {
+// Returns (cleared, error) where cleared indicates if a suspension was actually removed
+func (m *Manager) ClearChannelSuspension(channelID int, channelType string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	query := `DELETE FROM channel_suspensions WHERE channel_id = ? AND channel_type = ?`
 	result, err := m.db.Exec(query, channelID, channelType)
 	if err != nil {
-		return fmt.Errorf("failed to clear channel suspension: %w", err)
+		return false, fmt.Errorf("failed to clear channel suspension: %w", err)
 	}
 
-	if rowsAffected, _ := result.RowsAffected(); rowsAffected > 0 {
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected > 0 {
 		log.Printf("✅ Channel [%d] (%s) suspension cleared", channelID, channelType)
 	}
-	return nil
+	return rowsAffected > 0, nil
 }
 
 // ClearExpiredSuspensions removes all expired suspensions

@@ -1179,14 +1179,22 @@ export interface ProviderStatsHistoryResponse {
 }
 
 // Failover Configuration Types
+export type FailoverAction = 'failover_immediate' | 'failover_threshold' | 'retry_wait' | 'suspend_channel'
+
 export interface FailoverRule {
-  errorCodes: string    // Comma-separated error codes or "others"
-  threshold: number // Number of consecutive errors before failover
+  errorCodes: string              // Error code pattern: "401,403" or "429:QUOTA_EXHAUSTED" or "others"
+  action: FailoverAction          // Action type
+  threshold?: number              // For failover_threshold: consecutive errors before failover
+  waitSeconds?: number            // For retry_wait: seconds to wait (0 = use response reset_seconds)
 }
 
 export interface FailoverConfig {
   enabled: boolean
   rules: FailoverRule[]
+  // 429 smart handling config (Claude API only)
+  genericResourceWaitSeconds?: number
+  modelCooldownExtraSeconds?: number
+  modelCooldownMaxWaitSeconds?: number
 }
 
 export const api = new ApiService()

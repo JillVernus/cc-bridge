@@ -353,3 +353,20 @@ func (ft *FailoverTracker) GetErrorCount(channelIdx int, apiKey string, errorGro
 func (ft *FailoverTracker) Decide429Action(channelIdx int, apiKey string, respBody []byte, failoverConfig *FailoverConfig) FailoverDecision {
 	return ft.DecideAction(channelIdx, apiKey, 429, respBody, failoverConfig)
 }
+
+// LegacyFailover returns the original circuit breaker failover decision for non-quota channels.
+// For 429/401/403: immediate failover to next key
+// For other errors: no failover, return error to client
+func (ft *FailoverTracker) LegacyFailover(statusCode int) FailoverDecision {
+	if statusCode == 429 || statusCode == 401 || statusCode == 403 {
+		return FailoverDecision{
+			Action:        ActionFailoverKey,
+			MarkKeyFailed: true,
+			Reason:        "legacy_circuit_breaker",
+		}
+	}
+	return FailoverDecision{
+		Action: ActionNone,
+		Reason: "legacy_no_failover",
+	}
+}

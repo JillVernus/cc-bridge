@@ -451,10 +451,18 @@ func tryChannelWithAllKeys(
 			resp.Body.Close()
 			respBodyBytes = utils.DecompressGzipIfNeeded(resp, respBodyBytes)
 
-			// Handle 429 errors with smart subtype detection (Claude API only)
+			// Handle 429 errors with smart subtype detection
 			if resp.StatusCode == 429 && failoverTracker != nil {
-				failoverConfig := cfgManager.GetFailoverConfig()
-				decision := failoverTracker.Decide429Action(upstream.Index, apiKey, respBodyBytes, &failoverConfig)
+				// Choose failover logic based on quota type
+				var decision config.FailoverDecision
+				if upstream.QuotaType != "" {
+					// Quota channel: use admin failover settings
+					failoverConfig := cfgManager.GetFailoverConfig()
+					decision = failoverTracker.Decide429Action(upstream.Index, apiKey, respBodyBytes, &failoverConfig)
+				} else {
+					// Normal channel: use legacy circuit breaker (immediate failover on 429)
+					decision = failoverTracker.LegacyFailover(resp.StatusCode)
+				}
 
 				switch decision.Action {
 				case config.ActionRetrySameKey:
@@ -499,7 +507,9 @@ func tryChannelWithAllKeys(
 							suspendedUntil = *upstream.QuotaResetAt
 						}
 						channelType := "messages" // Multi-channel proxy is always Messages API
-						_ = reqLogManager.SuspendChannel(upstream.Index, channelType, suspendedUntil, decision.Reason)
+						if err := reqLogManager.SuspendChannel(upstream.Index, channelType, suspendedUntil, decision.Reason); err != nil {
+							log.Printf("⚠️ Failed to suspend channel [%d] (%s): %v", upstream.Index, channelType, err)
+						}
 					}
 					log.Printf("⏸️ 429 %s: 渠道暂停，切换到下一个渠道", decision.Reason)
 
@@ -535,11 +545,19 @@ func tryChannelWithAllKeys(
 				}
 			}
 
-			// Non-429 errors: use existing failover logic
+			// Non-429 errors: choose failover logic based on quota type
 			var shouldFailover, isQuotaRelated bool
 			if failoverTracker != nil {
-				failoverConfig := cfgManager.GetFailoverConfig()
-				shouldFailover, isQuotaRelated = failoverTracker.ShouldFailover(upstream.Index, apiKey, resp.StatusCode, &failoverConfig)
+				if upstream.QuotaType != "" {
+					// Quota channel: use admin failover settings
+					failoverConfig := cfgManager.GetFailoverConfig()
+					shouldFailover, isQuotaRelated = failoverTracker.ShouldFailover(upstream.Index, apiKey, resp.StatusCode, &failoverConfig)
+				} else {
+					// Normal channel: use legacy circuit breaker
+					decision := failoverTracker.LegacyFailover(resp.StatusCode)
+					shouldFailover = decision.Action == config.ActionFailoverKey
+					isQuotaRelated = false
+				}
 			} else {
 				shouldFailover, isQuotaRelated = shouldRetryWithNextKey(resp.StatusCode, respBodyBytes)
 			}
@@ -753,10 +771,18 @@ func handleSingleChannelProxy(
 			resp.Body.Close()
 			respBodyBytes = utils.DecompressGzipIfNeeded(resp, respBodyBytes)
 
-			// Handle 429 errors with smart subtype detection (Claude API only)
+			// Handle 429 errors with smart subtype detection
 			if resp.StatusCode == 429 && failoverTracker != nil {
-				failoverConfig := cfgManager.GetFailoverConfig()
-				decision := failoverTracker.Decide429Action(upstream.Index, apiKey, respBodyBytes, &failoverConfig)
+				// Choose failover logic based on quota type
+				var decision config.FailoverDecision
+				if upstream.QuotaType != "" {
+					// Quota channel: use admin failover settings
+					failoverConfig := cfgManager.GetFailoverConfig()
+					decision = failoverTracker.Decide429Action(upstream.Index, apiKey, respBodyBytes, &failoverConfig)
+				} else {
+					// Normal channel: use legacy circuit breaker (immediate failover on 429)
+					decision = failoverTracker.LegacyFailover(resp.StatusCode)
+				}
 
 				switch decision.Action {
 				case config.ActionRetrySameKey:
@@ -805,7 +831,9 @@ func handleSingleChannelProxy(
 						if upstream.QuotaResetAt != nil && upstream.QuotaResetAt.After(time.Now()) {
 							suspendedUntil = *upstream.QuotaResetAt
 						}
-						_ = reqLogManager.SuspendChannel(upstream.Index, "messages", suspendedUntil, decision.Reason)
+						if err := reqLogManager.SuspendChannel(upstream.Index, "messages", suspendedUntil, decision.Reason); err != nil {
+							log.Printf("⚠️ Failed to suspend channel [%d] (messages): %v", upstream.Index, err)
+						}
 					}
 					log.Printf("⏸️ 429 %s: 渠道暂停 (单渠道模式，无可用后备)", decision.Reason)
 
@@ -855,11 +883,19 @@ func handleSingleChannelProxy(
 				}
 			}
 
-			// Non-429 errors: use existing failover logic
+			// Non-429 errors: choose failover logic based on quota type
 			var shouldFailover, isQuotaRelated bool
 			if failoverTracker != nil {
-				failoverConfig := cfgManager.GetFailoverConfig()
-				shouldFailover, isQuotaRelated = failoverTracker.ShouldFailover(upstream.Index, apiKey, resp.StatusCode, &failoverConfig)
+				if upstream.QuotaType != "" {
+					// Quota channel: use admin failover settings
+					failoverConfig := cfgManager.GetFailoverConfig()
+					shouldFailover, isQuotaRelated = failoverTracker.ShouldFailover(upstream.Index, apiKey, resp.StatusCode, &failoverConfig)
+				} else {
+					// Normal channel: use legacy circuit breaker
+					decision := failoverTracker.LegacyFailover(resp.StatusCode)
+					shouldFailover = decision.Action == config.ActionFailoverKey
+					isQuotaRelated = false
+				}
 			} else {
 				shouldFailover, isQuotaRelated = shouldRetryWithNextKey(resp.StatusCode, respBodyBytes)
 			}

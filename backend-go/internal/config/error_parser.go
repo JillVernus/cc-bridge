@@ -106,34 +106,10 @@ func ParseError(statusCode int, body []byte, cfg *FailoverConfig) *ParsedError {
 
 // parseError429 parses 429 error subtypes
 func parseError429(errObj map[string]any, cfg *FailoverConfig, result *ParsedError) {
-	// Priority 1: Check for model_cooldown
-	if code, ok := errObj["code"].(string); ok && code == "model_cooldown" {
-		result.Subtype = SubtypeModelCooldown
-		if resetSec, ok := errObj["reset_seconds"].(float64); ok {
-			result.ResetSeconds = resetSec
-			// Calculate wait time
-			extraSeconds := 1
-			maxWaitSeconds := 60
-			if cfg != nil {
-				if cfg.ModelCooldownExtraSeconds > 0 {
-					extraSeconds = cfg.ModelCooldownExtraSeconds
-				}
-				if cfg.ModelCooldownMaxWaitSeconds > 0 {
-					maxWaitSeconds = cfg.ModelCooldownMaxWaitSeconds
-				}
-			}
-			waitSeconds := int(resetSec+0.999) + extraSeconds
-			if waitSeconds > maxWaitSeconds {
-				waitSeconds = maxWaitSeconds
-			}
-			result.WaitDuration = time.Duration(waitSeconds) * time.Second
-		}
-		return
-	}
-
-	// Priority 2: Check for RESOURCE_EXHAUSTED status
+	// Priority 1: Check for RESOURCE_EXHAUSTED with QUOTA_EXHAUSTED (most specific)
+	// Check this first because quota exhaustion should always trigger channel suspension,
+	// even if model_cooldown is also present
 	if status, ok := errObj["status"].(string); ok && status == "RESOURCE_EXHAUSTED" {
-		// Check for QUOTA_EXHAUSTED in details
 		if details, ok := errObj["details"].([]any); ok {
 			for _, detail := range details {
 				if detailMap, ok := detail.(map[string]any); ok {
@@ -144,7 +120,40 @@ func parseError429(errObj map[string]any, cfg *FailoverConfig, result *ParsedErr
 				}
 			}
 		}
-		// Generic RESOURCE_EXHAUSTED
+	}
+
+	// Priority 2: Check for model_cooldown
+	if code, ok := errObj["code"].(string); ok && code == "model_cooldown" {
+		result.Subtype = SubtypeModelCooldown
+		// Default wait time when reset_seconds is missing (prevents busy-loop)
+		defaultWaitSeconds := 2
+		extraSeconds := 1
+		maxWaitSeconds := 60
+		if cfg != nil {
+			if cfg.ModelCooldownExtraSeconds > 0 {
+				extraSeconds = cfg.ModelCooldownExtraSeconds
+			}
+			if cfg.ModelCooldownMaxWaitSeconds > 0 {
+				maxWaitSeconds = cfg.ModelCooldownMaxWaitSeconds
+			}
+		}
+
+		if resetSec, ok := errObj["reset_seconds"].(float64); ok {
+			result.ResetSeconds = resetSec
+			waitSeconds := int(resetSec+0.999) + extraSeconds
+			if waitSeconds > maxWaitSeconds {
+				waitSeconds = maxWaitSeconds
+			}
+			result.WaitDuration = time.Duration(waitSeconds) * time.Second
+		} else {
+			// reset_seconds missing - use default to prevent busy-loop
+			result.WaitDuration = time.Duration(defaultWaitSeconds) * time.Second
+		}
+		return
+	}
+
+	// Priority 3: Generic RESOURCE_EXHAUSTED (without QUOTA_EXHAUSTED)
+	if status, ok := errObj["status"].(string); ok && status == "RESOURCE_EXHAUSTED" {
 		result.Subtype = SubtypeResourceExhausted
 		waitSeconds := 20
 		if cfg != nil && cfg.GenericResourceWaitSeconds > 0 {
