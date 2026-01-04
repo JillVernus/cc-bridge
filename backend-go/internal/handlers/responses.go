@@ -504,6 +504,14 @@ func tryResponsesChannelWithAllKeys(
 				case config.ActionRetrySameKey:
 					// Wait and retry with same key
 					log.Printf("⏳ [Responses] 429 %s: 等待 %v 后重试同一密钥", decision.Reason, decision.Wait)
+					// Capture the error in case this is the last attempt
+					lastFailoverError = &struct {
+						Status int
+						Body   []byte
+					}{
+						Status: resp.StatusCode,
+						Body:   respBodyBytes,
+					}
 					select {
 					case <-time.After(decision.Wait):
 						pinnedKey = apiKey // Pin for next attempt
