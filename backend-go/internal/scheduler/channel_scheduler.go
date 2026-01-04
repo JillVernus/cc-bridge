@@ -6,11 +6,17 @@ import (
 	"log"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/JillVernus/cc-bridge/internal/config"
 	"github.com/JillVernus/cc-bridge/internal/metrics"
 	"github.com/JillVernus/cc-bridge/internal/session"
 )
+
+// SuspensionChecker interface for checking channel suspension status
+type SuspensionChecker interface {
+	IsChannelSuspended(channelID int, channelType string) (bool, time.Time, string)
+}
 
 // ChannelScheduler 多渠道调度器
 type ChannelScheduler struct {
@@ -19,6 +25,7 @@ type ChannelScheduler struct {
 	messagesMetricsManager  *metrics.MetricsManager // Messages 渠道指标
 	responsesMetricsManager *metrics.MetricsManager // Responses 渠道指标
 	traceAffinity           *session.TraceAffinityManager
+	suspensionChecker       SuspensionChecker // For checking quota channel suspension
 }
 
 // NewChannelScheduler 创建多渠道调度器
@@ -36,12 +43,32 @@ func NewChannelScheduler(
 	}
 }
 
+// SetSuspensionChecker sets the suspension checker (called after requestLogManager is initialized)
+func (s *ChannelScheduler) SetSuspensionChecker(checker SuspensionChecker) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.suspensionChecker = checker
+}
+
 // getMetricsManager 根据类型获取对应的指标管理器
 func (s *ChannelScheduler) getMetricsManager(isResponses bool) *metrics.MetricsManager {
 	if isResponses {
 		return s.responsesMetricsManager
 	}
 	return s.messagesMetricsManager
+}
+
+// isChannelSuspended checks if a quota channel is suspended
+// Returns (isSuspended, suspendedUntil, reason)
+func (s *ChannelScheduler) isChannelSuspended(channelIndex int, isResponses bool) (bool, time.Time, string) {
+	if s.suspensionChecker == nil {
+		return false, time.Time{}, ""
+	}
+	channelType := "messages"
+	if isResponses {
+		channelType = "responses"
+	}
+	return s.suspensionChecker.IsChannelSuspended(channelIndex, channelType)
 }
 
 // SelectionResult 渠道选择结果
@@ -88,8 +115,11 @@ func (s *ChannelScheduler) SelectChannel(
 	// 0. 检查促销期渠道（最高优先级）
 	promotedChannel := s.findPromotedChannel(activeChannels, isResponses)
 	if promotedChannel != nil && !failedChannels[promotedChannel.Index] {
-		// 促销渠道存在且未失败，检查是否健康（仅当电路断路器启用时）
-		if !useCircuitBreaker || metricsManager.IsChannelHealthy(promotedChannel.Index) {
+		// 检查是否被暂停
+		if suspended, until, reason := s.isChannelSuspended(promotedChannel.Index, isResponses); suspended {
+			log.Printf("⏸️ 促销渠道 [%d] %s 被暂停 (原因: %s, 恢复: %s)", promotedChannel.Index, promotedChannel.Name, reason, until.Format(time.RFC3339))
+		} else if !useCircuitBreaker || metricsManager.IsChannelHealthy(promotedChannel.Index) {
+			// 促销渠道存在且未失败，检查是否健康（仅当电路断路器启用时）
 			upstream := s.getUpstreamByIndex(promotedChannel.Index, isResponses)
 			if upstream != nil && len(upstream.APIKeys) > 0 {
 				log.Printf("🎉 促销期优先选择渠道: [%d] %s (user: %s)", promotedChannel.Index, upstream.Name, maskUserID(userID))
@@ -116,6 +146,11 @@ func (s *ChannelScheduler) SelectChannel(
 					// 检查渠道状态：只有 active 状态才使用亲和性
 					if ch.Status != "active" {
 						log.Printf("⏸️ 跳过亲和渠道 [%d] %s: 状态为 %s (user: %s)", preferredIdx, ch.Name, ch.Status, maskUserID(userID))
+						continue
+					}
+					// 检查是否被暂停
+					if suspended, until, reason := s.isChannelSuspended(preferredIdx, isResponses); suspended {
+						log.Printf("⏸️ 跳过亲和渠道 [%d] %s: 被暂停 (原因: %s, 恢复: %s, user: %s)", preferredIdx, ch.Name, reason, until.Format(time.RFC3339), maskUserID(userID))
 						continue
 					}
 					// 检查渠道是否健康（仅当电路断路器启用时）
@@ -152,6 +187,13 @@ func (s *ChannelScheduler) SelectChannel(
 		if useCircuitBreaker && !metricsManager.IsChannelHealthy(ch.Index) {
 			log.Printf("⚠️ 跳过不健康渠道: [%d] %s (失败率: %.1f%%)",
 				ch.Index, ch.Name, metricsManager.CalculateFailureRate(ch.Index)*100)
+			continue
+		}
+
+		// 跳过被暂停的配额渠道（因配额耗尽等原因）
+		if suspended, until, reason := s.isChannelSuspended(ch.Index, isResponses); suspended {
+			log.Printf("⏸️ 跳过暂停渠道: [%d] %s (原因: %s, 恢复时间: %s)",
+				ch.Index, ch.Name, reason, until.Format(time.RFC3339))
 			continue
 		}
 

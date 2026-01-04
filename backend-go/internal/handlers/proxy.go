@@ -490,6 +490,28 @@ func tryChannelWithAllKeys(
 					}
 					continue
 
+				case config.ActionSuspendChan:
+					// Suspend channel until quota resets
+					if reqLogManager != nil && decision.SuspendChannel {
+						// Calculate suspension duration: use quota reset time if available, default 5 min
+						suspendedUntil := time.Now().Add(5 * time.Minute)
+						if upstream.QuotaResetAt != nil && upstream.QuotaResetAt.After(time.Now()) {
+							suspendedUntil = *upstream.QuotaResetAt
+						}
+						channelType := "messages" // Multi-channel proxy is always Messages API
+						_ = reqLogManager.SuspendChannel(upstream.Index, channelType, suspendedUntil, decision.Reason)
+					}
+					log.Printf("⏸️ 429 %s: 渠道暂停，切换到下一个渠道", decision.Reason)
+
+					// Return false to trigger channel failover (outer loop will try next channel)
+					return false, &struct {
+						Status int
+						Body   []byte
+					}{
+						Status: resp.StatusCode,
+						Body:   respBodyBytes,
+					}
+
 				default:
 					// ActionNone - return error to client
 					if reqLogManager != nil && requestLogID != "" {
@@ -774,6 +796,38 @@ func handleSingleChannelProxy(
 						deprioritizeCandidates[apiKey] = true
 					}
 					continue
+
+				case config.ActionSuspendChan:
+					// Suspend channel until quota resets (single-channel mode)
+					// Record suspension for monitoring, but return error to client since no fallback
+					if reqLogManager != nil && decision.SuspendChannel {
+						suspendedUntil := time.Now().Add(5 * time.Minute)
+						if upstream.QuotaResetAt != nil && upstream.QuotaResetAt.After(time.Now()) {
+							suspendedUntil = *upstream.QuotaResetAt
+						}
+						_ = reqLogManager.SuspendChannel(upstream.Index, "messages", suspendedUntil, decision.Reason)
+					}
+					log.Printf("⏸️ 429 %s: 渠道暂停 (单渠道模式，无可用后备)", decision.Reason)
+
+					// Update request log and return error to client
+					if reqLogManager != nil && requestLogID != "" {
+						completeTime := time.Now()
+						record := &requestlog.RequestLog{
+							Status:        requestlog.StatusError,
+							CompleteTime:  completeTime,
+							DurationMs:    completeTime.Sub(startTime).Milliseconds(),
+							Type:          upstream.ServiceType,
+							ProviderName:  upstream.Name,
+							HTTPStatus:    resp.StatusCode,
+							ChannelID:     upstream.Index,
+							ChannelName:   upstream.Name,
+							Error:         fmt.Sprintf("429 %s (channel suspended)", decision.Reason),
+							UpstreamError: string(respBodyBytes),
+						}
+						_ = reqLogManager.Update(requestLogID, record)
+					}
+					c.Data(resp.StatusCode, "application/json", respBodyBytes)
+					return
 
 				default:
 					// ActionNone - return error to client

@@ -98,6 +98,9 @@ func main() {
 	} else {
 		log.Printf("✅ 请求日志管理器已初始化")
 
+		// 连接调度器与请求日志管理器（用于配额渠道暂停检查）
+		channelScheduler.SetSuspensionChecker(reqLogManager)
+
 		// 初始化配额持久化（使用请求日志数据库）
 		quotaAdapter := quota.NewRequestLogAdapter(reqLogManager)
 		quota.GetManager().SetPersister(quotaAdapter)
@@ -352,7 +355,7 @@ func main() {
 
 		// 用量配额 API (渠道配额追踪)
 		if usageQuotaManager != nil {
-			usageQuotaHandler := handlers.NewUsageQuotaHandler(usageQuotaManager)
+			usageQuotaHandler := handlers.NewUsageQuotaHandler(usageQuotaManager, reqLogManager)
 			// Messages 渠道配额
 			apiGroup.GET("/channels/usage", usageQuotaHandler.GetAllChannelUsageQuotas)
 			apiGroup.GET("/channels/:id/usage", usageQuotaHandler.GetChannelUsageQuota)

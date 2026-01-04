@@ -217,10 +217,20 @@ func (d *DebugLogConfig) GetMaxBodySize() int {
 	return d.MaxBodySize
 }
 
+// FailoverAction 故障转移动作类型
+const (
+	ActionFailoverImmediate = "failover_immediate" // 立即故障转移到下一个密钥
+	ActionFailoverThreshold = "failover_threshold" // 达到阈值后故障转移
+	ActionRetryWait         = "retry_wait"         // 等待后使用同一密钥重试
+	ActionSuspendChannel    = "suspend_channel"    // 暂停渠道直到配额重置
+)
+
 // FailoverRule 单条故障转移规则
 type FailoverRule struct {
-	ErrorCodes string `json:"errorCodes"` // 逗号分隔的错误码: "401,403" 或 "others"
-	Threshold  int    `json:"threshold"`  // 触发故障转移前的连续错误次数
+	ErrorCodes  string `json:"errorCodes"`            // 错误码模式: "401,403" 或 "429:QUOTA_EXHAUSTED" 或 "others"
+	Action      string `json:"action"`                // 动作类型: failover_immediate, failover_threshold, retry_wait, suspend_channel
+	Threshold   int    `json:"threshold,omitempty"`   // 用于 failover_threshold: 触发故障转移前的连续错误次数
+	WaitSeconds int    `json:"waitSeconds,omitempty"` // 用于 retry_wait: 等待秒数 (0 = 使用响应中的 reset_seconds)
 }
 
 // FailoverConfig 故障转移配置
@@ -234,13 +244,25 @@ type FailoverConfig struct {
 	ModelCooldownMaxWaitSeconds int `json:"modelCooldownMaxWaitSeconds,omitempty"` // Type 2: 模型冷却最大等待时间（默认 60 秒）
 }
 
-// GetDefaultFailoverRules 获取默认故障转移规则
+// GetDefaultFailoverRules 获取默认故障转移规则（用于配额渠道）
+// 规则按优先级排序：更具体的模式（如 429:QUOTA_EXHAUSTED）优先于通用模式（如 429）
 func GetDefaultFailoverRules() []FailoverRule {
 	return []FailoverRule{
-		{ErrorCodes: "401,403", Threshold: 1},
-		{ErrorCodes: "429", Threshold: 3},
-		{ErrorCodes: "500,502,503,504", Threshold: 2},
-		{ErrorCodes: "others", Threshold: 1},
+		// 配额耗尽 - 暂停渠道直到重置
+		{ErrorCodes: "429:QUOTA_EXHAUSTED", Action: ActionSuspendChannel},
+		{ErrorCodes: "403:CREDIT_EXHAUSTED", Action: ActionSuspendChannel},
+		// 模型冷却 - 等待响应中的 reset_seconds 后重试
+		{ErrorCodes: "429:model_cooldown", Action: ActionRetryWait, WaitSeconds: 0},
+		// 通用资源耗尽 - 等待 20 秒后重试
+		{ErrorCodes: "429:RESOURCE_EXHAUSTED", Action: ActionRetryWait, WaitSeconds: 20},
+		// 通用 429 - 阈值后故障转移
+		{ErrorCodes: "429", Action: ActionFailoverThreshold, Threshold: 3},
+		// 认证错误 - 立即故障转移
+		{ErrorCodes: "401,403", Action: ActionFailoverImmediate},
+		// 服务器错误 - 阈值后故障转移
+		{ErrorCodes: "500,502,503,504", Action: ActionFailoverThreshold, Threshold: 2},
+		// 其他错误 - 阈值后故障转移
+		{ErrorCodes: "others", Action: ActionFailoverThreshold, Threshold: 1},
 	}
 }
 

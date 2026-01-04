@@ -1,21 +1,24 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 
 	"github.com/JillVernus/cc-bridge/internal/quota"
+	"github.com/JillVernus/cc-bridge/internal/requestlog"
 	"github.com/gin-gonic/gin"
 )
 
 // UsageQuotaHandler handles usage quota-related API endpoints
 type UsageQuotaHandler struct {
-	usageManager *quota.UsageManager
+	usageManager  *quota.UsageManager
+	reqLogManager *requestlog.Manager
 }
 
 // NewUsageQuotaHandler creates a new usage quota handler
-func NewUsageQuotaHandler(um *quota.UsageManager) *UsageQuotaHandler {
-	return &UsageQuotaHandler{usageManager: um}
+func NewUsageQuotaHandler(um *quota.UsageManager, reqLogManager *requestlog.Manager) *UsageQuotaHandler {
+	return &UsageQuotaHandler{usageManager: um, reqLogManager: reqLogManager}
 }
 
 // GetChannelUsageQuota returns usage quota status for a Messages channel
@@ -50,6 +53,15 @@ func (h *UsageQuotaHandler) ResetChannelUsageQuota(c *gin.Context) {
 	if err := h.usageManager.ResetUsage(index); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Also clear any channel suspension (quota channel was suspended due to 429 quota_exhausted)
+	if h.reqLogManager != nil {
+		if cleared, err := h.reqLogManager.ClearChannelSuspension(index, "messages"); err != nil {
+			log.Printf("⚠️ Failed to clear channel suspension: %v", err)
+		} else if cleared {
+			log.Printf("✅ Cleared suspension for Messages channel [%d] (quota reset)", index)
+		}
 	}
 
 	// Return updated status
@@ -92,6 +104,15 @@ func (h *UsageQuotaHandler) ResetResponsesChannelUsageQuota(c *gin.Context) {
 	if err := h.usageManager.ResetResponsesUsage(index); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Also clear any channel suspension (quota channel was suspended due to 429 quota_exhausted)
+	if h.reqLogManager != nil {
+		if cleared, err := h.reqLogManager.ClearChannelSuspension(index, "responses"); err != nil {
+			log.Printf("⚠️ Failed to clear channel suspension: %v", err)
+		} else if cleared {
+			log.Printf("✅ Cleared suspension for Responses channel [%d] (quota reset)", index)
+		}
 	}
 
 	status := h.usageManager.GetResponsesChannelUsageStatus(index)

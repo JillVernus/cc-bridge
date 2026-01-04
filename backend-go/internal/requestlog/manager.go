@@ -336,6 +336,22 @@ func (m *Manager) initSchema() error {
 		log.Printf("⚠️ Failed to create request_debug_logs table: %v", err)
 	}
 
+	// Create channel_suspensions table for storing suspended channels (quota exhausted)
+	suspensionSchema := `
+	CREATE TABLE IF NOT EXISTS channel_suspensions (
+		channel_id INTEGER NOT NULL,
+		channel_type TEXT NOT NULL,
+		suspended_at DATETIME NOT NULL,
+		suspended_until DATETIME NOT NULL,
+		reason TEXT,
+		PRIMARY KEY (channel_id, channel_type)
+	);
+	CREATE INDEX IF NOT EXISTS idx_suspensions_until ON channel_suspensions(suspended_until);
+	`
+	if _, err := m.db.Exec(suspensionSchema); err != nil {
+		log.Printf("⚠️ Failed to create channel_suspensions table: %v", err)
+	}
+
 	return nil
 }
 
@@ -2653,4 +2669,126 @@ func (m *Manager) GetAllChannelQuotas() ([]*ChannelQuota, error) {
 	}
 
 	return quotas, rows.Err()
+}
+
+// ChannelSuspension represents a suspended channel record
+type ChannelSuspension struct {
+	ChannelID      int       `json:"channelId"`
+	ChannelType    string    `json:"channelType"` // "messages" or "responses"
+	SuspendedAt    time.Time `json:"suspendedAt"`
+	SuspendedUntil time.Time `json:"suspendedUntil"`
+	Reason         string    `json:"reason"`
+}
+
+// SuspendChannel marks a channel as suspended until the specified time
+func (m *Manager) SuspendChannel(channelID int, channelType string, suspendedUntil time.Time, reason string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	query := `
+		INSERT OR REPLACE INTO channel_suspensions (channel_id, channel_type, suspended_at, suspended_until, reason)
+		VALUES (?, ?, ?, ?, ?)
+	`
+	_, err := m.db.Exec(query, channelID, channelType, time.Now(), suspendedUntil, reason)
+	if err != nil {
+		return fmt.Errorf("failed to suspend channel: %w", err)
+	}
+
+	log.Printf("⏸️ Channel [%d] (%s) suspended until %s, reason: %s",
+		channelID, channelType, suspendedUntil.Format(time.RFC3339), reason)
+	return nil
+}
+
+// IsChannelSuspended checks if a channel is currently suspended
+// Returns (isSuspended, suspendedUntil, reason)
+func (m *Manager) IsChannelSuspended(channelID int, channelType string) (bool, time.Time, string) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var suspendedUntil time.Time
+	var reason sql.NullString
+
+	query := `SELECT suspended_until, reason FROM channel_suspensions WHERE channel_id = ? AND channel_type = ?`
+	err := m.db.QueryRow(query, channelID, channelType).Scan(&suspendedUntil, &reason)
+	if err != nil {
+		// Not found or error - not suspended
+		return false, time.Time{}, ""
+	}
+
+	// Check if suspension has expired
+	if time.Now().After(suspendedUntil) {
+		// Suspension expired, clean it up asynchronously
+		go m.ClearChannelSuspension(channelID, channelType)
+		return false, time.Time{}, ""
+	}
+
+	reasonStr := ""
+	if reason.Valid {
+		reasonStr = reason.String
+	}
+	return true, suspendedUntil, reasonStr
+}
+
+// ClearChannelSuspension removes the suspension for a channel
+func (m *Manager) ClearChannelSuspension(channelID int, channelType string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	query := `DELETE FROM channel_suspensions WHERE channel_id = ? AND channel_type = ?`
+	result, err := m.db.Exec(query, channelID, channelType)
+	if err != nil {
+		return fmt.Errorf("failed to clear channel suspension: %w", err)
+	}
+
+	if rowsAffected, _ := result.RowsAffected(); rowsAffected > 0 {
+		log.Printf("✅ Channel [%d] (%s) suspension cleared", channelID, channelType)
+	}
+	return nil
+}
+
+// ClearExpiredSuspensions removes all expired suspensions
+func (m *Manager) ClearExpiredSuspensions() (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	query := `DELETE FROM channel_suspensions WHERE suspended_until < ?`
+	result, err := m.db.Exec(query, time.Now())
+	if err != nil {
+		return 0, fmt.Errorf("failed to clear expired suspensions: %w", err)
+	}
+
+	return result.RowsAffected()
+}
+
+// GetAllSuspensions returns all current suspensions
+func (m *Manager) GetAllSuspensions() ([]*ChannelSuspension, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	query := `SELECT channel_id, channel_type, suspended_at, suspended_until, reason
+			  FROM channel_suspensions
+			  WHERE suspended_until > ?
+			  ORDER BY channel_id, channel_type`
+
+	rows, err := m.db.Query(query, time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get suspensions: %w", err)
+	}
+	defer rows.Close()
+
+	var suspensions []*ChannelSuspension
+	for rows.Next() {
+		var s ChannelSuspension
+		var reason sql.NullString
+		err := rows.Scan(&s.ChannelID, &s.ChannelType, &s.SuspendedAt, &s.SuspendedUntil, &reason)
+		if err != nil {
+			return nil, err
+		}
+		if reason.Valid {
+			s.Reason = reason.String
+		}
+		suspensions = append(suspensions, &s)
+	}
+
+	return suspensions, rows.Err()
 }
