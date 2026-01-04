@@ -4,6 +4,18 @@
 
 ---
 
+## [v1.3.122] - 2026-01-04
+
+### 🐛 修复
+
+- **配额自动重置失效**: 修复滚动周期(rolling)和固定周期(fixed)模式下配额无法自动重置的问题
+  - 原因: `calculateNextReset()` 始终返回未来时间，导致重置条件永远为 false
+  - 滚动模式: 现在直接检查 `quotaResetAt` 是否已过期
+  - 固定模式: 新增 `calculatePreviousReset()` 计算最近一次应触发的重置时间
+  - 影响 Messages API 和 Responses API 的配额管理
+
+---
+
 ## [v1.3.121] - 2026-01-04
 
 ### 🐛 修复

@@ -366,6 +366,47 @@ func (m *UsageManager) calculateNextResetFromNow(interval int, unit string) time
 	}
 }
 
+// calculatePreviousReset returns the most recent scheduled reset time that is in the past (for fixed mode)
+func (m *UsageManager) calculatePreviousReset(firstReset *time.Time, interval int, unit string) *time.Time {
+	if firstReset == nil || interval <= 0 {
+		return nil
+	}
+
+	now := time.Now()
+
+	// If first reset is in the future, there's no previous reset yet
+	if firstReset.After(now) {
+		return nil
+	}
+
+	// Calculate interval duration
+	var duration time.Duration
+	switch unit {
+	case "hours":
+		duration = time.Duration(interval) * time.Hour
+	case "days":
+		duration = time.Duration(interval) * 24 * time.Hour
+	case "weeks":
+		duration = time.Duration(interval) * 7 * 24 * time.Hour
+	case "months":
+		duration = time.Duration(interval) * 30 * 24 * time.Hour
+	default:
+		duration = time.Duration(interval) * time.Hour
+	}
+
+	// Find the most recent reset time that is <= now
+	prev := *firstReset
+	for {
+		next := prev.Add(duration)
+		if next.After(now) {
+			break
+		}
+		prev = next
+	}
+
+	return &prev
+}
+
 // autoResetLoop periodically checks if any channels need auto-reset
 func (m *UsageManager) autoResetLoop() {
 	ticker := time.NewTicker(1 * time.Minute)
@@ -392,23 +433,30 @@ func (m *UsageManager) checkAndAutoReset() {
 			continue
 		}
 
-		nextReset := m.calculateNextReset(upstream.QuotaResetAt, upstream.QuotaResetInterval, upstream.QuotaResetUnit)
-		if nextReset == nil {
-			continue
-		}
-
 		usage := m.GetUsage(i)
 		if usage == nil {
 			continue
 		}
 
-		// Check if we've passed the reset time since last reset
-		// Only reset if: nextReset time has passed AND last reset was before nextReset
-		if nextReset.Before(now) && usage.LastResetAt.Before(*nextReset) {
+		var shouldReset bool
+
+		if upstream.QuotaResetMode == "rolling" {
+			// Rolling mode: quotaResetAt is the exact next reset time (dynamically updated on first request)
+			// Simply check if we've passed that time and haven't reset since
+			shouldReset = upstream.QuotaResetAt.Before(now) && usage.LastResetAt.Before(*upstream.QuotaResetAt)
+		} else {
+			// Fixed mode: calculate the most recent scheduled reset time from the original time
+			previousReset := m.calculatePreviousReset(upstream.QuotaResetAt, upstream.QuotaResetInterval, upstream.QuotaResetUnit)
+			if previousReset != nil {
+				shouldReset = usage.LastResetAt.Before(*previousReset)
+			}
+		}
+
+		if shouldReset {
 			if err := m.ResetUsage(i); err != nil {
 				log.Printf("⚠️ 自动重置 Messages 渠道 [%d] 配额失败: %v", i, err)
 			} else {
-				log.Printf("⏰ Messages 渠道 [%d] %s 配额已自动重置", i, upstream.Name)
+				log.Printf("⏰ Messages 渠道 [%d] %s 配额已自动重置 (模式: %s)", i, upstream.Name, upstream.QuotaResetMode)
 			}
 		}
 	}
@@ -419,22 +467,29 @@ func (m *UsageManager) checkAndAutoReset() {
 			continue
 		}
 
-		nextReset := m.calculateNextReset(upstream.QuotaResetAt, upstream.QuotaResetInterval, upstream.QuotaResetUnit)
-		if nextReset == nil {
-			continue
-		}
-
 		usage := m.GetResponsesUsage(i)
 		if usage == nil {
 			continue
 		}
 
-		// Only reset if: nextReset time has passed AND last reset was before nextReset
-		if nextReset.Before(now) && usage.LastResetAt.Before(*nextReset) {
+		var shouldReset bool
+
+		if upstream.QuotaResetMode == "rolling" {
+			// Rolling mode: quotaResetAt is the exact next reset time
+			shouldReset = upstream.QuotaResetAt.Before(now) && usage.LastResetAt.Before(*upstream.QuotaResetAt)
+		} else {
+			// Fixed mode: calculate the most recent scheduled reset time
+			previousReset := m.calculatePreviousReset(upstream.QuotaResetAt, upstream.QuotaResetInterval, upstream.QuotaResetUnit)
+			if previousReset != nil {
+				shouldReset = usage.LastResetAt.Before(*previousReset)
+			}
+		}
+
+		if shouldReset {
 			if err := m.ResetResponsesUsage(i); err != nil {
 				log.Printf("⚠️ 自动重置 Responses 渠道 [%d] 配额失败: %v", i, err)
 			} else {
-				log.Printf("⏰ Responses 渠道 [%d] %s 配额已自动重置", i, upstream.Name)
+				log.Printf("⏰ Responses 渠道 [%d] %s 配额已自动重置 (模式: %s)", i, upstream.Name, upstream.QuotaResetMode)
 			}
 		}
 	}
