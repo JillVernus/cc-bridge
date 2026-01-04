@@ -903,6 +903,7 @@
     <RequestDebugModal
       v-model="showDebugModal"
       :request-id="selectedRequestId"
+      :log-item="selectedLogItem"
     />
   </div>
 </template>
@@ -948,6 +949,7 @@ const aliasError = ref<string>('')
 // Debug modal state
 const showDebugModal = ref(false)
 const selectedRequestId = ref<string | null>(null)
+const selectedLogItem = ref<RequestLog | null>(null)
 
 // API keys state (for displaying key names by ID)
 const apiKeys = ref<APIKey[]>([])
@@ -2254,12 +2256,13 @@ const getHeaderColorClass = (key: string): string => {
 const getRowProps = ({ item }: { item: RequestLog }) => {
   return {
     class: updatedIds.value.has(item.id) ? 'row-flash clickable-row' : 'clickable-row',
-    onClick: () => openDebugModal(item.id)
+    onClick: () => openDebugModal(item)
   }
 }
 
-const openDebugModal = (requestId: string) => {
-  selectedRequestId.value = requestId
+const openDebugModal = (item: RequestLog) => {
+  selectedRequestId.value = item.id
+  selectedLogItem.value = item
   showDebugModal.value = true
 }
 

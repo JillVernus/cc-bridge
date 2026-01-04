@@ -25,6 +25,8 @@ export default {
     copied: '已复制!',
     required: '必填',
     optional: '可选',
+    yes: '是',
+    no: '否',
   },
 
   // Confirmation dialogs
@@ -732,13 +734,31 @@ export default {
 
   // 调试详情弹窗
   debugModal: {
-    title: '请求调试详情',
+    title: '请求详情',
+    metadata: '元数据',
     request: '请求',
     response: '响应',
     headers: '请求头',
     body: '请求体',
     noHeaders: '未捕获请求头',
     noData: '该请求没有调试数据',
+    noMetadata: '无元数据',
     loadFailed: '加载调试数据失败',
+    debugDisabled: '该请求未启用调试日志',
+    off: '关闭',
+    // 元数据字段
+    requestInfo: '请求信息',
+    requestId: '请求 ID',
+    endpoint: '端点',
+    stream: '流式',
+    timing: '时间',
+    startTime: '开始时间',
+    endTime: '结束时间',
+    duration: '耗时',
+    statusInfo: '状态',
+    status: '状态',
+    httpStatus: 'HTTP 状态',
+    error: '错误',
+    upstreamError: '上游错误',
   },
 }

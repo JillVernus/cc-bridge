@@ -25,6 +25,8 @@ export default {
     copied: 'Copied!',
     required: 'Required',
     optional: 'Optional',
+    yes: 'Yes',
+    no: 'No',
   },
 
   // Confirmation dialogs
@@ -732,13 +734,31 @@ export default {
 
   // Debug Modal (for viewing request/response details)
   debugModal: {
-    title: 'Request Debug Details',
+    title: 'Request Details',
+    metadata: 'Metadata',
     request: 'Request',
     response: 'Response',
     headers: 'Headers',
     body: 'Body',
     noHeaders: 'No headers captured',
     noData: 'No debug data available for this request',
+    noMetadata: 'No metadata available',
     loadFailed: 'Failed to load debug data',
+    debugDisabled: 'Debug logging was disabled for this request',
+    off: 'OFF',
+    // Metadata fields
+    requestInfo: 'Request Info',
+    requestId: 'Request ID',
+    endpoint: 'Endpoint',
+    stream: 'Stream',
+    timing: 'Timing',
+    startTime: 'Start Time',
+    endTime: 'End Time',
+    duration: 'Duration',
+    statusInfo: 'Status',
+    status: 'Status',
+    httpStatus: 'HTTP Status',
+    error: 'Error',
+    upstreamError: 'Upstream Error',
   },
 }
