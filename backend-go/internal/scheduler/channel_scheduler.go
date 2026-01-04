@@ -81,11 +81,15 @@ func (s *ChannelScheduler) SelectChannel(
 	// 获取对应类型的指标管理器
 	metricsManager := s.getMetricsManager(isResponses)
 
+	// 检查是否启用了管理员故障转移设置（如果启用则禁用电路断路器）
+	cfg := s.configManager.GetConfig()
+	useCircuitBreaker := !cfg.Failover.Enabled // Failover.Enabled=true 时禁用电路断路器
+
 	// 0. 检查促销期渠道（最高优先级）
 	promotedChannel := s.findPromotedChannel(activeChannels, isResponses)
 	if promotedChannel != nil && !failedChannels[promotedChannel.Index] {
-		// 促销渠道存在且未失败，检查是否健康
-		if metricsManager.IsChannelHealthy(promotedChannel.Index) {
+		// 促销渠道存在且未失败，检查是否健康（仅当电路断路器启用时）
+		if !useCircuitBreaker || metricsManager.IsChannelHealthy(promotedChannel.Index) {
 			upstream := s.getUpstreamByIndex(promotedChannel.Index, isResponses)
 			if upstream != nil && len(upstream.APIKeys) > 0 {
 				log.Printf("🎉 促销期优先选择渠道: [%d] %s (user: %s)", promotedChannel.Index, upstream.Name, maskUserID(userID))
@@ -114,8 +118,8 @@ func (s *ChannelScheduler) SelectChannel(
 						log.Printf("⏸️ 跳过亲和渠道 [%d] %s: 状态为 %s (user: %s)", preferredIdx, ch.Name, ch.Status, maskUserID(userID))
 						continue
 					}
-					// 检查渠道是否健康
-					if metricsManager.IsChannelHealthy(preferredIdx) {
+					// 检查渠道是否健康（仅当电路断路器启用时）
+					if !useCircuitBreaker || metricsManager.IsChannelHealthy(preferredIdx) {
 						upstream := s.getUpstreamByIndex(preferredIdx, isResponses)
 						if upstream != nil {
 							log.Printf("🎯 Trace亲和选择渠道: [%d] %s (user: %s)", preferredIdx, upstream.Name, maskUserID(userID))
@@ -144,8 +148,8 @@ func (s *ChannelScheduler) SelectChannel(
 			continue
 		}
 
-		// 跳过失败率过高的渠道（已熔断或即将熔断）
-		if !metricsManager.IsChannelHealthy(ch.Index) {
+		// 跳过失败率过高的渠道（已熔断或即将熔断）- 仅当电路断路器启用时
+		if useCircuitBreaker && !metricsManager.IsChannelHealthy(ch.Index) {
 			log.Printf("⚠️ 跳过不健康渠道: [%d] %s (失败率: %.1f%%)",
 				ch.Index, ch.Name, metricsManager.CalculateFailureRate(ch.Index)*100)
 			continue
