@@ -1195,6 +1195,28 @@ func UpdateFailoverConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			cfg.Enabled = *req.Enabled
 		}
 		if req.Rules != nil {
+			// Validate rules
+			for i, rule := range req.Rules {
+				if rule.ErrorCodes == "" {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "规则 " + strconv.Itoa(i+1) + " 缺少错误码"})
+					return
+				}
+
+				// Validate ActionChain if present
+				if len(rule.ActionChain) > 0 {
+					for j, step := range rule.ActionChain {
+						switch step.Action {
+						case config.ActionRetry, config.ActionFailover, config.ActionSuspend:
+							// Valid action
+						default:
+							c.JSON(http.StatusBadRequest, gin.H{
+								"error": "规则 " + strconv.Itoa(i+1) + " 步骤 " + strconv.Itoa(j+1) + " 的动作无效: " + step.Action,
+							})
+							return
+						}
+					}
+				}
+			}
 			cfg.Rules = req.Rules
 		}
 

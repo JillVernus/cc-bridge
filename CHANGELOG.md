@@ -4,6 +4,32 @@
 
 ---
 
+## [v1.3.140] - 2026-01-05
+
+### ✨ 新功能
+
+- **故障转移规则动作链**: 重构故障转移规则系统，支持动作链 (IF-THEN-ELSE 风格)
+  - 新增 `ActionStep` 结构: `action` (retry/failover/suspend), `waitSeconds`, `maxAttempts`
+  - `FailoverRule` 现在使用 `ActionChain []ActionStep` 替代单一动作
+  - 支持可配置重试次数 (不再限制为1次)
+  - 支持链式动作 (如: 重试3次 → 故障转移 → 暂停)
+  - 前后端自动迁移旧格式规则到新格式
+
+- **动作链 UI**: 故障转移设置界面支持可视化编辑动作链
+  - 可展开/收起的规则行设计
+  - 收起视图显示动作链摘要 (如: `Retry(30s, 3x) → Failover`)
+  - 展开视图可添加/删除步骤 (最多5步)
+  - 重试动作支持设置等待秒数和最大次数
+
+### 🐛 修复
+
+- **MigrateRule 默认分支**: 添加 `default` case 处理未知旧版动作类型 (Codex review)
+- **getActionChainSummary**: 使用显式 switch 语句避免动态键查找失败
+- **migrateRule**: 添加 `typeof` 类型检查确保 threshold/waitSeconds 为数字
+- **removeRule**: 修复删除规则后展开状态索引未正确更新的问题
+
+---
+
 ## [v1.3.139] - 2026-01-05
 
 ### 🐛 修复

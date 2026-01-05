@@ -217,7 +217,14 @@ func (d *DebugLogConfig) GetMaxBodySize() int {
 	return d.MaxBodySize
 }
 
-// FailoverAction 故障转移动作类型
+// FailoverAction 故障转移动作类型 (新版本)
+const (
+	ActionRetry    = "retry"    // 等待后重试（可配置次数）
+	ActionFailover = "failover" // 故障转移到下一个密钥
+	ActionSuspend  = "suspend"  // 暂停渠道直到配额重置
+)
+
+// FailoverAction 故障转移动作类型 (旧版本 - 用于迁移)
 const (
 	ActionFailoverImmediate = "failover_immediate" // 立即故障转移到下一个密钥
 	ActionFailoverThreshold = "failover_threshold" // 达到阈值后故障转移
@@ -225,12 +232,22 @@ const (
 	ActionSuspendChannel    = "suspend_channel"    // 暂停渠道直到配额重置
 )
 
+// ActionStep 动作链中的单个步骤
+type ActionStep struct {
+	Action      string `json:"action"`                // 动作类型: "retry", "failover", "suspend"
+	WaitSeconds int    `json:"waitSeconds,omitempty"` // 等待秒数 (0 = 使用响应中的 reset_seconds，仅用于 retry)
+	MaxAttempts int    `json:"maxAttempts,omitempty"` // 最大重试次数 (仅用于 retry，99 = 无限重试)
+}
+
 // FailoverRule 单条故障转移规则
 type FailoverRule struct {
-	ErrorCodes  string `json:"errorCodes"`            // 错误码模式: "401,403" 或 "429:QUOTA_EXHAUSTED" 或 "others"
-	Action      string `json:"action"`                // 动作类型: failover_immediate, failover_threshold, retry_wait, suspend_channel
-	Threshold   int    `json:"threshold,omitempty"`   // 用于 failover_threshold: 触发故障转移前的连续错误次数
-	WaitSeconds int    `json:"waitSeconds,omitempty"` // 用于 retry_wait: 等待秒数 (0 = 使用响应中的 reset_seconds)
+	ErrorCodes  string       `json:"errorCodes"`            // 错误码模式: "401,403" 或 "429:QUOTA_EXHAUSTED" 或 "others"
+	ActionChain []ActionStep `json:"actionChain,omitempty"` // 动作链: 按顺序执行的动作列表
+
+	// 以下字段用于向后兼容迁移，新规则不应使用
+	Action      string `json:"action,omitempty"`      // [已废弃] 动作类型
+	Threshold   int    `json:"threshold,omitempty"`   // [已废弃] 用于 failover_threshold
+	WaitSeconds int    `json:"waitSeconds,omitempty"` // [已废弃] 用于 retry_wait
 }
 
 // FailoverConfig 故障转移配置
@@ -249,21 +266,98 @@ type FailoverConfig struct {
 func GetDefaultFailoverRules() []FailoverRule {
 	return []FailoverRule{
 		// 配额耗尽 - 暂停渠道直到重置
-		{ErrorCodes: "429:QUOTA_EXHAUSTED", Action: ActionSuspendChannel},
-		{ErrorCodes: "403:CREDIT_EXHAUSTED", Action: ActionSuspendChannel},
-		// 模型冷却 - 等待响应中的 reset_seconds 后重试
-		{ErrorCodes: "429:model_cooldown", Action: ActionRetryWait, WaitSeconds: 0},
-		// 通用资源耗尽 - 等待 20 秒后重试
-		{ErrorCodes: "429:RESOURCE_EXHAUSTED", Action: ActionRetryWait, WaitSeconds: 20},
-		// 通用 429 - 阈值后故障转移
-		{ErrorCodes: "429", Action: ActionFailoverThreshold, Threshold: 3},
+		{ErrorCodes: "429:QUOTA_EXHAUSTED", ActionChain: []ActionStep{{Action: ActionSuspend}}},
+		{ErrorCodes: "403:CREDIT_EXHAUSTED", ActionChain: []ActionStep{{Action: ActionSuspend}}},
+		// 模型冷却 - 等待响应中的 reset_seconds 后重试（无限次），最终故障转移
+		{ErrorCodes: "429:model_cooldown", ActionChain: []ActionStep{
+			{Action: ActionRetry, WaitSeconds: 0, MaxAttempts: 99},
+			{Action: ActionFailover},
+		}},
+		// 通用资源耗尽 - 等待 20 秒后重试（无限次），最终故障转移
+		{ErrorCodes: "429:RESOURCE_EXHAUSTED", ActionChain: []ActionStep{
+			{Action: ActionRetry, WaitSeconds: 20, MaxAttempts: 99},
+			{Action: ActionFailover},
+		}},
+		// 通用 429 - 重试 3 次后故障转移
+		{ErrorCodes: "429", ActionChain: []ActionStep{
+			{Action: ActionRetry, WaitSeconds: 0, MaxAttempts: 3},
+			{Action: ActionFailover},
+		}},
 		// 认证错误 - 立即故障转移
-		{ErrorCodes: "401,403", Action: ActionFailoverImmediate},
-		// 服务器错误 - 阈值后故障转移
-		{ErrorCodes: "500,502,503,504", Action: ActionFailoverThreshold, Threshold: 2},
-		// 其他错误 - 阈值后故障转移
-		{ErrorCodes: "others", Action: ActionFailoverThreshold, Threshold: 1},
+		{ErrorCodes: "401,403", ActionChain: []ActionStep{{Action: ActionFailover}}},
+		// 服务器错误 - 重试 2 次后故障转移
+		{ErrorCodes: "500,502,503,504", ActionChain: []ActionStep{
+			{Action: ActionRetry, WaitSeconds: 0, MaxAttempts: 2},
+			{Action: ActionFailover},
+		}},
+		// 其他错误 - 立即故障转移
+		{ErrorCodes: "others", ActionChain: []ActionStep{{Action: ActionFailover}}},
 	}
+}
+
+// MigrateRule 将旧格式规则迁移到新格式（动作链）
+// 如果规则已经是新格式（有 ActionChain），则原样返回
+func MigrateRule(rule FailoverRule) FailoverRule {
+	// 如果已有 ActionChain，无需迁移
+	if len(rule.ActionChain) > 0 {
+		return rule
+	}
+
+	// 没有旧 Action 字段，返回原样
+	if rule.Action == "" {
+		return rule
+	}
+
+	// 根据旧 Action 类型转换为新的 ActionChain
+	switch rule.Action {
+	case ActionSuspendChannel:
+		rule.ActionChain = []ActionStep{{Action: ActionSuspend}}
+
+	case ActionFailoverImmediate:
+		rule.ActionChain = []ActionStep{{Action: ActionFailover}}
+
+	case ActionFailoverThreshold:
+		threshold := rule.Threshold
+		if threshold <= 0 {
+			threshold = 1
+		}
+		rule.ActionChain = []ActionStep{
+			{Action: ActionRetry, WaitSeconds: 0, MaxAttempts: threshold},
+			{Action: ActionFailover},
+		}
+
+	case ActionRetryWait:
+		rule.ActionChain = []ActionStep{
+			{Action: ActionRetry, WaitSeconds: rule.WaitSeconds, MaxAttempts: 99},
+			{Action: ActionFailover},
+		}
+
+	default:
+		// Unknown legacy action type, default to immediate failover
+		rule.ActionChain = []ActionStep{{Action: ActionFailover}}
+	}
+
+	// 清除旧字段
+	rule.Action = ""
+	rule.Threshold = 0
+	rule.WaitSeconds = 0
+
+	return rule
+}
+
+// MigrateRules 批量迁移规则列表
+func MigrateRules(rules []FailoverRule) ([]FailoverRule, bool) {
+	migrated := make([]FailoverRule, len(rules))
+	needsMigration := false
+
+	for i, rule := range rules {
+		if rule.Action != "" && len(rule.ActionChain) == 0 {
+			needsMigration = true
+		}
+		migrated[i] = MigrateRule(rule)
+	}
+
+	return migrated, needsMigration
 }
 
 type Config struct {
@@ -452,6 +546,20 @@ func (cm *ConfigManager) loadConfig() error {
 			return err
 		}
 		log.Printf("配置迁移完成")
+	}
+
+	// 故障转移规则迁移：检测旧格式规则并转换为新的动作链格式
+	if len(cm.config.Failover.Rules) > 0 {
+		migratedRules, needsRuleMigration := MigrateRules(cm.config.Failover.Rules)
+		if needsRuleMigration {
+			log.Printf("检测到旧格式故障转移规则，正在迁移到动作链格式...")
+			cm.config.Failover.Rules = migratedRules
+			if err := cm.saveConfigLocked(cm.config); err != nil {
+				log.Printf("保存故障转移规则迁移失败: %v", err)
+				return err
+			}
+			log.Printf("故障转移规则迁移完成，共迁移 %d 条规则", len(migratedRules))
+		}
 	}
 
 	// 自检：没有配置 key 的渠道自动暂停

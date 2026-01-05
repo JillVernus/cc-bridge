@@ -35,10 +35,15 @@ func (a RetryAction) String() string {
 type FailoverDecision struct {
 	Action          RetryAction   // What action to take
 	Wait            time.Duration // How long to wait (for RetrySameKey)
+	MaxAttempts     int           // Max retry attempts for current step (for RetrySameKey)
 	MarkKeyFailed   bool          // Should mark key as failed in config manager
 	DeprioritizeKey bool          // Should deprioritize key (quota-related)
 	SuspendChannel  bool          // Should suspend the entire channel
 	Reason          string        // For logging: "quota_exhausted", "model_cooldown", etc.
+
+	// Action chain info for handlers to track progress
+	ChainStepIndex int  // Current step index in the action chain (0-based)
+	ChainComplete  bool // True if this is the final action in the chain
 }
 
 // FailoverTracker 跟踪每个渠道/API key 组合的连续错误计数
@@ -133,7 +138,12 @@ func (ft *FailoverTracker) DecideAction(channelIdx int, apiKey string, statusCod
 		}
 	}
 
-	// Execute action based on rule type
+	// If rule has ActionChain (new format), use chain-based decision
+	if len(rule.ActionChain) > 0 {
+		return ft.decideWithActionChain(channelIdx, apiKey, errorGroup, rule.ActionChain, parsed)
+	}
+
+	// Legacy: Execute action based on old rule type (for backward compatibility)
 	switch rule.Action {
 	case ActionSuspendChannel:
 		return FailoverDecision{
@@ -163,6 +173,7 @@ func (ft *FailoverTracker) DecideAction(channelIdx int, apiKey string, statusCod
 		return FailoverDecision{
 			Action:          ActionRetrySameKey,
 			Wait:            waitDuration,
+			MaxAttempts:     99, // Legacy retry_wait has unlimited retries
 			MarkKeyFailed:   false,
 			DeprioritizeKey: false,
 			Reason:          parsed.Subtype,
@@ -174,6 +185,123 @@ func (ft *FailoverTracker) DecideAction(channelIdx int, apiKey string, statusCod
 	default:
 		// Unknown action type - use threshold behavior with default threshold
 		return ft.decideWithThreshold(channelIdx, apiKey, errorGroup, 1, "unknown_action")
+	}
+}
+
+// decideWithActionChain handles the new action chain format
+// It tracks the current attempt count and determines which step in the chain to execute
+func (ft *FailoverTracker) decideWithActionChain(channelIdx int, apiKey string, errorGroup string, chain []ActionStep, parsed *ParsedError) FailoverDecision {
+	if len(chain) == 0 {
+		return FailoverDecision{
+			Action: ActionNone,
+			Reason: "empty_action_chain",
+		}
+	}
+
+	key := makeKey(channelIdx, apiKey)
+
+	ft.mu.Lock()
+	defer ft.mu.Unlock()
+
+	if ft.counters[key] == nil {
+		ft.counters[key] = make(map[string]int)
+	}
+
+	// Increment attempt counter for this error group
+	ft.counters[key][errorGroup]++
+	count := ft.counters[key][errorGroup]
+
+	// Find the current step in the chain based on attempt count
+	cumulativeAttempts := 0
+	for stepIdx, step := range chain {
+		isLastStep := stepIdx == len(chain)-1
+
+		switch step.Action {
+		case ActionRetry:
+			maxAttempts := step.MaxAttempts
+			if maxAttempts <= 0 {
+				maxAttempts = 1
+			}
+
+			// Check if we're still in this retry step
+			if count <= cumulativeAttempts+maxAttempts {
+				// Determine wait duration
+				waitDuration := time.Duration(step.WaitSeconds) * time.Second
+				if step.WaitSeconds == 0 && parsed != nil {
+					// Use auto-detected wait from response
+					waitDuration = parsed.WaitDuration
+				}
+
+				reason := "retry"
+				if parsed != nil && parsed.Subtype != "" {
+					reason = parsed.Subtype
+				}
+
+				return FailoverDecision{
+					Action:          ActionRetrySameKey,
+					Wait:            waitDuration,
+					MaxAttempts:     maxAttempts,
+					MarkKeyFailed:   false,
+					DeprioritizeKey: false,
+					SuspendChannel:  false,
+					Reason:          reason,
+					ChainStepIndex:  stepIdx,
+					ChainComplete:   false,
+				}
+			}
+			cumulativeAttempts += maxAttempts
+
+		case ActionFailover:
+			// If we've exceeded all previous retry steps, execute failover
+			if count > cumulativeAttempts {
+				// Clear the counter since we're failing over
+				delete(ft.counters[key], errorGroup)
+
+				return FailoverDecision{
+					Action:          ActionFailoverKey,
+					Wait:            0,
+					MarkKeyFailed:   true,
+					DeprioritizeKey: true,
+					SuspendChannel:  false,
+					Reason:          "failover_chain",
+					ChainStepIndex:  stepIdx,
+					ChainComplete:   isLastStep,
+				}
+			}
+
+		case ActionSuspend:
+			// If we've exceeded all previous retry steps, execute suspend
+			if count > cumulativeAttempts {
+				// Clear the counter
+				delete(ft.counters[key], errorGroup)
+
+				reason := "suspend"
+				if parsed != nil && parsed.Subtype != "" {
+					reason = parsed.Subtype
+				}
+
+				return FailoverDecision{
+					Action:          ActionSuspendChan,
+					Wait:            0,
+					MarkKeyFailed:   false,
+					DeprioritizeKey: false,
+					SuspendChannel:  true,
+					Reason:          reason,
+					ChainStepIndex:  stepIdx,
+					ChainComplete:   isLastStep,
+				}
+			}
+		}
+	}
+
+	// Should not reach here, but fallback to failover
+	delete(ft.counters[key], errorGroup)
+	return FailoverDecision{
+		Action:        ActionFailoverKey,
+		Wait:          0,
+		MarkKeyFailed: true,
+		Reason:        "chain_exhausted",
+		ChainComplete: true,
 	}
 }
 

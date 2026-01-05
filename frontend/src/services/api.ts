@@ -1180,13 +1180,26 @@ export interface ProviderStatsHistoryResponse {
 }
 
 // Failover Configuration Types
-export type FailoverAction = 'failover_immediate' | 'failover_threshold' | 'retry_wait' | 'suspend_channel'
+// New action types for action chain
+export type FailoverActionType = 'retry' | 'failover' | 'suspend'
+
+// Legacy action types (deprecated, for backward compatibility display only)
+export type LegacyFailoverAction = 'failover_immediate' | 'failover_threshold' | 'retry_wait' | 'suspend_channel'
+
+// Single step in the action chain
+export interface ActionStep {
+  action: FailoverActionType      // Action type: "retry", "failover", "suspend"
+  waitSeconds?: number            // Wait seconds before retry (0 = auto-detect from response, only for retry)
+  maxAttempts?: number            // Max retry attempts (only for retry, 99 = indefinite)
+}
 
 export interface FailoverRule {
   errorCodes: string              // Error code pattern: "401,403" or "429:QUOTA_EXHAUSTED" or "others"
-  action: FailoverAction          // Action type
-  threshold?: number              // For failover_threshold: consecutive errors before failover
-  waitSeconds?: number            // For retry_wait: seconds to wait (0 = use response reset_seconds)
+  actionChain?: ActionStep[]      // Action chain (new format)
+  // Legacy fields (deprecated, used for migration detection only)
+  action?: LegacyFailoverAction   // [Deprecated] Legacy action type
+  threshold?: number              // [Deprecated] For failover_threshold: consecutive errors before failover
+  waitSeconds?: number            // [Deprecated] For retry_wait: seconds to wait
 }
 
 export interface FailoverConfig {
