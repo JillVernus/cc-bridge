@@ -396,6 +396,7 @@ func handleMultiChannelResponses(
 		if status == 0 {
 			status = 503
 		}
+		SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, status, lastFailoverError.Body)
 		var errBody map[string]interface{}
 		if err := json.Unmarshal(lastFailoverError.Body, &errBody); err == nil {
 			c.JSON(status, errBody)
@@ -407,6 +408,8 @@ func handleMultiChannelResponses(
 		if lastError != nil {
 			errMsg = lastError.Error()
 		}
+		errJSON := fmt.Sprintf(`{"error":"all Responses channels unavailable","details":"%s"}`, errMsg)
+		SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, 503, []byte(errJSON))
 		c.JSON(503, gin.H{
 			"error":   "all Responses channels unavailable",
 			"details": errMsg,
@@ -603,6 +606,7 @@ func tryResponsesChannelWithAllKeys(
 						}
 						_ = reqLogManager.Update(requestLogID, record)
 					}
+					SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
 					return true, nil
 				}
@@ -668,6 +672,7 @@ func tryResponsesChannelWithAllKeys(
 				}
 				_ = reqLogManager.Update(requestLogID, record)
 			}
+			SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 			c.Data(resp.StatusCode, "application/json", respBodyBytes)
 			return true, nil
 		}
@@ -955,6 +960,7 @@ func handleSingleChannelResponses(
 			if status == 0 {
 				status = 500
 			}
+			SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, status, failoverErr.Body)
 			var errBody map[string]interface{}
 			if err := json.Unmarshal(failoverErr.Body, &errBody); err == nil {
 				c.JSON(status, errBody)
@@ -1141,6 +1147,7 @@ func handleSingleChannelResponses(
 						}
 						_ = reqLogManager.Update(requestLogID, record)
 					}
+					SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
 					return
 
@@ -1166,6 +1173,7 @@ func handleSingleChannelResponses(
 						}
 						_ = reqLogManager.Update(requestLogID, record)
 					}
+					SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
 					return
 				}
@@ -1251,6 +1259,7 @@ func handleSingleChannelResponses(
 					log.Printf("📋 错误响应头:\n%s", string(respHeadersJSON))
 				}
 			}
+			SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 			c.Data(resp.StatusCode, "application/json", respBodyBytes)
 			return
 		}
@@ -1279,6 +1288,7 @@ func handleSingleChannelResponses(
 		if status == 0 {
 			status = 500
 		}
+		SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, status, lastFailoverError.Body)
 		var errBody map[string]interface{}
 		if err := json.Unmarshal(lastFailoverError.Body, &errBody); err == nil {
 			c.JSON(status, errBody)
@@ -1290,6 +1300,8 @@ func handleSingleChannelResponses(
 		if lastError != nil {
 			errMsg = lastError.Error()
 		}
+		errJSON := fmt.Sprintf(`{"error":"所有上游 Responses API密钥都不可用","details":"%s"}`, errMsg)
+		SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, 500, []byte(errJSON))
 		c.JSON(500, gin.H{
 			"error":   "所有上游 Responses API密钥都不可用",
 			"details": errMsg,

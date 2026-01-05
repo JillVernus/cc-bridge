@@ -364,6 +364,7 @@ func handleMultiChannelProxy(
 		if status == 0 {
 			status = 503
 		}
+		SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, status, lastFailoverError.Body)
 		var errBody map[string]interface{}
 		if err := json.Unmarshal(lastFailoverError.Body, &errBody); err == nil {
 			c.JSON(status, errBody)
@@ -375,6 +376,8 @@ func handleMultiChannelProxy(
 		if lastError != nil {
 			errMsg = lastError.Error()
 		}
+		errJSON := fmt.Sprintf(`{"error":"all channels unavailable","details":"%s"}`, errMsg)
+		SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, 503, []byte(errJSON))
 		c.JSON(503, gin.H{
 			"error":   "all channels unavailable",
 			"details": errMsg,
@@ -575,6 +578,7 @@ func tryChannelWithAllKeys(
 						}
 						_ = reqLogManager.Update(requestLogID, record)
 					}
+					SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
 					return true, nil
 				}
@@ -641,6 +645,7 @@ func tryChannelWithAllKeys(
 				}
 				_ = reqLogManager.Update(requestLogID, record)
 			}
+			SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 			c.Data(resp.StatusCode, "application/json", respBodyBytes)
 			return true, nil // 返回 true 表示请求已处理（虽然是错误响应）
 		}
@@ -901,6 +906,7 @@ func handleSingleChannelProxy(
 						}
 						_ = reqLogManager.Update(requestLogID, record)
 					}
+					SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
 					return
 
@@ -926,6 +932,7 @@ func handleSingleChannelProxy(
 						}
 						_ = reqLogManager.Update(requestLogID, record)
 					}
+					SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
 					return
 				}
@@ -1012,6 +1019,7 @@ func handleSingleChannelProxy(
 					}
 					_ = reqLogManager.Update(requestLogID, record)
 				}
+				SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 				c.Data(resp.StatusCode, "application/json", respBodyBytes)
 				return
 			}
@@ -1073,6 +1081,7 @@ func handleSingleChannelProxy(
 		if status == 0 {
 			status = 500
 		}
+		SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, status, lastFailoverError.Body)
 		var errBody map[string]interface{}
 		if err := json.Unmarshal(lastFailoverError.Body, &errBody); err == nil {
 			c.JSON(status, errBody)
@@ -1084,6 +1093,8 @@ func handleSingleChannelProxy(
 		if lastError != nil {
 			errMsg = lastError.Error()
 		}
+		errJSON := fmt.Sprintf(`{"error":"所有上游API密钥都不可用","details":"%s"}`, errMsg)
+		SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, 500, []byte(errJSON))
 		c.JSON(500, gin.H{
 			"error":   "所有上游API密钥都不可用",
 			"details": errMsg,

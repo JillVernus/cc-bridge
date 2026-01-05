@@ -97,3 +97,16 @@ func SaveDebugLog(
 		}
 	}()
 }
+
+// SaveErrorDebugLog saves debug log for error responses (convenience wrapper)
+// Use this when you have the response body but may not have response headers
+func SaveErrorDebugLog(
+	c *gin.Context,
+	cfgManager *config.ConfigManager,
+	reqLogManager *requestlog.Manager,
+	requestLogID string,
+	respStatus int,
+	respBody []byte,
+) {
+	SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, respStatus, nil, respBody)
+}
