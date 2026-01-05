@@ -93,7 +93,6 @@ type Provider interface {
 github.com/gin-gonic/gin v1.10.0       // HTTP 框架
 github.com/fsnotify/fsnotify v1.7.0    // 文件监控（热重载）
 github.com/joho/godotenv v1.5.1        // 环境变量加载
-gopkg.in/natefinch/lumberjack.v2       // 日志滚动
 ```
 
 ### 配置文件
