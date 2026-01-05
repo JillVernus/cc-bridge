@@ -663,6 +663,8 @@ export default {
     manualReset: '立即重置',
     manualResetConfirm: '重置配额',
     manualResetDesc: '将已使用配额重置为 0，确定继续吗？',
+    activate: '激活',
+    suspend: '暂停',
     resetSuccess: '配额重置成功',
     resetFailed: '配额重置失败',
     quotaModels: '模型过滤',

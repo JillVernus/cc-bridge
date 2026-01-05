@@ -663,6 +663,8 @@ export default {
     manualReset: 'Reset Now',
     manualResetConfirm: 'Reset Quota',
     manualResetDesc: 'This will reset the used quota to 0. Continue?',
+    activate: 'Activate',
+    suspend: 'Suspend',
     resetSuccess: 'Quota reset successfully',
     resetFailed: 'Failed to reset quota',
     quotaModels: 'Model Filter',

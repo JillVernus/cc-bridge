@@ -211,6 +211,29 @@
                         <v-icon start size="small">mdi-refresh</v-icon>
                         {{ t('quota.manualReset') }}
                       </v-btn>
+                      <!-- Activate/Suspend button -->
+                      <v-btn
+                        v-if="element.status === 'suspended'"
+                        size="x-small"
+                        variant="tonal"
+                        color="success"
+                        class="mt-2 ml-2"
+                        @click="resumeChannel(element.index)"
+                      >
+                        <v-icon start size="small">mdi-play-circle</v-icon>
+                        {{ t('quota.activate') }}
+                      </v-btn>
+                      <v-btn
+                        v-else
+                        size="x-small"
+                        variant="tonal"
+                        color="warning"
+                        class="mt-2 ml-2"
+                        @click="setChannelStatus(element.index, 'suspended')"
+                      >
+                        <v-icon start size="small">mdi-pause-circle</v-icon>
+                        {{ t('quota.suspend') }}
+                      </v-btn>
                     </template>
                     <template v-else>
                       <div class="text-caption">{{ t('quota.noData') }}</div>

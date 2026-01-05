@@ -425,11 +425,15 @@ func tryChannelWithAllKeys(
 		FailoverInfo string
 	}
 	deprioritizeCandidates := make(map[string]bool)
-	var pinnedKey string // For retry-same-key scenarios
+	var pinnedKey string      // For retry-same-key scenarios
+	var retryWaitPending bool // Allows loop to continue for one retry after wait
+	var retryWaitUsed bool    // Tracks if retry_wait already attempted for current key
 	currentStartTime := startTime
 	currentRequestLogID := requestLogID
 
-	for attempt := 0; attempt < maxRetries; {
+	for attempt := 0; attempt < maxRetries || retryWaitPending; {
+		retryWaitPending = false // Clear at start of each iteration
+
 		// 恢复请求体
 		c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
@@ -446,7 +450,8 @@ func tryChannelWithAllKeys(
 			if err != nil {
 				break
 			}
-			attempt++ // Only increment when trying a new key
+			attempt++           // Only increment when trying a new key
+			retryWaitUsed = false // Reset retry_wait flag for new key
 		}
 
 		if envCfg.ShouldLog("info") {
@@ -490,6 +495,23 @@ func tryChannelWithAllKeys(
 
 				switch decision.Action {
 				case config.ActionRetrySameKey:
+					// Check if we already attempted retry_wait for this key
+					if retryWaitUsed {
+						// Already retried once, convert to failover
+						log.Printf("⚠️ 429 %s: retry_wait already used, failing over", decision.Reason)
+						failedKeys[apiKey] = true
+						lastFailoverError = &struct {
+							Status       int
+							Body         []byte
+							FailoverInfo string
+						}{
+							Status:       resp.StatusCode,
+							Body:         respBodyBytes,
+							FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionFailover, "retry exhausted"),
+						}
+						continue
+					}
+
 					// Wait and retry with same key
 					log.Printf("⏳ 429 %s: 等待 %v 后重试同一密钥", decision.Reason, decision.Wait)
 
@@ -549,7 +571,9 @@ func tryChannelWithAllKeys(
 
 					select {
 					case <-time.After(decision.Wait):
-						pinnedKey = apiKey // Pin for next attempt
+						pinnedKey = apiKey         // Pin for next attempt
+						retryWaitUsed = true       // Mark that we've used retry_wait
+						retryWaitPending = true    // Allow loop to continue
 						currentStartTime = time.Now() // Reset startTime after wait completes
 						continue
 					case <-c.Request.Context().Done():
@@ -794,11 +818,15 @@ func handleSingleChannelProxy(
 		FailoverInfo string
 	}
 	deprioritizeCandidates := make(map[string]bool)
-	var pinnedKey string // For retry-same-key scenarios
+	var pinnedKey string      // For retry-same-key scenarios
+	var retryWaitPending bool // Allows loop to continue for one retry after wait
+	var retryWaitUsed bool    // Tracks if retry_wait already attempted for current key
 	currentStartTime := startTime
 	currentRequestLogID := requestLogID
 
-	for attempt := 0; attempt < maxRetries; {
+	for attempt := 0; attempt < maxRetries || retryWaitPending; {
+		retryWaitPending = false // Clear at start of each iteration
+
 		// 恢复请求体
 		c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
@@ -816,7 +844,8 @@ func handleSingleChannelProxy(
 				lastError = err
 				break
 			}
-			attempt++ // Only increment when trying a new key
+			attempt++             // Only increment when trying a new key
+			retryWaitUsed = false // Reset retry_wait flag for new key
 		}
 
 		if envCfg.ShouldLog("info") {
@@ -892,6 +921,24 @@ func handleSingleChannelProxy(
 
 				switch decision.Action {
 				case config.ActionRetrySameKey:
+					// Check if we already attempted retry_wait for this key
+					if retryWaitUsed {
+						// Already retried once, convert to failover
+						log.Printf("⚠️ 429 %s: retry_wait already used, failing over", decision.Reason)
+						lastError = fmt.Errorf("429 %s: retry exhausted", decision.Reason)
+						failedKeys[apiKey] = true
+						lastFailoverError = &struct {
+							Status       int
+							Body         []byte
+							FailoverInfo string
+						}{
+							Status:       resp.StatusCode,
+							Body:         respBodyBytes,
+							FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionFailover, "retry exhausted"),
+						}
+						continue
+					}
+
 					// Wait and retry with same key
 					log.Printf("⏳ 429 %s: 等待 %v 后重试同一密钥", decision.Reason, decision.Wait)
 
@@ -940,7 +987,9 @@ func handleSingleChannelProxy(
 
 					select {
 					case <-time.After(decision.Wait):
-						pinnedKey = apiKey // Pin for next attempt
+						pinnedKey = apiKey         // Pin for next attempt
+						retryWaitUsed = true       // Mark that we've used retry_wait
+						retryWaitPending = true    // Allow loop to continue
 						currentStartTime = time.Now() // Reset startTime after wait completes
 						continue
 					case <-c.Request.Context().Done():
