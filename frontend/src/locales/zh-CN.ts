@@ -352,6 +352,7 @@ export default {
     failover: '故障转移',
     error: '错误',
     upstreamResponse: '上游响应',
+    failoverInfo: '故障转移',
     reasoningEffort: 'Reasoning Effort:',
     costBreakdown: 'Cost Breakdown',
     inputCost: 'Input:',
@@ -776,6 +777,7 @@ export default {
     status: '状态',
     httpStatus: 'HTTP 状态',
     error: '错误',
+    failoverInfo: '故障转移',
     upstreamError: '上游错误',
   },
 }

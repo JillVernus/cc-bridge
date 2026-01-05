@@ -640,7 +640,7 @@
               width="2"
               color="warning"
             />
-            <v-tooltip v-else-if="item.error || item.upstreamError" location="top" max-width="400">
+            <v-tooltip v-else-if="item.error || item.upstreamError || item.failoverInfo" location="top" max-width="400">
               <template v-slot:activator="{ props }">
                 <v-chip
                   v-bind="props"
@@ -652,6 +652,10 @@
                 </v-chip>
               </template>
               <div class="error-tooltip">
+                <div v-if="item.failoverInfo" class="failover-info-line">
+                  <span class="error-label">{{ t('requestLog.failoverInfo') }}:</span>
+                  <span class="failover-info-text">{{ item.failoverInfo }}</span>
+                </div>
                 <div v-if="item.error" class="error-line">
                   <span class="error-label">{{ t('requestLog.error') }}:</span>
                   <span>{{ item.error }}</span>
@@ -3143,6 +3147,17 @@ const silentRefresh = async () => {
   font-size: 0.85rem;
   line-height: 1.4;
   color: #fff;
+}
+
+.failover-info-line {
+  margin-bottom: 8px;
+  color: #fff;
+}
+
+.failover-info-text {
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+  color: #90caf9;
 }
 
 .error-line {

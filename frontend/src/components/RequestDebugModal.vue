@@ -128,6 +128,10 @@
                         <td class="meta-key">{{ t('debugModal.error') }}</td>
                         <td class="meta-value error-text">{{ logItem.error }}</td>
                       </tr>
+                      <tr v-if="logItem.failoverInfo">
+                        <td class="meta-key">{{ t('debugModal.failoverInfo') }}</td>
+                        <td class="meta-value failover-info-text">{{ logItem.failoverInfo }}</td>
+                      </tr>
                       <tr v-if="logItem.upstreamError">
                         <td class="meta-key">{{ t('debugModal.upstreamError') }}</td>
                         <td class="meta-value">
@@ -460,6 +464,12 @@ const copyToClipboard = async (text: string) => {
 
 .error-text {
   color: rgb(var(--v-theme-error));
+}
+
+.failover-info-text {
+  font-family: 'Courier New', Consolas, monospace;
+  font-size: 0.85rem;
+  color: rgb(var(--v-theme-info));
 }
 
 .upstream-error-content {

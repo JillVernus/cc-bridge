@@ -1,6 +1,7 @@
 package requestlog
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -12,6 +13,32 @@ const (
 	StatusTimeout   = "timeout"   // Request timed out (stale pending)
 	StatusFailover  = "failover"  // Request failed, switching to next channel
 )
+
+// Failover action constants for formatting
+const (
+	FailoverActionSuspended  = "suspended"
+	FailoverActionRetryWait  = "retry_wait"
+	FailoverActionThreshold  = "threshold"
+	FailoverActionFailover   = "failover"
+	FailoverActionAuthFailed = "auth_failed"
+	FailoverActionReturnErr  = "return_error"
+)
+
+// FormatFailoverInfo creates a formatted failover info string
+// Format: "429:QUOTA_EXHAUSTED > suspended > Failover to channel 2"
+func FormatFailoverInfo(httpStatus int, subtype string, action string, details string) string {
+	// Build error pattern
+	errorPattern := fmt.Sprintf("%d", httpStatus)
+	if subtype != "" {
+		errorPattern = fmt.Sprintf("%d:%s", httpStatus, subtype)
+	}
+
+	// Build result string
+	if details != "" {
+		return fmt.Sprintf("%s > %s > %s", errorPattern, action, details)
+	}
+	return fmt.Sprintf("%s > %s", errorPattern, action)
+}
 
 // RequestLog represents a single API request/response record
 type RequestLog struct {
@@ -47,6 +74,7 @@ type RequestLog struct {
 	APIKeyID      *int64    `json:"apiKeyId"`           // API key ID for tracking (nil = not set, 0 = master key)
 	Error         string    `json:"error,omitempty"`
 	UpstreamError string    `json:"upstreamError,omitempty"` // 上游服务原始错误信息
+	FailoverInfo  string    `json:"failoverInfo,omitempty"`  // Failover handling info: "429:QUOTA_EXHAUSTED > suspended > Failover to channel 2"
 	HasDebugData  bool      `json:"hasDebugData"`            // Whether debug data (headers/body) is available
 	CreatedAt     time.Time `json:"createdAt"`
 }

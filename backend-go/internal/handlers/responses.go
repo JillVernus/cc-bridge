@@ -246,8 +246,9 @@ func handleMultiChannelResponses(
 	failedChannels := make(map[int]bool)
 	var lastError error
 	var lastFailoverError *struct {
-		Status int
-		Body   []byte
+		Status       int
+		Body         []byte
+		FailoverInfo string
 	}
 	var lastFailedUpstream *config.UpstreamConfig
 
@@ -289,9 +290,11 @@ func handleMultiChannelResponses(
 				completeTime := time.Now()
 				httpStatus := 0
 				upstreamErr := ""
+				failoverInfo := ""
 				if failoverErr != nil {
 					httpStatus = failoverErr.Status
 					upstreamErr = string(failoverErr.Body)
+					failoverInfo = failoverErr.FailoverInfo
 				}
 
 				// Update current log as failover (keeping original error info)
@@ -314,6 +317,7 @@ func handleMultiChannelResponses(
 					HTTPStatus:      httpStatus,
 					Error:           errorMsg,
 					UpstreamError:   upstreamErr,
+					FailoverInfo:    failoverInfo,
 				}
 				if err := reqLogManager.Update(requestLogID, failoverRecord); err != nil {
 					log.Printf("⚠️ Failed to update failover log: %v", err)
@@ -357,9 +361,11 @@ func handleMultiChannelResponses(
 		httpStatus := 503
 		errMsg := "all channels unavailable"
 		upstreamErr := ""
+		failoverInfo := ""
 		if lastFailoverError != nil && lastFailoverError.Status != 0 {
 			httpStatus = lastFailoverError.Status
 			upstreamErr = string(lastFailoverError.Body)
+			failoverInfo = lastFailoverError.FailoverInfo
 		}
 		if lastError != nil {
 			errMsg = lastError.Error()
@@ -373,6 +379,7 @@ func handleMultiChannelResponses(
 			HTTPStatus:      httpStatus,
 			Error:           errMsg,
 			UpstreamError:   upstreamErr,
+			FailoverInfo:    failoverInfo,
 		}
 		if lastFailedUpstream != nil {
 			record.Type = lastFailedUpstream.ServiceType
@@ -422,8 +429,9 @@ func tryResponsesChannelWithAllKeys(
 	usageManager *quota.UsageManager,
 	failoverTracker *config.FailoverTracker,
 ) (bool, *struct {
-	Status int
-	Body   []byte
+	Status       int
+	Body         []byte
+	FailoverInfo string
 }) {
 	// 处理 OpenAI OAuth 渠道（Codex）
 	if upstream.ServiceType == "openai-oauth" {
@@ -439,8 +447,9 @@ func tryResponsesChannelWithAllKeys(
 	maxRetries := len(upstream.APIKeys)
 	failedKeys := make(map[string]bool)
 	var lastFailoverError *struct {
-		Status int
-		Body   []byte
+		Status       int
+		Body         []byte
+		FailoverInfo string
 	}
 	deprioritizeCandidates := make(map[string]bool)
 	var pinnedKey string // For retry-same-key scenarios
@@ -506,11 +515,13 @@ func tryResponsesChannelWithAllKeys(
 					log.Printf("⏳ [Responses] 429 %s: 等待 %v 后重试同一密钥", decision.Reason, decision.Wait)
 					// Capture the error in case this is the last attempt
 					lastFailoverError = &struct {
-						Status int
-						Body   []byte
+						Status       int
+						Body         []byte
+						FailoverInfo string
 					}{
-						Status: resp.StatusCode,
-						Body:   respBodyBytes,
+						Status:       resp.StatusCode,
+						Body:         respBodyBytes,
+						FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionRetryWait, fmt.Sprintf("%.0fs", decision.Wait.Seconds())),
 					}
 					select {
 					case <-time.After(decision.Wait):
@@ -530,11 +541,13 @@ func tryResponsesChannelWithAllKeys(
 					log.Printf("⚠️ [Responses] 429 %s: 立即切换到下一个密钥", decision.Reason)
 
 					lastFailoverError = &struct {
-						Status int
-						Body   []byte
+						Status       int
+						Body         []byte
+						FailoverInfo string
 					}{
-						Status: resp.StatusCode,
-						Body:   respBodyBytes,
+						Status:       resp.StatusCode,
+						Body:         respBodyBytes,
+						FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionFailover, "next key"),
 					}
 
 					if decision.DeprioritizeKey {
@@ -562,11 +575,13 @@ func tryResponsesChannelWithAllKeys(
 
 					// Return false to trigger channel failover
 					return false, &struct {
-						Status int
-						Body   []byte
+						Status       int
+						Body         []byte
+						FailoverInfo string
 					}{
-						Status: resp.StatusCode,
-						Body:   respBodyBytes,
+						Status:       resp.StatusCode,
+						Body:         respBodyBytes,
+						FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionSuspended, "next channel"),
 					}
 
 				default:
@@ -584,6 +599,7 @@ func tryResponsesChannelWithAllKeys(
 							ChannelName:   upstream.Name,
 							Error:         fmt.Sprintf("429 %s (threshold not reached)", decision.Reason),
 							UpstreamError: string(respBodyBytes),
+							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, "threshold not reached"),
 						}
 						_ = reqLogManager.Update(requestLogID, record)
 					}
@@ -613,12 +629,19 @@ func tryResponsesChannelWithAllKeys(
 				cfgManager.MarkKeyAsFailed(apiKey)
 				log.Printf("⚠️ [Responses] API密钥失败 (状态: %d)，尝试下一个密钥", resp.StatusCode)
 
+				// Determine the reason for failover
+				failoverReason := requestlog.FailoverActionFailover
+				if resp.StatusCode == 401 || resp.StatusCode == 403 {
+					failoverReason = requestlog.FailoverActionAuthFailed
+				}
 				lastFailoverError = &struct {
-					Status int
-					Body   []byte
+					Status       int
+					Body         []byte
+					FailoverInfo string
 				}{
-					Status: resp.StatusCode,
-					Body:   respBodyBytes,
+					Status:       resp.StatusCode,
+					Body:         respBodyBytes,
+					FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, "", failoverReason, "next key"),
 				}
 
 				if isQuotaRelated {
@@ -641,6 +664,7 @@ func tryResponsesChannelWithAllKeys(
 					ChannelName:   upstream.Name,
 					Error:         fmt.Sprintf("upstream returned status %d", resp.StatusCode),
 					UpstreamError: string(respBodyBytes),
+					FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, "", requestlog.FailoverActionReturnErr, ""),
 				}
 				_ = reqLogManager.Update(requestLogID, record)
 			}
@@ -680,8 +704,9 @@ func tryResponsesChannelWithOAuth(
 	requestLogID string,
 	usageManager *quota.UsageManager,
 ) (bool, *struct {
-	Status int
-	Body   []byte
+	Status       int
+	Body         []byte
+	FailoverInfo string
 }) {
 	// 辅助函数：更新请求日志为错误状态
 	updateErrorLog := func(httpStatus int, errMsg string) {
@@ -709,8 +734,9 @@ func tryResponsesChannelWithOAuth(
 		log.Printf("⚠️ [OAuth] 渠道 %s 未配置 OAuth tokens", upstream.Name)
 		updateErrorLog(503, errMsg)
 		return false, &struct {
-			Status int
-			Body   []byte
+			Status       int
+			Body         []byte
+			FailoverInfo string
 		}{
 			Status: 503,
 			Body:   []byte(fmt.Sprintf(`{"error":"%s"}`, errMsg)),
@@ -724,8 +750,9 @@ func tryResponsesChannelWithOAuth(
 		log.Printf("⚠️ [OAuth] 获取有效 token 失败: %v", err)
 		updateErrorLog(401, errMsg)
 		return false, &struct {
-			Status int
-			Body   []byte
+			Status       int
+			Body         []byte
+			FailoverInfo string
 		}{
 			Status: 401,
 			Body:   []byte(fmt.Sprintf(`{"error":"%s"}`, errMsg)),
@@ -754,8 +781,9 @@ func tryResponsesChannelWithOAuth(
 		log.Printf("⚠️ [OAuth] 构建请求失败: %v", err)
 		updateErrorLog(500, errMsg)
 		return false, &struct {
-			Status int
-			Body   []byte
+			Status       int
+			Body         []byte
+			FailoverInfo string
 		}{
 			Status: 500,
 			Body:   []byte(fmt.Sprintf(`{"error":"%s"}`, errMsg)),
@@ -768,8 +796,9 @@ func tryResponsesChannelWithOAuth(
 		log.Printf("⚠️ [OAuth] 请求失败: %v", err)
 		updateErrorLog(502, errMsg)
 		return false, &struct {
-			Status int
-			Body   []byte
+			Status       int
+			Body         []byte
+			FailoverInfo string
 		}{
 			Status: 502,
 			Body:   []byte(fmt.Sprintf(`{"error":"%s"}`, errMsg)),
@@ -804,8 +833,9 @@ func tryResponsesChannelWithOAuth(
 		}
 
 		return false, &struct {
-			Status int
-			Body   []byte
+			Status       int
+			Body         []byte
+			FailoverInfo string
 		}{
 			Status: resp.StatusCode,
 			Body:   respBodyBytes,
@@ -950,8 +980,9 @@ func handleSingleChannelResponses(
 	var lastError error
 	var lastOriginalBodyBytes []byte
 	var lastFailoverError *struct {
-		Status int
-		Body   []byte
+		Status       int
+		Body         []byte
+		FailoverInfo string
 	}
 	deprioritizeCandidates := make(map[string]bool)
 	var pinnedKey string // For retry-same-key scenarios
@@ -1064,11 +1095,13 @@ func handleSingleChannelResponses(
 					}
 
 					lastFailoverError = &struct {
-						Status int
-						Body   []byte
+						Status       int
+						Body         []byte
+						FailoverInfo string
 					}{
-						Status: resp.StatusCode,
-						Body:   respBodyBytes,
+						Status:       resp.StatusCode,
+						Body:         respBodyBytes,
+						FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionFailover, "next key"),
 					}
 
 					if decision.DeprioritizeKey {
@@ -1104,6 +1137,7 @@ func handleSingleChannelResponses(
 							ChannelName:   upstream.Name,
 							Error:         fmt.Sprintf("429 %s (channel suspended)", decision.Reason),
 							UpstreamError: string(respBodyBytes),
+							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionSuspended, "no fallback"),
 						}
 						_ = reqLogManager.Update(requestLogID, record)
 					}
@@ -1128,6 +1162,7 @@ func handleSingleChannelResponses(
 							ChannelName:   upstream.Name,
 							Error:         fmt.Sprintf("429 %s (threshold not reached)", decision.Reason),
 							UpstreamError: string(respBodyBytes),
+							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, "threshold not reached"),
 						}
 						_ = reqLogManager.Update(requestLogID, record)
 					}
@@ -1166,11 +1201,13 @@ func handleSingleChannelResponses(
 				}
 
 				lastFailoverError = &struct {
-					Status int
-					Body   []byte
+					Status       int
+					Body         []byte
+					FailoverInfo string
 				}{
-					Status: resp.StatusCode,
-					Body:   respBodyBytes,
+					Status:       resp.StatusCode,
+					Body:         respBodyBytes,
+					FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, "", requestlog.FailoverActionFailover, "next key"),
 				}
 
 				if isQuotaRelated {
@@ -1193,6 +1230,7 @@ func handleSingleChannelResponses(
 					ChannelName:   upstream.Name,
 					Error:         fmt.Sprintf("upstream returned status %d", resp.StatusCode),
 					UpstreamError: string(respBodyBytes),
+					FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, "", requestlog.FailoverActionReturnErr, ""),
 				}
 				_ = reqLogManager.Update(requestLogID, record)
 			}

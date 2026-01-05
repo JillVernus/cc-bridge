@@ -916,6 +916,7 @@ export interface RequestLog {
   apiKeyId?: number  // API key ID for tracking
   error?: string
   upstreamError?: string  // 上游服务原始错误信息
+  failoverInfo?: string   // Failover handling info (e.g., "429:QUOTA_EXHAUSTED > suspended > next channel")
   hasDebugData?: boolean  // Whether debug data (headers/body) is available
   createdAt: string
 }

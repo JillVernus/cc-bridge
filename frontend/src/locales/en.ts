@@ -352,6 +352,7 @@ export default {
     failover: 'Failover',
     error: 'Error',
     upstreamResponse: 'Upstream Response',
+    failoverInfo: 'Failover',
     reasoningEffort: 'Reasoning Effort:',
     costBreakdown: 'Cost Breakdown',
     inputCost: 'Input:',
@@ -776,6 +777,7 @@ export default {
     status: 'Status',
     httpStatus: 'HTTP Status',
     error: 'Error',
+    failoverInfo: 'Failover',
     upstreamError: 'Upstream Error',
   },
 }

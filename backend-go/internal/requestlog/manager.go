@@ -171,6 +171,19 @@ func (m *Manager) initSchema() error {
 		}
 	}
 
+	// Migration: Add failover_info column if it doesn't exist
+	err = m.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('request_logs') WHERE name='failover_info'`).Scan(&count)
+	if err != nil {
+		log.Printf("⚠️ Failed to check failover_info column: %v", err)
+	} else if count == 0 {
+		_, err = m.db.Exec(`ALTER TABLE request_logs ADD COLUMN failover_info TEXT`)
+		if err != nil {
+			log.Printf("⚠️ Failed to add failover_info column: %v", err)
+		} else {
+			log.Printf("✅ Added failover_info column to request_logs table")
+		}
+	}
+
 	// Migration: Add cost breakdown columns if they don't exist
 	costColumns := []string{"input_cost", "output_cost", "cache_creation_cost", "cache_read_cost"}
 	for _, col := range costColumns {
@@ -381,8 +394,8 @@ func (m *Manager) Add(record *RequestLog) error {
 		cache_creation_input_tokens, cache_read_input_tokens, total_tokens,
 		price, input_cost, output_cost, cache_creation_cost, cache_read_cost,
 		http_status, stream, channel_id, channel_name,
-		endpoint, client_id, session_id, api_key_id, error, upstream_error, created_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		endpoint, client_id, session_id, api_key_id, error, upstream_error, failover_info, created_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	// Convert api_key_id to nullable value (nil = not set, 0 = master key)
@@ -424,6 +437,7 @@ func (m *Manager) Add(record *RequestLog) error {
 		apiKeyID,
 		record.Error,
 		record.UpstreamError,
+		record.FailoverInfo,
 		record.CreatedAt,
 	)
 
@@ -464,7 +478,8 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 		channel_id = ?,
 		channel_name = ?,
 		error = ?,
-		upstream_error = ?
+		upstream_error = ?,
+		failover_info = ?
 	WHERE id = ?
 	`
 
@@ -490,6 +505,7 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 		record.ChannelName,
 		record.Error,
 		record.UpstreamError,
+		record.FailoverInfo,
 		id,
 	)
 
@@ -580,7 +596,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 			   r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
 			   r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
 			   r.http_status, r.stream, r.channel_id, r.channel_name,
-			   r.endpoint, r.client_id, r.session_id, r.api_key_id, r.error, r.upstream_error, r.created_at,
+			   r.endpoint, r.client_id, r.session_id, r.api_key_id, r.error, r.upstream_error, r.failover_info, r.created_at,
 			   CASE WHEN d.request_id IS NOT NULL THEN 1 ELSE 0 END as has_debug_data
 		FROM request_logs r
 		LEFT JOIN request_debug_logs d ON r.id = d.request_id
@@ -601,7 +617,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 	for rows.Next() {
 		var r RequestLog
 		var channelID, apiKeyID sql.NullInt64
-		var channelName, endpoint, clientID, sessionID, errorStr, upstreamErrorStr, status, providerName, responseModel, reasoningEffort sql.NullString
+		var channelName, endpoint, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr, status, providerName, responseModel, reasoningEffort sql.NullString
 		var initialTime, completeTime, createdAt sql.NullString
 		var hasDebugData int
 
@@ -611,7 +627,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 			&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 			&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
 			&r.HTTPStatus, &r.Stream, &channelID, &channelName,
-			&endpoint, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &createdAt,
+			&endpoint, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr, &createdAt,
 			&hasDebugData,
 		)
 		if err != nil {
@@ -666,6 +682,9 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		}
 		if upstreamErrorStr.Valid {
 			r.UpstreamError = upstreamErrorStr.String
+		}
+		if failoverInfoStr.Valid {
+			r.FailoverInfo = failoverInfoStr.String
 		}
 
 		records = append(records, r)
