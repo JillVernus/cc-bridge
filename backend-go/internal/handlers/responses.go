@@ -546,6 +546,9 @@ func tryResponsesChannelWithAllKeys(
 							log.Printf("⚠️ Failed to update retry_wait log: %v", err)
 						}
 
+						// Save debug log for this 429 error response
+						SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+
 						// Create new pending log for the retry attempt
 						newPendingLog := &requestlog.RequestLog{
 							Status:      requestlog.StatusPending,
@@ -1152,6 +1155,9 @@ func handleSingleChannelResponses(
 						if err := reqLogManager.Update(currentRequestLogID, retryWaitRecord); err != nil {
 							log.Printf("⚠️ Failed to update retry_wait log: %v", err)
 						}
+
+						// Save debug log for this 429 error response
+						SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 
 						// Create new pending log for the retry attempt
 						newPendingLog := &requestlog.RequestLog{
