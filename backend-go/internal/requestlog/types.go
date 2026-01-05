@@ -7,11 +7,12 @@ import (
 
 // Request status constants
 const (
-	StatusPending   = "pending"   // Request received, waiting for response
-	StatusCompleted = "completed" // Request succeeded (2xx response)
-	StatusError     = "error"     // Request failed (final failure, no more retries)
-	StatusTimeout   = "timeout"   // Request timed out (stale pending)
-	StatusFailover  = "failover"  // Request failed, switching to next channel
+	StatusPending   = "pending"    // Request received, waiting for response
+	StatusCompleted = "completed"  // Request succeeded (2xx response)
+	StatusError     = "error"      // Request failed (final failure, no more retries)
+	StatusTimeout   = "timeout"    // Request timed out (stale pending)
+	StatusFailover  = "failover"   // Request failed, switching to next channel
+	StatusRetryWait = "retry_wait" // Request hit 429, waiting to retry (audit record)
 )
 
 // Failover action constants for formatting

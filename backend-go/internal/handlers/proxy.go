@@ -150,7 +150,7 @@ func ProxyHandlerWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.ConfigM
 			handleMultiChannelProxy(c, envCfg, cfgManager, channelScheduler, bodyBytes, claudeReq, userID, sessionID, apiKeyID, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker)
 		} else {
 			// 单渠道模式：使用现有逻辑
-			handleSingleChannelProxy(c, envCfg, cfgManager, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker)
+			handleSingleChannelProxy(c, envCfg, cfgManager, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker, userID, sessionID, apiKeyID)
 		}
 	})
 }
@@ -239,7 +239,8 @@ func handleMultiChannelProxy(
 		}
 
 		// Try all keys for this channel
-		success, failoverErr := tryChannelWithAllKeys(c, envCfg, cfgManager, upstream, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID, usageManager, failoverTracker)
+		success, failoverErr, updatedLogID := tryChannelWithAllKeys(c, envCfg, cfgManager, upstream, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID, usageManager, failoverTracker, clientID, sessionID, apiKeyID)
+		requestLogID = updatedLogID // Update requestLogID in case it was changed during retry_wait
 
 		if success {
 			// Success: record and update trace affinity
@@ -386,7 +387,7 @@ func handleMultiChannelProxy(
 }
 
 // tryChannelWithAllKeys tries all API keys for a channel.
-// Returns (success bool, lastFailoverError *struct{Status int; Body []byte; FailoverInfo string})
+// Returns (success bool, lastFailoverError *struct{Status int; Body []byte; FailoverInfo string}, updatedRequestLogID string)
 func tryChannelWithAllKeys(
 	c *gin.Context,
 	envCfg *config.EnvConfig,
@@ -399,18 +400,21 @@ func tryChannelWithAllKeys(
 	requestLogID string,
 	usageManager *quota.UsageManager,
 	failoverTracker *config.FailoverTracker,
+	clientID string,
+	sessionID string,
+	apiKeyID *int64,
 ) (bool, *struct {
 	Status       int
 	Body         []byte
 	FailoverInfo string
-}) {
+}, string) {
 	if len(upstream.APIKeys) == 0 {
-		return false, nil
+		return false, nil, requestLogID
 	}
 
 	provider := providers.GetProvider(upstream.ServiceType)
 	if provider == nil {
-		return false, nil
+		return false, nil, requestLogID
 	}
 
 	maxRetries := len(upstream.APIKeys)
@@ -422,6 +426,8 @@ func tryChannelWithAllKeys(
 	}
 	deprioritizeCandidates := make(map[string]bool)
 	var pinnedKey string // For retry-same-key scenarios
+	currentStartTime := startTime
+	currentRequestLogID := requestLogID
 
 	for attempt := 0; attempt < maxRetries; {
 		// 恢复请求体
@@ -486,7 +492,48 @@ func tryChannelWithAllKeys(
 				case config.ActionRetrySameKey:
 					// Wait and retry with same key
 					log.Printf("⏳ 429 %s: 等待 %v 后重试同一密钥", decision.Reason, decision.Wait)
-					// Capture the error in case this is the last attempt
+
+					failoverInfo := requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionRetryWait, fmt.Sprintf("%.0fs", decision.Wait.Seconds()))
+
+					// AUDIT: Log this retry_wait attempt before waiting
+					if reqLogManager != nil && currentRequestLogID != "" {
+						completeTime := time.Now()
+						retryWaitRecord := &requestlog.RequestLog{
+							Status:        requestlog.StatusRetryWait,
+							CompleteTime:  completeTime,
+							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
+							Type:          upstream.ServiceType,
+							ProviderName:  upstream.Name,
+							HTTPStatus:    resp.StatusCode,
+							ChannelID:     upstream.Index,
+							ChannelName:   upstream.Name,
+							Error:         fmt.Sprintf("429 %s - retrying after %v", decision.Reason, decision.Wait),
+							UpstreamError: string(respBodyBytes),
+							FailoverInfo:  failoverInfo,
+						}
+						if err := reqLogManager.Update(currentRequestLogID, retryWaitRecord); err != nil {
+							log.Printf("⚠️ Failed to update retry_wait log: %v", err)
+						}
+
+						// Create new pending log for the retry attempt
+						newPendingLog := &requestlog.RequestLog{
+							Status:      requestlog.StatusPending,
+							InitialTime: time.Now(),
+							Model:       claudeReq.Model,
+							Stream:      claudeReq.Stream,
+							Endpoint:    "/v1/messages",
+							ClientID:    clientID,
+							SessionID:   sessionID,
+							APIKeyID:    apiKeyID,
+						}
+						if err := reqLogManager.Add(newPendingLog); err != nil {
+							log.Printf("⚠️ Failed to create retry pending log: %v", err)
+						} else {
+							currentRequestLogID = newPendingLog.ID
+						}
+					}
+
+					// Capture for last-resort error reporting
 					lastFailoverError = &struct {
 						Status       int
 						Body         []byte
@@ -494,15 +541,17 @@ func tryChannelWithAllKeys(
 					}{
 						Status:       resp.StatusCode,
 						Body:         respBodyBytes,
-						FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionRetryWait, fmt.Sprintf("%.0fs", decision.Wait.Seconds())),
+						FailoverInfo: failoverInfo,
 					}
+
 					select {
 					case <-time.After(decision.Wait):
 						pinnedKey = apiKey // Pin for next attempt
+						currentStartTime = time.Now() // Reset startTime after wait completes
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
-						return false, nil
+						return false, nil, currentRequestLogID
 					}
 
 				case config.ActionFailoverKey:
@@ -557,16 +606,16 @@ func tryChannelWithAllKeys(
 						Status:       resp.StatusCode,
 						Body:         respBodyBytes,
 						FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionSuspended, "next channel"),
-					}
+					}, currentRequestLogID
 
 				default:
 					// ActionNone - return error to client
-					if reqLogManager != nil && requestLogID != "" {
+					if reqLogManager != nil && currentRequestLogID != "" {
 						completeTime := time.Now()
 						record := &requestlog.RequestLog{
 							Status:        requestlog.StatusError,
 							CompleteTime:  completeTime,
-							DurationMs:    completeTime.Sub(startTime).Milliseconds(),
+							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
 							HTTPStatus:    resp.StatusCode,
@@ -576,11 +625,11 @@ func tryChannelWithAllKeys(
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, "threshold not reached"),
 						}
-						_ = reqLogManager.Update(requestLogID, record)
+						_ = reqLogManager.Update(currentRequestLogID, record)
 					}
-					SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
-					return true, nil
+					return true, nil, currentRequestLogID
 				}
 			}
 
@@ -628,12 +677,12 @@ func tryChannelWithAllKeys(
 			}
 
 			// 非 failover 错误，更新请求日志并返回
-			if reqLogManager != nil && requestLogID != "" {
+			if reqLogManager != nil && currentRequestLogID != "" {
 				completeTime := time.Now()
 				record := &requestlog.RequestLog{
 					Status:        requestlog.StatusError,
 					CompleteTime:  completeTime,
-					DurationMs:    completeTime.Sub(startTime).Milliseconds(),
+					DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
 					Type:          upstream.ServiceType,
 					ProviderName:  upstream.Name,
 					HTTPStatus:    resp.StatusCode,
@@ -643,11 +692,11 @@ func tryChannelWithAllKeys(
 					UpstreamError: string(respBodyBytes),
 					FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, "", requestlog.FailoverActionReturnErr, ""),
 				}
-				_ = reqLogManager.Update(requestLogID, record)
+				_ = reqLogManager.Update(currentRequestLogID, record)
 			}
-			SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+			SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 			c.Data(resp.StatusCode, "application/json", respBodyBytes)
-			return true, nil // 返回 true 表示请求已处理（虽然是错误响应）
+			return true, nil, currentRequestLogID // 返回 true 表示请求已处理（虽然是错误响应）
 		}
 
 		// 处理成功响应 - reset error counters on success
@@ -661,14 +710,14 @@ func tryChannelWithAllKeys(
 		}
 
 		if claudeReq.Stream {
-			handleStreamResponse(c, resp, provider, envCfg, cfgManager, startTime, upstream, reqLogManager, requestLogID, claudeReq.Model, usageManager)
+			handleStreamResponse(c, resp, provider, envCfg, cfgManager, currentStartTime, upstream, reqLogManager, currentRequestLogID, claudeReq.Model, usageManager)
 		} else {
-			handleNormalResponse(c, resp, provider, envCfg, cfgManager, startTime, upstream, reqLogManager, requestLogID, claudeReq.Model, usageManager)
+			handleNormalResponse(c, resp, provider, envCfg, cfgManager, currentStartTime, upstream, reqLogManager, currentRequestLogID, claudeReq.Model, usageManager)
 		}
-		return true, nil
+		return true, nil, currentRequestLogID
 	}
 
-	return false, lastFailoverError
+	return false, lastFailoverError, currentRequestLogID
 }
 
 // handleSingleChannelProxy 处理单渠道代理请求（现有逻辑）
@@ -684,6 +733,9 @@ func handleSingleChannelProxy(
 	usageManager *quota.UsageManager,
 	allowedChannels []int,
 	failoverTracker *config.FailoverTracker,
+	clientID string,
+	sessionID string,
+	apiKeyID *int64,
 ) {
 	// 获取当前上游配置
 	upstream, err := cfgManager.GetCurrentUpstream()
@@ -740,6 +792,8 @@ func handleSingleChannelProxy(
 	}
 	deprioritizeCandidates := make(map[string]bool)
 	var pinnedKey string // For retry-same-key scenarios
+	currentStartTime := startTime
+	currentRequestLogID := requestLogID
 
 	for attempt := 0; attempt < maxRetries; {
 		// 恢复请求体
@@ -837,9 +891,51 @@ func handleSingleChannelProxy(
 				case config.ActionRetrySameKey:
 					// Wait and retry with same key
 					log.Printf("⏳ 429 %s: 等待 %v 后重试同一密钥", decision.Reason, decision.Wait)
+
+					failoverInfo := requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionRetryWait, fmt.Sprintf("%.0fs", decision.Wait.Seconds()))
+
+					// AUDIT: Log this retry_wait attempt before waiting
+					if reqLogManager != nil && currentRequestLogID != "" {
+						completeTime := time.Now()
+						retryWaitRecord := &requestlog.RequestLog{
+							Status:        requestlog.StatusRetryWait,
+							CompleteTime:  completeTime,
+							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
+							Type:          upstream.ServiceType,
+							ProviderName:  upstream.Name,
+							HTTPStatus:    resp.StatusCode,
+							ChannelID:     upstream.Index,
+							ChannelName:   upstream.Name,
+							Error:         fmt.Sprintf("429 %s - retrying after %v", decision.Reason, decision.Wait),
+							UpstreamError: string(respBodyBytes),
+							FailoverInfo:  failoverInfo,
+						}
+						if err := reqLogManager.Update(currentRequestLogID, retryWaitRecord); err != nil {
+							log.Printf("⚠️ Failed to update retry_wait log: %v", err)
+						}
+
+						// Create new pending log for the retry attempt
+						newPendingLog := &requestlog.RequestLog{
+							Status:      requestlog.StatusPending,
+							InitialTime: time.Now(),
+							Model:       claudeReq.Model,
+							Stream:      claudeReq.Stream,
+							Endpoint:    "/v1/messages",
+							ClientID:    clientID,
+							SessionID:   sessionID,
+							APIKeyID:    apiKeyID,
+						}
+						if err := reqLogManager.Add(newPendingLog); err != nil {
+							log.Printf("⚠️ Failed to create retry pending log: %v", err)
+						} else {
+							currentRequestLogID = newPendingLog.ID
+						}
+					}
+
 					select {
 					case <-time.After(decision.Wait):
 						pinnedKey = apiKey // Pin for next attempt
+						currentStartTime = time.Now() // Reset startTime after wait completes
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
@@ -889,12 +985,12 @@ func handleSingleChannelProxy(
 					log.Printf("⏸️ 429 %s: 渠道暂停 (单渠道模式，无可用后备)", decision.Reason)
 
 					// Update request log and return error to client
-					if reqLogManager != nil && requestLogID != "" {
+					if reqLogManager != nil && currentRequestLogID != "" {
 						completeTime := time.Now()
 						record := &requestlog.RequestLog{
 							Status:        requestlog.StatusError,
 							CompleteTime:  completeTime,
-							DurationMs:    completeTime.Sub(startTime).Milliseconds(),
+							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
 							HTTPStatus:    resp.StatusCode,
@@ -904,9 +1000,9 @@ func handleSingleChannelProxy(
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionSuspended, "no fallback"),
 						}
-						_ = reqLogManager.Update(requestLogID, record)
+						_ = reqLogManager.Update(currentRequestLogID, record)
 					}
-					SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
 					return
 
@@ -915,12 +1011,12 @@ func handleSingleChannelProxy(
 					if envCfg.EnableResponseLogs {
 						log.Printf("⚠️ 429 %s (threshold not reached)", decision.Reason)
 					}
-					if reqLogManager != nil && requestLogID != "" {
+					if reqLogManager != nil && currentRequestLogID != "" {
 						completeTime := time.Now()
 						record := &requestlog.RequestLog{
 							Status:        requestlog.StatusError,
 							CompleteTime:  completeTime,
-							DurationMs:    completeTime.Sub(startTime).Milliseconds(),
+							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
 							HTTPStatus:    resp.StatusCode,
@@ -930,9 +1026,9 @@ func handleSingleChannelProxy(
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, "threshold not reached"),
 						}
-						_ = reqLogManager.Update(requestLogID, record)
+						_ = reqLogManager.Update(currentRequestLogID, record)
 					}
-					SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
 					return
 				}
@@ -1002,12 +1098,12 @@ func handleSingleChannelProxy(
 				}
 				}
 				// 更新请求日志为错误状态（非 failover 错误也需要结束 pending）
-				if reqLogManager != nil && requestLogID != "" {
+				if reqLogManager != nil && currentRequestLogID != "" {
 					completeTime := time.Now()
 					record := &requestlog.RequestLog{
 						Status:        requestlog.StatusError,
 						CompleteTime:  completeTime,
-						DurationMs:    completeTime.Sub(startTime).Milliseconds(),
+						DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
 						Type:          upstream.ServiceType,
 						ProviderName:  upstream.Name,
 						HTTPStatus:    resp.StatusCode,
@@ -1017,9 +1113,9 @@ func handleSingleChannelProxy(
 						UpstreamError: string(respBodyBytes),
 						FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, "", requestlog.FailoverActionReturnErr, ""),
 					}
-					_ = reqLogManager.Update(requestLogID, record)
+					_ = reqLogManager.Update(currentRequestLogID, record)
 				}
-				SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+				SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 				c.Data(resp.StatusCode, "application/json", respBodyBytes)
 				return
 			}
@@ -1037,9 +1133,9 @@ func handleSingleChannelProxy(
 		}
 
 		if claudeReq.Stream {
-			handleStreamResponse(c, resp, provider, envCfg, cfgManager, startTime, upstream, reqLogManager, requestLogID, claudeReq.Model, usageManager)
+			handleStreamResponse(c, resp, provider, envCfg, cfgManager, currentStartTime, upstream, reqLogManager, currentRequestLogID, claudeReq.Model, usageManager)
 		} else {
-			handleNormalResponse(c, resp, provider, envCfg, cfgManager, startTime, upstream, reqLogManager, requestLogID, claudeReq.Model, usageManager)
+			handleNormalResponse(c, resp, provider, envCfg, cfgManager, currentStartTime, upstream, reqLogManager, currentRequestLogID, claudeReq.Model, usageManager)
 		}
 		return
 	}
@@ -1048,7 +1144,7 @@ func handleSingleChannelProxy(
 	log.Printf("💥 所有API密钥都失败了")
 
 	// 更新请求日志为错误状态
-	if reqLogManager != nil && requestLogID != "" {
+	if reqLogManager != nil && currentRequestLogID != "" {
 		httpStatus := 500
 		errMsg := "所有API密钥都不可用"
 		upstreamErr := ""
@@ -1064,7 +1160,7 @@ func handleSingleChannelProxy(
 		record := &requestlog.RequestLog{
 			Status:        requestlog.StatusError,
 			CompleteTime:  time.Now(),
-			DurationMs:    time.Since(startTime).Milliseconds(),
+			DurationMs:    time.Since(currentStartTime).Milliseconds(),
 			Model:         claudeReq.Model,
 			Type:          upstream.ServiceType,
 			ProviderName:  upstream.Name,
@@ -1073,7 +1169,7 @@ func handleSingleChannelProxy(
 			UpstreamError: upstreamErr,
 			FailoverInfo:  failoverInfo,
 		}
-		_ = reqLogManager.Update(requestLogID, record)
+		_ = reqLogManager.Update(currentRequestLogID, record)
 	}
 
 	if lastFailoverError != nil {
@@ -1081,7 +1177,7 @@ func handleSingleChannelProxy(
 		if status == 0 {
 			status = 500
 		}
-		SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, status, lastFailoverError.Body)
+		SaveErrorDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, status, lastFailoverError.Body)
 		var errBody map[string]interface{}
 		if err := json.Unmarshal(lastFailoverError.Body, &errBody); err == nil {
 			c.JSON(status, errBody)
@@ -1094,7 +1190,7 @@ func handleSingleChannelProxy(
 			errMsg = lastError.Error()
 		}
 		errJSON := fmt.Sprintf(`{"error":"所有上游API密钥都不可用","details":"%s"}`, errMsg)
-		SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, 500, []byte(errJSON))
+		SaveErrorDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, 500, []byte(errJSON))
 		c.JSON(500, gin.H{
 			"error":   "所有上游API密钥都不可用",
 			"details": errMsg,

@@ -269,7 +269,8 @@ func handleMultiChannelResponses(
 				channelIndex, upstream.Name, selection.Reason, channelAttempt+1, maxChannelAttempts)
 		}
 
-		success, failoverErr := tryResponsesChannelWithAllKeys(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager, failoverTracker)
+		success, failoverErr, updatedLogID := tryResponsesChannelWithAllKeys(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager, failoverTracker, clientID, sessionID, apiKeyID)
+		requestLogID = updatedLogID // Update requestLogID in case it was changed during retry_wait
 
 		if success {
 			channelScheduler.RecordSuccess(channelIndex, true)
@@ -431,18 +432,22 @@ func tryResponsesChannelWithAllKeys(
 	requestLogID string,
 	usageManager *quota.UsageManager,
 	failoverTracker *config.FailoverTracker,
+	clientID string,
+	sessionID string,
+	apiKeyID *int64,
 ) (bool, *struct {
 	Status       int
 	Body         []byte
 	FailoverInfo string
-}) {
+}, string) {
 	// 处理 OpenAI OAuth 渠道（Codex）
 	if upstream.ServiceType == "openai-oauth" {
-		return tryResponsesChannelWithOAuth(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager)
+		success, failoverErr := tryResponsesChannelWithOAuth(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager)
+		return success, failoverErr, requestLogID
 	}
 
 	if len(upstream.APIKeys) == 0 {
-		return false, nil
+		return false, nil, requestLogID
 	}
 
 	provider := &providers.ResponsesProvider{SessionManager: sessionManager}
@@ -456,6 +461,8 @@ func tryResponsesChannelWithAllKeys(
 	}
 	deprioritizeCandidates := make(map[string]bool)
 	var pinnedKey string // For retry-same-key scenarios
+	currentStartTime := startTime
+	currentRequestLogID := requestLogID
 
 	for attempt := 0; attempt < maxRetries; {
 		c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
@@ -516,7 +523,48 @@ func tryResponsesChannelWithAllKeys(
 				case config.ActionRetrySameKey:
 					// Wait and retry with same key
 					log.Printf("⏳ [Responses] 429 %s: 等待 %v 后重试同一密钥", decision.Reason, decision.Wait)
-					// Capture the error in case this is the last attempt
+
+					failoverInfo := requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionRetryWait, fmt.Sprintf("%.0fs", decision.Wait.Seconds()))
+
+					// AUDIT: Log this retry_wait attempt before waiting
+					if reqLogManager != nil && currentRequestLogID != "" {
+						completeTime := time.Now()
+						retryWaitRecord := &requestlog.RequestLog{
+							Status:        requestlog.StatusRetryWait,
+							CompleteTime:  completeTime,
+							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
+							Type:          upstream.ServiceType,
+							ProviderName:  upstream.Name,
+							HTTPStatus:    resp.StatusCode,
+							ChannelID:     upstream.Index,
+							ChannelName:   upstream.Name,
+							Error:         fmt.Sprintf("429 %s - retrying after %v", decision.Reason, decision.Wait),
+							UpstreamError: string(respBodyBytes),
+							FailoverInfo:  failoverInfo,
+						}
+						if err := reqLogManager.Update(currentRequestLogID, retryWaitRecord); err != nil {
+							log.Printf("⚠️ Failed to update retry_wait log: %v", err)
+						}
+
+						// Create new pending log for the retry attempt
+						newPendingLog := &requestlog.RequestLog{
+							Status:      requestlog.StatusPending,
+							InitialTime: time.Now(),
+							Model:       responsesReq.Model,
+							Stream:      responsesReq.Stream,
+							Endpoint:    "/v1/responses",
+							ClientID:    clientID,
+							SessionID:   sessionID,
+							APIKeyID:    apiKeyID,
+						}
+						if err := reqLogManager.Add(newPendingLog); err != nil {
+							log.Printf("⚠️ Failed to create retry pending log: %v", err)
+						} else {
+							currentRequestLogID = newPendingLog.ID
+						}
+					}
+
+					// Capture for last-resort error reporting
 					lastFailoverError = &struct {
 						Status       int
 						Body         []byte
@@ -524,15 +572,17 @@ func tryResponsesChannelWithAllKeys(
 					}{
 						Status:       resp.StatusCode,
 						Body:         respBodyBytes,
-						FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionRetryWait, fmt.Sprintf("%.0fs", decision.Wait.Seconds())),
+						FailoverInfo: failoverInfo,
 					}
+
 					select {
 					case <-time.After(decision.Wait):
 						pinnedKey = apiKey // Pin for next attempt
+						currentStartTime = time.Now() // Reset startTime after wait completes
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
-						return false, nil
+						return false, nil, currentRequestLogID
 					}
 
 				case config.ActionFailoverKey:
@@ -585,16 +635,16 @@ func tryResponsesChannelWithAllKeys(
 						Status:       resp.StatusCode,
 						Body:         respBodyBytes,
 						FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionSuspended, "next channel"),
-					}
+				}, currentRequestLogID
 
 				default:
 					// ActionNone - return error to client
-					if reqLogManager != nil && requestLogID != "" {
+					if reqLogManager != nil && currentRequestLogID != "" {
 						completeTime := time.Now()
 						record := &requestlog.RequestLog{
 							Status:        requestlog.StatusError,
 							CompleteTime:  completeTime,
-							DurationMs:    completeTime.Sub(startTime).Milliseconds(),
+							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
 							HTTPStatus:    resp.StatusCode,
@@ -604,11 +654,11 @@ func tryResponsesChannelWithAllKeys(
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, "threshold not reached"),
 						}
-						_ = reqLogManager.Update(requestLogID, record)
+						_ = reqLogManager.Update(currentRequestLogID, record)
 					}
-					SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
-					return true, nil
+					return true, nil, currentRequestLogID
 				}
 			}
 
@@ -655,12 +705,12 @@ func tryResponsesChannelWithAllKeys(
 			}
 
 			// 非 failover 错误，更新请求日志并返回
-			if reqLogManager != nil && requestLogID != "" {
+			if reqLogManager != nil && currentRequestLogID != "" {
 				completeTime := time.Now()
 				record := &requestlog.RequestLog{
 					Status:        requestlog.StatusError,
 					CompleteTime:  completeTime,
-					DurationMs:    completeTime.Sub(startTime).Milliseconds(),
+					DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
 					Type:          upstream.ServiceType,
 					ProviderName:  upstream.Name,
 					HTTPStatus:    resp.StatusCode,
@@ -670,11 +720,11 @@ func tryResponsesChannelWithAllKeys(
 					UpstreamError: string(respBodyBytes),
 					FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, "", requestlog.FailoverActionReturnErr, ""),
 				}
-				_ = reqLogManager.Update(requestLogID, record)
+				_ = reqLogManager.Update(currentRequestLogID, record)
 			}
-			SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+			SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 			c.Data(resp.StatusCode, "application/json", respBodyBytes)
-			return true, nil
+			return true, nil, currentRequestLogID
 		}
 
 		if len(deprioritizeCandidates) > 0 {
@@ -688,11 +738,11 @@ func tryResponsesChannelWithAllKeys(
 			failoverTracker.ResetOnSuccess(upstream.Index, apiKey)
 		}
 
-		handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID, usageManager)
-		return true, nil
+		handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, currentRequestLogID, usageManager)
+		return true, nil, currentRequestLogID
 	}
 
-	return false, lastFailoverError
+	return false, lastFailoverError, currentRequestLogID
 }
 
 // tryResponsesChannelWithOAuth 使用 OAuth 认证尝试 Responses 请求（Codex）
@@ -992,6 +1042,8 @@ func handleSingleChannelResponses(
 	}
 	deprioritizeCandidates := make(map[string]bool)
 	var pinnedKey string // For retry-same-key scenarios
+	currentStartTime := startTime
+	currentRequestLogID := requestLogID
 
 	for attempt := 0; attempt < maxRetries; {
 		c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
@@ -1078,9 +1130,59 @@ func handleSingleChannelResponses(
 				case config.ActionRetrySameKey:
 					// Wait and retry with same key
 					log.Printf("⏳ [Responses] 429 %s: 等待 %v 后重试同一密钥", decision.Reason, decision.Wait)
+
+					failoverInfo := requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionRetryWait, fmt.Sprintf("%.0fs", decision.Wait.Seconds()))
+
+					// AUDIT: Log this retry_wait attempt before waiting
+					if reqLogManager != nil && currentRequestLogID != "" {
+						completeTime := time.Now()
+						retryWaitRecord := &requestlog.RequestLog{
+							Status:        requestlog.StatusRetryWait,
+							CompleteTime:  completeTime,
+							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
+							Type:          upstream.ServiceType,
+							ProviderName:  upstream.Name,
+							HTTPStatus:    resp.StatusCode,
+							ChannelID:     upstream.Index,
+							ChannelName:   upstream.Name,
+							Error:         fmt.Sprintf("429 %s - retrying after %v", decision.Reason, decision.Wait),
+							UpstreamError: string(respBodyBytes),
+							FailoverInfo:  failoverInfo,
+						}
+						if err := reqLogManager.Update(currentRequestLogID, retryWaitRecord); err != nil {
+							log.Printf("⚠️ Failed to update retry_wait log: %v", err)
+						}
+
+						// Create new pending log for the retry attempt
+						newPendingLog := &requestlog.RequestLog{
+							Status:      requestlog.StatusPending,
+							InitialTime: time.Now(),
+							Model:       responsesReq.Model,
+							Stream:      responsesReq.Stream,
+							Endpoint:    "/v1/responses",
+						}
+						if err := reqLogManager.Add(newPendingLog); err != nil {
+							log.Printf("⚠️ Failed to create retry pending log: %v", err)
+						} else {
+							currentRequestLogID = newPendingLog.ID
+						}
+					}
+
+					// Capture for last-resort error reporting
+					lastFailoverError = &struct {
+						Status       int
+						Body         []byte
+						FailoverInfo string
+					}{
+						Status:       resp.StatusCode,
+						Body:         respBodyBytes,
+						FailoverInfo: failoverInfo,
+					}
+
 					select {
 					case <-time.After(decision.Wait):
 						pinnedKey = apiKey // Pin for next attempt
+						currentStartTime = time.Now() // Reset startTime after wait completes
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
@@ -1130,12 +1232,12 @@ func handleSingleChannelResponses(
 					log.Printf("⏸️ [Responses] 429 %s: 渠道暂停 (单渠道模式，无可用后备)", decision.Reason)
 
 					// Update request log and return error to client
-					if reqLogManager != nil && requestLogID != "" {
+					if reqLogManager != nil && currentRequestLogID != "" {
 						completeTime := time.Now()
 						record := &requestlog.RequestLog{
 							Status:        requestlog.StatusError,
 							CompleteTime:  completeTime,
-							DurationMs:    completeTime.Sub(startTime).Milliseconds(),
+							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
 							HTTPStatus:    resp.StatusCode,
@@ -1145,9 +1247,9 @@ func handleSingleChannelResponses(
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionSuspended, "no fallback"),
 						}
-						_ = reqLogManager.Update(requestLogID, record)
+						_ = reqLogManager.Update(currentRequestLogID, record)
 					}
-					SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
 					return
 
@@ -1156,12 +1258,12 @@ func handleSingleChannelResponses(
 					if envCfg.EnableResponseLogs {
 						log.Printf("⚠️ [Responses] 429 %s (threshold not reached)", decision.Reason)
 					}
-					if reqLogManager != nil && requestLogID != "" {
+					if reqLogManager != nil && currentRequestLogID != "" {
 						completeTime := time.Now()
 						record := &requestlog.RequestLog{
 							Status:        requestlog.StatusError,
 							CompleteTime:  completeTime,
-							DurationMs:    completeTime.Sub(startTime).Milliseconds(),
+							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
 							HTTPStatus:    resp.StatusCode,
@@ -1171,9 +1273,9 @@ func handleSingleChannelResponses(
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, "threshold not reached"),
 						}
-						_ = reqLogManager.Update(requestLogID, record)
+						_ = reqLogManager.Update(currentRequestLogID, record)
 					}
-					SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
 					return
 				}
@@ -1225,12 +1327,12 @@ func handleSingleChannelResponses(
 			}
 
 			// Non-failover error - update request log and return
-			if reqLogManager != nil && requestLogID != "" {
+			if reqLogManager != nil && currentRequestLogID != "" {
 				completeTime := time.Now()
 				record := &requestlog.RequestLog{
 					Status:        requestlog.StatusError,
 					CompleteTime:  completeTime,
-					DurationMs:    completeTime.Sub(startTime).Milliseconds(),
+					DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
 					Type:          upstream.ServiceType,
 					ProviderName:  upstream.Name,
 					HTTPStatus:    resp.StatusCode,
@@ -1240,7 +1342,7 @@ func handleSingleChannelResponses(
 					UpstreamError: string(respBodyBytes),
 					FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, "", requestlog.FailoverActionReturnErr, ""),
 				}
-				_ = reqLogManager.Update(requestLogID, record)
+				_ = reqLogManager.Update(currentRequestLogID, record)
 			}
 
 			if envCfg.EnableResponseLogs {
@@ -1259,7 +1361,7 @@ func handleSingleChannelResponses(
 					log.Printf("📋 错误响应头:\n%s", string(respHeadersJSON))
 				}
 			}
-			SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+			SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 			c.Data(resp.StatusCode, "application/json", respBodyBytes)
 			return
 		}
@@ -1277,7 +1379,7 @@ func handleSingleChannelResponses(
 			failoverTracker.ResetOnSuccess(upstream.Index, apiKey)
 		}
 
-		handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID, usageManager)
+		handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, currentStartTime, &responsesReq, bodyBytes, reqLogManager, currentRequestLogID, usageManager)
 		return
 	}
 
@@ -1288,7 +1390,7 @@ func handleSingleChannelResponses(
 		if status == 0 {
 			status = 500
 		}
-		SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, status, lastFailoverError.Body)
+		SaveErrorDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, status, lastFailoverError.Body)
 		var errBody map[string]interface{}
 		if err := json.Unmarshal(lastFailoverError.Body, &errBody); err == nil {
 			c.JSON(status, errBody)
@@ -1301,7 +1403,7 @@ func handleSingleChannelResponses(
 			errMsg = lastError.Error()
 		}
 		errJSON := fmt.Sprintf(`{"error":"所有上游 Responses API密钥都不可用","details":"%s"}`, errMsg)
-		SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, 500, []byte(errJSON))
+		SaveErrorDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, 500, []byte(errJSON))
 		c.JSON(500, gin.H{
 			"error":   "所有上游 Responses API密钥都不可用",
 			"details": errMsg,
