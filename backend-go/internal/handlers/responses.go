@@ -68,7 +68,7 @@ func ResponsesHandler(
 	channelScheduler *scheduler.ChannelScheduler,
 	reqLogManager *requestlog.Manager,
 ) gin.HandlerFunc {
-	return ResponsesHandlerWithAPIKey(envCfg, cfgManager, sessionManager, channelScheduler, reqLogManager, nil, nil, nil)
+	return ResponsesHandlerWithAPIKey(envCfg, cfgManager, sessionManager, channelScheduler, reqLogManager, nil, nil, nil, nil)
 }
 
 // ResponsesHandlerWithAPIKey Responses API 代理处理器（支持 API Key 验证）
@@ -81,6 +81,7 @@ func ResponsesHandlerWithAPIKey(
 	apiKeyManager *apikey.Manager,
 	usageManager *quota.UsageManager,
 	failoverTracker *config.FailoverTracker,
+	channelRateLimiter *middleware.ChannelRateLimiter,
 ) gin.HandlerFunc {
 	return gin.HandlerFunc(func(c *gin.Context) {
 		// 先进行认证（如果上游中间件尚未完成认证）
@@ -213,10 +214,10 @@ func ResponsesHandlerWithAPIKey(
 
 		if isMultiChannel {
 			// Multi-channel mode: use scheduler with failover
-			handleMultiChannelResponses(c, envCfg, cfgManager, channelScheduler, sessionManager, bodyBytes, responsesReq, userID, sessionID, apiKeyID, reasoningEffort, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker)
+			handleMultiChannelResponses(c, envCfg, cfgManager, channelScheduler, sessionManager, bodyBytes, responsesReq, userID, sessionID, apiKeyID, reasoningEffort, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker, channelRateLimiter)
 		} else {
 			// 单渠道模式：使用现有逻辑
-			handleSingleChannelResponses(c, envCfg, cfgManager, sessionManager, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker)
+			handleSingleChannelResponses(c, envCfg, cfgManager, sessionManager, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker, userID, sessionID, apiKeyID, channelRateLimiter)
 		}
 	})
 }
@@ -242,6 +243,7 @@ func handleMultiChannelResponses(
 	usageManager *quota.UsageManager,
 	allowedChannels []int,
 	failoverTracker *config.FailoverTracker,
+	channelRateLimiter *middleware.ChannelRateLimiter,
 ) {
 	failedChannels := make(map[int]bool)
 	var lastError error
@@ -267,6 +269,30 @@ func handleMultiChannelResponses(
 		if envCfg.ShouldLog("info") {
 			log.Printf("🎯 [Multi-Channel/Responses] Selected channel: [%d] %s (reason: %s, attempt %d/%d)",
 				channelIndex, upstream.Name, selection.Reason, channelAttempt+1, maxChannelAttempts)
+		}
+
+		// Check per-channel rate limit (if configured)
+		if channelRateLimiter != nil && upstream.RateLimitRpm > 0 {
+			result := channelRateLimiter.Acquire(c.Request.Context(), upstream, "responses")
+			if !result.Allowed {
+				if result.Queued {
+					// Request was queued but timed out or client disconnected
+					log.Printf("⏰ [Channel Rate Limit/Responses] Channel %d (%s): request failed after queue - %v",
+						channelIndex, upstream.Name, result.Error)
+				} else {
+					// Rate limit exceeded, queue full or disabled
+					log.Printf("🚫 [Channel Rate Limit/Responses] Channel %d (%s): %v",
+						channelIndex, upstream.Name, result.Error)
+				}
+				// Mark channel as failed for this request and try next channel
+				failedChannels[channelIndex] = true
+				lastError = result.Error
+				continue
+			}
+			if result.Queued {
+				log.Printf("✅ [Channel Rate Limit/Responses] Channel %d (%s): request released after %v queue wait",
+					channelIndex, upstream.Name, result.WaitDuration)
+			}
 		}
 
 		success, failoverErr, updatedLogID := tryResponsesChannelWithAllKeys(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager, failoverTracker, clientID, sessionID, apiKeyID)
@@ -980,6 +1006,10 @@ func handleSingleChannelResponses(
 	usageManager *quota.UsageManager,
 	allowedChannels []int,
 	failoverTracker *config.FailoverTracker,
+	clientID string,
+	sessionID string,
+	apiKeyID *int64,
+	channelRateLimiter *middleware.ChannelRateLimiter,
 ) {
 	// 获取当前 Responses 上游配置
 	upstream, err := cfgManager.GetCurrentResponsesUpstream()
@@ -1006,6 +1036,23 @@ func handleSingleChannelResponses(
 				"code":  "CHANNEL_NOT_ALLOWED",
 			})
 			return
+		}
+	}
+
+	// Check per-channel rate limit (if configured)
+	if channelRateLimiter != nil && upstream.RateLimitRpm > 0 {
+		result := channelRateLimiter.Acquire(c.Request.Context(), upstream, "responses")
+		if !result.Allowed {
+			log.Printf("🚫 [Channel Rate Limit/Responses] Channel %d (%s): %v", upstream.Index, upstream.Name, result.Error)
+			c.JSON(429, gin.H{
+				"error":   "Too Many Requests",
+				"message": fmt.Sprintf("Channel rate limit exceeded (%d RPM)", upstream.RateLimitRpm),
+			})
+			return
+		}
+		if result.Queued {
+			log.Printf("✅ [Channel Rate Limit/Responses] Channel %d (%s): request released after %v queue wait",
+				upstream.Index, upstream.Name, result.WaitDuration)
 		}
 	}
 

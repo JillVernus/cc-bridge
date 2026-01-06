@@ -279,6 +279,24 @@ export default {
     // Tabs
     configTab: 'Configuration',
     quotaTab: 'Quota',
+    rateLimitTab: 'Rate Limit',
+  },
+
+  // Channel Rate Limit (per-channel upstream protection)
+  channelRateLimit: {
+    title: 'Channel Rate Limit',
+    upstreamProtection: 'Upstream Protection',
+    description: 'Limit requests to this channel to protect upstream API rate limits. When exceeded, requests can be queued or rejected.',
+    rateLimitRpm: 'Rate Limit (RPM)',
+    rateLimitRpmPlaceholder: '0',
+    rpmHint: 'requests per minute (0 = no limit)',
+    queueEnabled: 'Enable Queue Mode',
+    queueEnabledHint: 'When enabled, requests exceeding the rate limit will be queued instead of rejected. Queued requests are released at 1-second intervals.',
+    queueTimeout: 'Queue Timeout (s)',
+    queueTimeoutHint: 'seconds (max wait time in queue)',
+    behaviorTitle: 'Behavior',
+    behaviorQueue: 'Requests exceeding {rpm} RPM will be queued (max {timeout}s wait), then released at 1/s interval',
+    behaviorReject: 'Requests exceeding {rpm} RPM will be rejected with 429 error',
   },
 
   // Request Log

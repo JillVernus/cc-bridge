@@ -28,11 +28,11 @@ import (
 // ProxyHandler 代理处理器
 // 支持多渠道调度：当配置多个渠道时自动启用
 func ProxyHandler(envCfg *config.EnvConfig, cfgManager *config.ConfigManager, channelScheduler *scheduler.ChannelScheduler, reqLogManager *requestlog.Manager) gin.HandlerFunc {
-	return ProxyHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, nil, nil, nil)
+	return ProxyHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, nil, nil, nil, nil)
 }
 
 // ProxyHandlerWithAPIKey 代理处理器（支持 API Key 验证）
-func ProxyHandlerWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.ConfigManager, channelScheduler *scheduler.ChannelScheduler, reqLogManager *requestlog.Manager, apiKeyManager *apikey.Manager, usageManager *quota.UsageManager, failoverTracker *config.FailoverTracker) gin.HandlerFunc {
+func ProxyHandlerWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.ConfigManager, channelScheduler *scheduler.ChannelScheduler, reqLogManager *requestlog.Manager, apiKeyManager *apikey.Manager, usageManager *quota.UsageManager, failoverTracker *config.FailoverTracker, channelRateLimiter *middleware.ChannelRateLimiter) gin.HandlerFunc {
 	return gin.HandlerFunc(func(c *gin.Context) {
 		// 先进行认证（如果上游中间件尚未完成认证）
 		if _, exists := c.Get(middleware.ContextKeyAPIKeyID); !exists {
@@ -147,10 +147,10 @@ func ProxyHandlerWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.ConfigM
 
 		if isMultiChannel {
 			// 多渠道模式：使用调度器
-			handleMultiChannelProxy(c, envCfg, cfgManager, channelScheduler, bodyBytes, claudeReq, userID, sessionID, apiKeyID, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker)
+			handleMultiChannelProxy(c, envCfg, cfgManager, channelScheduler, bodyBytes, claudeReq, userID, sessionID, apiKeyID, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker, channelRateLimiter)
 		} else {
 			// 单渠道模式：使用现有逻辑
-			handleSingleChannelProxy(c, envCfg, cfgManager, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker, userID, sessionID, apiKeyID)
+			handleSingleChannelProxy(c, envCfg, cfgManager, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker, userID, sessionID, apiKeyID, channelRateLimiter)
 		}
 	})
 }
@@ -209,6 +209,7 @@ func handleMultiChannelProxy(
 	usageManager *quota.UsageManager,
 	allowedChannels []int,
 	failoverTracker *config.FailoverTracker,
+	channelRateLimiter *middleware.ChannelRateLimiter,
 ) {
 	failedChannels := make(map[int]bool)
 	var lastError error
@@ -236,6 +237,30 @@ func handleMultiChannelProxy(
 		if envCfg.ShouldLog("info") {
 			log.Printf("🎯 [Multi-Channel] Selected channel: [%d] %s (reason: %s, attempt %d/%d)",
 				channelIndex, upstream.Name, selection.Reason, channelAttempt+1, maxChannelAttempts)
+		}
+
+		// Check per-channel rate limit (if configured)
+		if channelRateLimiter != nil && upstream.RateLimitRpm > 0 {
+			result := channelRateLimiter.Acquire(c.Request.Context(), upstream, "messages")
+			if !result.Allowed {
+				if result.Queued {
+					// Request was queued but timed out or client disconnected
+					log.Printf("⏰ [Channel Rate Limit] Channel %d (%s): request failed after queue - %v",
+						channelIndex, upstream.Name, result.Error)
+				} else {
+					// Rate limit exceeded, queue full or disabled
+					log.Printf("🚫 [Channel Rate Limit] Channel %d (%s): %v",
+						channelIndex, upstream.Name, result.Error)
+				}
+				// Mark channel as failed for this request and try next channel
+				failedChannels[channelIndex] = true
+				lastError = result.Error
+				continue
+			}
+			if result.Queued {
+				log.Printf("✅ [Channel Rate Limit] Channel %d (%s): request released after %v queue wait",
+					channelIndex, upstream.Name, result.WaitDuration)
+			}
 		}
 
 		// Try all keys for this channel
@@ -743,6 +768,7 @@ func handleSingleChannelProxy(
 	clientID string,
 	sessionID string,
 	apiKeyID *int64,
+	channelRateLimiter *middleware.ChannelRateLimiter,
 ) {
 	// 获取当前上游配置
 	upstream, err := cfgManager.GetCurrentUpstream()
@@ -778,6 +804,23 @@ func handleSingleChannelProxy(
 			"code":  "NO_API_KEYS",
 		})
 		return
+	}
+
+	// Check per-channel rate limit (if configured)
+	if channelRateLimiter != nil && upstream.RateLimitRpm > 0 {
+		result := channelRateLimiter.Acquire(c.Request.Context(), upstream, "messages")
+		if !result.Allowed {
+			log.Printf("🚫 [Channel Rate Limit] Channel %d (%s): %v", upstream.Index, upstream.Name, result.Error)
+			c.JSON(429, gin.H{
+				"error":   "Too Many Requests",
+				"message": fmt.Sprintf("Channel rate limit exceeded (%d RPM)", upstream.RateLimitRpm),
+			})
+			return
+		}
+		if result.Queued {
+			log.Printf("✅ [Channel Rate Limit] Channel %d (%s): request released after %v queue wait",
+				upstream.Index, upstream.Name, result.WaitDuration)
+		}
 	}
 
 	// 获取提供商

@@ -113,6 +113,10 @@
               <v-icon start size="small">mdi-gauge</v-icon>
               {{ t('addChannel.quotaTab') }}
             </v-tab>
+            <v-tab value="ratelimit" :disabled="!form.serviceType">
+              <v-icon start size="small">mdi-speedometer</v-icon>
+              {{ t('addChannel.rateLimitTab') }}
+            </v-tab>
           </v-tabs>
 
           <v-tabs-window v-model="activeTab">
@@ -614,6 +618,98 @@
                       hide-details
                     />
                   </div>
+                </v-card-text>
+              </v-card>
+            </v-tabs-window-item>
+
+            <!-- Rate Limit Tab -->
+            <v-tabs-window-item value="ratelimit">
+              <v-card variant="outlined" rounded="lg" class="mb-4">
+                <v-card-title class="d-flex align-center justify-space-between pa-4 pb-2">
+                  <div class="d-flex align-center ga-2">
+                    <v-icon color="primary">mdi-speedometer</v-icon>
+                    <span class="text-body-1 font-weight-bold">{{ t('channelRateLimit.title') }}</span>
+                  </div>
+                  <v-chip size="small" color="info" variant="tonal">{{ t('channelRateLimit.upstreamProtection') }}</v-chip>
+                </v-card-title>
+
+                <v-card-text class="pt-2">
+                  <div class="text-body-2 text-medium-emphasis mb-4">
+                    {{ t('channelRateLimit.description') }}
+                  </div>
+
+                  <!-- Rate Limit RPM -->
+                  <div class="d-flex align-center ga-3 flex-wrap mb-4">
+                    <v-text-field
+                      v-model.number="form.rateLimitRpm"
+                      :label="t('channelRateLimit.rateLimitRpm')"
+                      :placeholder="t('channelRateLimit.rateLimitRpmPlaceholder')"
+                      type="number"
+                      min="0"
+                      step="1"
+                      variant="outlined"
+                      density="comfortable"
+                      hide-details
+                      style="max-width: 200px;"
+                    />
+                    <span class="text-body-2 text-medium-emphasis">{{ t('channelRateLimit.rpmHint') }}</span>
+                  </div>
+
+                  <!-- Queue Mode -->
+                  <div v-if="form.rateLimitRpm && form.rateLimitRpm > 0" class="mt-4">
+                    <div class="d-flex align-center mb-3">
+                      <v-switch
+                        v-model="form.queueEnabled"
+                        :label="t('channelRateLimit.queueEnabled')"
+                        color="primary"
+                        density="compact"
+                        hide-details
+                      />
+                      <v-tooltip location="top">
+                        <template #activator="{ props }">
+                          <v-icon v-bind="props" size="small" color="grey" class="ml-2">mdi-information-outline</v-icon>
+                        </template>
+                        {{ t('channelRateLimit.queueEnabledHint') }}
+                      </v-tooltip>
+                    </div>
+
+                    <!-- Queue Timeout (only when queue enabled) -->
+                    <div v-if="form.queueEnabled" class="d-flex align-center ga-3 flex-wrap">
+                      <v-text-field
+                        v-model.number="form.queueTimeout"
+                        :label="t('channelRateLimit.queueTimeout')"
+                        :placeholder="'60'"
+                        type="number"
+                        min="1"
+                        max="300"
+                        step="1"
+                        variant="outlined"
+                        density="comfortable"
+                        hide-details
+                        style="max-width: 150px;"
+                      />
+                      <span class="text-body-2 text-medium-emphasis">{{ t('channelRateLimit.queueTimeoutHint') }}</span>
+                    </div>
+                  </div>
+
+                  <!-- Info Alert -->
+                  <v-alert
+                    v-if="form.rateLimitRpm && form.rateLimitRpm > 0"
+                    type="info"
+                    variant="tonal"
+                    class="mt-4"
+                    rounded="lg"
+                  >
+                    <div class="text-body-2">
+                      <strong>{{ t('channelRateLimit.behaviorTitle') }}:</strong>
+                      <span v-if="form.queueEnabled">
+                        {{ t('channelRateLimit.behaviorQueue', { rpm: form.rateLimitRpm, timeout: form.queueTimeout || 60 }) }}
+                      </span>
+                      <span v-else>
+                        {{ t('channelRateLimit.behaviorReject', { rpm: form.rateLimitRpm }) }}
+                      </span>
+                    </div>
+                  </v-alert>
                 </v-card-text>
               </v-card>
             </v-tabs-window-item>
@@ -1246,7 +1342,11 @@ const form = reactive({
   quotaResetInterval: undefined as number | undefined,
   quotaResetUnit: 'days' as 'hours' | 'days' | 'weeks' | 'months',
   quotaModels: [] as string[],
-  quotaResetMode: 'fixed' as 'fixed' | 'rolling'
+  quotaResetMode: 'fixed' as 'fixed' | 'rolling',
+  // Per-channel rate limiting
+  rateLimitRpm: undefined as number | undefined,
+  queueEnabled: false,
+  queueTimeout: 60
 })
 
 // OAuth 相关状态
@@ -1505,6 +1605,10 @@ const resetForm = () => {
   form.quotaResetUnit = 'days'
   form.quotaModels = []
   form.quotaResetMode = 'fixed'
+  // Reset rate limit settings
+  form.rateLimitRpm = undefined
+  form.queueEnabled = false
+  form.queueTimeout = 60
   newApiKey.value = ''
   newMapping.source = ''
   newMapping.target = ''
@@ -1589,6 +1693,11 @@ const loadChannelData = (channel: Channel) => {
   form.quotaResetUnit = channel.quotaResetUnit || 'days'
   form.quotaModels = channel.quotaModels || []
   form.quotaResetMode = channel.quotaResetMode || 'fixed'
+
+  // Load rate limit settings
+  form.rateLimitRpm = typeof channel.rateLimitRpm === 'number' ? channel.rateLimitRpm : undefined
+  form.queueEnabled = channel.queueEnabled || false
+  form.queueTimeout = channel.queueTimeout || 60
 
   // 加载 OAuth tokens（如果存在）
   if (channel.oauthTokens) {
@@ -1883,7 +1992,11 @@ const handleSubmit = async () => {
     quotaResetInterval: form.quotaType && typeof form.quotaResetInterval === 'number' && !Number.isNaN(form.quotaResetInterval) ? form.quotaResetInterval : undefined,
     quotaResetUnit: form.quotaType ? form.quotaResetUnit : undefined,
     quotaModels: form.quotaType && form.quotaModels.length > 0 ? form.quotaModels : undefined,
-    quotaResetMode: form.quotaType ? form.quotaResetMode : undefined
+    quotaResetMode: form.quotaType ? form.quotaResetMode : undefined,
+    // Per-channel rate limiting
+    rateLimitRpm: typeof form.rateLimitRpm === 'number' && !Number.isNaN(form.rateLimitRpm) && form.rateLimitRpm >= 0 ? Math.floor(form.rateLimitRpm) : undefined,
+    queueEnabled: typeof form.rateLimitRpm === 'number' && form.rateLimitRpm > 0 ? form.queueEnabled : undefined,
+    queueTimeout: typeof form.rateLimitRpm === 'number' && form.rateLimitRpm > 0 && form.queueEnabled ? (typeof form.queueTimeout === 'number' && !Number.isNaN(form.queueTimeout) && form.queueTimeout > 0 ? Math.floor(form.queueTimeout) : 60) : undefined
   }
 
   // 对于 OAuth 渠道，添加 OAuth tokens

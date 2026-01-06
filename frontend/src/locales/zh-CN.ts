@@ -279,6 +279,24 @@ export default {
     // Tabs
     configTab: '配置',
     quotaTab: '配额',
+    rateLimitTab: '限流',
+  },
+
+  // Channel Rate Limit (per-channel upstream protection)
+  channelRateLimit: {
+    title: '渠道限流',
+    upstreamProtection: '上游保护',
+    description: '限制发送到此渠道的请求数量，保护上游 API 速率限制。超出限制时，请求可以排队或被拒绝。',
+    rateLimitRpm: '速率限制 (RPM)',
+    rateLimitRpmPlaceholder: '0',
+    rpmHint: '每分钟请求数 (0 = 不限制)',
+    queueEnabled: '启用队列模式',
+    queueEnabledHint: '启用后，超出速率限制的请求将排队等待而非直接拒绝。排队的请求将以每秒 1 个的速度释放。',
+    queueTimeout: '队列超时 (秒)',
+    queueTimeoutHint: '秒 (队列中最大等待时间)',
+    behaviorTitle: '行为',
+    behaviorQueue: '超出 {rpm} RPM 的请求将排队等待（最长 {timeout} 秒），然后以每秒 1 个的速度释放',
+    behaviorReject: '超出 {rpm} RPM 的请求将被拒绝并返回 429 错误',
   },
 
   // Request Log

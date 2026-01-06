@@ -191,6 +191,8 @@ func main() {
 	// 初始化速率限制器（使用配置管理器的配置）
 	var apiRateLimiter, portalRateLimiter *middleware.RateLimiter
 	var authFailureLimiter *middleware.AuthFailureRateLimiter
+	channelRateLimiter := middleware.NewChannelRateLimiter()
+	log.Printf("✅ 渠道速率限制器已初始化")
 
 	if rateLimitCfgManager != nil {
 		cfg := rateLimitCfgManager.GetConfig()
@@ -280,7 +282,7 @@ func main() {
 		apiGroup.GET("/channels", handlers.GetUpstreams(cfgManager))
 		apiGroup.POST("/channels", handlers.AddUpstream(cfgManager))
 		apiGroup.PUT("/channels/:id", handlers.UpdateUpstream(cfgManager, channelScheduler))
-		apiGroup.DELETE("/channels/:id", handlers.DeleteUpstream(cfgManager))
+		apiGroup.DELETE("/channels/:id", handlers.DeleteUpstream(cfgManager, channelRateLimiter))
 		apiGroup.POST("/channels/:id/keys", handlers.AddApiKey(cfgManager))
 		if allowDeprecatedKeyPathEndpoints {
 			apiGroup.DELETE("/channels/:id/keys/:apiKey", handlers.DeleteApiKey(cfgManager))            // Deprecated: use index-based endpoint
@@ -303,7 +305,7 @@ func main() {
 		apiGroup.GET("/responses/channels", handlers.GetResponsesUpstreams(cfgManager))
 		apiGroup.POST("/responses/channels", handlers.AddResponsesUpstream(cfgManager))
 		apiGroup.PUT("/responses/channels/:id", handlers.UpdateResponsesUpstream(cfgManager, channelScheduler))
-		apiGroup.DELETE("/responses/channels/:id", handlers.DeleteResponsesUpstream(cfgManager))
+		apiGroup.DELETE("/responses/channels/:id", handlers.DeleteResponsesUpstream(cfgManager, channelRateLimiter))
 		apiGroup.POST("/responses/channels/:id/keys", handlers.AddResponsesApiKey(cfgManager))
 		if allowDeprecatedKeyPathEndpoints {
 			apiGroup.DELETE("/responses/channels/:id/keys/:apiKey", handlers.DeleteResponsesApiKey(cfgManager))            // Deprecated: use index-based endpoint
@@ -415,8 +417,8 @@ func main() {
 	v1Group.Use(middleware.ProxyAuthMiddlewareWithAPIKey(envCfg, apiKeyManager))
 	v1Group.Use(middleware.APIRateLimitMiddleware(apiRateLimiter))
 	{
-		v1Group.POST("/messages", handlers.ProxyHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker))
-		v1Group.POST("/responses", handlers.ResponsesHandlerWithAPIKey(envCfg, cfgManager, sessionManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker))
+		v1Group.POST("/messages", handlers.ProxyHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker, channelRateLimiter))
+		v1Group.POST("/responses", handlers.ResponsesHandlerWithAPIKey(envCfg, cfgManager, sessionManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker, channelRateLimiter))
 	}
 
 	// 静态文件服务 (嵌入的前端)

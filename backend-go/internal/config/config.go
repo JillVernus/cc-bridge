@@ -80,6 +80,10 @@ type UpstreamConfig struct {
 	QuotaResetUnit     string     `json:"quotaResetUnit,omitempty"`     // "hours" | "days" | "weeks" | "months"
 	QuotaModels        []string   `json:"quotaModels,omitempty"`        // 配额计数模型过滤（子字符串匹配），空数组=全部模型
 	QuotaResetMode     string     `json:"quotaResetMode,omitempty"`     // "fixed" | "rolling", 默认 "fixed"
+	// Per-channel rate limiting (upstream protection)
+	RateLimitRpm int  `json:"rateLimitRpm,omitempty"` // Requests per minute (0 = disabled)
+	QueueEnabled bool `json:"queueEnabled,omitempty"` // Enable queue mode instead of reject
+	QueueTimeout int  `json:"queueTimeout,omitempty"` // Max seconds to wait in queue (default 60)
 }
 
 // GetResponseHeaderTimeout 获取响应头超时时间（秒），默认120秒
@@ -88,6 +92,14 @@ func (u *UpstreamConfig) GetResponseHeaderTimeout() int {
 		return u.ResponseHeaderTimeoutSecs
 	}
 	return 120 // 默认120秒
+}
+
+// GetQueueTimeout 获取队列超时时间（秒），默认60秒
+func (u *UpstreamConfig) GetQueueTimeout() int {
+	if u.QueueTimeout > 0 {
+		return u.QueueTimeout
+	}
+	return 60 // 默认60秒
 }
 
 // GetPriceMultipliers 获取指定模型的价格乘数（累积模式：特定模型乘数 × _default 乘数）
@@ -191,6 +203,10 @@ type UpstreamUpdate struct {
 	QuotaResetUnit     *string    `json:"quotaResetUnit"`
 	QuotaModels        []string   `json:"quotaModels"`
 	QuotaResetMode     *string    `json:"quotaResetMode"`
+	// Per-channel rate limiting
+	RateLimitRpm *int  `json:"rateLimitRpm"`
+	QueueEnabled *bool `json:"queueEnabled"`
+	QueueTimeout *int  `json:"queueTimeout"`
 }
 
 // Config 配置结构
@@ -994,6 +1010,9 @@ func (cm *ConfigManager) AddUpstream(upstream UpstreamConfig) error {
 		upstream.Status = "active"
 	}
 
+	// Set the Index to the new position
+	upstream.Index = len(cm.config.Upstream)
+
 	cm.config.Upstream = append(cm.config.Upstream, upstream)
 
 	if err := cm.saveConfigLocked(cm.config); err != nil {
@@ -1095,6 +1114,16 @@ func (cm *ConfigManager) UpdateUpstream(index int, updates UpstreamUpdate) (shou
 	if updates.QuotaResetMode != nil {
 		upstream.QuotaResetMode = *updates.QuotaResetMode
 	}
+	// Per-channel rate limiting
+	if updates.RateLimitRpm != nil {
+		upstream.RateLimitRpm = *updates.RateLimitRpm
+	}
+	if updates.QueueEnabled != nil {
+		upstream.QueueEnabled = *updates.QueueEnabled
+	}
+	if updates.QueueTimeout != nil {
+		upstream.QueueTimeout = *updates.QueueTimeout
+	}
 
 	if err := cm.saveConfigLocked(cm.config); err != nil {
 		return false, err
@@ -1115,6 +1144,11 @@ func (cm *ConfigManager) RemoveUpstream(index int) (*UpstreamConfig, error) {
 
 	removed := cm.config.Upstream[index]
 	cm.config.Upstream = append(cm.config.Upstream[:index], cm.config.Upstream[index+1:]...)
+
+	// Reindex remaining upstreams
+	for i := range cm.config.Upstream {
+		cm.config.Upstream[i].Index = i
+	}
 
 	// 清理被删除渠道的失败 key 冷却记录
 	cm.clearFailedKeysForUpstream(&removed)
@@ -1627,6 +1661,9 @@ func (cm *ConfigManager) AddResponsesUpstream(upstream UpstreamConfig) error {
 		upstream.Status = "active"
 	}
 
+	// Set the Index to the new position
+	upstream.Index = len(cm.config.ResponsesUpstream)
+
 	cm.config.ResponsesUpstream = append(cm.config.ResponsesUpstream, upstream)
 
 	if err := cm.saveConfigLocked(cm.config); err != nil {
@@ -1737,6 +1774,16 @@ func (cm *ConfigManager) UpdateResponsesUpstream(index int, updates UpstreamUpda
 	if updates.QuotaResetMode != nil {
 		upstream.QuotaResetMode = *updates.QuotaResetMode
 	}
+	// Per-channel rate limiting
+	if updates.RateLimitRpm != nil {
+		upstream.RateLimitRpm = *updates.RateLimitRpm
+	}
+	if updates.QueueEnabled != nil {
+		upstream.QueueEnabled = *updates.QueueEnabled
+	}
+	if updates.QueueTimeout != nil {
+		upstream.QueueTimeout = *updates.QueueTimeout
+	}
 
 	if err := cm.saveConfigLocked(cm.config); err != nil {
 		return false, err
@@ -1779,6 +1826,11 @@ func (cm *ConfigManager) RemoveResponsesUpstream(index int) (*UpstreamConfig, er
 
 	removed := cm.config.ResponsesUpstream[index]
 	cm.config.ResponsesUpstream = append(cm.config.ResponsesUpstream[:index], cm.config.ResponsesUpstream[index+1:]...)
+
+	// Reindex remaining upstreams
+	for i := range cm.config.ResponsesUpstream {
+		cm.config.ResponsesUpstream[i].Index = i
+	}
 
 	// 清理被删除渠道的失败 key 冷却记录
 	cm.clearFailedKeysForUpstream(&removed)

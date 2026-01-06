@@ -170,6 +170,10 @@ export interface Channel {
   quotaResetUnit?: 'hours' | 'days' | 'weeks' | 'months'  // 重置间隔单位
   quotaModels?: string[]                   // 配额计数模型过滤（子字符串匹配），空数组=全部模型
   quotaResetMode?: 'fixed' | 'rolling'     // 重置模式：固定周期 | 滚动周期，默认 fixed
+  // Per-channel rate limiting (upstream protection)
+  rateLimitRpm?: number                    // Requests per minute (0 = disabled)
+  queueEnabled?: boolean                   // Enable queue mode instead of reject
+  queueTimeout?: number                    // Max seconds to wait in queue (default 60)
 }
 
 // 渠道用量配额状态

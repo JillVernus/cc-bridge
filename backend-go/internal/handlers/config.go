@@ -10,6 +10,7 @@ import (
 	"github.com/JillVernus/cc-bridge/internal/auth/codex"
 	"github.com/JillVernus/cc-bridge/internal/config"
 	"github.com/JillVernus/cc-bridge/internal/httpclient" // 新增
+	"github.com/JillVernus/cc-bridge/internal/middleware"
 	"github.com/JillVernus/cc-bridge/internal/quota"
 	"github.com/JillVernus/cc-bridge/internal/scheduler"
 	"github.com/gin-gonic/gin"
@@ -77,6 +78,10 @@ func GetUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				"quotaResetUnit":        up.QuotaResetUnit,
 				"quotaModels":           up.QuotaModels,
 				"quotaResetMode":        up.QuotaResetMode,
+				// Per-channel rate limiting
+				"rateLimitRpm": up.RateLimitRpm,
+				"queueEnabled": up.QueueEnabled,
+				"queueTimeout": up.QueueTimeout,
 			}
 		}
 
@@ -150,7 +155,7 @@ func UpdateUpstream(cfgManager *config.ConfigManager, sch *scheduler.ChannelSche
 }
 
 // DeleteUpstream 删除上游
-func DeleteUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
+func DeleteUpstream(cfgManager *config.ConfigManager, channelRateLimiter *middleware.ChannelRateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		idStr := c.Param("id")
 		id, err := strconv.Atoi(idStr)
@@ -167,6 +172,11 @@ func DeleteUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
 			}
 			return
+		}
+
+		// Clear rate limit state for deleted channel to prevent state leakage
+		if channelRateLimiter != nil {
+			channelRateLimiter.ClearChannel(id)
 		}
 
 		// 🔒 安全修复: 不返回 removed 数据，防止 API 密钥泄露
@@ -624,6 +634,10 @@ func GetResponsesUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				"quotaResetUnit":        up.QuotaResetUnit,
 				"quotaModels":           up.QuotaModels,
 				"quotaResetMode":        up.QuotaResetMode,
+				// Per-channel rate limiting
+				"rateLimitRpm": up.RateLimitRpm,
+				"queueEnabled": up.QueueEnabled,
+				"queueTimeout": up.QueueTimeout,
 			}
 		}
 
@@ -685,7 +699,7 @@ func UpdateResponsesUpstream(cfgManager *config.ConfigManager, sch *scheduler.Ch
 }
 
 // DeleteResponsesUpstream 删除 Responses 上游
-func DeleteResponsesUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
+func DeleteResponsesUpstream(cfgManager *config.ConfigManager, channelRateLimiter *middleware.ChannelRateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		idStr := c.Param("id")
 		id, err := strconv.Atoi(idStr)
@@ -697,6 +711,11 @@ func DeleteResponsesUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		if _, err := cfgManager.RemoveResponsesUpstream(id); err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
+		}
+
+		// Clear rate limit state for deleted channel to prevent state leakage
+		if channelRateLimiter != nil {
+			channelRateLimiter.ClearChannel(id)
 		}
 
 		c.JSON(200, gin.H{"message": "Responses upstream deleted successfully"})
