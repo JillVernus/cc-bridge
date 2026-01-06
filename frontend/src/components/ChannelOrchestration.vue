@@ -245,18 +245,34 @@
               <template v-else-if="element.serviceType === 'openai-oauth' && channelType === 'responses'">
                 <v-tooltip location="top" :open-delay="200">
                   <template #activator="{ props: tooltipProps }">
-                    <div v-bind="tooltipProps" class="quota-bar-container" @click="openOAuthStatus(element)">
+                    <div v-bind="tooltipProps" class="oauth-quota-dual-bar" @click="openOAuthStatus(element)">
                       <template v-if="getChannelQuota(element.index)?.codex_quota">
-                        <div class="quota-bar-wrapper">
-                          <div
-                            class="quota-bar"
-                            :style="{
-                              width: `${100 - getChannelQuota(element.index)!.codex_quota!.primary_used_percent}%`,
-                              backgroundColor: getQuotaBarColor(getChannelQuota(element.index)!.codex_quota!.primary_used_percent)
-                            }"
-                          />
+                        <!-- 5h quota bar -->
+                        <div class="oauth-quota-row">
+                          <span class="oauth-quota-label">5h</span>
+                          <div class="quota-bar-wrapper">
+                            <div
+                              class="quota-bar"
+                              :style="{
+                                width: `${100 - getChannelQuota(element.index)!.codex_quota!.primary_used_percent}%`,
+                                backgroundColor: getQuotaBarColor(getChannelQuota(element.index)!.codex_quota!.primary_used_percent)
+                              }"
+                            />
+                          </div>
                         </div>
-                        <span class="quota-text">{{ 100 - getChannelQuota(element.index)!.codex_quota!.primary_used_percent }}%</span>
+                        <!-- 7d quota bar -->
+                        <div class="oauth-quota-row">
+                          <span class="oauth-quota-label">7d</span>
+                          <div class="quota-bar-wrapper">
+                            <div
+                              class="quota-bar"
+                              :style="{
+                                width: `${100 - getChannelQuota(element.index)!.codex_quota!.secondary_used_percent}%`,
+                                backgroundColor: getQuotaBarColor(getChannelQuota(element.index)!.codex_quota!.secondary_used_percent)
+                              }"
+                            />
+                          </div>
+                        </div>
                       </template>
                       <span v-else class="text-caption text-medium-emphasis">--</span>
                     </div>
@@ -1092,6 +1108,35 @@ defineExpose({
 
 .quota-bar-container:hover {
   background: rgba(var(--v-theme-primary), 0.1);
+}
+
+/* OAuth dual quota bars (5h and 7d) */
+.oauth-quota-dual-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
+}
+
+.oauth-quota-dual-bar:hover {
+  background: rgba(var(--v-theme-primary), 0.1);
+}
+
+.oauth-quota-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.oauth-quota-label {
+  font-size: 9px;
+  font-weight: 600;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  min-width: 16px;
+  text-align: right;
 }
 
 .quota-bar-wrapper {
