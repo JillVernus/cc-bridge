@@ -249,7 +249,7 @@
                       <template v-if="getChannelQuota(element.index)?.codex_quota">
                         <!-- 5h quota bar -->
                         <div class="oauth-quota-row">
-                          <span class="oauth-quota-percent">{{ 100 - getChannelQuota(element.index)!.codex_quota!.primary_used_percent }}%</span>
+                          <span class="oauth-quota-label">5h</span>
                           <div class="quota-bar-wrapper">
                             <div
                               class="quota-bar"
@@ -259,11 +259,11 @@
                               }"
                             />
                           </div>
-                          <span class="oauth-quota-label">5h</span>
+                          <span class="quota-text">{{ 100 - getChannelQuota(element.index)!.codex_quota!.primary_used_percent }}%</span>
                         </div>
                         <!-- 7d quota bar -->
                         <div class="oauth-quota-row">
-                          <span class="oauth-quota-percent">{{ 100 - getChannelQuota(element.index)!.codex_quota!.secondary_used_percent }}%</span>
+                          <span class="oauth-quota-label">7d</span>
                           <div class="quota-bar-wrapper">
                             <div
                               class="quota-bar"
@@ -273,7 +273,7 @@
                               }"
                             />
                           </div>
-                          <span class="oauth-quota-label">7d</span>
+                          <span class="quota-text">{{ 100 - getChannelQuota(element.index)!.codex_quota!.secondary_used_percent }}%</span>
                         </div>
                       </template>
                       <span v-else class="text-caption text-medium-emphasis">--</span>
@@ -1133,19 +1133,11 @@ defineExpose({
   gap: 4px;
 }
 
-.oauth-quota-percent {
-  font-size: 10px;
-  font-weight: 600;
-  min-width: 28px;
-  text-align: right;
-}
-
 .oauth-quota-label {
   font-size: 9px;
   font-weight: 600;
   color: rgba(var(--v-theme-on-surface), 0.6);
   min-width: 14px;
-  text-align: left;
 }
 
 .quota-bar-wrapper {
