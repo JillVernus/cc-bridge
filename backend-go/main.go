@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"time"
 
@@ -27,6 +28,9 @@ import (
 var frontendFS embed.FS
 
 func main() {
+	// 初始化随机数生成器（用于 random 负载均衡策略）
+	rand.Seed(time.Now().UnixNano())
+
 	// 加载环境变量
 	if err := godotenv.Load(); err != nil {
 		log.Println("没有找到 .env 文件，使用环境变量或默认值")
