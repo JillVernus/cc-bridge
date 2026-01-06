@@ -986,7 +986,7 @@ defineExpose({
 
 /* Responses tab has an extra quota column */
 .channel-row.has-quota-column {
-  grid-template-columns: 36px 36px 110px 1fr 130px 80px 90px 140px;
+  grid-template-columns: 36px 36px 110px 1fr 130px 100px 90px 140px;
 }
 
 .channel-row:hover {
