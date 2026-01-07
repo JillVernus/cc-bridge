@@ -370,6 +370,7 @@
       v-model:show="showAddChannelModal"
       :channel="editingChannel"
       :channel-type="channelTypeForComponents"
+      :all-channels="channels"
       @save="saveChannel"
     />
 
@@ -643,6 +644,9 @@ const channelTypeForComponents = computed((): 'messages' | 'responses' => {
   }
   return activeTab.value
 })
+
+// All channels for composite channel editor (uses messages channels for composite targets)
+const channels = computed(() => channelsData.value.channels)
 
 // Toast通知系统
 interface Toast {

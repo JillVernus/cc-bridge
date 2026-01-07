@@ -138,9 +138,17 @@ export interface OAuthStatusResponse {
   quota?: QuotaInfo
 }
 
+// Composite channel model mapping
+export interface CompositeMapping {
+  pattern: string                // Model pattern (e.g., "haiku", "opus", "*")
+  targetChannelId: string        // Target channel ID
+  targetModel?: string           // Optional model name override
+}
+
 export interface Channel {
+  id?: string                     // Unique channel ID (for composite mapping references)
   name: string
-  serviceType: 'openai' | 'openai_chat' | 'openaiold' | 'gemini' | 'claude' | 'responses' | 'openai-oauth'
+  serviceType: 'openai' | 'openai_chat' | 'openaiold' | 'gemini' | 'claude' | 'responses' | 'openai-oauth' | 'composite'
   baseUrl: string
   apiKeys?: string[]        // Only present when creating/updating, not in GET responses
   apiKeyCount?: number      // Number of API keys (returned by GET)
@@ -174,6 +182,8 @@ export interface Channel {
   rateLimitRpm?: number                    // Requests per minute (0 = disabled)
   queueEnabled?: boolean                   // Enable queue mode instead of reject
   queueTimeout?: number                    // Max seconds to wait in queue (default 60)
+  // Composite channel mappings
+  compositeMappings?: CompositeMapping[]   // Model-to-channel mappings for composite channels
 }
 
 // 渠道用量配额状态

@@ -298,6 +298,7 @@ func main() {
 		apiGroup.PATCH("/channels/:id/status", handlers.SetChannelStatus(cfgManager))
 		apiGroup.POST("/channels/:id/resume", handlers.ResumeChannel(channelScheduler, false))
 		apiGroup.POST("/channels/:id/promotion", handlers.SetChannelPromotion(cfgManager))
+		apiGroup.GET("/channels/:id/test-mapping", handlers.TestCompositeMapping(cfgManager))
 		apiGroup.GET("/channels/metrics", handlers.GetChannelMetrics(messagesMetricsManager))
 		apiGroup.GET("/channels/scheduler/stats", handlers.GetSchedulerStats(channelScheduler))
 

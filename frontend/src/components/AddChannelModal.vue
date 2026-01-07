@@ -109,11 +109,11 @@
               <v-icon start size="small">mdi-cog</v-icon>
               {{ t('addChannel.configTab') }}
             </v-tab>
-            <v-tab value="quota" :disabled="!form.serviceType">
+            <v-tab value="quota" :disabled="!form.serviceType || isCompositeChannel">
               <v-icon start size="small">mdi-gauge</v-icon>
               {{ t('addChannel.quotaTab') }}
             </v-tab>
-            <v-tab value="ratelimit" :disabled="!form.serviceType">
+            <v-tab value="ratelimit" :disabled="!form.serviceType || isCompositeChannel">
               <v-icon start size="small">mdi-speedometer</v-icon>
               {{ t('addChannel.rateLimitTab') }}
             </v-tab>
@@ -152,8 +152,8 @@
               />
             </v-col>
 
-            <!-- 基础URL（非 OAuth 类型显示） -->
-            <v-col cols="12" v-if="!isOAuthChannel">
+            <!-- 基础URL（非 OAuth 和 Composite 类型显示） -->
+            <v-col cols="12" v-if="!isOAuthChannel && !isCompositeChannel">
               <v-text-field
                 v-model="form.baseUrl"
                 :label="t('addChannel.baseUrl')"
@@ -182,8 +182,8 @@
               </v-alert>
             </v-col>
 
-            <!-- 官网/控制台（可选） -->
-            <v-col cols="12">
+            <!-- 官网/控制台（可选，非 Composite 类型） -->
+            <v-col cols="12" v-if="!isCompositeChannel">
               <v-text-field
                 v-model="form.website"
                 :label="t('addChannel.websiteLabel')"
@@ -197,8 +197,8 @@
               />
             </v-col>
 
-            <!-- 跳过 TLS 证书验证 -->
-            <v-col cols="12" md="6">
+            <!-- 跳过 TLS 证书验证（非 Composite 类型） -->
+            <v-col cols="12" md="6" v-if="!isCompositeChannel">
               <div class="d-flex align-center justify-space-between">
                 <div class="d-flex align-center ga-2">
                   <v-icon color="warning">mdi-shield-alert</v-icon>
@@ -213,8 +213,8 @@
               </div>
             </v-col>
 
-            <!-- 响应头超时 -->
-            <v-col cols="12" md="6">
+            <!-- 响应头超时（非 Composite 类型） -->
+            <v-col cols="12" md="6" v-if="!isCompositeChannel">
               <v-text-field
                 v-model.number="form.responseHeaderTimeout"
                 :label="t('addChannel.responseTimeout')"
@@ -245,8 +245,16 @@
               />
             </v-col>
 
-            <!-- 模型重定向配置 -->
-            <v-col cols="12" v-if="form.serviceType">
+            <!-- Composite 渠道模型映射配置 -->
+            <v-col cols="12" v-if="isCompositeChannel">
+              <CompositeChannelEditor
+                v-model="form.compositeMappings"
+                :all-channels="allChannels"
+              />
+            </v-col>
+
+            <!-- 模型重定向配置（非 Composite 类型） -->
+            <v-col cols="12" v-if="form.serviceType && !isCompositeChannel">
               <v-card variant="outlined" rounded="lg">
                 <v-card-title class="d-flex align-center justify-space-between pa-4 pb-2">
                   <div class="d-flex align-center ga-2">
@@ -329,8 +337,8 @@
               </v-card>
             </v-col>
 
-            <!-- 价格乘数配置（折扣） -->
-            <v-col cols="12" v-if="form.serviceType">
+            <!-- 价格乘数配置（折扣，非 Composite 类型） -->
+            <v-col cols="12" v-if="form.serviceType && !isCompositeChannel">
               <v-card variant="outlined" rounded="lg">
                 <v-card-title class="d-flex align-center justify-space-between pa-4 pb-2">
                   <div class="d-flex align-center ga-2">
@@ -770,8 +778,8 @@
               </v-card>
             </v-col>
 
-            <!-- API密钥管理（非 OAuth 类型显示） -->
-            <v-col cols="12" v-if="!isOAuthChannel">
+            <!-- API密钥管理（非 OAuth 和 Composite 类型显示） -->
+            <v-col cols="12" v-if="!isOAuthChannel && !isCompositeChannel">
               <v-card variant="outlined" rounded="lg" :color="totalKeyCount === 0 ? 'error' : undefined">
                 <v-card-title class="d-flex align-center justify-space-between pa-4 pb-2">
                   <div class="d-flex align-center ga-2">
@@ -1070,6 +1078,7 @@ import { useTheme } from 'vuetify'
 import { useI18n } from 'vue-i18n'
 import type { Channel, OAuthTokens } from '../services/api'
 import { api } from '../services/api'
+import CompositeChannelEditor from './CompositeChannelEditor.vue'
 
 // i18n
 const { t } = useI18n()
@@ -1078,10 +1087,12 @@ interface Props {
   show: boolean
   channel?: Channel | null
   channelType?: 'messages' | 'responses'
+  allChannels?: Channel[]
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  channelType: 'messages'
+  channelType: 'messages',
+  allChannels: () => []
 })
 
 const emit = defineEmits<{
@@ -1273,7 +1284,8 @@ const serviceTypeOptions = computed(() => {
       { title: t('addChannel.serviceTypeOpenAIChat'), value: 'openai_chat' },
       { title: t('addChannel.serviceTypeOpenAIOld'), value: 'openaiold' },
       { title: 'Claude', value: 'claude' },
-      { title: 'Gemini', value: 'gemini' }
+      { title: 'Gemini', value: 'gemini' },
+      { title: t('addChannel.serviceTypeComposite'), value: 'composite' }
     ]
   }
 })
@@ -1325,7 +1337,7 @@ const targetModelPlaceholder = computed(() => {
 // 表单数据
 const form = reactive({
   name: '',
-  serviceType: '' as 'openai' | 'openai_chat' | 'openaiold' | 'gemini' | 'claude' | 'responses' | 'openai-oauth' | '',
+  serviceType: '' as 'openai' | 'openai_chat' | 'openaiold' | 'gemini' | 'claude' | 'responses' | 'openai-oauth' | 'composite' | '',
   baseUrl: '',
   website: '',
   insecureSkipVerify: false,
@@ -1335,6 +1347,8 @@ const form = reactive({
   modelMapping: {} as Record<string, string>,
   priceMultipliers: {} as Record<string, { inputMultiplier?: number; outputMultiplier?: number; cacheCreationMultiplier?: number; cacheReadMultiplier?: number }>,
   oauthTokens: undefined as OAuthTokens | undefined,
+  // Composite channel mappings
+  compositeMappings: [] as Array<{ pattern: string; targetChannelId: string; targetModel?: string }>,
   // Quota settings
   quotaType: '' as '' | 'requests' | 'credit',
   quotaLimit: undefined as number | undefined,
@@ -1421,6 +1435,9 @@ const parseOAuthJson = () => {
 // 检查是否为 OAuth 渠道类型
 const isOAuthChannel = computed(() => form.serviceType === 'openai-oauth')
 
+// 检查是否为 Composite 渠道类型
+const isCompositeChannel = computed(() => form.serviceType === 'composite')
+
 // OAuth 卡片颜色：编辑模式下如果已有 tokens 则显示 success，新建模式下无 tokens 显示 error
 const oauthCardColor = computed(() => {
   if (form.oauthTokens) {
@@ -1476,6 +1493,104 @@ const newMultiplier = reactive({
   cacheCreationMultiplier: undefined as number | undefined,
   cacheReadMultiplier: undefined as number | undefined
 })
+
+// Composite mapping input
+const newCompositeMapping = reactive({
+  pattern: '',
+  targetChannelId: '',
+  targetModel: ''
+})
+
+// Composite mapping error state
+const compositeMappingError = ref('')
+
+// Normalize composite mappings (trim, ensure wildcard last)
+const normalizeCompositeMappings = (
+  mappings: Array<{ pattern: string; targetChannelId: string; targetModel?: string }>
+) => {
+  const normalized = mappings.map(m => ({
+    pattern: m.pattern.trim(),
+    targetChannelId: m.targetChannelId,
+    targetModel: m.targetModel?.trim() || undefined
+  }))
+
+  // Keep wildcard last for backend constraint
+  const wildcardIndex = normalized.findIndex(m => m.pattern === '*')
+  if (wildcardIndex !== -1 && wildcardIndex !== normalized.length - 1) {
+    const [wildcard] = normalized.splice(wildcardIndex, 1)
+    normalized.push(wildcard)
+  }
+
+  return normalized
+}
+
+// Validate composite mappings
+const validateCompositeMappings = (
+  mappings: Array<{ pattern: string; targetChannelId: string; targetModel?: string }>
+): string => {
+  if (!mappings.length) return ''
+
+  const seen = new Set<string>()
+  let wildcardCount = 0
+  let wildcardIndex = -1
+
+  for (let i = 0; i < mappings.length; i++) {
+    const mapping = mappings[i]
+    const pattern = mapping.pattern.trim()
+
+    if (!pattern) return t('addChannel.compositeEmptyPattern')
+    if (seen.has(pattern)) return t('addChannel.compositeDuplicatePattern', { pattern })
+    seen.add(pattern)
+
+    if (pattern === '*') {
+      wildcardCount++
+      wildcardIndex = i
+    }
+
+    const targetChannelId = mapping.targetChannelId
+    if (!targetChannelId) return t('addChannel.compositeTargetRequired')
+
+    const target = props.allChannels.find(ch => ch.id === targetChannelId)
+    if (!target) return t('addChannel.compositeMissingTargetChannel')
+    if (target.serviceType !== 'claude') return t('addChannel.compositeInvalidTargetChannel')
+  }
+
+  if (wildcardCount > 1) return t('addChannel.compositeWildcardMultiple')
+  if (wildcardCount === 1 && wildcardIndex !== mappings.length - 1) return t('addChannel.compositeWildcardLast')
+
+  return ''
+}
+
+// Computed validation error for real-time feedback
+const compositeMappingsValidationError = computed(() => {
+  if (form.serviceType !== 'composite') return ''
+  return validateCompositeMappings(form.compositeMappings)
+})
+
+// Clear error when inputs change
+watch(
+  () => [newCompositeMapping.pattern, newCompositeMapping.targetChannelId, newCompositeMapping.targetModel],
+  () => {
+    compositeMappingError.value = ''
+  }
+)
+
+// Available Claude channels for composite mapping
+const availableClaudeChannels = computed(() => {
+  return props.allChannels
+    .filter(ch => !!ch.id && ch.serviceType === 'claude' && ch.status !== 'disabled')
+    .map(ch => ({
+      id: ch.id as string,
+      name: ch.name,
+      index: ch.index
+    }))
+})
+
+// Get channel name by ID
+const getTargetChannelName = (channelId: string): string => {
+  const channel = props.allChannels.find(ch => ch.id === channelId)
+  return channel?.name || channelId
+}
 
 // 表单验证错误
 const errors = reactive({
@@ -1551,6 +1666,15 @@ const isFormValid = computed(() => {
       form.oauthTokens !== undefined
     )
   }
+  // Composite 渠道需要至少一个映射
+  if (form.serviceType === 'composite') {
+    return (
+      form.name.trim() &&
+      form.serviceType &&
+      form.compositeMappings.length > 0 &&
+      !compositeMappingsValidationError.value
+    )
+  }
   // For regular channels: need at least one key (existing or new)
   return (
     form.name.trim() && form.serviceType && form.baseUrl.trim() && isValidUrl(form.baseUrl) && totalKeyCount.value > 0
@@ -1597,6 +1721,7 @@ const resetForm = () => {
   form.modelMapping = {}
   form.priceMultipliers = {}
   form.oauthTokens = undefined
+  form.compositeMappings = []
   // Reset quota settings
   form.quotaType = ''
   form.quotaLimit = undefined
@@ -1647,6 +1772,11 @@ const resetForm = () => {
   oauthJsonInput.value = ''
   oauthParseError.value = ''
   parsedOAuthInfo.value = null
+
+  // Reset composite mapping input
+  newCompositeMapping.pattern = ''
+  newCompositeMapping.targetChannelId = ''
+  newCompositeMapping.targetModel = ''
 }
 
 const loadChannelData = (channel: Channel) => {
@@ -1673,6 +1803,13 @@ const loadChannelData = (channel: Channel) => {
 
   form.modelMapping = { ...(channel.modelMapping || {}) }
   form.priceMultipliers = { ...(channel.priceMultipliers || {}) }
+
+  // Load composite mappings
+  form.compositeMappings = channel.compositeMappings?.map(m => ({
+    pattern: m.pattern,
+    targetChannelId: m.targetChannelId || '',
+    targetModel: m.targetModel
+  })) || []
 
   // Load quota settings
   form.quotaType = channel.quotaType || ''
@@ -1957,24 +2094,77 @@ const removePriceMultiplier = (modelKey: string) => {
   delete form.priceMultipliers[modelKey]
 }
 
+// Composite mapping functions
+const addCompositeMapping = () => {
+  compositeMappingError.value = ''
+
+  const pattern = newCompositeMapping.pattern.trim()
+  const targetChannelId = newCompositeMapping.targetChannelId
+  const targetModel = newCompositeMapping.targetModel.trim()
+
+  if (!pattern || !targetChannelId) return
+
+  const mappingToAdd = {
+    pattern,
+    targetChannelId,
+    targetModel: targetModel || undefined
+  }
+
+  // If wildcard exists, keep it last by inserting before it
+  const wildcardIndex = form.compositeMappings.findIndex(m => m.pattern.trim() === '*')
+  const nextMappings = [...form.compositeMappings]
+  if (pattern !== '*' && wildcardIndex !== -1) {
+    nextMappings.splice(wildcardIndex, 0, mappingToAdd)
+  } else {
+    nextMappings.push(mappingToAdd)
+  }
+
+  const normalized = normalizeCompositeMappings(nextMappings)
+  const validationError = validateCompositeMappings(normalized)
+  if (validationError) {
+    compositeMappingError.value = validationError
+    return
+  }
+
+  form.compositeMappings.splice(0, form.compositeMappings.length, ...normalized)
+
+  // Reset form
+  newCompositeMapping.pattern = ''
+  newCompositeMapping.targetChannelId = ''
+  newCompositeMapping.targetModel = ''
+}
+
+const removeCompositeMapping = (index: number) => {
+  compositeMappingError.value = ''
+  form.compositeMappings.splice(index, 1)
+}
+
 const handleSubmit = async () => {
   if (!formRef.value) return
 
   const { valid } = await formRef.value.validate()
   if (!valid) return
 
-  // 直接使用原始密钥，不需要转换
-  const processedApiKeys = form.apiKeys.filter(key => key.trim())
+  compositeMappingError.value = ''
 
-  // OAuth 渠道使用固定的 base URL
-  const baseUrl = form.serviceType === 'openai-oauth'
-    ? 'https://chatgpt.com/backend-api/codex'
-    : form.baseUrl.trim().replace(/\/$/, '') // 移除末尾斜杠
+  const serviceType = form.serviceType as Channel['serviceType']
+  const isOAuth = serviceType === 'openai-oauth'
+  const isComposite = serviceType === 'composite'
+
+  // Composite/OAuth channels should not send user-entered API keys
+  const processedApiKeys = isOAuth || isComposite ? [] : form.apiKeys.filter(key => key.trim())
+
+  // OAuth uses fixed endpoint; composite must have empty baseUrl (backend invariant)
+  const baseUrl = isOAuth
+    ? 'https://chatgpt.com/backend-api/codex/responses'
+    : isComposite
+      ? ''
+      : form.baseUrl.trim().replace(/\/$/, '') // 移除末尾斜杠
 
   // 类型断言，因为表单验证已经确保serviceType不为空
   const channelData: Record<string, unknown> = {
     name: form.name.trim(),
-    serviceType: form.serviceType as 'openai' | 'openai_chat' | 'openaiold' | 'gemini' | 'claude' | 'responses' | 'openai-oauth',
+    serviceType,
     baseUrl,
     website: form.website.trim() || undefined,
     insecureSkipVerify: form.insecureSkipVerify || undefined,
@@ -2000,8 +2190,24 @@ const handleSubmit = async () => {
   }
 
   // 对于 OAuth 渠道，添加 OAuth tokens
-  if (form.serviceType === 'openai-oauth' && form.oauthTokens) {
+  if (isOAuth && form.oauthTokens) {
     channelData.oauthTokens = form.oauthTokens
+  }
+
+  // 对于 Composite 渠道，添加 compositeMappings
+  if (isComposite) {
+    const normalized = normalizeCompositeMappings(form.compositeMappings)
+    const validationError = validateCompositeMappings(normalized)
+    if (validationError) {
+      compositeMappingError.value = validationError
+      return
+    }
+
+    channelData.compositeMappings = normalized.map(m => ({
+      pattern: m.pattern,
+      targetChannelId: m.targetChannelId,
+      targetModel: m.targetModel || undefined
+    }))
   }
 
   emit('save', channelData as Omit<Channel, 'index' | 'latency' | 'status'>)

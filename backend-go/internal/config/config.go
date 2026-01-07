@@ -1,6 +1,8 @@
 package config
 
 import (
+	cryptorand "crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -52,9 +54,19 @@ func (t *TokenPriceMultipliers) GetEffectiveMultiplier(tokenType string) float64
 	return m
 }
 
+// CompositeMapping defines a model-to-channel mapping for composite channels
+type CompositeMapping struct {
+	Pattern         string `json:"pattern"`                  // Model pattern: exact match, contains match, or "*" (wildcard)
+	TargetChannelID string `json:"targetChannelId"`          // Target channel ID (stable reference)
+	TargetModel     string `json:"targetModel,omitempty"`    // Optional: override model name sent to target
+	// Deprecated: use TargetChannelID instead. Kept for migration only.
+	TargetChannel int `json:"targetChannel,omitempty"` // Legacy: target channel index
+}
+
 // UpstreamConfig 上游配置
 type UpstreamConfig struct {
-	Index                     int               `json:"-"` // Internal index, set at runtime (not persisted to JSON)
+	Index                     int               `json:"-"`              // Internal index, set at runtime (not persisted to JSON)
+	ID                        string            `json:"id,omitempty"`   // Unique stable identifier for channel references
 	BaseURL                   string            `json:"baseUrl"`
 	APIKeys                   []string          `json:"apiKeys"`
 	ServiceType               string            `json:"serviceType"` // gemini, openai, openai_chat, openaiold, claude, openai-oauth
@@ -84,6 +96,8 @@ type UpstreamConfig struct {
 	RateLimitRpm int  `json:"rateLimitRpm,omitempty"` // Requests per minute (0 = disabled)
 	QueueEnabled bool `json:"queueEnabled,omitempty"` // Enable queue mode instead of reject
 	QueueTimeout int  `json:"queueTimeout,omitempty"` // Max seconds to wait in queue (default 60)
+	// Composite channel mappings (only for serviceType="composite")
+	CompositeMappings []CompositeMapping `json:"compositeMappings,omitempty"`
 }
 
 // GetResponseHeaderTimeout 获取响应头超时时间（秒），默认120秒
@@ -162,6 +176,13 @@ func multiplyEffective(a, b float64) float64 {
 	return a * b
 }
 
+// generateChannelID generates a unique channel ID (8 hex characters)
+func generateChannelID() string {
+	b := make([]byte, 4)
+	cryptorand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 // ShouldCountQuota checks if the given model should be counted for quota
 // Returns true if QuotaModels is empty (count all) or if model matches any pattern (substring match)
 func (u *UpstreamConfig) ShouldCountQuota(model string) bool {
@@ -207,6 +228,8 @@ type UpstreamUpdate struct {
 	RateLimitRpm *int  `json:"rateLimitRpm"`
 	QueueEnabled *bool `json:"queueEnabled"`
 	QueueTimeout *int  `json:"queueTimeout"`
+	// Composite channel mappings
+	CompositeMappings []CompositeMapping `json:"compositeMappings"`
 }
 
 // Config 配置结构
@@ -591,11 +614,30 @@ func (cm *ConfigManager) loadConfig() error {
 	cm.warnInsecureChannels()
 
 	// 设置每个渠道的 Index 字段（运行时字段，用于请求日志等）
+	// 同时为没有 ID 的渠道生成 ID（迁移支持）
+	idMigrationNeeded := false
 	for i := range cm.config.Upstream {
 		cm.config.Upstream[i].Index = i
+		if cm.config.Upstream[i].ID == "" {
+			cm.config.Upstream[i].ID = generateChannelID()
+			idMigrationNeeded = true
+			log.Printf("Generated ID for Messages channel [%d] %s: %s", i, cm.config.Upstream[i].Name, cm.config.Upstream[i].ID)
+		}
 	}
 	for i := range cm.config.ResponsesUpstream {
 		cm.config.ResponsesUpstream[i].Index = i
+		if cm.config.ResponsesUpstream[i].ID == "" {
+			cm.config.ResponsesUpstream[i].ID = generateChannelID()
+			idMigrationNeeded = true
+			log.Printf("Generated ID for Responses channel [%d] %s: %s", i, cm.config.ResponsesUpstream[i].Name, cm.config.ResponsesUpstream[i].ID)
+		}
+	}
+	if idMigrationNeeded {
+		if err := cm.saveConfigLocked(cm.config); err != nil {
+			log.Printf("Failed to save ID migration: %v", err)
+			return err
+		}
+		log.Printf("Channel ID migration completed")
 	}
 
 	return nil
@@ -604,6 +646,7 @@ func (cm *ConfigManager) loadConfig() error {
 // validateChannelKeys 自检渠道密钥配置
 // 没有配置 API key 的渠道，即使状态为 active 也应暂停
 // 例外：openai-oauth 类型渠道使用 OAuthTokens 而非 APIKeys
+// 例外：composite 类型渠道是虚拟路由，不需要 APIKeys
 // 返回 true 表示有配置被修改，需要保存
 func (cm *ConfigManager) validateChannelKeys() bool {
 	modified := false
@@ -614,6 +657,11 @@ func (cm *ConfigManager) validateChannelKeys() bool {
 		status := upstream.Status
 		if status == "" {
 			status = "active"
+		}
+
+		// Composite channels don't need API keys (they route to other channels)
+		if IsCompositeChannel(upstream) {
+			continue
 		}
 
 		// 如果是 active 状态但没有配置 key，自动设为 suspended
@@ -1001,9 +1049,124 @@ func (cm *ConfigManager) clearFailedKeysForUpstream(upstream *UpstreamConfig) {
 }
 
 // AddUpstream 添加上游
+// ValidateCompositeChannel validates a composite channel configuration
+// upstreams should be the list of existing upstream channels for target validation
+func ValidateCompositeChannel(upstream *UpstreamConfig, upstreams []UpstreamConfig) error {
+	if !IsCompositeChannel(upstream) {
+		return nil // Not a composite channel, no validation needed
+	}
+
+	// Composite channels must have at least one mapping
+	if len(upstream.CompositeMappings) == 0 {
+		return fmt.Errorf("composite channel must have at least one mapping")
+	}
+
+	// Composite channel invariants: should not have APIKeys or BaseURL
+	if len(upstream.APIKeys) > 0 {
+		return fmt.Errorf("composite channel should not have API keys (it routes to other channels)")
+	}
+	if upstream.BaseURL != "" {
+		return fmt.Errorf("composite channel should not have baseUrl (it routes to other channels)")
+	}
+
+	// Track patterns for duplicate detection and wildcard constraints
+	seenPatterns := make(map[string]int) // pattern -> first occurrence index
+	wildcardCount := 0
+	wildcardIndex := -1
+
+	// Validate each mapping
+	for i := range upstream.CompositeMappings {
+		mapping := &upstream.CompositeMappings[i]
+
+		// Normalize pattern: trim whitespace
+		mapping.Pattern = strings.TrimSpace(mapping.Pattern)
+		mapping.TargetModel = strings.TrimSpace(mapping.TargetModel)
+
+		// Pattern cannot be empty
+		if mapping.Pattern == "" {
+			return fmt.Errorf("mapping %d: pattern cannot be empty", i)
+		}
+
+		// Check for duplicate patterns
+		if prevIdx, exists := seenPatterns[mapping.Pattern]; exists {
+			return fmt.Errorf("mapping %d: duplicate pattern '%s' (first seen at mapping %d)", i, mapping.Pattern, prevIdx)
+		}
+		seenPatterns[mapping.Pattern] = i
+
+		// Track wildcard usage
+		if mapping.Pattern == "*" {
+			wildcardCount++
+			wildcardIndex = i
+		}
+
+		// Resolve target channel by ID (preferred) or legacy index
+		var target *UpstreamConfig
+		var targetIdx int = -1
+
+		if mapping.TargetChannelID != "" {
+			// Find by ID
+			for idx := range upstreams {
+				if upstreams[idx].ID == mapping.TargetChannelID {
+					target = &upstreams[idx]
+					targetIdx = idx
+					break
+				}
+			}
+			if target == nil {
+				return fmt.Errorf("mapping %d: target channel ID '%s' not found", i, mapping.TargetChannelID)
+			}
+		} else if mapping.TargetChannel >= 0 && mapping.TargetChannel < len(upstreams) {
+			// Legacy: use index (for migration)
+			target = &upstreams[mapping.TargetChannel]
+			targetIdx = mapping.TargetChannel
+			// Auto-migrate to ID if target has one
+			if target.ID != "" {
+				mapping.TargetChannelID = target.ID
+				log.Printf("Auto-migrated composite mapping %d: index %d -> ID %s", i, mapping.TargetChannel, target.ID)
+			}
+		} else {
+			return fmt.Errorf("mapping %d: no valid target channel reference (need targetChannelId or valid targetChannel index)", i)
+		}
+
+		_ = targetIdx // May be used for logging
+
+		// Target channel must be claude type (not composite, not other types)
+		if target.ServiceType != "claude" {
+			return fmt.Errorf("mapping %d: target channel '%s' must be claude type (got %s)", i, target.Name, target.ServiceType)
+		}
+
+		// Cannot reference another composite channel (no recursion)
+		if IsCompositeChannel(target) {
+			return fmt.Errorf("mapping %d: target channel '%s' cannot be another composite channel", i, target.Name)
+		}
+	}
+
+	// Wildcard constraints
+	if wildcardCount > 1 {
+		return fmt.Errorf("composite channel can have at most one wildcard (*) pattern, found %d", wildcardCount)
+	}
+	if wildcardCount == 1 && wildcardIndex != len(upstream.CompositeMappings)-1 {
+		return fmt.Errorf("wildcard (*) pattern must be the last mapping for clarity (found at index %d)", wildcardIndex)
+	}
+
+	return nil
+}
+
 func (cm *ConfigManager) AddUpstream(upstream UpstreamConfig) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
+
+	// Generate unique ID if not provided
+	if upstream.ID == "" {
+		upstream.ID = generateChannelID()
+	}
+
+	// Validate composite channel before adding
+	if IsCompositeChannel(&upstream) {
+		if err := ValidateCompositeChannel(&upstream, cm.config.Upstream); err != nil {
+			return fmt.Errorf("invalid composite channel: %w", err)
+		}
+	}
 
 	// 新建渠道默认设为 active
 	if upstream.Status == "" {
@@ -1019,7 +1182,7 @@ func (cm *ConfigManager) AddUpstream(upstream UpstreamConfig) error {
 		return err
 	}
 
-	log.Printf("已添加上游: %s", upstream.Name)
+	log.Printf("已添加上游: %s (ID: %s)", upstream.Name, upstream.ID)
 	return nil
 }
 
@@ -1124,6 +1287,17 @@ func (cm *ConfigManager) UpdateUpstream(index int, updates UpstreamUpdate) (shou
 	if updates.QueueTimeout != nil {
 		upstream.QueueTimeout = *updates.QueueTimeout
 	}
+	// Composite channel mappings
+	if updates.CompositeMappings != nil {
+		upstream.CompositeMappings = updates.CompositeMappings
+	}
+
+	// Validate composite channel after applying all updates
+	if IsCompositeChannel(upstream) {
+		if err := ValidateCompositeChannel(upstream, cm.config.Upstream); err != nil {
+			return false, fmt.Errorf("invalid composite channel: %w", err)
+		}
+	}
 
 	if err := cm.saveConfigLocked(cm.config); err != nil {
 		return false, err
@@ -1143,6 +1317,10 @@ func (cm *ConfigManager) RemoveUpstream(index int) (*UpstreamConfig, error) {
 	}
 
 	removed := cm.config.Upstream[index]
+
+	// Update composite mappings that reference this channel
+	cm.updateCompositeMappingsOnDelete(removed.ID, index)
+
 	cm.config.Upstream = append(cm.config.Upstream[:index], cm.config.Upstream[index+1:]...)
 
 	// Reindex remaining upstreams
@@ -1157,8 +1335,52 @@ func (cm *ConfigManager) RemoveUpstream(index int) (*UpstreamConfig, error) {
 		return nil, err
 	}
 
-	log.Printf("已删除上游: %s", removed.Name)
+	log.Printf("已删除上游: %s (ID: %s)", removed.Name, removed.ID)
 	return &removed, nil
+}
+
+// updateCompositeMappingsOnDelete removes or updates composite mappings when a channel is deleted
+func (cm *ConfigManager) updateCompositeMappingsOnDelete(deletedID string, deletedIndex int) {
+	for i := range cm.config.Upstream {
+		upstream := &cm.config.Upstream[i]
+		if !IsCompositeChannel(upstream) || len(upstream.CompositeMappings) == 0 {
+			continue
+		}
+
+		// Filter out mappings that reference the deleted channel
+		validMappings := make([]CompositeMapping, 0, len(upstream.CompositeMappings))
+		for _, mapping := range upstream.CompositeMappings {
+			// Check if this mapping references the deleted channel
+			referencesDeleted := false
+
+			if mapping.TargetChannelID != "" && mapping.TargetChannelID == deletedID {
+				referencesDeleted = true
+			} else if mapping.TargetChannelID == "" && mapping.TargetChannel == deletedIndex {
+				// Legacy index-based reference
+				referencesDeleted = true
+			}
+
+			if referencesDeleted {
+				log.Printf("⚠️ Removed composite mapping '%s' from channel '%s' (target channel deleted)",
+					mapping.Pattern, upstream.Name)
+				continue
+			}
+
+			// For legacy index-based mappings, update indices > deleted
+			if mapping.TargetChannelID == "" && mapping.TargetChannel > deletedIndex {
+				mapping.TargetChannel--
+			}
+
+			validMappings = append(validMappings, mapping)
+		}
+
+		if len(validMappings) != len(upstream.CompositeMappings) {
+			upstream.CompositeMappings = validMappings
+			if len(validMappings) == 0 {
+				log.Printf("⚠️ Composite channel '%s' has no remaining mappings after deletion", upstream.Name)
+			}
+		}
+	}
 }
 
 // AddAPIKey 添加API密钥
@@ -1656,6 +1878,11 @@ func (cm *ConfigManager) AddResponsesUpstream(upstream UpstreamConfig) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
+	// Generate unique ID if not provided
+	if upstream.ID == "" {
+		upstream.ID = generateChannelID()
+	}
+
 	// 新建渠道默认设为 active
 	if upstream.Status == "" {
 		upstream.Status = "active"
@@ -1670,7 +1897,7 @@ func (cm *ConfigManager) AddResponsesUpstream(upstream UpstreamConfig) error {
 		return err
 	}
 
-	log.Printf("已添加 Responses 上游: %s", upstream.Name)
+	log.Printf("已添加 Responses 上游: %s (ID: %s)", upstream.Name, upstream.ID)
 	return nil
 }
 
@@ -2144,6 +2371,98 @@ func IsChannelInPromotion(upstream *UpstreamConfig) bool {
 		return false
 	}
 	return time.Now().Before(*upstream.PromotionUntil)
+}
+
+// IsCompositeChannel checks if the channel is a composite channel
+func IsCompositeChannel(upstream *UpstreamConfig) bool {
+	return upstream.ServiceType == "composite"
+}
+
+// ResolveCompositeMapping finds the target channel for a given model
+// Returns: targetChannelID, targetIndex (for convenience), targetModel (may be overridden), found
+// Resolution order: exact match > contains match (longest pattern first) > wildcard "*"
+// upstreams is needed to resolve TargetChannelID to index
+func ResolveCompositeMapping(upstream *UpstreamConfig, model string, upstreams []UpstreamConfig) (string, int, string, bool) {
+	// Nil-safe check
+	if upstream == nil || !IsCompositeChannel(upstream) || len(upstream.CompositeMappings) == 0 {
+		return "", -1, "", false
+	}
+
+	var wildcardMapping *CompositeMapping
+	var containsMatches []*CompositeMapping
+
+	// Pass 1: Find exact match (highest priority) and collect contains matches
+	for i := range upstream.CompositeMappings {
+		mapping := &upstream.CompositeMappings[i]
+
+		if mapping.Pattern == "*" {
+			wildcardMapping = mapping
+			continue
+		}
+
+		// Exact match - return immediately (highest priority)
+		if mapping.Pattern == model {
+			targetModel := model
+			if mapping.TargetModel != "" {
+				targetModel = mapping.TargetModel
+			}
+			idx := resolveTargetIndex(mapping, upstreams)
+			return mapping.TargetChannelID, idx, targetModel, idx >= 0
+		}
+
+		// Collect contains matches for later (will sort by length)
+		if strings.Contains(model, mapping.Pattern) {
+			containsMatches = append(containsMatches, mapping)
+		}
+	}
+
+	// Pass 2: Among contains matches, pick the longest pattern (most specific)
+	if len(containsMatches) > 0 {
+		// Sort by pattern length descending (longest first)
+		sort.Slice(containsMatches, func(i, j int) bool {
+			return len(containsMatches[i].Pattern) > len(containsMatches[j].Pattern)
+		})
+
+		bestMatch := containsMatches[0]
+		targetModel := model
+		if bestMatch.TargetModel != "" {
+			targetModel = bestMatch.TargetModel
+		}
+		idx := resolveTargetIndex(bestMatch, upstreams)
+		return bestMatch.TargetChannelID, idx, targetModel, idx >= 0
+	}
+
+	// Pass 3: Wildcard fallback (lowest priority)
+	if wildcardMapping != nil {
+		targetModel := model
+		if wildcardMapping.TargetModel != "" {
+			targetModel = wildcardMapping.TargetModel
+		}
+		idx := resolveTargetIndex(wildcardMapping, upstreams)
+		return wildcardMapping.TargetChannelID, idx, targetModel, idx >= 0
+	}
+
+	return "", -1, "", false
+}
+
+// resolveTargetIndex finds the index of a target channel by ID or legacy index
+// Returns -1 if not found (bounds-safe)
+func resolveTargetIndex(mapping *CompositeMapping, upstreams []UpstreamConfig) int {
+	if mapping.TargetChannelID != "" {
+		for i := range upstreams {
+			if upstreams[i].ID == mapping.TargetChannelID {
+				return i
+			}
+		}
+		return -1 // ID not found
+	}
+
+	// Legacy fallback: use index if valid
+	if mapping.TargetChannel >= 0 && mapping.TargetChannel < len(upstreams) {
+		return mapping.TargetChannel
+	}
+
+	return -1 // Invalid index
 }
 
 // GetPromotedChannel 获取当前处于促销期的渠道索引（返回优先级最高的）

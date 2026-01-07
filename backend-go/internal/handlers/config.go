@@ -82,6 +82,8 @@ func GetUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				"rateLimitRpm": up.RateLimitRpm,
 				"queueEnabled": up.QueueEnabled,
 				"queueTimeout": up.QueueTimeout,
+				// Composite channel mappings
+				"compositeMappings": up.CompositeMappings,
 			}
 		}
 
@@ -595,6 +597,81 @@ func PingAllChannels(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, finalResults)
+	}
+}
+
+// TestCompositeMapping tests which channel would be selected for a given model
+// GET /api/channels/:id/test-mapping?model=xxx
+func TestCompositeMapping(cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		idStr := c.Param("id")
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid channel ID"})
+			return
+		}
+
+		model := strings.TrimSpace(c.Query("model"))
+		if model == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "model query parameter is required"})
+			return
+		}
+
+		cfg := cfgManager.GetConfig()
+		if id < 0 || id >= len(cfg.Upstream) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Channel not found"})
+			return
+		}
+
+		upstream := &cfg.Upstream[id]
+		if !config.IsCompositeChannel(upstream) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Channel is not a composite channel"})
+			return
+		}
+
+		// Find the matching mapping
+		targetChannelID, targetIdx, targetModel, found := config.ResolveCompositeMapping(upstream, model, cfg.Upstream)
+		if !found {
+			c.JSON(http.StatusOK, gin.H{
+				"matched":       false,
+				"model":         model,
+				"message":       "No mapping found for this model",
+				"targetChannel": nil,
+			})
+			return
+		}
+
+		// Get target channel info
+		if targetIdx < 0 || targetIdx >= len(cfg.Upstream) {
+			c.JSON(http.StatusOK, gin.H{
+				"matched":            false,
+				"model":              model,
+				"message":            "Target channel not found for this mapping",
+				"targetChannelId":    targetChannelID,
+				"targetChannelIndex": targetIdx,
+				"targetChannel":      nil,
+			})
+			return
+		}
+
+		targetChannel := &cfg.Upstream[targetIdx]
+		// Use channel's own ID if targetChannelID is empty (legacy index-based mappings)
+		resolvedTargetChannelID := targetChannelID
+		if resolvedTargetChannelID == "" {
+			resolvedTargetChannelID = targetChannel.ID
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"matched": true,
+			"model":   model,
+			"targetChannel": gin.H{
+				"index":  targetIdx,
+				"id":     resolvedTargetChannelID,
+				"name":   targetChannel.Name,
+				"status": config.GetChannelStatus(targetChannel),
+			},
+			"resolvedModel": targetModel,
+		})
 	}
 }
 
