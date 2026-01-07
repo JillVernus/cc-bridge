@@ -225,7 +225,7 @@ func handleMultiChannelProxy(
 
 	for channelAttempt := 0; channelAttempt < maxChannelAttempts; channelAttempt++ {
 		// Select channel using scheduler
-		selection, err := channelScheduler.SelectChannel(c.Request.Context(), clientID, failedChannels, false, allowedChannels)
+		selection, err := channelScheduler.SelectChannel(c.Request.Context(), clientID, failedChannels, false, allowedChannels, claudeReq.Model)
 		if err != nil {
 			lastError = err
 			break

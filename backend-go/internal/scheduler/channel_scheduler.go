@@ -76,17 +76,24 @@ type SelectionResult struct {
 	Upstream     *config.UpstreamConfig
 	ChannelIndex int
 	Reason       string // 选择原因（用于日志）
+
+	// Composite channel fields (populated when routing through a composite channel)
+	CompositeUpstream     *config.UpstreamConfig // The composite channel used for routing (nil if direct)
+	CompositeChannelIndex int                    // Index of the composite channel (-1 if direct)
+	ResolvedModel         string                 // The model name after composite resolution (may be overridden)
 }
 
 // SelectChannel 选择最佳渠道
 // 优先级: 促销期渠道 > Trace亲和（促销渠道失败时回退） > 渠道优先级顺序
 // allowedChannels: API key 允许的渠道索引列表，nil 表示允许所有渠道
+// model: The requested model name (used for composite channel routing)
 func (s *ChannelScheduler) SelectChannel(
 	ctx context.Context,
 	userID string,
 	failedChannels map[int]bool,
 	isResponses bool,
 	allowedChannels []int,
+	model string,
 ) (*SelectionResult, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -121,13 +128,20 @@ func (s *ChannelScheduler) SelectChannel(
 		} else if !useCircuitBreaker || metricsManager.IsChannelHealthy(promotedChannel.Index) {
 			// 促销渠道存在且未失败，检查是否健康（仅当电路断路器启用时）
 			upstream := s.getUpstreamByIndex(promotedChannel.Index, isResponses)
-			if upstream != nil && len(upstream.APIKeys) > 0 {
+			// Composite channels don't need API keys; regular channels do
+			if upstream != nil && (config.IsCompositeChannel(upstream) || len(upstream.APIKeys) > 0) {
 				log.Printf("🎉 促销期优先选择渠道: [%d] %s (user: %s)", promotedChannel.Index, upstream.Name, maskUserID(userID))
-				return &SelectionResult{
+				result := &SelectionResult{
 					Upstream:     upstream,
 					ChannelIndex: promotedChannel.Index,
 					Reason:       "promotion_priority",
-				}, nil
+				}
+				resolved, err := s.resolveCompositeChannel(result, model, isResponses, failedChannels, metricsManager, useCircuitBreaker)
+				if err == nil {
+					return resolved, nil
+				}
+				log.Printf("⚠️ [Composite] Failed to resolve promoted channel [%d] %s: %v", promotedChannel.Index, upstream.Name, err)
+				failedChannels[promotedChannel.Index] = true
 			} else if upstream != nil {
 				log.Printf("⚠️ 促销渠道 [%d] %s 无可用密钥，跳过", promotedChannel.Index, upstream.Name)
 			}
@@ -158,11 +172,17 @@ func (s *ChannelScheduler) SelectChannel(
 						upstream := s.getUpstreamByIndex(preferredIdx, isResponses)
 						if upstream != nil {
 							log.Printf("🎯 Trace亲和选择渠道: [%d] %s (user: %s)", preferredIdx, upstream.Name, maskUserID(userID))
-							return &SelectionResult{
+							result := &SelectionResult{
 								Upstream:     upstream,
 								ChannelIndex: preferredIdx,
 								Reason:       "trace_affinity",
-							}, nil
+							}
+							resolved, err := s.resolveCompositeChannel(result, model, isResponses, failedChannels, metricsManager, useCircuitBreaker)
+							if err == nil {
+								return resolved, nil
+							}
+							log.Printf("⚠️ [Composite] Failed to resolve trace affinity channel [%d] %s: %v", preferredIdx, upstream.Name, err)
+							failedChannels[preferredIdx] = true
 						}
 					}
 				}
@@ -198,18 +218,26 @@ func (s *ChannelScheduler) SelectChannel(
 		}
 
 		upstream := s.getUpstreamByIndex(ch.Index, isResponses)
-		if upstream != nil && len(upstream.APIKeys) > 0 {
+		// Composite channels don't need API keys; regular channels do
+		if upstream != nil && (config.IsCompositeChannel(upstream) || len(upstream.APIKeys) > 0) {
 			log.Printf("✅ 选择渠道: [%d] %s (优先级: %d)", ch.Index, upstream.Name, ch.Priority)
-			return &SelectionResult{
+			result := &SelectionResult{
 				Upstream:     upstream,
 				ChannelIndex: ch.Index,
 				Reason:       "priority_order",
-			}, nil
+			}
+			resolved, err := s.resolveCompositeChannel(result, model, isResponses, failedChannels, metricsManager, useCircuitBreaker)
+			if err == nil {
+				return resolved, nil
+			}
+			log.Printf("⚠️ [Composite] Failed to resolve channel [%d] %s: %v", ch.Index, upstream.Name, err)
+			failedChannels[ch.Index] = true
+			continue
 		}
 	}
 
 	// 3. 所有健康渠道都失败，选择失败率最低的作为降级
-	return s.selectFallbackChannel(activeChannels, failedChannels, isResponses)
+	return s.selectFallbackChannel(activeChannels, failedChannels, isResponses, model, metricsManager, useCircuitBreaker)
 }
 
 // findPromotedChannel 查找处于促销期的渠道
@@ -248,13 +276,202 @@ func (s *ChannelScheduler) filterByAllowedChannels(channels []ChannelInfo, allow
 	return filtered
 }
 
+// resolveCompositeChannel resolves a composite channel to its target channel based on the model.
+// If the selected channel is not composite, it returns the original result unchanged.
+// If the selected channel is composite but the target is unavailable, returns an error.
+func (s *ChannelScheduler) resolveCompositeChannel(
+	result *SelectionResult,
+	model string,
+	isResponses bool,
+	failedChannels map[int]bool,
+	metricsManager *metrics.MetricsManager,
+	useCircuitBreaker bool,
+) (*SelectionResult, error) {
+	if result == nil || result.Upstream == nil {
+		return result, nil
+	}
+
+	// Check if this is a composite channel
+	if !config.IsCompositeChannel(result.Upstream) {
+		// Not composite - return as-is with default composite fields
+		result.CompositeChannelIndex = -1
+		result.ResolvedModel = model
+		return result, nil
+	}
+
+	// Get all upstreams for resolution
+	cfg := s.configManager.GetConfig()
+	var upstreams []config.UpstreamConfig
+	if isResponses {
+		upstreams = cfg.ResponsesUpstream
+	} else {
+		upstreams = cfg.Upstream
+	}
+
+	// Resolve composite mapping
+	targetID, targetIndex, resolvedModel, found := config.ResolveCompositeMapping(result.Upstream, model, upstreams)
+	if !found {
+		return nil, fmt.Errorf("composite channel '%s' has no mapping for model '%s'", result.Upstream.Name, model)
+	}
+
+	// Try to find an available target channel
+	// We may need to try multiple mappings if the first target is unavailable
+	return s.tryResolveCompositeWithFallback(result, model, upstreams, isResponses, failedChannels, metricsManager, useCircuitBreaker, targetID, targetIndex, resolvedModel)
+}
+
+// tryResolveCompositeWithFallback attempts to resolve to available target channels
+func (s *ChannelScheduler) tryResolveCompositeWithFallback(
+	compositeResult *SelectionResult,
+	model string,
+	upstreams []config.UpstreamConfig,
+	isResponses bool,
+	failedChannels map[int]bool,
+	metricsManager *metrics.MetricsManager,
+	useCircuitBreaker bool,
+	targetID string,
+	targetIndex int,
+	resolvedModel string,
+) (*SelectionResult, error) {
+	composite := compositeResult.Upstream
+	compositeIndex := compositeResult.ChannelIndex
+
+	// Try the primary resolved target first
+	if targetIndex >= 0 && targetIndex < len(upstreams) {
+		targetCopy := upstreams[targetIndex]
+		target := &targetCopy
+		if s.isTargetChannelAvailable(target, targetIndex, isResponses, failedChannels, metricsManager, useCircuitBreaker) {
+			log.Printf("🔀 [Composite] '%s' → target [%d] '%s' for model '%s' (resolved: '%s')",
+				composite.Name, targetIndex, target.Name, model, resolvedModel)
+			return &SelectionResult{
+				Upstream:              target,
+				ChannelIndex:          targetIndex,
+				Reason:                compositeResult.Reason + "_via_composite",
+				CompositeUpstream:     composite,
+				CompositeChannelIndex: compositeIndex,
+				ResolvedModel:         resolvedModel,
+			}, nil
+		}
+		log.Printf("⚠️ [Composite] '%s' → target [%d] '%s' unavailable, trying next mapping",
+			composite.Name, targetIndex, target.Name)
+	}
+
+	// Target unavailable - try to find another mapping that matches this model
+	for i := range composite.CompositeMappings {
+		mapping := &composite.CompositeMappings[i]
+
+		// Skip the mapping we already tried
+		if mapping.TargetChannelID == targetID {
+			continue
+		}
+
+		// Check if this mapping matches the model
+		matchesModel := false
+		if mapping.Pattern == "*" {
+			matchesModel = true
+		} else if mapping.Pattern == model {
+			matchesModel = true
+		} else if len(mapping.Pattern) > 0 && mapping.Pattern != "*" {
+			// Contains match - model must contain the pattern
+			if len(model) >= len(mapping.Pattern) {
+				for j := 0; j <= len(model)-len(mapping.Pattern); j++ {
+					if model[j:j+len(mapping.Pattern)] == mapping.Pattern {
+						matchesModel = true
+						break
+					}
+				}
+			}
+		}
+
+		if !matchesModel {
+			continue
+		}
+
+		// Resolve this mapping's target index
+		altTargetIndex := -1
+		if mapping.TargetChannelID != "" {
+			for j := range upstreams {
+				if upstreams[j].ID == mapping.TargetChannelID {
+					altTargetIndex = j
+					break
+				}
+			}
+		}
+
+		if altTargetIndex < 0 || altTargetIndex >= len(upstreams) {
+			continue
+		}
+
+		altTargetCopy := upstreams[altTargetIndex]
+		altTarget := &altTargetCopy
+		if s.isTargetChannelAvailable(altTarget, altTargetIndex, isResponses, failedChannels, metricsManager, useCircuitBreaker) {
+			altResolvedModel := model
+			if mapping.TargetModel != "" {
+				altResolvedModel = mapping.TargetModel
+			}
+			log.Printf("🔀 [Composite] '%s' → fallback target [%d] '%s' for model '%s' (resolved: '%s')",
+				composite.Name, altTargetIndex, altTarget.Name, model, altResolvedModel)
+			return &SelectionResult{
+				Upstream:              altTarget,
+				ChannelIndex:          altTargetIndex,
+				Reason:                compositeResult.Reason + "_via_composite_fallback",
+				CompositeUpstream:     composite,
+				CompositeChannelIndex: compositeIndex,
+				ResolvedModel:         altResolvedModel,
+			}, nil
+		}
+	}
+
+	// No available target channel found
+	return nil, fmt.Errorf("composite channel '%s' has no available target for model '%s'", composite.Name, model)
+}
+
+// isTargetChannelAvailable checks if a target channel is available for use
+func (s *ChannelScheduler) isTargetChannelAvailable(
+	target *config.UpstreamConfig,
+	targetIndex int,
+	isResponses bool,
+	failedChannels map[int]bool,
+	metricsManager *metrics.MetricsManager,
+	useCircuitBreaker bool,
+) bool {
+	// Check if already failed in this request
+	if failedChannels[targetIndex] {
+		return false
+	}
+
+	// Check status
+	status := config.GetChannelStatus(target)
+	if status != "active" {
+		return false
+	}
+
+	// Check if suspended
+	if suspended, _, _ := s.isChannelSuspended(targetIndex, isResponses); suspended {
+		return false
+	}
+
+	// Check circuit breaker health
+	if useCircuitBreaker && !metricsManager.IsChannelHealthy(targetIndex) {
+		return false
+	}
+
+	// Check if has API keys
+	if len(target.APIKeys) == 0 {
+		return false
+	}
+
+	return true
+}
+
 // selectFallbackChannel 选择降级渠道（失败率最低的）
 func (s *ChannelScheduler) selectFallbackChannel(
 	activeChannels []ChannelInfo,
 	failedChannels map[int]bool,
 	isResponses bool,
+	model string,
+	metricsManager *metrics.MetricsManager,
+	useCircuitBreaker bool,
 ) (*SelectionResult, error) {
-	metricsManager := s.getMetricsManager(isResponses)
 	var bestChannel *ChannelInfo
 	bestFailureRate := float64(2) // 初始化为不可能的值
 
@@ -284,11 +501,19 @@ func (s *ChannelScheduler) selectFallbackChannel(
 		if upstream != nil {
 			log.Printf("⚠️ 降级选择渠道: [%d] %s (失败率: %.1f%%)",
 				bestChannel.Index, upstream.Name, bestFailureRate*100)
-			return &SelectionResult{
+			result := &SelectionResult{
 				Upstream:     upstream,
 				ChannelIndex: bestChannel.Index,
 				Reason:       "fallback",
-			}, nil
+			}
+			resolved, err := s.resolveCompositeChannel(result, model, isResponses, failedChannels, metricsManager, useCircuitBreaker)
+			if err == nil {
+				return resolved, nil
+			}
+			log.Printf("⚠️ [Composite] Failed to resolve fallback channel [%d] %s: %v", bestChannel.Index, upstream.Name, err)
+			failedChannels[bestChannel.Index] = true
+			// Recursively try to find another fallback
+			return s.selectFallbackChannel(activeChannels, failedChannels, isResponses, model, metricsManager, useCircuitBreaker)
 		}
 	}
 

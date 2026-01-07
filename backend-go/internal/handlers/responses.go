@@ -257,7 +257,7 @@ func handleMultiChannelResponses(
 	maxChannelAttempts := channelScheduler.GetActiveChannelCount(true) // true = isResponses
 
 	for channelAttempt := 0; channelAttempt < maxChannelAttempts; channelAttempt++ {
-		selection, err := channelScheduler.SelectChannel(c.Request.Context(), clientID, failedChannels, true, allowedChannels)
+		selection, err := channelScheduler.SelectChannel(c.Request.Context(), clientID, failedChannels, true, allowedChannels, responsesReq.Model)
 		if err != nil {
 			lastError = err
 			break
