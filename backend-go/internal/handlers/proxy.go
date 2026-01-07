@@ -222,6 +222,7 @@ func handleMultiChannelProxy(
 
 	// Get active channel count as max retry attempts
 	maxChannelAttempts := channelScheduler.GetActiveChannelCount(false)
+	shouldLogInfo := envCfg.ShouldLog("info")
 
 	for channelAttempt := 0; channelAttempt < maxChannelAttempts; channelAttempt++ {
 		// Select channel using scheduler
@@ -234,9 +235,15 @@ func handleMultiChannelProxy(
 		upstream := selection.Upstream
 		channelIndex := selection.ChannelIndex
 
-		if envCfg.ShouldLog("info") {
-			log.Printf("🎯 [Multi-Channel] Selected channel: [%d] %s (reason: %s, attempt %d/%d)",
-				channelIndex, upstream.Name, selection.Reason, channelAttempt+1, maxChannelAttempts)
+		if shouldLogInfo {
+			if selection.CompositeUpstream != nil {
+				// Routed through a composite channel
+				log.Printf("🎯 [Multi-Channel] [Composite: %d] %s → [Channel: %d] %s (reason: %s, model: %s, attempt %d/%d)",
+					selection.CompositeChannelIndex, selection.CompositeUpstream.Name, channelIndex, upstream.Name, selection.Reason, selection.ResolvedModel, channelAttempt+1, maxChannelAttempts)
+			} else {
+				log.Printf("🎯 [Multi-Channel] Selected channel: [%d] %s (reason: %s, attempt %d/%d)",
+					channelIndex, upstream.Name, selection.Reason, channelAttempt+1, maxChannelAttempts)
+			}
 		}
 
 		// Check per-channel rate limit (if configured)
