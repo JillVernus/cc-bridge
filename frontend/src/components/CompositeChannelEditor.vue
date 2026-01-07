@@ -49,16 +49,20 @@
 
           <!-- Custom Pattern Input -->
           <div class="mt-4">
-            <div class="text-caption font-weight-medium mb-2">{{ t('addChannel.customPattern') }}</div>
+            <div class="text-caption font-weight-medium mb-2">{{ t('addChannel.addMapping') }}</div>
             <div class="d-flex align-center ga-2">
-              <v-text-field
+              <v-select
                 v-model="customPattern"
-                :placeholder="t('addChannel.modelPatternPlaceholder')"
+                :items="patternOptions"
+                item-title="label"
+                item-value="value"
                 variant="outlined"
                 density="compact"
                 hide-details
-                class="flex-grow-1"
+                :placeholder="t('addChannel.selectModel')"
+                style="min-width: 120px;"
               />
+              <v-icon size="small" color="grey">mdi-arrow-right</v-icon>
               <v-select
                 v-model="customTargetChannelId"
                 :items="availableClaudeChannels"
@@ -68,31 +72,17 @@
                 density="compact"
                 hide-details
                 :placeholder="t('addChannel.targetChannel')"
-                style="min-width: 150px;"
+                class="flex-grow-1"
               />
               <v-btn
                 color="primary"
                 size="small"
                 variant="elevated"
-                :disabled="!customPattern.trim() || !customTargetChannelId"
+                :disabled="!customPattern || !customTargetChannelId"
                 @click="addCustomMapping"
               >
                 <v-icon size="small">mdi-plus</v-icon>
               </v-btn>
-            </div>
-            <!-- Quick Pattern Chips -->
-            <div class="mt-2">
-              <span class="text-caption text-medium-emphasis mr-2">{{ t('addChannel.quickPatterns') }}:</span>
-              <v-chip
-                v-for="pattern in ['haiku', 'sonnet', 'opus', '*']"
-                :key="pattern"
-                size="x-small"
-                variant="outlined"
-                class="mr-1"
-                @click="customPattern = pattern"
-              >
-                {{ pattern }}
-              </v-chip>
             </div>
           </div>
         </v-col>
@@ -236,6 +226,18 @@ const customTargetChannelId = ref('')
 // Local mappings state - vuedraggable mutates this directly
 const mappings = ref<Mapping[]>([])
 
+// Pattern options for dropdown (filtered to exclude already-added patterns)
+const patternOptions = computed(() => {
+  const existingPatterns = new Set(mappings.value.map(m => m.pattern))
+  const allPatterns = [
+    { value: 'haiku', label: 'haiku' },
+    { value: 'sonnet', label: 'sonnet' },
+    { value: 'opus', label: 'opus' },
+    { value: '*', label: '* (wildcard)' }
+  ]
+  return allPatterns.filter(p => !existingPatterns.has(p.value))
+})
+
 // Helper: Normalize mappings (ensure wildcard is always last)
 const normalizeMappings = (list: Mapping[]): Mapping[] => {
   const wildcardIndex = list.findIndex(m => m.pattern === '*')
@@ -288,10 +290,10 @@ watch(
   { deep: true }
 )
 
-// Available Claude channels (only claude type, not disabled)
+// Available Claude channels (only claude type, include all statuses for configuration)
 const availableClaudeChannels = computed(() => {
   return props.allChannels
-    .filter(ch => !!ch.id && ch.serviceType === 'claude' && ch.status !== 'disabled')
+    .filter(ch => !!ch.id && ch.serviceType === 'claude')
     .map(ch => ({
       id: ch.id as string,
       name: ch.name,

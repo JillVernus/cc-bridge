@@ -57,6 +57,7 @@ func GetUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 
 			upstreams[i] = gin.H{
 				"index":                 i,
+				"id":                    up.ID, // Unique stable ID for composite channel references
 				"name":                  up.Name,
 				"serviceType":           up.ServiceType,
 				"baseUrl":               up.BaseURL,
@@ -690,6 +691,7 @@ func GetResponsesUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 
 			upstreams[i] = gin.H{
 				"index":                 i,
+				"id":                    up.ID, // Unique stable ID for channel references
 				"name":                  up.Name,
 				"serviceType":           up.ServiceType,
 				"baseUrl":               up.BaseURL,
