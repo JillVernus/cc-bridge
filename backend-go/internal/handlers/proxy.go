@@ -277,7 +277,13 @@ func handleMultiChannelProxy(
 		if success {
 			// Success: record and update trace affinity
 			channelScheduler.RecordSuccess(channelIndex, false)
-			channelScheduler.SetTraceAffinity(clientID, channelIndex)
+			// For composite channels, set affinity to the composite channel (not the resolved target)
+			// This ensures subsequent requests still go through composite routing logic
+			affinityIndex := channelIndex
+			if selection.CompositeChannelIndex >= 0 {
+				affinityIndex = selection.CompositeChannelIndex
+			}
+			channelScheduler.SetTraceAffinity(clientID, affinityIndex)
 			return
 		}
 
