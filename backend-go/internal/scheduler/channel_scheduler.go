@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -81,6 +82,8 @@ type SelectionResult struct {
 	CompositeUpstream     *config.UpstreamConfig // The composite channel used for routing (nil if direct)
 	CompositeChannelIndex int                    // Index of the composite channel (-1 if direct)
 	ResolvedModel         string                 // The model name after composite resolution (may be overridden)
+	FailoverChain         []string               // Remaining failover chain for sticky composite behavior
+	FailoverChainIndex    int                    // Current position in failover chain (0 = primary, 1+ = failover)
 }
 
 // SelectChannel 选择最佳渠道
@@ -279,6 +282,7 @@ func (s *ChannelScheduler) filterByAllowedChannels(channels []ChannelInfo, allow
 // resolveCompositeChannel resolves a composite channel to its target channel based on the model.
 // If the selected channel is not composite, it returns the original result unchanged.
 // If the selected channel is composite but the target is unavailable, returns an error.
+// For composite channels, this finds the first available channel in the failover chain.
 func (s *ChannelScheduler) resolveCompositeChannel(
 	result *SelectionResult,
 	model string,
@@ -308,124 +312,149 @@ func (s *ChannelScheduler) resolveCompositeChannel(
 		upstreams = cfg.Upstream
 	}
 
-	// Resolve composite mapping
-	targetID, targetIndex, resolvedModel, found := config.ResolveCompositeMapping(result.Upstream, model, upstreams)
-	if !found {
-		return nil, fmt.Errorf("composite channel '%s' has no mapping for model '%s'", result.Upstream.Name, model)
+	composite := result.Upstream
+	compositeIndex := result.ChannelIndex
+
+	// Find the mapping for this model pattern
+	var matchedMapping *config.CompositeMapping
+	for i := range composite.CompositeMappings {
+		mapping := &composite.CompositeMappings[i]
+		// Check if model contains the pattern (haiku, sonnet, opus)
+		if strings.Contains(strings.ToLower(model), strings.ToLower(mapping.Pattern)) {
+			matchedMapping = mapping
+			break
+		}
 	}
 
-	// Try to find an available target channel
-	// We may need to try multiple mappings if the first target is unavailable
-	return s.tryResolveCompositeWithFallback(result, model, upstreams, isResponses, failedChannels, metricsManager, useCircuitBreaker, targetID, targetIndex, resolvedModel)
+	if matchedMapping == nil {
+		return nil, fmt.Errorf("composite channel '%s' has no mapping for model '%s'", composite.Name, model)
+	}
+
+	// Build full channel chain: primary + failoverChain
+	fullChain := append([]string{matchedMapping.TargetChannelID}, matchedMapping.FailoverChain...)
+
+	// Determine resolved model (may be overridden by mapping)
+	resolvedModel := model
+	if matchedMapping.TargetModel != "" {
+		resolvedModel = matchedMapping.TargetModel
+	}
+
+	// Try each channel in the chain until we find an available one
+	// For composite targets, we skip status checks (composite decides routing)
+	for chainIdx, channelID := range fullChain {
+		targetIndex := -1
+		for j := range upstreams {
+			if upstreams[j].ID == channelID {
+				targetIndex = j
+				break
+			}
+		}
+
+		if targetIndex < 0 || targetIndex >= len(upstreams) {
+			log.Printf("⚠️ [Composite] '%s' → channel ID '%s' not found, skipping", composite.Name, channelID)
+			continue
+		}
+
+		targetCopy := upstreams[targetIndex]
+		target := &targetCopy
+
+		// For composite channel targets, skip status/suspension/circuit-breaker checks
+		// The composite channel decides routing, not the target's status
+		if s.isTargetChannelAvailable(target, targetIndex, isResponses, failedChannels, metricsManager, useCircuitBreaker, true) {
+			reason := result.Reason + "_via_composite"
+			if chainIdx > 0 {
+				reason = result.Reason + "_via_composite_failover"
+			}
+			log.Printf("🔀 [Composite] '%s' → target [%d] '%s' for model '%s' (chain pos: %d, resolved: '%s')",
+				composite.Name, targetIndex, target.Name, model, chainIdx, resolvedModel)
+			return &SelectionResult{
+				Upstream:              target,
+				ChannelIndex:          targetIndex,
+				Reason:                reason,
+				CompositeUpstream:     composite,
+				CompositeChannelIndex: compositeIndex,
+				ResolvedModel:         resolvedModel,
+				FailoverChain:         fullChain[chainIdx+1:], // Remaining chain for retry
+				FailoverChainIndex:    chainIdx,
+			}, nil
+		}
+		log.Printf("⚠️ [Composite] '%s' → target [%d] '%s' unavailable (no API keys or already failed), trying next in chain",
+			composite.Name, targetIndex, target.Name)
+	}
+
+	// All channels in chain exhausted
+	return nil, fmt.Errorf("composite channel '%s' exhausted all failover channels for model '%s'", composite.Name, model)
 }
 
-// tryResolveCompositeWithFallback attempts to resolve to available target channels
-func (s *ChannelScheduler) tryResolveCompositeWithFallback(
-	compositeResult *SelectionResult,
-	model string,
-	upstreams []config.UpstreamConfig,
+// GetNextCompositeFailover returns the next channel in the composite failover chain
+// This is called when the current target fails and we need to try the next one
+func (s *ChannelScheduler) GetNextCompositeFailover(
+	prevResult *SelectionResult,
 	isResponses bool,
 	failedChannels map[int]bool,
 	metricsManager *metrics.MetricsManager,
 	useCircuitBreaker bool,
-	targetID string,
-	targetIndex int,
-	resolvedModel string,
 ) (*SelectionResult, error) {
-	composite := compositeResult.Upstream
-	compositeIndex := compositeResult.ChannelIndex
+	if prevResult == nil || prevResult.CompositeUpstream == nil {
+		return nil, fmt.Errorf("not a composite channel result")
+	}
 
-	// Try the primary resolved target first
-	if targetIndex >= 0 && targetIndex < len(upstreams) {
+	if len(prevResult.FailoverChain) == 0 {
+		return nil, fmt.Errorf("composite failover chain exhausted")
+	}
+
+	// Get all upstreams
+	cfg := s.configManager.GetConfig()
+	var upstreams []config.UpstreamConfig
+	if isResponses {
+		upstreams = cfg.ResponsesUpstream
+	} else {
+		upstreams = cfg.Upstream
+	}
+
+	composite := prevResult.CompositeUpstream
+	compositeIndex := prevResult.CompositeChannelIndex
+
+	// Try remaining channels in the failover chain
+	for i, channelID := range prevResult.FailoverChain {
+		targetIndex := -1
+		for j := range upstreams {
+			if upstreams[j].ID == channelID {
+				targetIndex = j
+				break
+			}
+		}
+
+		if targetIndex < 0 || targetIndex >= len(upstreams) {
+			continue
+		}
+
 		targetCopy := upstreams[targetIndex]
 		target := &targetCopy
-		if s.isTargetChannelAvailable(target, targetIndex, isResponses, failedChannels, metricsManager, useCircuitBreaker) {
-			log.Printf("🔀 [Composite] '%s' → target [%d] '%s' for model '%s' (resolved: '%s')",
-				composite.Name, targetIndex, target.Name, model, resolvedModel)
+
+		// Skip status checks for composite targets
+		if s.isTargetChannelAvailable(target, targetIndex, isResponses, failedChannels, metricsManager, useCircuitBreaker, true) {
+			chainPosition := prevResult.FailoverChainIndex + 1 + i
+			log.Printf("🔀 [Composite Failover] '%s' → target [%d] '%s' (chain pos: %d)",
+				composite.Name, targetIndex, target.Name, chainPosition)
 			return &SelectionResult{
 				Upstream:              target,
 				ChannelIndex:          targetIndex,
-				Reason:                compositeResult.Reason + "_via_composite",
+				Reason:                "composite_failover",
 				CompositeUpstream:     composite,
 				CompositeChannelIndex: compositeIndex,
-				ResolvedModel:         resolvedModel,
-			}, nil
-		}
-		log.Printf("⚠️ [Composite] '%s' → target [%d] '%s' unavailable, trying next mapping",
-			composite.Name, targetIndex, target.Name)
-	}
-
-	// Target unavailable - try to find another mapping that matches this model
-	for i := range composite.CompositeMappings {
-		mapping := &composite.CompositeMappings[i]
-
-		// Skip the mapping we already tried
-		if mapping.TargetChannelID == targetID {
-			continue
-		}
-
-		// Check if this mapping matches the model
-		matchesModel := false
-		if mapping.Pattern == "*" {
-			matchesModel = true
-		} else if mapping.Pattern == model {
-			matchesModel = true
-		} else if len(mapping.Pattern) > 0 && mapping.Pattern != "*" {
-			// Contains match - model must contain the pattern
-			if len(model) >= len(mapping.Pattern) {
-				for j := 0; j <= len(model)-len(mapping.Pattern); j++ {
-					if model[j:j+len(mapping.Pattern)] == mapping.Pattern {
-						matchesModel = true
-						break
-					}
-				}
-			}
-		}
-
-		if !matchesModel {
-			continue
-		}
-
-		// Resolve this mapping's target index
-		altTargetIndex := -1
-		if mapping.TargetChannelID != "" {
-			for j := range upstreams {
-				if upstreams[j].ID == mapping.TargetChannelID {
-					altTargetIndex = j
-					break
-				}
-			}
-		}
-
-		if altTargetIndex < 0 || altTargetIndex >= len(upstreams) {
-			continue
-		}
-
-		altTargetCopy := upstreams[altTargetIndex]
-		altTarget := &altTargetCopy
-		if s.isTargetChannelAvailable(altTarget, altTargetIndex, isResponses, failedChannels, metricsManager, useCircuitBreaker) {
-			altResolvedModel := model
-			if mapping.TargetModel != "" {
-				altResolvedModel = mapping.TargetModel
-			}
-			log.Printf("🔀 [Composite] '%s' → fallback target [%d] '%s' for model '%s' (resolved: '%s')",
-				composite.Name, altTargetIndex, altTarget.Name, model, altResolvedModel)
-			return &SelectionResult{
-				Upstream:              altTarget,
-				ChannelIndex:          altTargetIndex,
-				Reason:                compositeResult.Reason + "_via_composite_fallback",
-				CompositeUpstream:     composite,
-				CompositeChannelIndex: compositeIndex,
-				ResolvedModel:         altResolvedModel,
+				ResolvedModel:         prevResult.ResolvedModel,
+				FailoverChain:         prevResult.FailoverChain[i+1:],
+				FailoverChainIndex:    chainPosition,
 			}, nil
 		}
 	}
 
-	// No available target channel found
-	return nil, fmt.Errorf("composite channel '%s' has no available target for model '%s'", composite.Name, model)
+	return nil, fmt.Errorf("composite failover chain exhausted for '%s'", composite.Name)
 }
 
 // isTargetChannelAvailable checks if a target channel is available for use
+// skipStatusCheck: when true, allows disabled/suspended channels (for composite failover chain)
 func (s *ChannelScheduler) isTargetChannelAvailable(
 	target *config.UpstreamConfig,
 	targetIndex int,
@@ -433,25 +462,30 @@ func (s *ChannelScheduler) isTargetChannelAvailable(
 	failedChannels map[int]bool,
 	metricsManager *metrics.MetricsManager,
 	useCircuitBreaker bool,
+	skipStatusCheck bool,
 ) bool {
 	// Check if already failed in this request
 	if failedChannels[targetIndex] {
 		return false
 	}
 
-	// Check status
-	status := config.GetChannelStatus(target)
-	if status != "active" {
-		return false
+	// Check status (skip for composite failover chain targets)
+	if !skipStatusCheck {
+		status := config.GetChannelStatus(target)
+		if status != "active" {
+			return false
+		}
 	}
 
-	// Check if suspended
-	if suspended, _, _ := s.isChannelSuspended(targetIndex, isResponses); suspended {
-		return false
+	// Check if suspended (skip for composite failover chain targets)
+	if !skipStatusCheck {
+		if suspended, _, _ := s.isChannelSuspended(targetIndex, isResponses); suspended {
+			return false
+		}
 	}
 
-	// Check circuit breaker health
-	if useCircuitBreaker && !metricsManager.IsChannelHealthy(targetIndex) {
+	// Check circuit breaker health (skip for composite failover chain targets)
+	if !skipStatusCheck && useCircuitBreaker && !metricsManager.IsChannelHealthy(targetIndex) {
 		return false
 	}
 

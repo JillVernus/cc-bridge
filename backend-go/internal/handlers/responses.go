@@ -257,12 +257,83 @@ func handleMultiChannelResponses(
 	maxChannelAttempts := channelScheduler.GetActiveChannelCount(true) // true = isResponses
 	shouldLogInfo := envCfg.ShouldLog("info")
 
+	// Track current selection for composite failover chain
+	var currentSelection *scheduler.SelectionResult
+
 	for channelAttempt := 0; channelAttempt < maxChannelAttempts; channelAttempt++ {
-		selection, err := channelScheduler.SelectChannel(c.Request.Context(), clientID, failedChannels, true, allowedChannels, responsesReq.Model)
-		if err != nil {
-			lastError = err
-			break
+		var selection *scheduler.SelectionResult
+		var err error
+
+		// Check if we're continuing a composite failover chain
+		if currentSelection != nil && currentSelection.CompositeUpstream != nil && len(currentSelection.FailoverChain) > 0 {
+			// Try next in composite failover chain
+			selection, err = channelScheduler.GetNextCompositeFailover(currentSelection, true, failedChannels, nil, false)
+			if err != nil {
+				// Composite failover chain exhausted - do NOT try other channels
+				// Return error to client immediately (sticky composite behavior)
+				log.Printf("💥 [Composite/Responses] Failover chain exhausted for '%s': %v", currentSelection.CompositeUpstream.Name, err)
+
+				// Update request log with final error status
+				if reqLogManager != nil && requestLogID != "" {
+					httpStatus := 503
+					errMsg := fmt.Sprintf("composite channel '%s' failover chain exhausted", currentSelection.CompositeUpstream.Name)
+					upstreamErr := ""
+					failoverInfo := ""
+					if lastFailoverError != nil && lastFailoverError.Status != 0 {
+						httpStatus = lastFailoverError.Status
+						upstreamErr = string(lastFailoverError.Body)
+						failoverInfo = lastFailoverError.FailoverInfo
+					}
+					record := &requestlog.RequestLog{
+						Status:          requestlog.StatusError,
+						CompleteTime:    time.Now(),
+						DurationMs:      time.Since(startTime).Milliseconds(),
+						Model:           responsesReq.Model,
+						ReasoningEffort: reasoningEffort,
+						HTTPStatus:      httpStatus,
+						Error:           errMsg,
+						UpstreamError:   upstreamErr,
+						FailoverInfo:    failoverInfo,
+					}
+					if lastFailedUpstream != nil {
+						record.Type = lastFailedUpstream.ServiceType
+						record.ProviderName = lastFailedUpstream.Name
+						record.ChannelID = lastFailedUpstream.Index
+						record.ChannelName = lastFailedUpstream.Name
+					}
+					_ = reqLogManager.Update(requestLogID, record)
+				}
+
+				// Return error response to client
+				if lastFailoverError != nil {
+					status := lastFailoverError.Status
+					if status == 0 {
+						status = 503
+					}
+					SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, status, lastFailoverError.Body)
+					var errBody map[string]interface{}
+					if jsonErr := json.Unmarshal(lastFailoverError.Body, &errBody); jsonErr == nil {
+						c.JSON(status, errBody)
+					} else {
+						c.JSON(status, gin.H{"error": string(lastFailoverError.Body)})
+					}
+				} else {
+					errMsg := fmt.Sprintf("composite channel '%s' failover chain exhausted", currentSelection.CompositeUpstream.Name)
+					SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, 503, []byte(errMsg))
+					c.JSON(503, gin.H{"type": "error", "error": gin.H{"type": "overloaded_error", "message": errMsg}})
+				}
+				return
+			}
+		} else {
+			// Normal channel selection
+			selection, err = channelScheduler.SelectChannel(c.Request.Context(), clientID, failedChannels, true, allowedChannels, responsesReq.Model)
+			if err != nil {
+				lastError = err
+				break
+			}
 		}
+
+		currentSelection = selection
 
 		upstream := selection.Upstream
 		channelIndex := selection.ChannelIndex
@@ -321,7 +392,80 @@ func handleMultiChannelResponses(
 		channelScheduler.RecordFailure(channelIndex, true)
 		failedChannels[channelIndex] = true
 
-		// Check if there are more channels to try
+		// For composite channels, check if there are more in the failover chain
+		// If so, continue the loop (the composite failover will be handled at the top)
+		if selection.CompositeUpstream != nil && len(selection.FailoverChain) > 0 {
+			// Log the failover attempt for composite chain
+			if reqLogManager != nil && requestLogID != "" {
+				completeTime := time.Now()
+				httpStatus := 0
+				upstreamErr := ""
+				failoverInfoStr := ""
+				if failoverErr != nil {
+					httpStatus = failoverErr.Status
+					upstreamErr = string(failoverErr.Body)
+					failoverInfoStr = failoverErr.FailoverInfo
+				}
+
+				errorMsg := fmt.Sprintf("composite failover to next in chain (%d remaining)", len(selection.FailoverChain))
+				if httpStatus > 0 {
+					errorMsg = fmt.Sprintf("%d: %s", httpStatus, errorMsg)
+				}
+
+				failoverRecord := &requestlog.RequestLog{
+					Status:          requestlog.StatusFailover,
+					CompleteTime:    completeTime,
+					DurationMs:      completeTime.Sub(startTime).Milliseconds(),
+					Type:            upstream.ServiceType,
+					ProviderName:    upstream.Name,
+					Model:           responsesReq.Model,
+					ReasoningEffort: reasoningEffort,
+					ChannelID:       channelIndex,
+					ChannelName:     upstream.Name,
+					HTTPStatus:      httpStatus,
+					Error:           errorMsg,
+					UpstreamError:   upstreamErr,
+					FailoverInfo:    failoverInfoStr,
+				}
+				if err := reqLogManager.Update(requestLogID, failoverRecord); err != nil {
+					log.Printf("⚠️ Failed to update failover log: %v", err)
+				}
+
+				// Create new pending log for next channel attempt
+				newPendingLog := &requestlog.RequestLog{
+					Status:          requestlog.StatusPending,
+					InitialTime:     time.Now(),
+					Model:           responsesReq.Model,
+					ReasoningEffort: reasoningEffort,
+					Stream:          responsesReq.Stream,
+					Endpoint:        "/v1/responses",
+					ClientID:        clientID,
+					SessionID:       sessionID,
+					APIKeyID:        apiKeyID,
+				}
+				if err := reqLogManager.Add(newPendingLog); err != nil {
+					log.Printf("⚠️ Failed to create failover pending log: %v", err)
+				} else {
+					requestLogID = newPendingLog.ID
+					startTime = newPendingLog.InitialTime
+				}
+			}
+
+			log.Printf("⚠️ [Composite/Responses] Channel [%d] %s failed, trying next in failover chain (%d remaining)",
+				channelIndex, upstream.Name, len(selection.FailoverChain))
+
+			if failoverErr != nil {
+				lastFailoverError = failoverErr
+				lastError = fmt.Errorf("channel [%d] %s failed", channelIndex, upstream.Name)
+				lastFailedUpstream = upstream
+			}
+			continue // Continue loop - composite failover will be handled at top
+		}
+
+		// For composite channels with no more failover chain, the error handling
+		// will be triggered at the top of the next iteration
+
+		// Check if there are more channels to try (non-composite case)
 		hasMoreChannels := channelAttempt < maxChannelAttempts-1 && len(failedChannels) < maxChannelAttempts
 
 		if hasMoreChannels {
@@ -1088,12 +1232,37 @@ func handleSingleChannelResponses(
 		return
 	}
 
-	if len(upstream.APIKeys) == 0 {
+	// Composite channels don't have API keys - they route to other channels
+	if len(upstream.APIKeys) == 0 && !config.IsCompositeChannel(upstream) {
 		c.JSON(503, gin.H{
 			"error": fmt.Sprintf("当前 Responses 渠道 \"%s\" 未配置API密钥", upstream.Name),
 			"code":  "NO_API_KEYS",
 		})
 		return
+	}
+
+	// Resolve composite channel to target channel
+	if config.IsCompositeChannel(upstream) {
+		cfg := cfgManager.GetConfig()
+		targetChannelID, targetIndex, resolvedModel, found := config.ResolveCompositeMapping(upstream, responsesReq.Model, cfg.ResponsesUpstream)
+		if !found {
+			c.JSON(400, gin.H{
+				"error": fmt.Sprintf("Composite channel '%s' has no mapping for model '%s'", upstream.Name, responsesReq.Model),
+				"code":  "NO_COMPOSITE_MAPPING",
+			})
+			return
+		}
+		if targetIndex < 0 || targetIndex >= len(cfg.ResponsesUpstream) {
+			c.JSON(503, gin.H{
+				"error": fmt.Sprintf("Composite channel '%s' target channel ID '%s' not found", upstream.Name, targetChannelID),
+				"code":  "COMPOSITE_TARGET_NOT_FOUND",
+			})
+			return
+		}
+		targetUpstream := cfg.ResponsesUpstream[targetIndex]
+		log.Printf("🔀 [Single-Channel Composite] '%s' → target [%d] '%s' for model '%s' (resolved: '%s')",
+			upstream.Name, targetIndex, targetUpstream.Name, responsesReq.Model, resolvedModel)
+		upstream = &targetUpstream
 	}
 
 	provider := &providers.ResponsesProvider{SessionManager: sessionManager}

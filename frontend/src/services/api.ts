@@ -140,8 +140,9 @@ export interface OAuthStatusResponse {
 
 // Composite channel model mapping
 export interface CompositeMapping {
-  pattern: string                // Model pattern (e.g., "haiku", "opus", "*")
-  targetChannelId: string        // Target channel ID
+  pattern: string                // Model pattern: "haiku", "sonnet", "opus" (mandatory, no wildcard)
+  targetChannelId: string        // Primary target channel ID
+  failoverChain?: string[]       // Ordered failover channel IDs (min 1 required)
   targetModel?: string           // Optional model name override
 }
 

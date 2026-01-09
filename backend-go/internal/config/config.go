@@ -56,9 +56,10 @@ func (t *TokenPriceMultipliers) GetEffectiveMultiplier(tokenType string) float64
 
 // CompositeMapping defines a model-to-channel mapping for composite channels
 type CompositeMapping struct {
-	Pattern         string `json:"pattern"`                  // Model pattern: exact match, contains match, or "*" (wildcard)
-	TargetChannelID string `json:"targetChannelId"`          // Target channel ID (stable reference)
-	TargetModel     string `json:"targetModel,omitempty"`    // Optional: override model name sent to target
+	Pattern         string   `json:"pattern"`                  // Model pattern: "haiku", "sonnet", "opus" (mandatory, no wildcard)
+	TargetChannelID string   `json:"targetChannelId"`          // Primary target channel ID
+	FailoverChain   []string `json:"failoverChain,omitempty"`  // Ordered failover channel IDs (min 1 required)
+	TargetModel     string   `json:"targetModel,omitempty"`    // Optional: override model name sent to target
 	// Deprecated: use TargetChannelID instead. Kept for migration only.
 	TargetChannel int `json:"targetChannel,omitempty"` // Legacy: target channel index
 }
@@ -1056,9 +1057,9 @@ func ValidateCompositeChannel(upstream *UpstreamConfig, upstreams []UpstreamConf
 		return nil // Not a composite channel, no validation needed
 	}
 
-	// Composite channels must have at least one mapping
-	if len(upstream.CompositeMappings) == 0 {
-		return fmt.Errorf("composite channel must have at least one mapping")
+	// Composite channels must have exactly 3 mappings (haiku, sonnet, opus)
+	if len(upstream.CompositeMappings) != 3 {
+		return fmt.Errorf("composite channel must have exactly 3 mappings (haiku, sonnet, opus), got %d", len(upstream.CompositeMappings))
 	}
 
 	// Composite channel invariants: should not have APIKeys or BaseURL
@@ -1069,10 +1070,39 @@ func ValidateCompositeChannel(upstream *UpstreamConfig, upstreams []UpstreamConf
 		return fmt.Errorf("composite channel should not have baseUrl (it routes to other channels)")
 	}
 
-	// Track patterns for duplicate detection and wildcard constraints
-	seenPatterns := make(map[string]int) // pattern -> first occurrence index
-	wildcardCount := 0
-	wildcardIndex := -1
+	// Required patterns
+	requiredPatterns := map[string]bool{"haiku": false, "sonnet": false, "opus": false}
+
+	// Claude-compatible service types (can receive Claude API requests)
+	claudeCompatibleTypes := map[string]bool{
+		"claude":      true,
+		"openai_chat": true,
+		"openai":      true,
+		"gemini":      true,
+		"openaiold":   true,
+	}
+
+	// Helper function to validate a channel ID
+	validateChannelID := func(channelID string, context string) (*UpstreamConfig, error) {
+		if channelID == "" {
+			return nil, fmt.Errorf("%s: channel ID is empty", context)
+		}
+		for idx := range upstreams {
+			if upstreams[idx].ID == channelID {
+				target := &upstreams[idx]
+				// Must be Claude-compatible type
+				if !claudeCompatibleTypes[target.ServiceType] {
+					return nil, fmt.Errorf("%s: channel '%s' must be Claude-compatible type (got %s)", context, target.Name, target.ServiceType)
+				}
+				// Cannot reference composite channel (no recursion)
+				if IsCompositeChannel(target) {
+					return nil, fmt.Errorf("%s: channel '%s' cannot be another composite channel", context, target.Name)
+				}
+				return target, nil
+			}
+		}
+		return nil, fmt.Errorf("%s: channel ID '%s' not found", context, channelID)
+	}
 
 	// Validate each mapping
 	for i := range upstream.CompositeMappings {
@@ -1082,71 +1112,53 @@ func ValidateCompositeChannel(upstream *UpstreamConfig, upstreams []UpstreamConf
 		mapping.Pattern = strings.TrimSpace(mapping.Pattern)
 		mapping.TargetModel = strings.TrimSpace(mapping.TargetModel)
 
-		// Pattern cannot be empty
+		// Pattern must be one of the required patterns (no wildcard)
 		if mapping.Pattern == "" {
 			return fmt.Errorf("mapping %d: pattern cannot be empty", i)
 		}
-
-		// Check for duplicate patterns
-		if prevIdx, exists := seenPatterns[mapping.Pattern]; exists {
-			return fmt.Errorf("mapping %d: duplicate pattern '%s' (first seen at mapping %d)", i, mapping.Pattern, prevIdx)
-		}
-		seenPatterns[mapping.Pattern] = i
-
-		// Track wildcard usage
 		if mapping.Pattern == "*" {
-			wildcardCount++
-			wildcardIndex = i
+			return fmt.Errorf("mapping %d: wildcard (*) pattern is not allowed; all 3 models must be explicitly mapped", i)
 		}
+		if _, isRequired := requiredPatterns[mapping.Pattern]; !isRequired {
+			return fmt.Errorf("mapping %d: pattern '%s' is not valid; must be one of: haiku, sonnet, opus", i, mapping.Pattern)
+		}
+		if requiredPatterns[mapping.Pattern] {
+			return fmt.Errorf("mapping %d: duplicate pattern '%s'", i, mapping.Pattern)
+		}
+		requiredPatterns[mapping.Pattern] = true
 
-		// Resolve target channel by ID (preferred) or legacy index
-		var target *UpstreamConfig
-		var targetIdx int = -1
-
-		if mapping.TargetChannelID != "" {
-			// Find by ID
-			for idx := range upstreams {
-				if upstreams[idx].ID == mapping.TargetChannelID {
-					target = &upstreams[idx]
-					targetIdx = idx
-					break
+		// Validate primary target channel
+		if _, err := validateChannelID(mapping.TargetChannelID, fmt.Sprintf("mapping %d (pattern '%s')", i, mapping.Pattern)); err != nil {
+			// Try legacy index migration
+			if mapping.TargetChannel >= 0 && mapping.TargetChannel < len(upstreams) {
+				target := &upstreams[mapping.TargetChannel]
+				if target.ID != "" {
+					mapping.TargetChannelID = target.ID
+					log.Printf("Auto-migrated composite mapping %d: index %d -> ID %s", i, mapping.TargetChannel, target.ID)
+				} else {
+					return fmt.Errorf("mapping %d: target channel at index %d has no ID", i, mapping.TargetChannel)
 				}
+			} else {
+				return err
 			}
-			if target == nil {
-				return fmt.Errorf("mapping %d: target channel ID '%s' not found", i, mapping.TargetChannelID)
-			}
-		} else if mapping.TargetChannel >= 0 && mapping.TargetChannel < len(upstreams) {
-			// Legacy: use index (for migration)
-			target = &upstreams[mapping.TargetChannel]
-			targetIdx = mapping.TargetChannel
-			// Auto-migrate to ID if target has one
-			if target.ID != "" {
-				mapping.TargetChannelID = target.ID
-				log.Printf("Auto-migrated composite mapping %d: index %d -> ID %s", i, mapping.TargetChannel, target.ID)
-			}
-		} else {
-			return fmt.Errorf("mapping %d: no valid target channel reference (need targetChannelId or valid targetChannel index)", i)
 		}
 
-		_ = targetIdx // May be used for logging
-
-		// Target channel must be claude type (not composite, not other types)
-		if target.ServiceType != "claude" {
-			return fmt.Errorf("mapping %d: target channel '%s' must be claude type (got %s)", i, target.Name, target.ServiceType)
+		// Validate failover chain (minimum 1 required)
+		if len(mapping.FailoverChain) == 0 {
+			return fmt.Errorf("mapping %d (pattern '%s'): failover chain must have at least 1 channel", i, mapping.Pattern)
 		}
-
-		// Cannot reference another composite channel (no recursion)
-		if IsCompositeChannel(target) {
-			return fmt.Errorf("mapping %d: target channel '%s' cannot be another composite channel", i, target.Name)
+		for j, failoverID := range mapping.FailoverChain {
+			if _, err := validateChannelID(failoverID, fmt.Sprintf("mapping %d (pattern '%s') failover[%d]", i, mapping.Pattern, j)); err != nil {
+				return err
+			}
 		}
 	}
 
-	// Wildcard constraints
-	if wildcardCount > 1 {
-		return fmt.Errorf("composite channel can have at most one wildcard (*) pattern, found %d", wildcardCount)
-	}
-	if wildcardCount == 1 && wildcardIndex != len(upstream.CompositeMappings)-1 {
-		return fmt.Errorf("wildcard (*) pattern must be the last mapping for clarity (found at index %d)", wildcardIndex)
+	// Ensure all required patterns are present
+	for pattern, found := range requiredPatterns {
+		if !found {
+			return fmt.Errorf("missing required pattern '%s'; all 3 models (haiku, sonnet, opus) must be mapped", pattern)
+		}
 	}
 
 	return nil

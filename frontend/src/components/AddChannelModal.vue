@@ -248,6 +248,7 @@
             <!-- Composite 渠道模型映射配置 -->
             <v-col cols="12" v-if="isCompositeChannel">
               <CompositeChannelEditor
+                :key="compositeEditorKey"
                 v-model="form.compositeMappings"
                 :all-channels="allChannels"
               />
@@ -1348,7 +1349,7 @@ const form = reactive({
   priceMultipliers: {} as Record<string, { inputMultiplier?: number; outputMultiplier?: number; cacheCreationMultiplier?: number; cacheReadMultiplier?: number }>,
   oauthTokens: undefined as OAuthTokens | undefined,
   // Composite channel mappings
-  compositeMappings: [] as Array<{ pattern: string; targetChannelId: string; targetModel?: string }>,
+  compositeMappings: [] as Array<{ pattern: string; targetChannelId: string; failoverChain?: string[]; targetModel?: string }>,
   // Quota settings
   quotaType: '' as '' | 'requests' | 'credit',
   quotaLimit: undefined as number | undefined,
@@ -1438,6 +1439,14 @@ const isOAuthChannel = computed(() => form.serviceType === 'openai-oauth')
 // 检查是否为 Composite 渠道类型
 const isCompositeChannel = computed(() => form.serviceType === 'composite')
 
+// Key for CompositeChannelEditor to force re-creation on channel change
+// This ensures the component reinitializes when editing a different channel or after reopening
+const compositeEditorReopenCount = ref(0)
+const compositeEditorKey = computed(() => {
+  const channelId = props.channel?.id || props.channel?.index || 'new'
+  return `${channelId}-${compositeEditorReopenCount.value}`
+})
+
 // OAuth 卡片颜色：编辑模式下如果已有 tokens 则显示 success，新建模式下无 tokens 显示 error
 const oauthCardColor = computed(() => {
   if (form.oauthTokens) {
@@ -1506,57 +1515,74 @@ const compositeMappingError = ref('')
 
 // Normalize composite mappings (trim, ensure wildcard last)
 const normalizeCompositeMappings = (
-  mappings: Array<{ pattern: string; targetChannelId: string; targetModel?: string }>
+  mappings: Array<{ pattern: string; targetChannelId: string; failoverChain?: string[]; targetModel?: string }>
 ) => {
   const normalized = mappings.map(m => ({
     pattern: m.pattern.trim(),
     targetChannelId: m.targetChannelId,
+    failoverChain: m.failoverChain || [],
     targetModel: m.targetModel?.trim() || undefined
   }))
 
-  // Keep wildcard last for backend constraint
-  const wildcardIndex = normalized.findIndex(m => m.pattern === '*')
-  if (wildcardIndex !== -1 && wildcardIndex !== normalized.length - 1) {
-    const [wildcard] = normalized.splice(wildcardIndex, 1)
-    normalized.push(wildcard)
-  }
-
+  // No longer need wildcard reordering - wildcard is not allowed
   return normalized
 }
 
+// Claude-compatible service types
+const claudeCompatibleTypes = ['claude', 'openai_chat', 'openai', 'gemini', 'openaiold']
+
 // Validate composite mappings
 const validateCompositeMappings = (
-  mappings: Array<{ pattern: string; targetChannelId: string; targetModel?: string }>
+  mappings: Array<{ pattern: string; targetChannelId: string; failoverChain?: string[]; targetModel?: string }>
 ): string => {
-  if (!mappings.length) return ''
-
+  // Required patterns - all 3 must be present
+  const requiredPatterns = ['haiku', 'sonnet', 'opus']
   const seen = new Set<string>()
-  let wildcardCount = 0
-  let wildcardIndex = -1
 
   for (let i = 0; i < mappings.length; i++) {
     const mapping = mappings[i]
     const pattern = mapping.pattern.trim()
 
     if (!pattern) return t('addChannel.compositeEmptyPattern')
+    if (pattern === '*') return t('addChannel.compositeWildcardMultiple') // Wildcard not allowed
+    if (!requiredPatterns.includes(pattern)) {
+      return t('addChannel.compositeDuplicatePattern', { pattern }) // Invalid pattern
+    }
     if (seen.has(pattern)) return t('addChannel.compositeDuplicatePattern', { pattern })
     seen.add(pattern)
 
-    if (pattern === '*') {
-      wildcardCount++
-      wildcardIndex = i
-    }
-
+    // Validate primary target
     const targetChannelId = mapping.targetChannelId
     if (!targetChannelId) return t('addChannel.compositeTargetRequired')
 
     const target = props.allChannels.find(ch => ch.id === targetChannelId)
     if (!target) return t('addChannel.compositeMissingTargetChannel')
-    if (target.serviceType !== 'claude') return t('addChannel.compositeInvalidTargetChannel')
+    if (!claudeCompatibleTypes.includes(target.serviceType)) {
+      return t('addChannel.compositeInvalidServiceType', { channel: target.name })
+    }
+
+    // Validate failover chain - at least 1 required
+    const failoverChain = mapping.failoverChain || []
+    if (failoverChain.length === 0) {
+      return t('addChannel.compositeMinFailover', { pattern })
+    }
+
+    // Validate each failover channel
+    for (const failoverId of failoverChain) {
+      const failoverChannel = props.allChannels.find(ch => ch.id === failoverId)
+      if (!failoverChannel) return t('addChannel.compositeMissingTargetChannel')
+      if (!claudeCompatibleTypes.includes(failoverChannel.serviceType)) {
+        return t('addChannel.compositeInvalidServiceType', { channel: failoverChannel.name })
+      }
+    }
   }
 
-  if (wildcardCount > 1) return t('addChannel.compositeWildcardMultiple')
-  if (wildcardCount === 1 && wildcardIndex !== mappings.length - 1) return t('addChannel.compositeWildcardLast')
+  // Check all required patterns are present
+  for (const pattern of requiredPatterns) {
+    if (!seen.has(pattern)) {
+      return t('addChannel.compositePatternRequired', { pattern })
+    }
+  }
 
   return ''
 }
@@ -1808,6 +1834,7 @@ const loadChannelData = (channel: Channel) => {
   form.compositeMappings = channel.compositeMappings?.map(m => ({
     pattern: m.pattern,
     targetChannelId: m.targetChannelId || '',
+    failoverChain: m.failoverChain || [],
     targetModel: m.targetModel
   })) || []
 
@@ -2206,6 +2233,7 @@ const handleSubmit = async () => {
     channelData.compositeMappings = normalized.map(m => ({
       pattern: m.pattern,
       targetChannelId: m.targetChannelId,
+      failoverChain: m.failoverChain || [],
       targetModel: m.targetModel || undefined
     }))
   }
@@ -2225,6 +2253,8 @@ watch(
     if (newShow) {
       // Reset tab to config when dialog opens
       activeTab.value = 'config'
+      // Increment key to force CompositeChannelEditor re-creation
+      compositeEditorReopenCount.value++
       if (props.channel) {
         // 编辑模式：使用表单模式
         isQuickMode.value = false

@@ -10,202 +10,124 @@
 
     <v-card-text class="pt-2">
       <div class="text-body-2 text-medium-emphasis mb-4">
-        {{ t('addChannel.compositeMappingsHint') }}
+        {{ t('addChannel.compositeFailoverHint') }}
       </div>
 
-      <v-row>
-        <!-- Left Panel: Available Claude Channels -->
-        <v-col cols="12" md="5">
-          <div class="text-caption font-weight-medium mb-2">{{ t('addChannel.availableChannels') }}</div>
-          <v-card variant="tonal" rounded="lg" class="channel-panel pa-2">
-            <template v-if="availableClaudeChannels.length">
-              <div v-for="channel in availableClaudeChannels" :key="channel.id" class="mb-3">
-                <div class="d-flex align-center ga-2 mb-1">
-                  <v-icon size="small" :color="getChannelStatusColor(channel)">mdi-server</v-icon>
-                  <span class="text-body-2 font-weight-medium">{{ channel.name }}</span>
-                  <v-chip v-if="channel.status !== 'active'" size="x-small" :color="getChannelStatusColor(channel)" variant="tonal">
-                    {{ channel.status }}
-                  </v-chip>
-                </div>
-                <div class="d-flex flex-wrap ga-1 ml-5">
-                  <v-chip
-                    v-for="model in commonModels"
-                    :key="model"
-                    size="small"
-                    variant="outlined"
-                    class="model-chip"
-                    @click="addMappingFromChip(model, channel.id)"
-                  >
-                    <v-icon start size="x-small">mdi-plus</v-icon>
-                    {{ model }}
-                  </v-chip>
-                </div>
+      <!-- Model Routing Rows -->
+      <div class="model-routing-container">
+        <div v-for="pattern in requiredPatterns" :key="pattern" class="model-row mb-3">
+          <!-- Model Label -->
+          <div class="model-label">
+            <code class="text-body-2 font-weight-medium">{{ pattern }}</code>
+          </div>
+
+          <!-- Channel Chain -->
+          <div class="channel-chain d-flex align-center flex-wrap ga-2">
+            <!-- Primary + Failover Channels -->
+            <template v-for="(channelId, index) in modelChains[pattern]" :key="`${pattern}-${index}-${channelId}`">
+              <!-- Arrow separator (except for first) -->
+              <v-icon v-if="index > 0" size="small" color="grey">mdi-arrow-right</v-icon>
+
+              <!-- Channel Dropdown -->
+              <div class="channel-select-wrapper">
+                <v-select
+                  :modelValue="channelId"
+                  @update:modelValue="(val) => updateChannelAt(pattern, index, val)"
+                  :items="getAvailableChannelsFor(pattern, index)"
+                  item-title="name"
+                  item-value="id"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                  :placeholder="index === 0 ? t('addChannel.primary') : `Failover ${index}`"
+                  class="channel-select"
+                  :class="{ 'primary-select': index === 0 }"
+                >
+                  <template #selection="{ item }">
+                    <span class="text-body-2">{{ item.title }}</span>
+                  </template>
+                  <template #item="{ item, props }">
+                    <v-list-item v-bind="props">
+                      <template #prepend>
+                        <v-icon size="small" :color="getChannelStatusColor(item.raw)">mdi-server</v-icon>
+                      </template>
+                      <template #append>
+                        <v-chip size="x-small" variant="outlined">{{ item.raw.serviceType }}</v-chip>
+                      </template>
+                    </v-list-item>
+                  </template>
+                </v-select>
+
+                <!-- Remove button (only for failovers, not primary) -->
+                <v-btn
+                  v-if="index > 0"
+                  size="x-small"
+                  icon
+                  variant="text"
+                  color="error"
+                  class="remove-btn"
+                  @click="removeChannelAt(pattern, index)"
+                >
+                  <v-icon size="small">mdi-close</v-icon>
+                </v-btn>
               </div>
             </template>
-            <v-alert v-else type="warning" variant="tonal" density="compact" rounded="lg">
-              {{ t('addChannel.noClaudeChannels') }}
-            </v-alert>
-          </v-card>
 
-          <!-- Custom Pattern Input -->
-          <div class="mt-4">
-            <div class="text-caption font-weight-medium mb-2">{{ t('addChannel.addMapping') }}</div>
-            <div class="d-flex align-center ga-2">
-              <v-select
-                v-model="customPattern"
-                :items="patternOptions"
-                item-title="label"
-                item-value="value"
-                variant="outlined"
-                density="compact"
-                hide-details
-                :placeholder="t('addChannel.selectModel')"
-                style="min-width: 120px;"
-              />
-              <v-icon size="small" color="grey">mdi-arrow-right</v-icon>
-              <v-select
-                v-model="customTargetChannelId"
-                :items="availableClaudeChannels"
-                item-title="name"
-                item-value="id"
-                variant="outlined"
-                density="compact"
-                hide-details
-                :placeholder="t('addChannel.targetChannel')"
-                class="flex-grow-1"
-              />
-              <v-btn
-                color="primary"
-                size="small"
-                variant="elevated"
-                :disabled="!customPattern || !customTargetChannelId"
-                @click="addCustomMapping"
-              >
-                <v-icon size="small">mdi-plus</v-icon>
-              </v-btn>
-            </div>
-          </div>
-        </v-col>
-
-        <!-- Right Panel: Mapping Slots -->
-        <v-col cols="12" md="7">
-          <div class="d-flex align-center justify-space-between mb-2">
-            <div class="text-caption font-weight-medium">{{ t('addChannel.mappingOrder') }}</div>
-            <v-chip v-if="mappings.length" size="x-small" color="primary" variant="tonal">
-              {{ mappings.length }} {{ t('addChannel.mappingsCount') }}
-            </v-chip>
-          </div>
-
-          <v-card variant="tonal" rounded="lg" class="mapping-panel pa-2" :class="{ 'empty-panel': !mappings.length }">
-            <!-- Empty State -->
-            <div v-if="!mappings.length" class="empty-state d-flex flex-column align-center justify-center">
-              <v-icon size="48" color="grey-lighten-1" class="mb-2">mdi-tray-arrow-down</v-icon>
-              <div class="text-body-2 text-medium-emphasis">{{ t('addChannel.noCompositeMappings') }}</div>
-              <div class="text-caption text-medium-emphasis">{{ t('addChannel.clickModelToAdd') }}</div>
-            </div>
-
-            <!-- Draggable Mapping List -->
-            <draggable
-              v-else
-              v-model="mappings"
-              item-key="pattern"
-              handle=".drag-handle"
-              animation="200"
-              ghost-class="ghost-mapping"
+            <!-- Add button -->
+            <v-btn
+              size="small"
+              icon
+              variant="tonal"
+              color="primary"
+              @click="addChannelSlot(pattern)"
+              :disabled="modelChains[pattern].length >= availableClaudeChannels.length"
             >
-              <template #item="{ element, index }">
-                <v-card
-                  class="mapping-item mb-2"
-                  variant="flat"
-                  rounded="lg"
-                  :color="getMappingColor(element)"
-                >
-                  <div class="d-flex align-center pa-2">
-                    <!-- Drag Handle -->
-                    <v-icon class="drag-handle mr-2" size="small" color="grey">mdi-drag-vertical</v-icon>
+              <v-icon size="small">mdi-plus</v-icon>
+            </v-btn>
+          </div>
 
-                    <!-- Priority Number -->
-                    <v-chip size="x-small" color="primary" variant="flat" class="mr-2">{{ index + 1 }}</v-chip>
-
-                    <!-- Pattern -->
-                    <code class="text-caption mr-2">{{ element.pattern }}</code>
-
-                    <!-- Arrow -->
-                    <v-icon size="small" color="primary" class="mr-2">mdi-arrow-right</v-icon>
-
-                    <!-- Target Channel -->
-                    <span class="text-caption font-weight-medium flex-grow-1">{{ getTargetChannelName(element.targetChannelId) }}</span>
-
-                    <!-- Target Model (if specified) -->
-                    <span v-if="element.targetModel" class="text-caption text-medium-emphasis mr-2">
-                      (→ {{ element.targetModel }})
-                    </span>
-
-                    <!-- Status Warning -->
-                    <v-tooltip v-if="getTargetChannelStatus(element.targetChannelId) !== 'active'" location="top">
-                      <template #activator="{ props }">
-                        <v-icon v-bind="props" size="small" color="warning" class="mr-1">mdi-alert</v-icon>
-                      </template>
-                      {{ t('addChannel.targetChannelNotActive') }}
-                    </v-tooltip>
-
-                    <!-- Remove Button -->
-                    <v-btn size="x-small" color="error" icon variant="text" @click="removeMapping(index)">
-                      <v-icon size="small">mdi-close</v-icon>
-                    </v-btn>
-                  </div>
-                </v-card>
+          <!-- Validation indicator -->
+          <div class="validation-indicator">
+            <v-icon
+              v-if="isModelValid(pattern)"
+              size="small"
+              color="success"
+            >mdi-check-circle</v-icon>
+            <v-tooltip v-else location="top">
+              <template #activator="{ props }">
+                <v-icon v-bind="props" size="small" color="error">mdi-alert-circle</v-icon>
               </template>
-            </draggable>
-          </v-card>
+              {{ getModelError(pattern) }}
+            </v-tooltip>
+          </div>
+        </div>
+      </div>
 
-          <!-- Validation Warnings -->
-          <v-alert
-            v-if="validationError"
-            type="error"
-            variant="tonal"
-            class="mt-3"
-            rounded="lg"
-            density="compact"
-          >
-            {{ validationError }}
-          </v-alert>
-
-          <v-alert
-            v-else-if="!hasWildcard && mappings.length > 0"
-            type="warning"
-            variant="tonal"
-            class="mt-3"
-            rounded="lg"
-            density="compact"
-          >
-            <div class="d-flex align-center ga-2">
-              <span>{{ t('addChannel.noWildcardWarning') }}</span>
-              <v-btn size="x-small" variant="outlined" @click="addWildcardFallback">
-                {{ t('addChannel.addWildcard') }}
-              </v-btn>
-            </div>
-          </v-alert>
-        </v-col>
-      </v-row>
+      <!-- Validation Errors -->
+      <v-alert
+        v-if="validationError"
+        type="error"
+        variant="tonal"
+        class="mt-3"
+        rounded="lg"
+        density="compact"
+      >
+        {{ validationError }}
+      </v-alert>
     </v-card-text>
   </v-card>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { computed, watch, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
-import draggable from 'vuedraggable'
-import type { Channel } from '../services/api'
+import type { Channel, CompositeMapping } from '../services/api'
 
 const { t } = useI18n()
 
-// Types
-type Mapping = { pattern: string; targetChannelId: string; targetModel?: string }
-
 // Props
 interface Props {
-  modelValue: Mapping[]
+  modelValue: CompositeMapping[]
   allChannels: Channel[]
 }
 
@@ -213,269 +135,223 @@ const props = defineProps<Props>()
 
 // Emits
 const emit = defineEmits<{
-  'update:modelValue': [value: Mapping[]]
+  'update:modelValue': [value: CompositeMapping[]]
 }>()
 
-// Common Claude model patterns
-const commonModels = ['haiku', 'sonnet', 'opus']
+// Required patterns (no wildcard)
+const requiredPatterns = ['haiku', 'sonnet', 'opus'] as const
 
-// Custom pattern input
-const customPattern = ref('')
-const customTargetChannelId = ref('')
+// Claude-compatible service types
+const claudeCompatibleTypes = ['claude', 'openai_chat', 'openai', 'gemini', 'openaiold']
 
-// Local mappings state - vuedraggable mutates this directly
-const mappings = ref<Mapping[]>([])
-
-// Pattern options for dropdown (filtered to exclude already-added patterns)
-const patternOptions = computed(() => {
-  const existingPatterns = new Set(mappings.value.map(m => m.pattern))
-  const allPatterns = [
-    { value: 'haiku', label: 'haiku' },
-    { value: 'sonnet', label: 'sonnet' },
-    { value: 'opus', label: 'opus' },
-    { value: '*', label: '* (wildcard)' }
-  ]
-  return allPatterns.filter(p => !existingPatterns.has(p.value))
+// Local state: per-model channel chains (array of channel IDs)
+const modelChains = reactive<Record<string, string[]>>({
+  haiku: [''],
+  sonnet: [''],
+  opus: ['']
 })
 
-// Helper: Normalize mappings (ensure wildcard is always last)
-const normalizeMappings = (list: Mapping[]): Mapping[] => {
-  const wildcardIndex = list.findIndex(m => m.pattern === '*')
-  if (wildcardIndex !== -1 && wildcardIndex !== list.length - 1) {
-    const result = [...list]
-    const [wildcard] = result.splice(wildcardIndex, 1)
-    result.push(wildcard)
-    return result
-  }
-  return list
-}
-
-// Helper: Check if two mapping arrays are equal
-const areMappingsEqual = (a: Mapping[], b: Mapping[]): boolean => {
-  if (a.length !== b.length) return false
-  return a.every((m, i) =>
-    m.pattern === b[i].pattern &&
-    m.targetChannelId === b[i].targetChannelId &&
-    m.targetModel === b[i].targetModel
-  )
-}
-
-// Sync prop -> local state (when parent changes)
+// Sync prop -> local state
 watch(
   () => props.modelValue,
-  (newValue) => {
-    const normalized = normalizeMappings(newValue)
-    if (!areMappingsEqual(normalized, mappings.value)) {
-      mappings.value = [...normalized]
+  (newMappings) => {
+    for (const pattern of requiredPatterns) {
+      const mapping = newMappings.find(m => m.pattern === pattern)
+      if (mapping) {
+        const chain: string[] = []
+        if (mapping.targetChannelId) {
+          chain.push(mapping.targetChannelId)
+        }
+        if (mapping.failoverChain && mapping.failoverChain.length > 0) {
+          chain.push(...mapping.failoverChain)
+        }
+        // Ensure at least one slot
+        if (chain.length === 0) {
+          chain.push('')
+        }
+        modelChains[pattern] = chain
+      } else {
+        modelChains[pattern] = ['']
+      }
     }
   },
   { immediate: true, deep: true }
 )
 
-// Sync local state -> emit (when draggable or local mutations occur)
-watch(
-  mappings,
-  (newValue) => {
-    const normalized = normalizeMappings(newValue)
-    // If normalization changed the order, update local state
-    if (!areMappingsEqual(normalized, newValue)) {
-      mappings.value = normalized
-      return // The next watch trigger will emit
+// Emit changes to parent
+const emitChanges = () => {
+  const mappings: CompositeMapping[] = requiredPatterns.map(pattern => {
+    const chain = modelChains[pattern].filter(id => id !== '')
+    return {
+      pattern,
+      targetChannelId: chain[0] || '',
+      failoverChain: chain.slice(1)
     }
-    // Only emit if different from prop
-    if (!areMappingsEqual(normalized, props.modelValue)) {
-      emit('update:modelValue', [...normalized])
-    }
-  },
-  { deep: true }
-)
+  })
+  emit('update:modelValue', mappings)
+}
 
-// Available Claude channels (only claude type, include all statuses for configuration)
+// No watcher needed - we emit directly from mutation functions
+
+// Available Claude-compatible channels
 const availableClaudeChannels = computed(() => {
   return props.allChannels
-    .filter(ch => !!ch.id && ch.serviceType === 'claude')
+    .filter(ch => !!ch.id && claudeCompatibleTypes.includes(ch.serviceType))
     .map(ch => ({
       id: ch.id as string,
       name: ch.name,
       status: ch.status || 'active',
+      serviceType: ch.serviceType,
       index: ch.index
     }))
 })
 
-// Check if wildcard exists
-const hasWildcard = computed(() => {
-  return mappings.value.some(m => m.pattern === '*')
-})
+// Get available channels for a specific position (exclude already used in this pattern)
+const getAvailableChannelsFor = (model: string, position: number) => {
+  const chain = modelChains[model] || []
+  const usedIds = new Set(chain.filter((id, idx) => id !== '' && idx !== position))
+  return availableClaudeChannels.value.filter(ch => !usedIds.has(ch.id))
+}
 
-// Validation error
+// Update channel at specific position
+const updateChannelAt = (model: string, index: number, channelId: string | null) => {
+  if (!modelChains[model]) return
+  modelChains[model][index] = channelId || ''
+  emitChanges()
+}
+
+// Remove channel at specific position
+const removeChannelAt = (model: string, index: number) => {
+  if (!modelChains[model] || index === 0) return // Never remove primary
+  modelChains[model].splice(index, 1)
+  emitChanges()
+}
+
+// Add new channel slot (don't emit - empty slots are local-only until user selects a channel)
+const addChannelSlot = (model: string) => {
+  if (!modelChains[model]) return
+  modelChains[model].push('')
+  // Don't call emitChanges() here - empty slots shouldn't be persisted
+}
+
+// Validation
+const isModelValid = (model: string): boolean => {
+  const chain = modelChains[model]?.filter(id => id !== '') || []
+  // Must have at least 2 channels (1 primary + 1 failover)
+  return chain.length >= 2
+}
+
+const getModelError = (model: string): string => {
+  const chain = modelChains[model]?.filter(id => id !== '') || []
+  if (chain.length === 0) {
+    return t('addChannel.compositePatternRequired', { pattern: model })
+  }
+  if (chain.length < 2) {
+    return t('addChannel.compositeMinFailover', { pattern: model })
+  }
+  return ''
+}
+
 const validationError = computed(() => {
-  const seen = new Set<string>()
-  let wildcardIndex = -1
+  for (const pattern of requiredPatterns) {
+    const error = getModelError(pattern)
+    if (error) return error
 
-  for (let i = 0; i < mappings.value.length; i++) {
-    const mapping = mappings.value[i]
-    const pattern = mapping.pattern.trim()
-
-    if (!pattern) return t('addChannel.compositeEmptyPattern')
-    if (seen.has(pattern)) return t('addChannel.compositeDuplicatePattern', { pattern })
-    seen.add(pattern)
-
-    if (pattern === '*') {
-      if (wildcardIndex !== -1) return t('addChannel.compositeWildcardMultiple')
-      wildcardIndex = i
+    // Validate each channel exists and is Claude-compatible
+    const chain = modelChains[pattern]?.filter(id => id !== '') || []
+    for (const channelId of chain) {
+      const channel = props.allChannels.find(ch => ch.id === channelId)
+      if (!channel) {
+        return t('addChannel.compositeMissingTargetChannel')
+      }
+      if (!claudeCompatibleTypes.includes(channel.serviceType)) {
+        return t('addChannel.compositeInvalidServiceType', { channel: channel.name })
+      }
     }
-
-    if (!mapping.targetChannelId) return t('addChannel.compositeTargetRequired')
-
-    const target = props.allChannels.find(ch => ch.id === mapping.targetChannelId)
-    if (!target) return t('addChannel.compositeMissingTargetChannel')
-    if (target.serviceType !== 'claude') return t('addChannel.compositeInvalidTargetChannel')
   }
-
-  // Wildcard must be last
-  if (wildcardIndex !== -1 && wildcardIndex !== mappings.value.length - 1) {
-    return t('addChannel.compositeWildcardLast')
-  }
-
   return ''
 })
 
 // Helper functions
-const getTargetChannelName = (channelId: string): string => {
-  const channel = props.allChannels.find(ch => ch.id === channelId)
-  return channel?.name || channelId
-}
-
-const getTargetChannelStatus = (channelId: string): string => {
-  const channel = props.allChannels.find(ch => ch.id === channelId)
-  return channel?.status || 'disabled'
-}
-
-const getChannelStatusColor = (channel: { status: string }): string => {
+const getChannelStatusColor = (channel: { status?: string }): string => {
   switch (channel.status) {
     case 'active': return 'success'
     case 'suspended': return 'warning'
     default: return 'grey'
   }
 }
-
-const getMappingColor = (mapping: { pattern: string; targetChannelId: string }): string => {
-  const status = getTargetChannelStatus(mapping.targetChannelId)
-  if (status !== 'active') return 'warning-lighten-4'
-  if (mapping.pattern === '*') return 'grey-lighten-3'
-  return 'surface-variant'
-}
-
-// Add mapping from model chip click
-const addMappingFromChip = (model: string, channelId: string) => {
-  // Check if pattern already exists
-  if (mappings.value.some(m => m.pattern === model)) {
-    return
-  }
-
-  const newMapping = { pattern: model, targetChannelId: channelId }
-
-  // If wildcard exists, insert before it
-  const wildcardIndex = mappings.value.findIndex(m => m.pattern === '*')
-  if (wildcardIndex !== -1) {
-    const updated = [...mappings.value]
-    updated.splice(wildcardIndex, 0, newMapping)
-    mappings.value = updated
-  } else {
-    mappings.value = [...mappings.value, newMapping]
-  }
-}
-
-// Add custom mapping
-const addCustomMapping = () => {
-  const pattern = customPattern.value.trim()
-  const targetChannelId = customTargetChannelId.value
-
-  if (!pattern || !targetChannelId) return
-  if (mappings.value.some(m => m.pattern === pattern)) return
-
-  const newMapping = { pattern, targetChannelId }
-
-  // If wildcard exists and this isn't wildcard, insert before it
-  const wildcardIndex = mappings.value.findIndex(m => m.pattern === '*')
-  if (pattern !== '*' && wildcardIndex !== -1) {
-    const updated = [...mappings.value]
-    updated.splice(wildcardIndex, 0, newMapping)
-    mappings.value = updated
-  } else {
-    mappings.value = [...mappings.value, newMapping]
-  }
-
-  // Reset inputs
-  customPattern.value = ''
-  customTargetChannelId.value = ''
-}
-
-// Remove mapping
-const removeMapping = (index: number) => {
-  const updated = [...mappings.value]
-  updated.splice(index, 1)
-  mappings.value = updated
-}
-
-// Add wildcard fallback
-const addWildcardFallback = () => {
-  if (hasWildcard.value) return
-  if (!availableClaudeChannels.value.length) return
-
-  // Use first available channel as default
-  const defaultChannel = availableClaudeChannels.value[0]
-  mappings.value = [...mappings.value, { pattern: '*', targetChannelId: defaultChannel.id }]
-}
 </script>
 
 <style scoped>
-.channel-panel {
-  min-height: 200px;
-  max-height: 350px;
-  overflow-y: auto;
+.model-routing-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.mapping-panel {
-  min-height: 200px;
-  max-height: 350px;
-  overflow-y: auto;
+.model-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px;
+  background: rgba(var(--v-theme-on-surface), 0.02);
+  border-radius: 8px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
 }
 
-.empty-panel {
-  background: transparent !important;
-  border: 2px dashed rgba(var(--v-theme-on-surface), 0.12);
+.model-label {
+  min-width: 70px;
+  flex-shrink: 0;
 }
 
-.empty-state {
-  min-height: 180px;
+.channel-chain {
+  flex-grow: 1;
+  flex-wrap: wrap;
 }
 
-.model-chip {
-  cursor: pointer;
-  transition: all 0.2s ease;
+.channel-select-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
 }
 
-.model-chip:hover {
-  background: rgba(var(--v-theme-primary), 0.1) !important;
-  border-color: rgb(var(--v-theme-primary)) !important;
+.channel-select {
+  min-width: 150px;
+  max-width: 180px;
 }
 
-.mapping-item {
-  cursor: default;
-  transition: all 0.2s ease;
+.channel-select.primary-select :deep(.v-field) {
+  border-color: rgb(var(--v-theme-primary));
 }
 
-.drag-handle {
-  cursor: grab;
+.remove-btn {
+  margin-left: -8px;
 }
 
-.drag-handle:active {
-  cursor: grabbing;
+.validation-indicator {
+  flex-shrink: 0;
+  width: 24px;
+  display: flex;
+  justify-content: center;
 }
 
-.ghost-mapping {
-  opacity: 0.5;
-  background: rgba(var(--v-theme-primary), 0.2) !important;
+/* Responsive: stack on small screens */
+@media (max-width: 600px) {
+  .model-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .model-label {
+    margin-bottom: 8px;
+  }
+
+  .channel-chain {
+    width: 100%;
+  }
+
+  .channel-select {
+    min-width: 120px;
+  }
 }
 </style>
