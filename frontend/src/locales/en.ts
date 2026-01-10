@@ -303,6 +303,8 @@ export default {
     channelsConfigured: 'channels configured',
     channels: 'channels',
     primary: 'Primary',
+    failoverN: 'Failover {n}',
+    addFallback: 'Add Fallback',
     noChannelsConfigured: 'No channels configured',
     addChannelToChain: 'Add channel to failover chain...',
     // Composite validation errors

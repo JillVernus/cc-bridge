@@ -13,23 +13,34 @@
         {{ t('addChannel.compositeFailoverHint') }}
       </div>
 
-      <!-- Model Routing Rows -->
-      <div class="model-routing-container">
-        <div v-for="pattern in requiredPatterns" :key="pattern" class="model-row mb-3">
-          <!-- Model Label -->
-          <div class="model-label">
-            <code class="text-body-2 font-weight-medium">{{ pattern }}</code>
+      <!-- 3-Column Model Routing -->
+      <div class="model-columns">
+        <div
+          v-for="pattern in requiredPatterns"
+          :key="pattern"
+          class="model-column"
+        >
+          <!-- Model Header -->
+          <div class="column-header">
+            <span class="model-name">{{ pattern }}</span>
+            <v-icon
+              v-if="isModelValid(pattern)"
+              size="x-small"
+              color="success"
+            >mdi-check-circle</v-icon>
+            <v-tooltip v-else location="top">
+              <template #activator="{ props }">
+                <v-icon v-bind="props" size="x-small" color="error">mdi-alert-circle</v-icon>
+              </template>
+              {{ getModelError(pattern) }}
+            </v-tooltip>
           </div>
 
-          <!-- Channel Chain -->
-          <div class="channel-chain d-flex align-center flex-wrap ga-2">
-            <!-- Primary + Failover Channels -->
+          <!-- Vertical Channel List -->
+          <div class="channel-list">
             <template v-for="(channelId, index) in modelChains[pattern]" :key="`${pattern}-${index}-${channelId}`">
-              <!-- Arrow separator (except for first) -->
-              <v-icon v-if="index > 0" size="small" color="grey">mdi-arrow-right</v-icon>
-
-              <!-- Channel Dropdown -->
-              <div class="channel-select-wrapper">
+              <!-- Channel Select -->
+              <div class="channel-item">
                 <v-select
                   :modelValue="channelId"
                   @update:modelValue="(val) => updateChannelAt(pattern, index, val)"
@@ -39,13 +50,10 @@
                   variant="outlined"
                   density="compact"
                   hide-details
-                  :placeholder="index === 0 ? t('addChannel.primary') : `Failover ${index}`"
+                  :placeholder="index === 0 ? t('addChannel.primary') : t('addChannel.failoverN', { n: index })"
                   class="channel-select"
                   :class="{ 'primary-select': index === 0 }"
                 >
-                  <template #selection="{ item }">
-                    <span class="text-body-2">{{ item.title }}</span>
-                  </template>
                   <template #item="{ item, props }">
                     <v-list-item v-bind="props">
                       <template #prepend>
@@ -57,10 +65,8 @@
                     </v-list-item>
                   </template>
                 </v-select>
-
-                <!-- Remove button (only for failovers, not primary) -->
+                <!-- Remove button -->
                 <v-btn
-                  v-if="index > 0"
                   size="x-small"
                   icon
                   variant="text"
@@ -68,37 +74,28 @@
                   class="remove-btn"
                   @click="removeChannelAt(pattern, index)"
                 >
-                  <v-icon size="small">mdi-close</v-icon>
+                  <v-icon size="x-small">mdi-close</v-icon>
                 </v-btn>
+              </div>
+
+              <!-- Arrow (except for last) -->
+              <div v-if="index < modelChains[pattern].length - 1" class="arrow-down">
+                <v-icon size="small" color="grey">mdi-arrow-down</v-icon>
               </div>
             </template>
 
-            <!-- Add button -->
+            <!-- Add Button -->
             <v-btn
-              size="small"
               icon
+              size="x-small"
               variant="tonal"
               color="primary"
+              class="add-btn"
               @click="addChannelSlot(pattern)"
               :disabled="modelChains[pattern].length >= availableClaudeChannels.length"
             >
-              <v-icon size="small">mdi-plus</v-icon>
+              <v-icon size="x-small">mdi-plus</v-icon>
             </v-btn>
-          </div>
-
-          <!-- Validation indicator -->
-          <div class="validation-indicator">
-            <v-icon
-              v-if="isModelValid(pattern)"
-              size="small"
-              color="success"
-            >mdi-check-circle</v-icon>
-            <v-tooltip v-else location="top">
-              <template #activator="{ props }">
-                <v-icon v-bind="props" size="small" color="error">mdi-alert-circle</v-icon>
-              </template>
-              {{ getModelError(pattern) }}
-            </v-tooltip>
           </div>
         </div>
       </div>
@@ -222,7 +219,13 @@ const updateChannelAt = (model: string, index: number, channelId: string | null)
 
 // Remove channel at specific position
 const removeChannelAt = (model: string, index: number) => {
-  if (!modelChains[model] || index === 0) return // Never remove primary
+  if (!modelChains[model]) return
+  // Always keep at least one slot
+  if (modelChains[model].length <= 1) {
+    modelChains[model] = ['']
+    emitChanges()
+    return
+  }
   modelChains[model].splice(index, 1)
   emitChanges()
 }
@@ -283,41 +286,49 @@ const getChannelStatusColor = (channel: { status?: string }): string => {
 </script>
 
 <style scoped>
-.model-routing-container {
+.model-columns {
+  display: flex;
+  gap: 16px;
+}
+
+.model-column {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  align-items: center;
 }
 
-.model-row {
+.column-header {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 12px;
-  background: rgba(var(--v-theme-on-surface), 0.02);
-  border-radius: 8px;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+  gap: 6px;
+  margin-bottom: 12px;
 }
 
-.model-label {
-  min-width: 70px;
-  flex-shrink: 0;
+.model-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: rgb(var(--v-theme-on-surface));
 }
 
-.channel-chain {
-  flex-grow: 1;
-  flex-wrap: wrap;
-}
-
-.channel-select-wrapper {
-  position: relative;
-  display: inline-flex;
+.channel-list {
+  display: flex;
+  flex-direction: column;
   align-items: center;
+  width: 100%;
+}
+
+.channel-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
 }
 
 .channel-select {
-  min-width: 150px;
-  max-width: 180px;
+  flex: 1;
+  min-width: 0;
 }
 
 .channel-select.primary-select :deep(.v-field) {
@@ -325,33 +336,35 @@ const getChannelStatusColor = (channel: { status?: string }): string => {
 }
 
 .remove-btn {
-  margin-left: -8px;
+  flex-shrink: 0;
+  margin-left: -4px;
 }
 
-.validation-indicator {
-  flex-shrink: 0;
-  width: 24px;
+.arrow-down {
   display: flex;
   justify-content: center;
+  padding: 2px 0;
+}
+
+.add-btn {
+  margin-top: 4px;
 }
 
 /* Responsive: stack on small screens */
 @media (max-width: 600px) {
-  .model-row {
+  .model-columns {
     flex-direction: column;
-    align-items: flex-start;
+    gap: 24px;
   }
 
-  .model-label {
-    margin-bottom: 8px;
+  .model-column {
+    padding-bottom: 16px;
+    border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.1);
   }
 
-  .channel-chain {
-    width: 100%;
-  }
-
-  .channel-select {
-    min-width: 120px;
+  .model-column:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
   }
 }
 </style>

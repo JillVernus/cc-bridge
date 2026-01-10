@@ -225,3 +225,8 @@ test-*.ts
 refs/
 request_samples/
 .ace-tool/
+.codex-tasks/
+
+# Claude Code context files (keep root CLAUDE.md only)
+**/CLAUDE.md
+!CLAUDE.md

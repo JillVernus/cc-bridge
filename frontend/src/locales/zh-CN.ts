@@ -303,6 +303,8 @@ export default {
     channelsConfigured: '个渠道已配置',
     channels: '个渠道',
     primary: '主渠道',
+    failoverN: '备用 {n}',
+    addFallback: '添加备用渠道',
     noChannelsConfigured: '未配置渠道',
     addChannelToChain: '添加渠道到故障转移链...',
     // Composite validation errors
