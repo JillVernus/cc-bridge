@@ -1,5 +1,5 @@
 <template>
-  <v-app>
+  <v-app :class="themeClass">
     <!-- 自动认证加载提示 - 只在真正进行自动认证时显示 -->
     <v-overlay
       :model-value="isAutoAuthenticating && !isInitialized"
@@ -136,12 +136,54 @@
         <span style="font-size: 14px; font-weight: 600;">{{ currentLocale === 'zh-CN' ? 'EN' : '中' }}</span>
       </v-btn>
 
-      <!-- 暗色模式切换 -->
-      <v-btn icon variant="text" size="small" class="header-btn" @click="toggleDarkMode">
-        <v-icon size="20">{{
-          theme.global.current.value.dark ? 'mdi-weather-night' : 'mdi-white-balance-sunny'
-        }}</v-icon>
-      </v-btn>
+      <!-- 主题切换菜单 -->
+      <v-menu>
+        <template #activator="{ props }">
+          <v-btn icon variant="text" size="small" class="header-btn" v-bind="props" :title="t('theme.title')">
+            <v-icon size="20">{{ currentTheme === 'minimal-dark' ? 'mdi-palette-outline' : 'mdi-palette' }}</v-icon>
+          </v-btn>
+        </template>
+        <v-list density="compact" class="theme-menu">
+          <v-list-subheader>{{ t('theme.title') }}</v-list-subheader>
+          <v-list-item
+            @click="setTheme('retro-light')"
+            :active="currentTheme === 'retro-light'"
+          >
+            <template #prepend>
+              <v-icon size="small">mdi-white-balance-sunny</v-icon>
+            </template>
+            <v-list-item-title>{{ t('theme.retroLight') }}</v-list-item-title>
+          </v-list-item>
+          <v-list-item
+            @click="setTheme('retro-dark')"
+            :active="currentTheme === 'retro-dark'"
+          >
+            <template #prepend>
+              <v-icon size="small">mdi-weather-night</v-icon>
+            </template>
+            <v-list-item-title>{{ t('theme.retroDark') }}</v-list-item-title>
+          </v-list-item>
+          <v-list-item
+            @click="setTheme('retro-deep-dark')"
+            :active="currentTheme === 'retro-deep-dark'"
+          >
+            <template #prepend>
+              <v-icon size="small">mdi-weather-night-partly-cloudy</v-icon>
+            </template>
+            <v-list-item-title>{{ t('theme.retroDeepDark') }}</v-list-item-title>
+          </v-list-item>
+          <v-divider class="my-1" />
+          <v-list-item
+            @click="setTheme('minimal-dark')"
+            :active="currentTheme === 'minimal-dark'"
+          >
+            <template #prepend>
+              <v-icon size="small">mdi-moon-waning-crescent</v-icon>
+            </template>
+            <v-list-item-title>{{ t('theme.minimalDark') }}</v-list-item-title>
+          </v-list-item>
+        </v-list>
+      </v-menu>
 
       <!-- 注销按钮 -->
       <v-btn
@@ -604,7 +646,6 @@ const editingChannel = ref<Channel | null>(null)
 const selectedChannelForKey = ref<number>(-1)
 const newApiKey = ref('')
 const isPingingAll = ref(false)
-const darkModePreference = ref<'light' | 'dark' | 'auto'>('auto')
 const appVersion = ref('') // 应用版本号
 const showPricingSettings = ref(false) // 定价设置对话框
 const showRateLimitSettings = ref(false) // 速率限制设置对话框
@@ -969,26 +1010,37 @@ const updateLoadBalance = async (strategy: string) => {
 }
 
 // 主题管理
-const toggleDarkMode = () => {
-  const newMode = darkModePreference.value === 'dark' ? 'light' : 'dark'
-  setDarkMode(newMode)
-}
+type ThemeOption = 'retro-light' | 'retro-dark' | 'retro-deep-dark' | 'minimal-dark'
+const currentTheme = ref<ThemeOption>('retro-dark')
 
-const setDarkMode = (themeName: 'light' | 'dark' | 'auto') => {
-  darkModePreference.value = themeName
-  const apply = (isDark: boolean) => {
-    theme.global.name.value = isDark ? 'dark' : 'light'
+// Computed class for theme-specific scoped styles
+const themeClass = computed(() => {
+  return currentTheme.value === 'minimal-dark' ? 'theme-minimal' : 'theme-retro'
+})
+
+const setTheme = (themeName: ThemeOption) => {
+  currentTheme.value = themeName
+
+  // Set Vuetify theme and data-theme attribute
+  if (themeName === 'retro-light') {
+    theme.global.name.value = 'light'
+    document.documentElement.dataset.theme = 'retro'
+  } else if (themeName === 'retro-dark') {
+    theme.global.name.value = 'dark'
+    document.documentElement.dataset.theme = 'retro'
+  } else if (themeName === 'retro-deep-dark') {
+    theme.global.name.value = 'retroDeepDark'
+    document.documentElement.dataset.theme = 'retro'
+  } else if (themeName === 'minimal-dark') {
+    theme.global.name.value = 'minimalDark'
+    document.documentElement.dataset.theme = 'minimal'
   }
 
-  if (themeName === 'auto') {
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-    apply(prefersDark)
-  } else {
-    apply(themeName === 'dark')
-  }
-
-  localStorage.setItem('theme', themeName)
+  localStorage.setItem('themeOption', themeName)
 }
+
+// Legacy support - keep for compatibility
+const darkModePreference = ref<'light' | 'dark' | 'auto'>('auto')
 
 // 认证状态管理
 const isAuthenticated = ref(false)
@@ -1275,21 +1327,18 @@ onMounted(async () => {
   // 注册键盘快捷键
   window.addEventListener('keydown', handleKeydown)
 
-  // 初始化复古像素主题
-  document.documentElement.dataset.theme = 'retro'
+  // 初始化主题系统
   initTheme()
   initLocale()
 
-  // 加载保存的暗色模式偏好
-  const savedMode = (localStorage.getItem('theme') as 'light' | 'dark' | 'auto') || 'auto'
-  setDarkMode(savedMode)
-
-  // 监听系统主题变化
-  const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-  const handlePref = () => {
-    if (darkModePreference.value === 'auto') setDarkMode('auto')
+  // 加载保存的主题偏好
+  const savedTheme = localStorage.getItem('themeOption') as ThemeOption | null
+  if (savedTheme && ['retro-light', 'retro-dark', 'retro-deep-dark', 'minimal-dark'].includes(savedTheme)) {
+    setTheme(savedTheme)
+  } else {
+    // 默认使用 retro-dark
+    setTheme('retro-dark')
   }
-  mediaQuery.addEventListener('change', handlePref)
 
   // 检查是否有保存的密钥
   const savedKey = initializeAuth()
@@ -1384,52 +1433,52 @@ onUnmounted(() => {
 
 <style scoped>
 /* =====================================================
-   🎮 复古像素 (Retro Pixel) 主题样式系统
+   .theme-retro 🎮 复古像素 (Retro Pixel) 主题样式系统
    Neo-Brutalism: 直角、粗黑边框、硬阴影、等宽字体
    ===================================================== */
 
 /* ----- 应用栏 - 复古像素风格 ----- */
-.app-header {
+.theme-retro .app-header{
   background: rgb(var(--v-theme-surface)) !important;
   border-bottom: 2px solid rgb(var(--v-theme-on-surface));
   transition: none;
   padding: 0 16px !important;
 }
 
-.v-theme--dark .app-header {
+.theme-retro .v-theme--dark .app-header{
   background: rgb(var(--v-theme-surface)) !important;
   border-bottom: 2px solid rgba(255, 255, 255, 0.8);
 }
 
 /* 修复 Header 布局 */
-.app-header :deep(.v-toolbar__prepend) {
+.theme-retro .app-header :deep(.v-toolbar__prepend){
   margin-inline-end: 4px !important;
 }
 
-.app-header .v-toolbar-title {
+.theme-retro .app-header .v-toolbar-title{
   overflow: hidden !important;
   min-width: 0 !important;
   flex: 1 !important;
 }
 
-.app-header :deep(.v-toolbar__content) {
+.theme-retro .app-header :deep(.v-toolbar__content){
   overflow: visible !important;
 }
 
-.app-header :deep(.v-toolbar__content > .v-toolbar-title) {
+.theme-retro .app-header :deep(.v-toolbar__content > .v-toolbar-title){
   min-width: 0 !important;
   margin-inline-start: 0 !important;
   margin-inline-end: auto !important;
 }
 
-.app-header :deep(.v-toolbar-title__placeholder) {
+.theme-retro .app-header :deep(.v-toolbar-title__placeholder){
   width: 100%;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.app-logo {
+.theme-retro .app-logo{
   width: 42px;
   height: 42px;
   display: flex;
@@ -1442,50 +1491,50 @@ onUnmounted(() => {
   transition: all 0.1s ease;
 }
 
-.app-logo:hover {
+.theme-retro .app-logo:hover{
   transform: translate(-1px, -1px);
   box-shadow: 4px 4px 0 0 rgb(var(--v-theme-on-surface));
 }
 
-.app-logo:active {
+.theme-retro .app-logo:active{
   transform: translate(2px, 2px);
   box-shadow: none;
 }
 
-.v-theme--dark .app-logo {
+.theme-retro .v-theme--dark .app-logo{
   border-color: rgba(255, 255, 255, 0.8);
   box-shadow: 3px 3px 0 0 rgba(255, 255, 255, 0.8);
 }
 
-.v-theme--dark .app-logo:hover {
+.theme-retro .v-theme--dark .app-logo:hover{
   box-shadow: 4px 4px 0 0 rgba(255, 255, 255, 0.8);
 }
 
-.v-theme--dark .app-logo:active {
+.theme-retro .v-theme--dark .app-logo:active{
   box-shadow: none;
 }
 
 /* 自定义标题容器 */
-.header-title {
+.theme-retro .header-title{
   display: flex;
   align-items: center;
   flex-shrink: 0;
 }
 
 /* 导航按钮组 - 复古像素风格 */
-.nav-toggle {
+.theme-retro .nav-toggle{
   border: 2px solid rgb(var(--v-theme-on-surface)) !important;
   box-shadow: 3px 3px 0 0 rgb(var(--v-theme-on-surface)) !important;
   border-radius: 0 !important;
   background: rgb(var(--v-theme-surface)) !important;
 }
 
-.v-theme--dark .nav-toggle {
+.theme-retro .v-theme--dark .nav-toggle{
   border-color: rgba(255, 255, 255, 0.7) !important;
   box-shadow: 3px 3px 0 0 rgba(255, 255, 255, 0.7) !important;
 }
 
-.nav-btn {
+.theme-retro .nav-btn{
   border-radius: 0 !important;
   text-transform: none !important;
   font-weight: 600 !important;
@@ -1494,24 +1543,24 @@ onUnmounted(() => {
   min-width: 80px !important;
 }
 
-.nav-btn:not(:last-child) {
+.theme-retro .nav-btn:not(:last-child){
   border-right: 2px solid rgb(var(--v-theme-on-surface)) !important;
 }
 
-.v-theme--dark .nav-btn:not(:last-child) {
+.theme-retro .v-theme--dark .nav-btn:not(:last-child){
   border-right-color: rgba(255, 255, 255, 0.5) !important;
 }
 
-.nav-toggle .nav-btn.v-btn--active {
+.theme-retro .nav-toggle .nav-btn.v-btn--active{
   background: rgb(var(--v-theme-primary)) !important;
   color: white !important;
 }
 
-.nav-toggle .nav-btn:not(.v-btn--active):hover {
+.theme-retro .nav-toggle .nav-btn:not(.v-btn--active):hover{
   background: rgba(var(--v-theme-primary), 0.1) !important;
 }
 
-.version-badge {
+.theme-retro .version-badge{
   font-size: 12px;
   font-weight: 600;
   color: rgba(var(--v-theme-on-surface), 0.6);
@@ -1521,55 +1570,55 @@ onUnmounted(() => {
   font-family: 'Courier New', monospace;
 }
 
-.header-btn {
+.theme-retro .header-btn{
   border: 2px solid rgb(var(--v-theme-on-surface)) !important;
   box-shadow: 2px 2px 0 0 rgb(var(--v-theme-on-surface)) !important;
   margin-left: 4px;
   transition: all 0.1s ease !important;
 }
 
-.v-theme--dark .header-btn {
+.theme-retro .v-theme--dark .header-btn{
   border-color: rgba(255, 255, 255, 0.6) !important;
   box-shadow: 2px 2px 0 0 rgba(255, 255, 255, 0.6) !important;
 }
 
-.header-btn:hover {
+.theme-retro .header-btn:hover{
   background: rgba(var(--v-theme-primary), 0.1);
   transform: translate(-1px, -1px);
   box-shadow: 3px 3px 0 0 rgb(var(--v-theme-on-surface)) !important;
 }
 
-.header-btn:active {
+.theme-retro .header-btn:active{
   transform: translate(2px, 2px) !important;
   box-shadow: none !important;
 }
 
 /* ----- 统计卡片 - 复古像素风格 ----- */
-.stat-cards-row {
+.theme-retro .stat-cards-row{
   margin-top: -8px;
 }
 
 /* ----- 全局统计图表卡片 ----- */
-.global-chart-card {
+.theme-retro .global-chart-card{
   position: relative;
   background: rgb(var(--v-theme-surface));
   border: 2px solid rgb(var(--v-theme-on-surface));
   box-shadow: 6px 6px 0 0 rgb(var(--v-theme-on-surface));
 }
 
-.v-theme--dark .global-chart-card {
+.theme-retro .v-theme--dark .global-chart-card{
   border-color: rgba(255, 255, 255, 0.8);
   box-shadow: 6px 6px 0 0 rgba(255, 255, 255, 0.8);
 }
 
-.chart-collapse-btn {
+.theme-retro .chart-collapse-btn{
   position: absolute;
   top: 4px;
   right: 4px;
   z-index: 2;
 }
 
-.chart-expand-bar {
+.theme-retro .chart-expand-bar{
   display: flex;
   justify-content: center;
   padding: 4px;
@@ -1580,22 +1629,22 @@ onUnmounted(() => {
   transition: all 0.2s ease;
 }
 
-.chart-expand-bar:hover {
+.theme-retro .chart-expand-bar:hover{
   opacity: 1;
   background: rgba(var(--v-theme-surface-variant), 0.5);
 }
 
-.v-theme--dark .chart-expand-bar {
+.theme-retro .v-theme--dark .chart-expand-bar{
   border-color: rgba(255, 255, 255, 0.5);
 }
 
-.expand-chart-btn {
+.theme-retro .expand-chart-btn{
   text-transform: none !important;
   font-weight: 500 !important;
   letter-spacing: 0 !important;
 }
 
-.stat-card {
+.theme-retro .stat-card{
   position: relative;
   display: flex;
   align-items: center;
@@ -1609,32 +1658,32 @@ onUnmounted(() => {
   overflow: hidden;
   min-height: 100px;
 }
-.stat-card:hover {
+.theme-retro .stat-card:hover{
   transform: translate(-2px, -2px);
   box-shadow: 8px 8px 0 0 rgb(var(--v-theme-on-surface));
   border: 2px solid rgb(var(--v-theme-on-surface));
 }
 
-.stat-card:active {
+.theme-retro .stat-card:active{
   transform: translate(2px, 2px);
   box-shadow: 2px 2px 0 0 rgb(var(--v-theme-on-surface));
 }
 
-.v-theme--dark .stat-card {
+.theme-retro .v-theme--dark .stat-card{
   background: rgb(var(--v-theme-surface));
   border-color: rgba(255, 255, 255, 0.8);
   box-shadow: 6px 6px 0 0 rgba(255, 255, 255, 0.8);
 }
-.v-theme--dark .stat-card:hover {
+.theme-retro .v-theme--dark .stat-card:hover{
   box-shadow: 8px 8px 0 0 rgba(255, 255, 255, 0.8);
   border-color: rgba(255, 255, 255, 0.8);
 }
 
-.v-theme--dark .stat-card:active {
+.theme-retro .v-theme--dark .stat-card:active{
   box-shadow: 2px 2px 0 0 rgba(255, 255, 255, 0.8);
 }
 
-.stat-card-icon {
+.theme-retro .stat-card-icon{
   width: 56px;
   height: 56px;
   display: flex;
@@ -1646,33 +1695,33 @@ onUnmounted(() => {
   transition: transform 0.1s ease;
 }
 
-.v-theme--dark .stat-card-icon {
+.theme-retro .v-theme--dark .stat-card-icon{
   border-color: rgba(255, 255, 255, 0.6);
 }
 
-.stat-card:hover .stat-card-icon {
+.theme-retro .stat-card:hover .stat-card-icon{
   transform: scale(1.05);
 }
 
-.stat-card-content {
+.theme-retro .stat-card-content{
   flex: 1;
   min-width: 0;
 }
 
-.stat-card-value {
+.theme-retro .stat-card-value{
   font-size: 1.75rem;
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: -0.5px;
 }
 
-.stat-card-total {
+.theme-retro .stat-card-total{
   font-size: 1rem;
   font-weight: 500;
   opacity: 0.6;
 }
 
-.stat-card-label {
+.theme-retro .stat-card-label{
   font-size: 0.875rem;
   font-weight: 600;
   margin-top: 2px;
@@ -1680,7 +1729,7 @@ onUnmounted(() => {
   text-transform: uppercase;
 }
 
-.stat-card-desc {
+.theme-retro .stat-card-desc{
   font-size: 0.75rem;
   opacity: 0.6;
   margin-top: 2px;
@@ -1690,119 +1739,119 @@ onUnmounted(() => {
 }
 
 /* 隐藏光晕效果 */
-.stat-card-glow {
+.theme-retro .stat-card-glow{
   display: none;
 }
 
 /* 统计卡片颜色变体 */
-.stat-card-info .stat-card-icon {
+.theme-retro .stat-card-info .stat-card-icon{
   background: #3b82f6;
   color: white;
 }
-.stat-card-info .stat-card-value {
+.theme-retro .stat-card-info .stat-card-value{
   color: #3b82f6;
 }
-.v-theme--dark .stat-card-info .stat-card-value {
+.theme-retro .v-theme--dark .stat-card-info .stat-card-value{
   color: #60a5fa;
 }
 
-.stat-card-success .stat-card-icon {
+.theme-retro .stat-card-success .stat-card-icon{
   background: #10b981;
   color: white;
 }
-.stat-card-success .stat-card-value {
+.theme-retro .stat-card-success .stat-card-value{
   color: #10b981;
 }
-.v-theme--dark .stat-card-success .stat-card-value {
+.theme-retro .v-theme--dark .stat-card-success .stat-card-value{
   color: #34d399;
 }
 
-.stat-card-primary .stat-card-icon {
+.theme-retro .stat-card-primary .stat-card-icon{
   background: #6366f1;
   color: white;
 }
-.stat-card-primary .stat-card-value {
+.theme-retro .stat-card-primary .stat-card-value{
   color: #6366f1;
 }
-.v-theme--dark .stat-card-primary .stat-card-value {
+.theme-retro .v-theme--dark .stat-card-primary .stat-card-value{
   color: #818cf8;
 }
 
-.stat-card-emerald .stat-card-icon {
+.theme-retro .stat-card-emerald .stat-card-icon{
   background: #059669;
   color: white;
 }
-.stat-card-emerald .stat-card-value {
+.theme-retro .stat-card-emerald .stat-card-value{
   color: #059669;
 }
-.v-theme--dark .stat-card-emerald .stat-card-value {
+.theme-retro .v-theme--dark .stat-card-emerald .stat-card-value{
   color: #34d399;
 }
 
 /* =========================================
-   复古像素主题 - 全局样式覆盖
+   .theme-retro 复古像素主题 - 全局样式覆盖
    ========================================= */
 
-/* 全局背景 */
-.v-application {
+/* 全局背景 - 仅 Retro Light 使用 cream 色 */
+.theme-retro.v-theme--light {
   background-color: #fffbeb !important;
   font-family: 'Courier New', Consolas, monospace !important;
 }
 
-.v-theme--dark .v-application,
-.v-theme--dark.v-application {
-  background-color: rgb(var(--v-theme-background)) !important;
-}
-
-.v-main {
+.theme-retro.v-theme--light .v-main {
   background-color: #fffbeb !important;
 }
 
-.v-theme--dark .v-main {
+/* Retro Dark themes - use Vuetify theme background */
+.theme-retro.v-theme--dark {
+  font-family: 'Courier New', Consolas, monospace !important;
+}
+
+.theme-retro.v-theme--dark .v-main {
   background-color: rgb(var(--v-theme-background)) !important;
 }
 
 /* 统计卡片图标配色 */
-.stat-card-icon .v-icon {
+.theme-retro .stat-card-icon .v-icon{
   color: white !important;
 }
 
-.stat-card-emerald .stat-card-icon .v-icon {
+.theme-retro .stat-card-emerald .stat-card-icon .v-icon{
   color: white !important;
 }
 
 /* 主按钮 - 复古像素风格 */
-.action-btn-primary {
+.theme-retro .action-btn-primary{
   background: rgb(var(--v-theme-primary)) !important;
   border: 2px solid rgb(var(--v-theme-on-surface)) !important;
   box-shadow: 4px 4px 0 0 rgb(var(--v-theme-on-surface)) !important;
   color: white !important;
 }
 
-.action-btn-primary:hover {
+.theme-retro .action-btn-primary:hover{
   transform: translate(-1px, -1px);
   box-shadow: 5px 5px 0 0 rgb(var(--v-theme-on-surface)) !important;
 }
 
-.action-btn-primary:active {
+.theme-retro .action-btn-primary:active{
   transform: translate(2px, 2px) !important;
   box-shadow: none !important;
 }
 
-.v-theme--dark .action-btn-primary {
+.theme-retro .v-theme--dark .action-btn-primary{
   border-color: rgba(255, 255, 255, 0.8) !important;
   box-shadow: 4px 4px 0 0 rgba(255, 255, 255, 0.8) !important;
 }
 
 /* 渠道编排容器 */
-.channel-orchestration {
+.theme-retro .channel-orchestration{
   background: transparent !important;
   box-shadow: none !important;
   border: none !important;
 }
 
 /* 渠道列表卡片样式 */
-.channel-list .channel-row {
+.theme-retro .channel-list .channel-row{
   background: rgb(var(--v-theme-surface)) !important;
   margin-bottom: 0;
   padding: 14px 12px 14px 28px !important;
@@ -1812,19 +1861,19 @@ onUnmounted(() => {
   position: relative;
 }
 
-.v-theme--dark .channel-list .channel-row {
+.theme-retro .v-theme--dark .channel-list .channel-row{
   border-color: rgba(255, 255, 255, 0.7) !important;
   box-shadow: 4px 4px 0 0 rgba(255, 255, 255, 0.7) !important;
 }
 
-.channel-list .channel-row:active {
+.theme-retro .channel-list .channel-row:active{
   transform: translate(2px, 2px);
   box-shadow: none !important;
   transition: transform 0.1s;
 }
 
 /* 序号角标 */
-.channel-row .priority-number {
+.theme-retro .channel-row .priority-number{
   position: absolute !important;
   top: -1px !important;
   left: -1px !important;
@@ -1843,25 +1892,25 @@ onUnmounted(() => {
   text-transform: uppercase;
 }
 
-.v-theme--dark .channel-row .priority-number {
+.theme-retro .v-theme--dark .channel-row .priority-number{
   border-color: rgba(255, 255, 255, 0.5) !important;
 }
 
 /* 拖拽手柄 */
-.drag-handle {
+.theme-retro .drag-handle{
   opacity: 0.3;
   padding: 8px;
   margin-left: -8px;
 }
 
 /* 渠道名称 */
-.channel-name {
+.theme-retro .channel-name{
   font-size: 14px !important;
   font-weight: 700 !important;
   color: rgb(var(--v-theme-on-surface));
 }
 
-.channel-name .text-caption.text-medium-emphasis {
+.theme-retro .channel-name .text-caption.text-medium-emphasis{
   background: rgb(var(--v-theme-surface-variant));
   padding: 2px 6px;
   font-size: 10px !important;
@@ -1871,34 +1920,34 @@ onUnmounted(() => {
   text-transform: uppercase;
 }
 
-.v-theme--dark .channel-name .text-caption.text-medium-emphasis {
+.theme-retro .v-theme--dark .channel-name .text-caption.text-medium-emphasis{
   border-color: rgba(255, 255, 255, 0.5);
 }
 
 /* 隐藏描述文字 */
-.channel-name .text-disabled {
+.theme-retro .channel-name .text-disabled{
   display: none !important;
 }
 
 /* 隐藏指标和密钥数 */
-.channel-metrics,
-.channel-keys {
+.theme-retro .channel-metrics, 
+.theme-retro .channel-keys{
   display: none !important;
 }
 
 /* --- 备用资源池 --- */
-.inactive-pool {
+.theme-retro .inactive-pool{
   background: rgb(var(--v-theme-surface)) !important;
   border: 2px dashed rgb(var(--v-theme-on-surface)) !important;
   padding: 8px !important;
   margin-top: 12px;
 }
 
-.v-theme--dark .inactive-pool {
+.theme-retro .v-theme--dark .inactive-pool{
   border-color: rgba(255, 255, 255, 0.5) !important;
 }
 
-.inactive-channel-row {
+.theme-retro .inactive-channel-row{
   background: rgb(var(--v-theme-surface)) !important;
   margin: 6px !important;
   padding: 12px !important;
@@ -1906,18 +1955,18 @@ onUnmounted(() => {
   box-shadow: 3px 3px 0 0 rgb(var(--v-theme-on-surface)) !important;
 }
 
-.v-theme--dark .inactive-channel-row {
+.theme-retro .v-theme--dark .inactive-channel-row{
   border-color: rgba(255, 255, 255, 0.6) !important;
   box-shadow: 3px 3px 0 0 rgba(255, 255, 255, 0.6) !important;
 }
 
-.inactive-channel-row .channel-info-main {
+.theme-retro .inactive-channel-row .channel-info-main{
   color: rgb(var(--v-theme-on-surface)) !important;
   font-weight: 600;
 }
 
 /* ----- 操作按钮区域 ----- */
-.action-bar {
+.theme-retro .action-bar{
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1929,25 +1978,25 @@ onUnmounted(() => {
   box-shadow: 6px 6px 0 0 rgb(var(--v-theme-on-surface));
 }
 
-.v-theme--dark .action-bar {
+.theme-retro .v-theme--dark .action-bar{
   background: rgb(var(--v-theme-surface));
   border-color: rgba(255, 255, 255, 0.8);
   box-shadow: 6px 6px 0 0 rgba(255, 255, 255, 0.8);
 }
 
-.action-bar-left {
+.theme-retro .action-bar-left{
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
 }
 
-.action-bar-right {
+.theme-retro .action-bar-right{
   display: flex;
   align-items: center;
 }
 
-.action-btn {
+.theme-retro .action-btn{
   font-weight: 600;
   letter-spacing: 0.3px;
   text-transform: uppercase;
@@ -1956,96 +2005,96 @@ onUnmounted(() => {
   box-shadow: 4px 4px 0 0 rgb(var(--v-theme-on-surface)) !important;
 }
 
-.v-theme--dark .action-btn {
+.theme-retro .v-theme--dark .action-btn{
   border-color: rgba(255, 255, 255, 0.7) !important;
   box-shadow: 4px 4px 0 0 rgba(255, 255, 255, 0.7) !important;
 }
 
-.action-btn:hover {
+.theme-retro .action-btn:hover{
   transform: translate(-1px, -1px);
   box-shadow: 5px 5px 0 0 rgb(var(--v-theme-on-surface)) !important;
 }
 
-.action-btn:active {
+.theme-retro .action-btn:active{
   transform: translate(2px, 2px) !important;
   box-shadow: none !important;
 }
 
-.load-balance-btn {
+.theme-retro .load-balance-btn{
   text-transform: uppercase;
 }
 
-.load-balance-menu {
+.theme-retro .load-balance-menu{
   min-width: 300px;
   padding: 8px;
   border: 2px solid rgb(var(--v-theme-on-surface)) !important;
   box-shadow: 4px 4px 0 0 rgb(var(--v-theme-on-surface)) !important;
 }
 
-.v-theme--dark .load-balance-menu {
+.theme-retro .v-theme--dark .load-balance-menu{
   border-color: rgba(255, 255, 255, 0.7) !important;
   box-shadow: 4px 4px 0 0 rgba(255, 255, 255, 0.7) !important;
 }
 
-.load-balance-menu .v-list-item {
+.theme-retro .load-balance-menu .v-list-item{
   margin-bottom: 4px;
   padding: 12px 16px;
 }
 
-.load-balance-menu .v-list-item:last-child {
+.theme-retro .load-balance-menu .v-list-item:last-child{
   margin-bottom: 0;
 }
 
 /* =========================================
-   手机端专属样式 (≤600px)
+   .theme-retro 手机端专属样式 (≤600px)
    ========================================= */
 @media (max-width: 600px) {
   /* --- 顶部导航栏 --- */
-  .app-header {
+  .theme-retro .app-header{
     padding: 0 12px !important;
     background: rgb(var(--v-theme-surface)) !important;
     border-bottom: 2px solid rgb(var(--v-theme-on-surface)) !important;
     box-shadow: none !important;
   }
 
-  .v-theme--dark .app-header {
+  .theme-retro .v-theme--dark .app-header{
     border-bottom-color: rgba(255, 255, 255, 0.7) !important;
   }
 
-  .app-logo {
+  .theme-retro .app-logo{
     width: 32px;
     height: 32px;
     margin-right: 8px;
     box-shadow: 2px 2px 0 0 rgb(var(--v-theme-on-surface));
   }
 
-  .v-theme--dark .app-logo {
+  .theme-retro .v-theme--dark .app-logo{
     box-shadow: 2px 2px 0 0 rgba(255, 255, 255, 0.7);
   }
 
   /* 移动端导航按钮调整 */
-  .nav-toggle {
+  .theme-retro .nav-toggle{
     box-shadow: 2px 2px 0 0 rgb(var(--v-theme-on-surface)) !important;
   }
 
-  .v-theme--dark .nav-toggle {
+  .theme-retro .v-theme--dark .nav-toggle{
     box-shadow: 2px 2px 0 0 rgba(255, 255, 255, 0.7) !important;
   }
 
-  .nav-btn {
+  .theme-retro .nav-btn{
     min-width: 70px !important;
     padding: 0 8px !important;
     min-height: 44px !important; /* Touch-friendly */
   }
 
   /* Touch-friendly header buttons */
-  .header-btn {
+  .theme-retro .header-btn{
     min-width: 44px !important;
     min-height: 44px !important;
   }
 
   /* --- 统计卡片优化 --- */
-  .stat-card {
+  .theme-retro .stat-card{
     padding: 14px 12px;
     gap: 10px;
     min-height: auto;
@@ -2054,21 +2103,21 @@ onUnmounted(() => {
     border: 2px solid rgb(var(--v-theme-on-surface)) !important;
   }
 
-  .v-theme--dark .stat-card {
+  .theme-retro .v-theme--dark .stat-card{
     box-shadow: 4px 4px 0 0 rgba(255, 255, 255, 0.7) !important;
     border-color: rgba(255, 255, 255, 0.7) !important;
   }
 
-  .stat-card-icon {
+  .theme-retro .stat-card-icon{
     width: 36px;
     height: 36px;
   }
 
-  .stat-card-icon .v-icon {
+  .theme-retro .stat-card-icon .v-icon{
     font-size: 18px !important;
   }
 
-  .stat-card-value {
+  .theme-retro .stat-card-value{
     font-size: 1.35rem;
     font-weight: 800 !important;
     line-height: 1.2;
@@ -2076,104 +2125,104 @@ onUnmounted(() => {
     letter-spacing: -0.5px;
   }
 
-  .stat-card-label {
+  .theme-retro .stat-card-label{
     font-size: 0.7rem;
     color: rgba(var(--v-theme-on-surface), 0.6);
     font-weight: 500;
     text-transform: uppercase;
   }
 
-  .stat-card-desc {
+  .theme-retro .stat-card-desc{
     display: none;
   }
 
-  .stat-cards-row {
+  .theme-retro .stat-cards-row{
     margin-bottom: 12px !important;
   }
 
-  .stat-cards-row .v-col {
+  .theme-retro .stat-cards-row .v-col{
     padding: 4px !important;
   }
 
   /* --- 操作按钮区域 --- */
-  .action-bar {
+  .theme-retro .action-bar{
     flex-direction: column;
     gap: 10px;
     padding: 12px !important;
     box-shadow: 4px 4px 0 0 rgb(var(--v-theme-on-surface)) !important;
   }
 
-  .v-theme--dark .action-bar {
+  .theme-retro .v-theme--dark .action-bar{
     box-shadow: 4px 4px 0 0 rgba(255, 255, 255, 0.7) !important;
   }
 
-  .action-bar-left {
+  .theme-retro .action-bar-left{
     width: 100%;
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 8px;
   }
 
-  .action-bar-left .action-btn {
+  .theme-retro .action-bar-left .action-btn{
     width: 100%;
     justify-content: center;
     min-height: 44px !important; /* Touch-friendly */
   }
 
   /* 刷新按钮独占一行 */
-  .action-bar-left .action-btn:nth-child(3) {
+  .theme-retro .action-bar-left .action-btn:nth-child(3){
     grid-column: 1 / -1;
   }
 
-  .action-bar-right {
+  .theme-retro .action-bar-right{
     width: 100%;
   }
 
-  .action-bar-right .load-balance-btn {
+  .theme-retro .action-bar-right .load-balance-btn{
     width: 100%;
     justify-content: center;
   }
 
   /* --- 渠道编排容器 --- */
-  .channel-orchestration .v-card-title {
+  .theme-retro .channel-orchestration .v-card-title{
     display: none !important;
   }
 
-  .channel-orchestration > .v-divider {
+  .theme-retro .channel-orchestration > .v-divider{
     display: none !important;
   }
 
   /* 隐藏"故障转移序列"标题区域 */
-  .channel-orchestration .px-4.pt-3.pb-2 > .d-flex.mb-2 {
+  .theme-retro .channel-orchestration .px-4.pt-3.pb-2 > .d-flex.mb-2{
     display: none !important;
   }
 
   /* --- 渠道列表卡片化 --- */
-  .channel-list .channel-row:active {
+  .theme-retro .channel-list .channel-row:active{
     transform: translate(2px, 2px);
     box-shadow: none !important;
     transition: transform 0.1s;
   }
 
   /* --- 通用优化 --- */
-  .v-chip {
+  .theme-retro .v-chip{
     font-weight: 600;
     border: 1px solid rgb(var(--v-theme-on-surface));
     text-transform: uppercase;
   }
 
-  .v-theme--dark .v-chip {
+  .theme-retro .v-theme--dark .v-chip{
     border-color: rgba(255, 255, 255, 0.5);
   }
 
   /* 隐藏分割线 */
-  .channel-orchestration .v-divider {
+  .theme-retro .channel-orchestration .v-divider{
     display: none !important;
   }
 }
 
 /* 心跳动画 - 简化为简单闪烁 */
-.pulse-animation {
+.theme-retro .pulse-animation{
   animation: pixel-blink 1s step-end infinite;
 }
 
@@ -2189,119 +2238,307 @@ onUnmounted(() => {
 
 /* ----- 响应式调整 ----- */
 @media (min-width: 768px) {
-  .app-header {
+  .theme-retro .app-header{
     padding: 0 24px !important;
   }
 }
 
 @media (min-width: 1024px) {
-  .app-header {
+  .theme-retro .app-header{
     padding: 0 32px !important;
   }
 }
 
 /* ----- 渠道列表动画 ----- */
-.d-contents {
+.theme-retro .d-contents{
   display: contents;
 }
 
-.channel-col {
+.theme-retro .channel-col{
   transition: all 0.2s ease;
   max-width: 640px;
 }
 
-.channel-list-enter-active,
-.channel-list-leave-active {
+.theme-retro .channel-list-enter-active, 
+.theme-retro .channel-list-leave-active{
   transition: all 0.2s ease;
 }
 
-.channel-list-enter-from {
+.theme-retro .channel-list-enter-from{
   opacity: 0;
   transform: translateY(10px);
 }
 
-.channel-list-leave-to {
+.theme-retro .channel-list-leave-to{
   opacity: 0;
   transform: translateY(-10px);
 }
 
-.channel-list-move {
+.theme-retro .channel-list-move{
+  transition: transform 0.2s ease;
+}
+
+/* =====================================================
+   🌙 简约主题 (Minimal Theme) 样式覆盖
+   Clean, modern styling - overrides retro defaults
+   ===================================================== */
+
+/* Header - minimal clean style */
+.theme-minimal .app-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(10px);
+}
+
+.theme-minimal .app-logo {
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 10px !important;
+}
+
+.theme-minimal .app-logo:hover {
+  transform: scale(1.05) !important;
+  box-shadow: none !important;
+}
+
+.theme-minimal .app-logo:active {
+  transform: scale(0.95) !important;
+}
+
+/* Nav toggle - minimal */
+.theme-minimal .nav-toggle {
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: none !important;
+  border-radius: 10px !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
+.theme-minimal .nav-btn {
+  border-radius: 8px !important;
+  border: none !important;
+}
+
+.theme-minimal .nav-btn:not(:last-child) {
+  border-right: none !important;
+}
+
+/* Header buttons - minimal */
+.theme-minimal .header-btn {
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 8px !important;
+}
+
+.theme-minimal .header-btn:hover {
+  transform: none !important;
+  box-shadow: none !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+.theme-minimal .header-btn:active {
+  transform: none !important;
+}
+
+/* Version badge - minimal */
+.theme-minimal .version-badge {
+  font-family: system-ui, sans-serif !important;
+  border-radius: 6px !important;
+  border: none !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Stat cards - minimal with soft shadows */
+.theme-minimal .stat-card {
+  border: none !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+  border-radius: 12px !important;
+  transition: all 0.2s ease !important;
+}
+
+.theme-minimal .stat-card:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+}
+
+.theme-minimal .stat-card:active {
+  transform: translateY(0) !important;
+}
+
+.theme-minimal .stat-card-icon {
+  border: none !important;
+  border-radius: 10px !important;
+}
+
+/* Global chart card - minimal */
+.theme-minimal .global-chart-card {
+  border: none !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
+  border-radius: 12px !important;
+}
+
+.theme-minimal .chart-expand-bar {
+  border: 1px dashed rgba(255, 255, 255, 0.2) !important;
+  border-radius: 8px !important;
+}
+
+/* Action bar - minimal */
+.theme-minimal .action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: none !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
+  border-radius: 12px !important;
+  padding: 16px;
+  background: rgb(var(--v-theme-surface));
+}
+
+.theme-minimal .action-bar-left {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.theme-minimal .action-bar-right {
+  display: flex;
+  align-items: center;
+}
+
+.theme-minimal .action-btn {
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 8px !important;
+  text-transform: none !important;
+}
+
+.theme-minimal .action-btn:hover {
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+.theme-minimal .action-btn:active {
+  transform: none !important;
+}
+
+.theme-minimal .action-btn-primary {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.theme-minimal .action-btn-primary:hover {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Load balance menu - minimal */
+.theme-minimal .load-balance-menu {
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3) !important;
+  border-radius: 12px !important;
+}
+
+/* Utility classes for minimal theme */
+.theme-minimal .d-contents {
+  display: contents;
+}
+
+.theme-minimal .channel-col {
+  transition: all 0.2s ease;
+  max-width: 640px;
+}
+
+.theme-minimal .channel-list-enter-active,
+.theme-minimal .channel-list-leave-active {
+  transition: all 0.2s ease;
+}
+
+.theme-minimal .channel-list-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.theme-minimal .channel-list-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+.theme-minimal .channel-list-move {
   transition: transform 0.2s ease;
 }
 </style>
 
-<!-- 全局样式 - 复古像素主题 -->
+<!-- 全局样式 - 主题系统 -->
 <style>
-/* 复古像素主题 - 全局样式 */
-.v-application {
+/* =========================================
+   Retro Pixel Theme - 复古像素主题
+   Only applied when data-theme="retro"
+   ========================================= */
+[data-theme="retro"] .v-application {
   font-family: 'Courier New', Consolas, 'Liberation Mono', monospace !important;
 }
 
-/* 所有按钮复古像素风格 */
-.v-btn:not(.v-btn--icon) {
+/* Retro Light - cream background */
+[data-theme="retro"] .v-theme--light .v-main {
+  background-color: #fffbeb !important;
+}
+
+[data-theme="retro"] .v-btn:not(.v-btn--icon) {
   border-radius: 0 !important;
   text-transform: uppercase !important;
   font-weight: 600 !important;
 }
 
-/* 所有卡片复古像素风格 */
-.v-card {
+[data-theme="retro"] .v-card {
   border-radius: 0 !important;
 }
 
-/* 所有 Chip 复古像素风格 */
-.v-chip {
+[data-theme="retro"] .v-chip {
   border-radius: 0 !important;
   font-weight: 600;
   text-transform: uppercase;
 }
 
-/* 输入框复古像素风格 */
-.v-text-field .v-field {
+[data-theme="retro"] .v-text-field .v-field {
   border-radius: 0 !important;
 }
 
-/* 对话框复古像素风格 */
-.v-dialog .v-card {
+[data-theme="retro"] .v-dialog .v-card {
   border: 2px solid currentColor !important;
   box-shadow: 6px 6px 0 0 currentColor !important;
 }
 
-/* 菜单复古像素风格 */
-.v-menu > .v-overlay__content > .v-list {
+[data-theme="retro"] .v-menu > .v-overlay__content > .v-list {
   border-radius: 0 !important;
   border: 2px solid rgb(var(--v-theme-on-surface)) !important;
   box-shadow: 4px 4px 0 0 rgb(var(--v-theme-on-surface)) !important;
 }
 
-.v-theme--dark .v-menu > .v-overlay__content > .v-list {
+[data-theme="retro"] .v-theme--dark .v-menu > .v-overlay__content > .v-list {
   border-color: rgba(255, 255, 255, 0.7) !important;
   box-shadow: 4px 4px 0 0 rgba(255, 255, 255, 0.7) !important;
 }
 
-/* Snackbar 复古像素风格 */
-.v-snackbar__wrapper {
+[data-theme="retro"] .v-snackbar__wrapper {
   border-radius: 0 !important;
   border: 2px solid currentColor !important;
   box-shadow: 4px 4px 0 0 currentColor !important;
 }
 
-/* 状态徽章复古像素风格 */
-.status-badge .badge-content {
+[data-theme="retro"] .status-badge .badge-content {
   border-radius: 0 !important;
   border: 1px solid rgb(var(--v-theme-on-surface));
 }
 
-.v-theme--dark .status-badge .badge-content {
+[data-theme="retro"] .v-theme--dark .status-badge .badge-content {
   border-color: rgba(255, 255, 255, 0.6);
 }
 
-/* 备份列表复古像素风格 */
-.v-dialog .backup-list {
+[data-theme="retro"] .v-dialog .backup-list {
   background: transparent !important;
 }
 
-.v-dialog .backup-list .v-list-item {
+[data-theme="retro"] .v-dialog .backup-list .v-list-item {
   border: 2px solid rgb(var(--v-theme-on-surface)) !important;
   box-shadow: 3px 3px 0 0 rgb(var(--v-theme-on-surface)) !important;
   border-radius: 0 !important;
@@ -2309,38 +2546,99 @@ onUnmounted(() => {
   font-family: 'Courier New', Consolas, monospace !important;
 }
 
-.v-theme--dark .v-dialog .backup-list .v-list-item {
+[data-theme="retro"] .v-theme--dark .v-dialog .backup-list .v-list-item {
   border-color: rgba(255, 255, 255, 0.7) !important;
   box-shadow: 3px 3px 0 0 rgba(255, 255, 255, 0.7) !important;
 }
 
-.v-dialog .backup-list .v-list-item:hover {
+[data-theme="retro"] .v-dialog .backup-list .v-list-item:hover {
   transform: translate(-1px, -1px);
   box-shadow: 4px 4px 0 0 rgb(var(--v-theme-on-surface)) !important;
 }
 
-.v-theme--dark .v-dialog .backup-list .v-list-item:hover {
+[data-theme="retro"] .v-theme--dark .v-dialog .backup-list .v-list-item:hover {
   box-shadow: 4px 4px 0 0 rgba(255, 255, 255, 0.7) !important;
 }
 
-.v-dialog .backup-list .v-list-item-title,
-.v-dialog .backup-list .v-list-item-subtitle {
+[data-theme="retro"] .v-dialog .backup-list .v-list-item-title,
+[data-theme="retro"] .v-dialog .backup-list .v-list-item-subtitle {
   font-family: 'Courier New', Consolas, monospace !important;
 }
 
-/* 设置菜单复古像素风格 */
-.v-menu > .v-overlay__content > .v-list .v-list-item-title {
+[data-theme="retro"] .v-menu > .v-overlay__content > .v-list .v-list-item-title {
   font-family: 'Courier New', Consolas, monospace !important;
   font-weight: 600 !important;
   text-transform: uppercase !important;
   font-size: 0.85rem !important;
 }
 
-/* 对话框标题复古像素风格 */
-.v-dialog .v-card-title {
+[data-theme="retro"] .v-dialog .v-card-title {
   font-family: 'Courier New', Consolas, monospace !important;
   font-weight: 700 !important;
   text-transform: uppercase !important;
   letter-spacing: 0.5px !important;
+}
+
+/* =========================================
+   Minimal Theme - 简约主题
+   Clean, modern styling with soft shadows
+   ========================================= */
+[data-theme="minimal"] .v-application {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
+
+[data-theme="minimal"] .v-card {
+  border-radius: 12px !important;
+  border: none !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+}
+
+[data-theme="minimal"] .v-btn:not(.v-btn--icon) {
+  border-radius: 8px !important;
+  text-transform: none !important;
+  font-weight: 500 !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+[data-theme="minimal"] .v-chip {
+  border-radius: 16px !important;
+  font-weight: 500;
+  text-transform: none;
+  border: none !important;
+}
+
+[data-theme="minimal"] .v-text-field .v-field {
+  border-radius: 8px !important;
+}
+
+[data-theme="minimal"] .v-dialog .v-card {
+  border: none !important;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25) !important;
+  border-radius: 16px !important;
+}
+
+[data-theme="minimal"] .v-menu > .v-overlay__content > .v-list {
+  border-radius: 12px !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3) !important;
+}
+
+[data-theme="minimal"] .v-snackbar__wrapper {
+  border-radius: 12px !important;
+  border: none !important;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3) !important;
+}
+
+[data-theme="minimal"] .v-dialog .backup-list .v-list-item {
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: none !important;
+  border-radius: 8px !important;
+  margin-bottom: 8px !important;
+}
+
+[data-theme="minimal"] .v-dialog .backup-list .v-list-item:hover {
+  transform: none !important;
+  background: rgba(255, 255, 255, 0.05) !important;
 }
 </style>

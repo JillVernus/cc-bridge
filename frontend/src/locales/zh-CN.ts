@@ -29,6 +29,15 @@ export default {
     no: '否',
   },
 
+  // Theme
+  theme: {
+    title: '主题',
+    retroLight: '复古亮色',
+    retroDark: '复古暗色',
+    retroDeepDark: '复古深邃',
+    minimalDark: '简约暗色',
+  },
+
   // Confirmation dialogs
   confirm: {
     deleteChannel: '删除渠道',

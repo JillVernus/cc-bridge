@@ -63,7 +63,7 @@ const lightTheme = {
   }
 }
 
-// Dark Theme - 深邃优雅，护眼舒适
+// Dark Theme - 深邃优雅，护眼舒适 (Retro Dark)
 const darkTheme = {
   dark: true,
   colors: {
@@ -87,6 +87,54 @@ const darkTheme = {
   }
 }
 
+// Retro Deep Dark Theme - 深邃复古 (Formerly Minimal Dark)
+const retroDeepDarkTheme = {
+  dark: true,
+  colors: {
+    // 主色调 - 柔和蓝色
+    primary: '#3B82F6', // Blue-500
+    secondary: '#6366F1', // Indigo-500
+    accent: '#8B5CF6', // Violet-500
+
+    // 语义色彩 - 柔和不刺眼
+    info: '#60A5FA', // Blue-400
+    success: '#4ADE80', // Green-400
+    warning: '#FACC15', // Yellow-400
+    error: '#F87171', // Red-400
+
+    // 表面色 - 中性灰，层次分明
+    background: '#18181B', // Zinc-900
+    surface: '#27272A', // Zinc-800
+    'surface-variant': '#3F3F46', // Zinc-700
+    'on-surface': '#FAFAFA', // Zinc-50
+    'on-background': '#E4E4E7' // Zinc-200
+  }
+}
+
+// Minimal Dark Theme - 简约深色，护眼舒适
+const minimalDarkTheme = {
+  dark: true,
+  colors: {
+    // 主色调 - 柔和蓝色
+    primary: '#3B82F6', // Blue-500
+    secondary: '#6366F1', // Indigo-500
+    accent: '#8B5CF6', // Violet-500
+
+    // 语义色彩 - 柔和不刺眼
+    info: '#60A5FA', // Blue-400
+    success: '#4ADE80', // Green-400
+    warning: '#FACC15', // Yellow-400
+    error: '#F87171', // Red-400
+
+    // 表面色 - 中性灰，层次分明
+    background: '#18181B', // Zinc-900
+    surface: '#27272A', // Zinc-800
+    'surface-variant': '#3F3F46', // Zinc-700
+    'on-surface': '#FAFAFA', // Zinc-50
+    'on-background': '#E4E4E7' // Zinc-200
+  }
+}
+
 export default createVuetify({
   components,
   directives,
@@ -102,7 +150,9 @@ export default createVuetify({
     defaultTheme: 'light',
     themes: {
       light: lightTheme,
-      dark: darkTheme
+      dark: darkTheme,
+      retroDeepDark: retroDeepDarkTheme,
+      minimalDark: minimalDarkTheme
     }
   }
 })

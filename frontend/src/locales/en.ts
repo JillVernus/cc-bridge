@@ -29,6 +29,15 @@ export default {
     no: 'No',
   },
 
+  // Theme
+  theme: {
+    title: 'Theme',
+    retroLight: 'Retro Light',
+    retroDark: 'Retro Dark',
+    retroDeepDark: 'Retro Deep Dark',
+    minimalDark: 'Minimal Dark',
+  },
+
   // Confirmation dialogs
   confirm: {
     deleteChannel: 'Delete Channel',
