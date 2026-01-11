@@ -580,6 +580,27 @@
 
     <!-- 操作栏 -->
     <div class="action-bar mb-4">
+      <!-- Live indicator -->
+      <v-chip
+        v-if="isSSEConnected"
+        color="success"
+        size="small"
+        variant="flat"
+        class="mr-2 live-indicator"
+      >
+        <v-icon size="12" class="mr-1 pulse-icon">mdi-circle</v-icon>
+        Live
+      </v-chip>
+      <v-chip
+        v-else-if="sseConnectionState === 'connecting'"
+        color="warning"
+        size="small"
+        variant="tonal"
+        class="mr-2"
+      >
+        <v-icon size="14" class="mr-1 spin">mdi-loading</v-icon>
+        Connecting...
+      </v-chip>
       <v-btn
         variant="text"
         size="small"
@@ -587,7 +608,7 @@
         :class="{ 'neo-btn-active': autoRefreshEnabled }"
         @click="toggleAutoRefresh"
       >
-        <v-icon size="18" class="mr-1" :class="{ 'spin': autoRefreshEnabled }">{{ autoRefreshEnabled ? 'mdi-sync' : 'mdi-sync-off' }}</v-icon>
+        <v-icon size="18" class="mr-1" :class="{ 'spin': autoRefreshEnabled && !isSSEConnected }">{{ autoRefreshEnabled ? 'mdi-sync' : 'mdi-sync-off' }}</v-icon>
         {{ autoRefreshEnabled ? t('requestLog.autoRefreshing') : t('requestLog.autoRefreshOff') }}
       </v-btn>
       <v-spacer />
@@ -926,6 +947,7 @@
 	import { useI18n } from 'vue-i18n'
 	import { api, type RequestLog, type RequestLogStats, type GroupStats, type ActiveSession, type APIKey } from '../services/api'
 	import RequestDebugModal from './RequestDebugModal.vue'
+	import { useLogStream, type LogCreatedPayload, type LogUpdatedPayload, type ConnectionState } from '../composables/useLogStream'
 
 	// i18n
 	const { t } = useI18n()
@@ -1821,6 +1843,164 @@ const autoRefreshEnabled = ref(true)
 const AUTO_REFRESH_INTERVAL = 3000
 let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
 
+// SSE connection state
+const sseConnectionState = ref<ConnectionState>('disconnected')
+const isSSEConnected = computed(() => sseConnectionState.value === 'connected')
+
+// SSE event handlers
+const handleLogCreated = (payload: LogCreatedPayload) => {
+  // Add new log to the beginning of the list
+  const newLog: RequestLog = {
+    id: payload.id,
+    status: payload.status as 'pending' | 'completed' | 'error' | 'timeout',
+    initialTime: payload.initialTime,
+    completeTime: '',
+    durationMs: 0,
+    type: '',
+    providerName: payload.providerName,
+    model: payload.model,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: 0,
+    totalTokens: 0,
+    price: 0,
+    httpStatus: 0,
+    stream: payload.stream,
+    channelId: payload.channelId,
+    channelName: payload.channelName,
+    endpoint: payload.endpoint,
+    clientId: payload.clientId,
+    sessionId: payload.sessionId,
+    createdAt: payload.initialTime
+  }
+
+  // Only add if not already in list
+  if (!logs.value.find(l => l.id === newLog.id)) {
+    logs.value = [newLog, ...logs.value.slice(0, pageSize - 1)]
+    total.value++
+  }
+
+  // Flash the new row
+  updatedIds.value = new Set([payload.id])
+  setTimeout(() => {
+    updatedIds.value = new Set()
+  }, 1000)
+}
+
+const handleLogUpdated = (payload: LogUpdatedPayload) => {
+  // Find and update the log
+  const index = logs.value.findIndex(l => l.id === payload.id)
+  if (index !== -1) {
+    const oldLog = logs.value[index]
+    const updated = { ...oldLog }
+    updated.status = payload.status as 'pending' | 'completed' | 'error' | 'timeout'
+    updated.durationMs = payload.durationMs
+    updated.httpStatus = payload.httpStatus
+    updated.type = payload.type
+    updated.providerName = payload.providerName
+    updated.channelId = payload.channelId
+    updated.channelName = payload.channelName
+    updated.inputTokens = payload.inputTokens
+    updated.outputTokens = payload.outputTokens
+    updated.cacheCreationInputTokens = payload.cacheCreationInputTokens
+    updated.cacheReadInputTokens = payload.cacheReadInputTokens
+    updated.totalTokens = payload.totalTokens
+    updated.price = payload.price
+    updated.error = payload.error
+    updated.upstreamError = payload.upstreamError
+    updated.failoverInfo = payload.failoverInfo
+    updated.responseModel = payload.responseModel
+    updated.completeTime = payload.completeTime
+    logs.value = [...logs.value.slice(0, index), updated, ...logs.value.slice(index + 1)]
+
+    // Update stats incrementally if request just completed (was pending, now has data)
+    if (oldLog.status === 'pending' && payload.status !== 'pending' && stats.value) {
+      const model = oldLog.model || payload.responseModel || 'unknown'
+      const provider = payload.providerName || 'unknown'
+      const client = oldLog.clientId || 'unknown'
+      const session = oldLog.sessionId || 'unknown'
+
+      // Helper to update a group stats entry
+      const updateGroup = (group: Record<string, GroupStats> | undefined, key: string) => {
+        if (!group) return
+        if (!group[key]) {
+          group[key] = { count: 0, inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, cost: 0 }
+        }
+        group[key].count++
+        group[key].inputTokens += payload.inputTokens
+        group[key].outputTokens += payload.outputTokens
+        group[key].cacheCreationInputTokens += payload.cacheCreationInputTokens
+        group[key].cacheReadInputTokens += payload.cacheReadInputTokens
+        group[key].cost += payload.price
+      }
+
+      // Update all stat groups
+      updateGroup(stats.value.byModel, model)
+      updateGroup(stats.value.byProvider, provider)
+      updateGroup(stats.value.byClient, client)
+      updateGroup(stats.value.bySession, session)
+
+      // Update totals
+      stats.value.totalRequests++
+      stats.value.totalCost += payload.price
+      if (stats.value.totalTokens) {
+        stats.value.totalTokens.inputTokens += payload.inputTokens
+        stats.value.totalTokens.outputTokens += payload.outputTokens
+        stats.value.totalTokens.cacheCreationInputTokens += payload.cacheCreationInputTokens
+        stats.value.totalTokens.cacheReadInputTokens += payload.cacheReadInputTokens
+        stats.value.totalTokens.totalTokens += payload.totalTokens
+      }
+
+      // Trigger reactivity by reassigning
+      stats.value = { ...stats.value }
+
+      // Flash updated summary groups
+      updatedModels.value = new Set([model])
+      updatedProviders.value = new Set([provider])
+      updatedClients.value = new Set([client])
+      updatedSessions.value = new Set([session])
+      setTimeout(() => {
+        updatedModels.value = new Set()
+        updatedProviders.value = new Set()
+        updatedClients.value = new Set()
+        updatedSessions.value = new Set()
+      }, 1000)
+    }
+
+    // Flash the updated row
+    updatedIds.value = new Set([payload.id])
+    setTimeout(() => {
+      updatedIds.value = new Set()
+    }, 1000)
+  }
+}
+
+const handleSSEConnectionChange = (state: ConnectionState) => {
+  sseConnectionState.value = state
+  console.log(`📡 SSE connection state: ${state}`)
+
+  if (state === 'connected') {
+    // SSE connected - stop polling and do one full refresh to sync state
+    stopAutoRefresh()
+    silentRefresh()
+  } else if (state === 'disconnected' || state === 'error') {
+    // SSE disconnected - start polling as fallback
+    if (autoRefreshEnabled.value) {
+      startAutoRefresh()
+    }
+  }
+}
+
+// Initialize SSE
+const { connectionState: sseState, isPollingFallback, connect: connectSSE, disconnect: disconnectSSE } = useLogStream({
+  onLogCreated: handleLogCreated,
+  onLogUpdated: handleLogUpdated,
+  onConnectionChange: handleSSEConnectionChange,
+  maxRetries: 5,
+  autoConnect: false
+})
+
 // Column widths with defaults
 const defaultColumnWidths: Record<string, number> = {
   status: 70,
@@ -2380,11 +2560,15 @@ const removeAlias = async (userId?: string) => {
 	  loadAPIKeys()
 	  emit('dateRangeChange', getDateRange())
 	  refreshLogs()
+	  // Try SSE first, fall back to polling if it fails
+	  connectSSE()
+	  // Start polling as backup until SSE connects
 	  startAutoRefresh()
 	})
 
 onUnmounted(() => {
   stopAutoRefresh()
+  disconnectSSE()
 })
 
 const startAutoRefresh = () => {
@@ -2514,6 +2698,20 @@ const silentRefresh = async () => {
 <style scoped>
 .request-log-container {
   padding: 0;
+}
+
+/* Live indicator pulse animation */
+.live-indicator {
+  font-weight: 600;
+}
+
+.pulse-icon {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 /* Top panels container with flex layout */

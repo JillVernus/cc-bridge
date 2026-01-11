@@ -16,9 +16,10 @@ import (
 
 // Manager manages request log storage using SQLite
 type Manager struct {
-	db     *sql.DB
-	mu     sync.RWMutex
-	dbPath string
+	db          *sql.DB
+	mu          sync.RWMutex
+	dbPath      string
+	broadcaster *Broadcaster
 }
 
 // NewManager creates a new request log manager with SQLite storage
@@ -56,8 +57,9 @@ func NewManager(dbPath string) (*Manager, error) {
 	}
 
 	m := &Manager{
-		db:     db,
-		dbPath: dbPath,
+		db:          db,
+		dbPath:      dbPath,
+		broadcaster: NewBroadcaster(),
 	}
 
 	if err := m.initSchema(); err != nil {
@@ -445,6 +447,11 @@ func (m *Manager) Add(record *RequestLog) error {
 		return fmt.Errorf("failed to insert request log: %w", err)
 	}
 
+	// Broadcast log created event
+	if m.broadcaster != nil {
+		m.broadcaster.Broadcast(NewLogCreatedEvent(record))
+	}
+
 	return nil
 }
 
@@ -520,6 +527,11 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 
 	if rowsAffected == 0 {
 		return fmt.Errorf("request log not found: %s", id)
+	}
+
+	// Broadcast log updated event
+	if m.broadcaster != nil {
+		m.broadcaster.Broadcast(NewLogUpdatedEvent(id, record))
 	}
 
 	return nil
@@ -1147,6 +1159,11 @@ func (m *Manager) Close() error {
 // Used by other managers that share the same database
 func (m *Manager) GetDB() *sql.DB {
 	return m.db
+}
+
+// GetBroadcaster returns the SSE broadcaster for real-time updates
+func (m *Manager) GetBroadcaster() *Broadcaster {
+	return m.broadcaster
 }
 
 // ========== User Alias Methods ==========

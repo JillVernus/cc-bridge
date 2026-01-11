@@ -457,3 +457,66 @@ func (h *RequestLogHandler) GetDebugLogStats(c *gin.Context) {
 		"count": count,
 	})
 }
+
+// StreamLogs 提供 SSE 实时日志流
+// GET /api/logs/stream
+func (h *RequestLogHandler) StreamLogs(c *gin.Context) {
+	broadcaster := h.manager.GetBroadcaster()
+	if broadcaster == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "SSE not available"})
+		return
+	}
+
+	clientID, eventChan := broadcaster.Subscribe()
+	if clientID == "" {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Too many SSE connections"})
+		return
+	}
+	defer broadcaster.Unsubscribe(clientID)
+
+	// Set all headers before writing anything
+	header := c.Writer.Header()
+	header.Set("Content-Type", "text/event-stream")
+	header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	header.Set("Connection", "keep-alive")
+	header.Set("X-Accel-Buffering", "no")
+	header.Set("Pragma", "no-cache")
+	header.Set("Expires", "0")
+	// For SSE, also set CORS if origin is present (EventSource doesn't send preflight)
+	if origin := c.GetHeader("Origin"); origin != "" {
+		header.Set("Access-Control-Allow-Origin", origin)
+		header.Set("Access-Control-Allow-Credentials", "true")
+	}
+
+	// Flush headers immediately by writing status
+	c.Status(http.StatusOK)
+	c.Writer.Flush()
+
+	// Get context for cancellation
+	ctx := c.Request.Context()
+
+	// Send initial connection event
+	_, _ = c.Writer.WriteString("event: connected\ndata: {\"clientId\":\"" + clientID + "\"}\n\n")
+	c.Writer.Flush()
+
+	// Stream events
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event, ok := <-eventChan:
+			if !ok {
+				return
+			}
+			sseData, err := event.ToSSE()
+			if err != nil {
+				continue
+			}
+			_, writeErr := c.Writer.WriteString(sseData)
+			if writeErr != nil {
+				return // Client disconnected
+			}
+			c.Writer.Flush()
+		}
+	}
+}

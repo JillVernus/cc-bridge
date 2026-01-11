@@ -832,6 +832,19 @@ class ApiService {
 
   // ============== Stats History API (for Charts) ==============
 
+  // Get the URL for SSE log stream (used by useLogStream composable)
+  getLogStreamURL(): string {
+    const baseUrl = API_BASE.replace(/^\/api$/, '')
+    const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:'
+    const host = import.meta.env.PROD ? window.location.host : (import.meta.env.VITE_BACKEND_URL?.replace(/^https?:\/\//, '') || window.location.host)
+    return `${protocol}//${host}${API_BASE}/logs/stream`
+  }
+
+  // Get the API key for SSE connections
+  getApiKeyForSSE(): string | null {
+    return this.apiKey
+  }
+
   // 获取全局统计历史数据
   async getStatsHistory(duration: Duration = '1h', endpoint?: string, from?: string, to?: string): Promise<StatsHistoryResponse> {
     const params = new URLSearchParams()

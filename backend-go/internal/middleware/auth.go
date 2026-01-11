@@ -202,6 +202,11 @@ func getAPIKey(c *gin.Context) string {
 		return strings.TrimPrefix(auth, "Bearer ")
 	}
 
+	// SSE/EventSource doesn't support custom headers, check query param
+	if key := c.Query("key"); key != "" {
+		return key
+	}
+
 	return ""
 }
 
