@@ -4,6 +4,20 @@
 
 ---
 
+## [v1.3.156] - 2026-01-12
+
+### 🐛 修复
+
+- **SSE 实时日志字段缺失**: 修复 SSE 实时更新时部分字段未即时显示的问题
+  - 修复 API Key 列不即时更新 (从数据库读取完整记录)
+  - 修复价格明细 tooltip 不即时显示 (添加 cost breakdown 字段)
+  - 修复调试图标不即时显示 (新增 `log:debugdata` SSE 事件)
+  - 后端: `getCompleteRecordForSSE()` 获取完整记录用于广播
+  - 后端: `NewLogDebugDataEvent()` 调试数据保存后广播通知
+  - 前端: `LogDebugDataPayload` 接口与 `onLogDebugData` 回调
+
+---
+
 ## [v1.3.155] - 2026-01-11
 
 ### ✨ 新功能

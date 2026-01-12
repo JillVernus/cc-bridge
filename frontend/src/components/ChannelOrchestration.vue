@@ -1439,4 +1439,65 @@ defineExpose({
   font-weight: 500;
   color: rgb(var(--v-theme-on-surface));
 }
+
+/* =========================================
+   Minimal Dark Theme Overrides
+   ========================================= */
+[data-theme="minimal"] .channel-row {
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 12px !important;
+  transition: all 0.2s ease !important;
+}
+
+[data-theme="minimal"] .channel-row:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+[data-theme="minimal"] .channel-row:active {
+  transform: none !important;
+  box-shadow: none !important;
+  background: rgba(255, 255, 255, 0.15) !important;
+}
+
+[data-theme="minimal"] .channel-row.is-suspended {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+[data-theme="minimal"] .channel-row.is-suspended:hover {
+  box-shadow: none !important;
+}
+
+[data-theme="minimal"] .channel-row.ghost {
+  border: 2px dashed rgb(var(--v-theme-primary)) !important;
+  box-shadow: none !important;
+  border-radius: 12px !important;
+}
+
+[data-theme="minimal"] .inactive-pool {
+  border: 1px dashed rgba(255, 255, 255, 0.15) !important;
+  border-radius: 12px !important;
+  background: rgba(255, 255, 255, 0.02) !important;
+}
+
+[data-theme="minimal"] .inactive-channel-row {
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 10px !important;
+  transition: all 0.2s ease !important;
+}
+
+[data-theme="minimal"] .inactive-channel-row:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+[data-theme="minimal"] .inactive-channel-row:active {
+  transform: none !important;
+  box-shadow: none !important;
+}
 </style>

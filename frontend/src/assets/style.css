@@ -89,3 +89,46 @@ html {
 .v-tooltip .reasoning-effort-tooltip .effort-value {
   color: #FFB74D !important;
 }
+
+/* =========================================
+   Global Modal Dialog Styles (iOS-style)
+   ========================================= */
+
+/* Modal card structure - scrollable content with fixed header */
+.modal-card {
+  display: flex;
+  flex-direction: column;
+  max-height: 85vh;
+}
+
+.modal-header {
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+}
+
+.modal-content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* iOS-style action buttons (X and ✓) */
+.modal-action-btn {
+  width: 36px;
+  height: 36px;
+}
+
+/* Action buttons on colored backgrounds */
+.bg-primary .modal-action-btn,
+.bg-error .modal-action-btn,
+.bg-warning .modal-action-btn,
+.bg-success .modal-action-btn {
+  color: white !important;
+}
+
+.bg-primary .modal-action-btn:hover,
+.bg-error .modal-action-btn:hover,
+.bg-warning .modal-action-btn:hover,
+.bg-success .modal-action-btn:hover {
+  background-color: rgba(255, 255, 255, 0.15) !important;
+}

@@ -240,51 +240,53 @@
         <!-- 渠道管理视图 -->
         <template v-if="activeTab !== 'logs' && activeTab !== 'apikeys'">
         <!-- 统计卡片 - 玻璃拟态风格 -->
-        <v-row class="mb-6 stat-cards-row">
-          <v-col cols="6" sm="4">
-            <div class="stat-card stat-card-info">
-              <div class="stat-card-icon">
-                <v-icon size="28">mdi-server-network</v-icon>
-              </div>
-              <div class="stat-card-content">
-                <div class="stat-card-value">{{ currentChannelsData.channels?.length || 0 }}</div>
-                <div class="stat-card-label">{{ t('stats.totalChannels') }}</div>
-                <div class="stat-card-desc">{{ t('stats.configuredChannels') }}</div>
-              </div>
-              <div class="stat-card-glow"></div>
-            </div>
-          </v-col>
-
-          <v-col cols="6" sm="4">
-            <div class="stat-card stat-card-success">
-              <div class="stat-card-icon">
-                <v-icon size="28">mdi-check-circle</v-icon>
-              </div>
-              <div class="stat-card-content">
-                <div class="stat-card-value">
-                  {{ activeChannelCount }}<span class="stat-card-total">/{{ failoverChannelCount }}</span>
+        <div class="stats-container mb-6">
+          <v-row class="stat-cards-row">
+            <v-col cols="6" sm="4">
+              <div class="stat-card stat-card-info">
+                <div class="stat-card-icon">
+                  <v-icon size="28">mdi-server-network</v-icon>
                 </div>
-                <div class="stat-card-label">{{ t('stats.activeChannels') }}</div>
-                <div class="stat-card-desc">{{ t('stats.failoverScheduling') }}</div>
+                <div class="stat-card-content">
+                  <div class="stat-card-value">{{ currentChannelsData.channels?.length || 0 }}</div>
+                  <div class="stat-card-label">{{ t('stats.totalChannels') }}</div>
+                  <div class="stat-card-desc">{{ t('stats.configuredChannels') }}</div>
+                </div>
+                <div class="stat-card-glow"></div>
               </div>
-              <div class="stat-card-glow"></div>
-            </div>
-          </v-col>
+            </v-col>
 
-          <v-col cols="6" sm="4">
-            <div class="stat-card stat-card-emerald">
-              <div class="stat-card-icon">
-                <v-icon size="28">mdi-chart-line</v-icon>
+            <v-col cols="6" sm="4">
+              <div class="stat-card stat-card-success">
+                <div class="stat-card-icon">
+                  <v-icon size="28">mdi-check-circle</v-icon>
+                </div>
+                <div class="stat-card-content">
+                  <div class="stat-card-value">
+                    {{ activeChannelCount }}<span class="stat-card-total">/{{ failoverChannelCount }}</span>
+                  </div>
+                  <div class="stat-card-label">{{ t('stats.activeChannels') }}</div>
+                  <div class="stat-card-desc">{{ t('stats.failoverScheduling') }}</div>
+                </div>
+                <div class="stat-card-glow"></div>
               </div>
-              <div class="stat-card-content">
-                <div class="stat-card-value">--</div>
-                <div class="stat-card-label">--</div>
-                <div class="stat-card-desc">--</div>
+            </v-col>
+
+            <v-col cols="6" sm="4">
+              <div class="stat-card stat-card-emerald">
+                <div class="stat-card-icon">
+                  <v-icon size="28">mdi-chart-line</v-icon>
+                </div>
+                <div class="stat-card-content">
+                  <div class="stat-card-value">--</div>
+                  <div class="stat-card-label">--</div>
+                  <div class="stat-card-desc">--</div>
+                </div>
+                <div class="stat-card-glow"></div>
               </div>
-              <div class="stat-card-glow"></div>
-            </div>
-          </v-col>
-        </v-row>
+            </v-col>
+          </v-row>
+        </div>
 
         <!-- 操作按钮区域 - 现代化设计 -->
         <div class="action-bar mb-6">
@@ -488,12 +490,16 @@
 
     <!-- 备份恢复对话框 -->
     <v-dialog v-model="showBackupRestore" max-width="600">
-      <v-card>
-        <v-card-title class="d-flex align-center">
+      <v-card class="modal-card">
+        <v-card-title class="d-flex align-center modal-header pa-4">
           <v-icon class="mr-3">mdi-backup-restore</v-icon>
           {{ t('backup.title') }}
+          <v-spacer />
+          <v-btn icon variant="text" size="small" @click="showBackupRestore = false" class="modal-action-btn">
+            <v-icon>mdi-close</v-icon>
+          </v-btn>
         </v-card-title>
-        <v-card-text>
+        <v-card-text class="modal-content">
           <!-- 创建备份按钮 -->
           <v-btn
             color="primary"
@@ -559,26 +565,24 @@
             </v-list-item>
           </v-list>
         </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="showBackupRestore = false">{{ t('common.close') }}</v-btn>
-        </v-card-actions>
       </v-card>
     </v-dialog>
 
     <!-- 恢复备份确认对话框 -->
     <v-dialog v-model="showRestoreConfirm" max-width="400">
-      <v-card>
-        <v-card-title class="text-warning d-flex align-center">
+      <v-card class="modal-card">
+        <v-card-title class="d-flex align-center modal-header pa-4 text-warning">
           <v-icon class="mr-2" color="warning">mdi-alert-circle</v-icon>
           {{ t('backup.confirmRestore') }}
-        </v-card-title>
-        <v-card-text>{{ t('backup.confirmRestoreDesc') }}</v-card-text>
-        <v-card-actions>
           <v-spacer />
-          <v-btn variant="text" @click="showRestoreConfirm = false" :disabled="isRestoringBackup">{{ t('common.cancel') }}</v-btn>
-          <v-btn color="warning" variant="flat" @click="executeRestore" :loading="isRestoringBackup">{{ t('backup.restore') }}</v-btn>
-        </v-card-actions>
+          <v-btn icon variant="text" size="small" @click="showRestoreConfirm = false" :disabled="isRestoringBackup" class="modal-action-btn">
+            <v-icon>mdi-close</v-icon>
+          </v-btn>
+          <v-btn icon variant="flat" size="small" color="warning" @click="executeRestore" :loading="isRestoringBackup" class="modal-action-btn">
+            <v-icon>mdi-check</v-icon>
+          </v-btn>
+        </v-card-title>
+        <v-card-text class="modal-content">{{ t('backup.confirmRestoreDesc') }}</v-card-text>
       </v-card>
     </v-dialog>
 
@@ -2352,6 +2356,7 @@ onUnmounted(() => {
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
   border-radius: 12px !important;
   transition: all 0.2s ease !important;
+  padding: 20px 24px !important;
 }
 
 .theme-minimal .stat-card:hover {
@@ -2436,6 +2441,112 @@ onUnmounted(() => {
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3) !important;
   border-radius: 12px !important;
+}
+
+/* Stats container - minimal theme wrapper */
+.theme-minimal .stats-container {
+  background: rgb(var(--v-theme-surface));
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.theme-minimal .stats-container .stat-cards-row {
+  margin: 0;
+}
+
+.theme-minimal .stats-container .stat-card {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* Channel list - minimal theme */
+.theme-minimal .channel-list .channel-row {
+  background: rgb(var(--v-theme-surface)) !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 12px !important;
+  margin-bottom: 8px !important;
+  padding: 16px 20px !important;
+  transition: all 0.2s ease !important;
+}
+
+.theme-minimal .channel-list .channel-row:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.theme-minimal .channel-list .channel-row:active {
+  transform: none !important;
+  box-shadow: none !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Priority number badge - minimal */
+.theme-minimal .channel-row .priority-number {
+  border-radius: 6px !important;
+  border: none !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: rgb(var(--v-theme-on-surface)) !important;
+  font-size: 11px !important;
+  padding: 4px 10px !important;
+}
+
+/* Drag handle - minimal */
+.theme-minimal .drag-handle {
+  opacity: 0.4;
+  padding: 8px;
+  margin-left: -8px;
+}
+
+.theme-minimal .drag-handle:hover {
+  opacity: 0.7;
+}
+
+/* Channel name - minimal */
+.theme-minimal .channel-name {
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  color: rgb(var(--v-theme-on-surface));
+}
+
+.theme-minimal .channel-name .text-caption.text-medium-emphasis {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 3px 8px;
+  font-size: 11px !important;
+  font-weight: 500;
+  color: rgb(var(--v-theme-on-surface)) !important;
+  border: none !important;
+  border-radius: 6px;
+}
+
+/* --- Inactive pool --- */
+.theme-minimal .inactive-pool {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: 1px dashed rgba(255, 255, 255, 0.15) !important;
+  padding: 12px !important;
+  margin-top: 16px;
+  border-radius: 12px;
+}
+
+.theme-minimal .inactive-channel-row {
+  background: rgb(var(--v-theme-surface)) !important;
+  margin: 6px !important;
+  padding: 14px 16px !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 10px !important;
+  transition: all 0.2s ease !important;
+}
+
+.theme-minimal .inactive-channel-row:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  box-shadow: none !important;
+}
+
+.theme-minimal .inactive-channel-row .channel-info-main {
+  color: rgb(var(--v-theme-on-surface)) !important;
+  font-weight: 500;
 }
 
 /* Utility classes for minimal theme */

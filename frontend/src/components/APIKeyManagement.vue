@@ -133,11 +133,27 @@
 
     <!-- Create/Edit Dialog -->
     <v-dialog v-model="dialogOpen" max-width="700">
-      <v-card>
-        <v-card-title>
+      <v-card class="modal-card">
+        <v-card-title class="d-flex align-center modal-header pa-4">
           {{ editingKey ? t('apiKeys.editTitle') : t('apiKeys.createTitle') }}
+          <v-spacer />
+          <v-btn icon variant="text" size="small" @click="dialogOpen = false" class="modal-action-btn">
+            <v-icon>mdi-close</v-icon>
+          </v-btn>
+          <v-btn
+            icon
+            variant="flat"
+            size="small"
+            color="primary"
+            :loading="saving"
+            :disabled="!formValid"
+            @click="saveKey"
+            class="modal-action-btn"
+          >
+            <v-icon>mdi-check</v-icon>
+          </v-btn>
         </v-card-title>
-        <v-card-text>
+        <v-card-text class="modal-content">
           <v-form ref="formRef" v-model="formValid">
             <v-text-field
               v-model="form.name"
@@ -228,29 +244,21 @@
             />
           </v-form>
         </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="dialogOpen = false">{{ t('common.cancel') }}</v-btn>
-          <v-btn
-            color="primary"
-            :loading="saving"
-            :disabled="!formValid"
-            @click="saveKey"
-          >
-            {{ t('common.save') }}
-          </v-btn>
-        </v-card-actions>
       </v-card>
     </v-dialog>
 
     <!-- New Key Dialog (shows the key once) -->
     <v-dialog v-model="newKeyDialogOpen" max-width="600" persistent>
-      <v-card>
-        <v-card-title class="d-flex align-center">
+      <v-card class="modal-card">
+        <v-card-title class="d-flex align-center modal-header pa-4">
           <v-icon color="success" class="mr-2">mdi-check-circle</v-icon>
           {{ t('apiKeys.keyCreated') }}
+          <v-spacer />
+          <v-btn icon variant="flat" size="small" color="primary" @click="closeNewKeyDialog" class="modal-action-btn">
+            <v-icon>mdi-check</v-icon>
+          </v-btn>
         </v-card-title>
-        <v-card-text>
+        <v-card-text class="modal-content">
           <v-alert type="warning" variant="tonal" class="mb-4">
             {{ t('apiKeys.keyCreatedWarning') }}
           </v-alert>
@@ -270,49 +278,47 @@
             />
           </div>
         </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn color="primary" @click="closeNewKeyDialog">
-            {{ t('apiKeys.understood') }}
-          </v-btn>
-        </v-card-actions>
       </v-card>
     </v-dialog>
 
     <!-- Confirm Revoke Dialog -->
     <v-dialog v-model="revokeDialogOpen" max-width="400">
-      <v-card>
-        <v-card-title>{{ t('apiKeys.confirmRevoke') }}</v-card-title>
-        <v-card-text>
+      <v-card class="modal-card">
+        <v-card-title class="d-flex align-center modal-header pa-4">
+          {{ t('apiKeys.confirmRevoke') }}
+          <v-spacer />
+          <v-btn icon variant="text" size="small" @click="revokeDialogOpen = false" class="modal-action-btn">
+            <v-icon>mdi-close</v-icon>
+          </v-btn>
+          <v-btn icon variant="flat" size="small" color="error" :loading="revoking" @click="revokeKey" class="modal-action-btn">
+            <v-icon>mdi-check</v-icon>
+          </v-btn>
+        </v-card-title>
+        <v-card-text class="modal-content">
           <v-alert type="error" variant="tonal" class="mb-2">
             {{ t('apiKeys.revokeWarning') }}
           </v-alert>
           <p>{{ t('apiKeys.revokeConfirmText', { name: keyToRevoke?.name }) }}</p>
         </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="revokeDialogOpen = false">{{ t('common.cancel') }}</v-btn>
-          <v-btn color="error" :loading="revoking" @click="revokeKey">
-            {{ t('apiKeys.revoke') }}
-          </v-btn>
-        </v-card-actions>
       </v-card>
     </v-dialog>
 
     <!-- Confirm Delete Dialog -->
     <v-dialog v-model="deleteDialogOpen" max-width="400">
-      <v-card>
-        <v-card-title>{{ t('apiKeys.confirmDelete') }}</v-card-title>
-        <v-card-text>
+      <v-card class="modal-card">
+        <v-card-title class="d-flex align-center modal-header pa-4">
+          {{ t('apiKeys.confirmDelete') }}
+          <v-spacer />
+          <v-btn icon variant="text" size="small" @click="deleteDialogOpen = false" class="modal-action-btn">
+            <v-icon>mdi-close</v-icon>
+          </v-btn>
+          <v-btn icon variant="flat" size="small" color="error" :loading="deleting" @click="deleteKey" class="modal-action-btn">
+            <v-icon>mdi-check</v-icon>
+          </v-btn>
+        </v-card-title>
+        <v-card-text class="modal-content">
           {{ t('apiKeys.deleteConfirmText', { name: keyToDelete?.name }) }}
         </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="deleteDialogOpen = false">{{ t('common.cancel') }}</v-btn>
-          <v-btn color="error" :loading="deleting" @click="deleteKey">
-            {{ t('common.delete') }}
-          </v-btn>
-        </v-card-actions>
       </v-card>
     </v-dialog>
 
@@ -608,6 +614,31 @@ onMounted(() => {
 <style scoped>
 .api-key-management {
   padding: 16px;
+}
+
+/* Modal card structure */
+.modal-card {
+  display: flex;
+  flex-direction: column;
+  max-height: 85vh;
+}
+
+.modal-header {
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+}
+
+.modal-content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 16px;
+}
+
+/* iOS-style action buttons */
+.modal-action-btn {
+  width: 36px;
+  height: 36px;
 }
 
 .key-prefix {

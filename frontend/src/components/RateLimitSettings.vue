@@ -1,11 +1,21 @@
 <template>
   <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="700">
-    <v-card class="settings-card">
-      <v-card-title class="d-flex align-center">
+    <v-card class="settings-card modal-card">
+      <v-card-title class="d-flex align-center modal-header pa-4">
         <v-icon class="mr-2">mdi-speedometer</v-icon>
         {{ t('rateLimit.title') }}
+        <v-spacer />
+        <v-btn variant="text" size="small" color="warning" @click="confirmReset" :loading="resetting" class="mr-2">
+          {{ t('rateLimit.resetDefault') }}
+        </v-btn>
+        <v-btn icon variant="text" size="small" @click="$emit('update:modelValue', false)" class="modal-action-btn">
+          <v-icon>mdi-close</v-icon>
+        </v-btn>
+        <v-btn icon variant="flat" size="small" color="primary" @click="saveConfig" :loading="saving" class="modal-action-btn">
+          <v-icon>mdi-check</v-icon>
+        </v-btn>
       </v-card-title>
-      <v-card-text>
+      <v-card-text class="modal-content">
         <div v-if="loading" class="text-center pa-4">
           <v-progress-circular indeterminate size="24" />
         </div>
@@ -143,32 +153,23 @@
           {{ t('rateLimit.loadFailed') }}
         </div>
       </v-card-text>
-      <v-card-actions>
-        <v-btn
-          variant="text"
-          color="warning"
-          @click="confirmReset"
-          :loading="resetting"
-        >
-          {{ t('rateLimit.resetDefault') }}
-        </v-btn>
-        <v-spacer />
-        <v-btn variant="text" @click="$emit('update:modelValue', false)">{{ t('common.cancel') }}</v-btn>
-        <v-btn color="primary" variant="flat" @click="saveConfig" :loading="saving">{{ t('common.save') }}</v-btn>
-      </v-card-actions>
     </v-card>
   </v-dialog>
 
   <!-- Reset Confirmation Dialog -->
   <v-dialog v-model="showResetDialog" max-width="400">
-    <v-card>
-      <v-card-title class="text-warning">{{ t('rateLimit.confirmReset') }}</v-card-title>
-      <v-card-text>{{ t('rateLimit.confirmResetDesc') }}</v-card-text>
-      <v-card-actions>
+    <v-card class="modal-card">
+      <v-card-title class="d-flex align-center modal-header pa-4 text-warning">
+        {{ t('rateLimit.confirmReset') }}
         <v-spacer />
-        <v-btn variant="text" @click="showResetDialog = false">{{ t('common.cancel') }}</v-btn>
-        <v-btn color="warning" variant="flat" @click="resetConfig" :loading="resetting">{{ t('common.confirm') }}</v-btn>
-      </v-card-actions>
+        <v-btn icon variant="text" size="small" @click="showResetDialog = false" class="modal-action-btn">
+          <v-icon>mdi-close</v-icon>
+        </v-btn>
+        <v-btn icon variant="flat" size="small" color="warning" @click="resetConfig" :loading="resetting" class="modal-action-btn">
+          <v-icon>mdi-check</v-icon>
+        </v-btn>
+      </v-card-title>
+      <v-card-text class="modal-content">{{ t('rateLimit.confirmResetDesc') }}</v-card-text>
     </v-card>
   </v-dialog>
 

@@ -1,12 +1,12 @@
 <template>
   <v-dialog :model-value="show" @update:model-value="$emit('update:show', $event)" max-width="800" persistent>
-    <v-card rounded="lg">
-      <v-card-title class="d-flex align-center ga-3 pa-6" :class="headerClasses">
+    <v-card rounded="lg" class="modal-card">
+      <v-card-title class="d-flex align-center ga-3 pa-4 modal-header" :class="headerClasses">
         <v-avatar :color="avatarColor" variant="flat" size="40">
           <v-icon :style="headerIconStyle" size="20">{{ isEditing ? 'mdi-pencil' : 'mdi-plus' }}</v-icon>
         </v-avatar>
         <div class="flex-grow-1">
-          <div class="text-h5 font-weight-bold">
+          <div class="text-h6 font-weight-bold">
             {{ isEditing ? t('addChannel.editTitle') : t('addChannel.addTitle') }}
           </div>
           <div class="text-body-2" :class="subtitleClasses">
@@ -14,13 +14,34 @@
           </div>
         </div>
         <!-- 模式切换按钮（仅在添加模式显示） -->
-        <v-btn v-if="!isEditing" variant="outlined" size="small" @click="toggleMode" class="mode-toggle-btn">
+        <v-btn v-if="!isEditing" variant="outlined" size="small" @click="toggleMode" class="mode-toggle-btn mr-2">
           <v-icon start size="16">{{ isQuickMode ? 'mdi-form-textbox' : 'mdi-lightning-bolt' }}</v-icon>
           {{ isQuickMode ? t('addChannel.detailedConfig') : t('addChannel.quickAdd') }}
         </v-btn>
+        <!-- iOS-style action buttons -->
+        <v-btn
+          icon
+          variant="text"
+          size="small"
+          @click="handleCancel"
+          class="modal-action-btn"
+        >
+          <v-icon>mdi-close</v-icon>
+        </v-btn>
+        <v-btn
+          icon
+          variant="flat"
+          size="small"
+          color="primary"
+          @click="isQuickMode && !isEditing ? handleQuickSubmit() : handleSubmit()"
+          :disabled="isQuickMode && !isEditing ? !isQuickFormValid : !isFormValid"
+          class="modal-action-btn"
+        >
+          <v-icon>mdi-check</v-icon>
+        </v-btn>
       </v-card-title>
 
-      <v-card-text class="pa-6">
+      <v-card-text class="pa-6 modal-content">
         <!-- 快速添加模式 -->
         <div v-if="!isEditing && isQuickMode">
           <v-textarea
@@ -1044,31 +1065,6 @@
           </v-row>
         </v-form>
       </v-card-text>
-
-      <v-card-actions class="pa-6 pt-0">
-        <v-spacer />
-        <v-btn variant="text" @click="handleCancel"> {{ t('common.cancel') }} </v-btn>
-        <v-btn
-          v-if="!isEditing && isQuickMode"
-          color="primary"
-          variant="elevated"
-          @click="handleQuickSubmit"
-          :disabled="!isQuickFormValid"
-          prepend-icon="mdi-check"
-        >
-          {{ t('addChannel.createChannel') }}
-        </v-btn>
-        <v-btn
-          v-else
-          color="primary"
-          variant="elevated"
-          @click="handleSubmit"
-          :disabled="!isFormValid"
-          prepend-icon="mdi-check"
-        >
-          {{ isEditing ? t('addChannel.updateChannel') : t('addChannel.createChannel') }}
-        </v-btn>
-      </v-card-actions>
     </v-card>
   </v-dialog>
 </template>
@@ -2294,9 +2290,42 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* Modal card structure */
+.modal-card {
+  display: flex;
+  flex-direction: column;
+  max-height: 85vh;
+}
+
+.modal-header {
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+}
+
+.modal-content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* iOS-style action buttons */
+.modal-action-btn {
+  width: 36px;
+  height: 36px;
+}
+
 /* 浅色模式下副标题使用白色带透明度 */
 .text-white-subtitle {
   color: rgba(255, 255, 255, 0.85) !important;
+}
+
+/* Action buttons on primary background */
+.bg-primary .modal-action-btn {
+  color: white !important;
+}
+
+.bg-primary .modal-action-btn:hover {
+  background-color: rgba(255, 255, 255, 0.15) !important;
 }
 
 .animate-pulse {

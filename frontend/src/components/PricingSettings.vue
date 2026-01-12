@@ -1,11 +1,15 @@
 <template>
   <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="1000">
-    <v-card class="settings-card">
-      <v-card-title class="d-flex align-center">
+    <v-card class="settings-card modal-card">
+      <v-card-title class="d-flex align-center modal-header pa-4">
         <v-icon class="mr-2">mdi-currency-usd</v-icon>
         {{ t('pricing.title') }}
+        <v-spacer />
+        <v-btn icon variant="text" size="small" @click="$emit('update:modelValue', false)" class="modal-action-btn">
+          <v-icon>mdi-close</v-icon>
+        </v-btn>
       </v-card-title>
-      <v-card-text>
+      <v-card-text class="modal-content">
         <div class="d-flex align-center justify-space-between mb-3">
           <div class="text-caption text-grey">{{ t('pricing.priceUnit') }}</div>
           <div class="d-flex ga-2">
@@ -74,18 +78,23 @@
           <span v-else>{{ t('pricing.loadPricingFailed') }}</span>
         </div>
       </v-card-text>
-      <v-card-actions>
-        <v-spacer />
-        <v-btn variant="text" @click="$emit('update:modelValue', false)">{{ t('common.close') }}</v-btn>
-      </v-card-actions>
     </v-card>
   </v-dialog>
 
   <!-- 添加/编辑模型定价对话框 -->
   <v-dialog v-model="showAddModelDialog" max-width="450">
-    <v-card>
-      <v-card-title>{{ editingModel ? t('pricing.editModelPricing') : t('pricing.addModelPricing') }}</v-card-title>
-      <v-card-text>
+    <v-card class="modal-card">
+      <v-card-title class="d-flex align-center modal-header pa-4">
+        {{ editingModel ? t('pricing.editModelPricing') : t('pricing.addModelPricing') }}
+        <v-spacer />
+        <v-btn icon variant="text" size="small" @click="cancelModelEdit" class="modal-action-btn">
+          <v-icon>mdi-close</v-icon>
+        </v-btn>
+        <v-btn icon variant="flat" size="small" color="primary" @click="saveModelPricing" :loading="savingPricing" class="modal-action-btn">
+          <v-icon>mdi-check</v-icon>
+        </v-btn>
+      </v-card-title>
+      <v-card-text class="modal-content">
         <v-text-field
           v-model="modelForm.name"
           :label="t('pricing.modelName')"
@@ -146,37 +155,40 @@
           </v-col>
         </v-row>
       </v-card-text>
-      <v-card-actions>
-        <v-spacer />
-        <v-btn variant="text" @click="cancelModelEdit">{{ t('common.cancel') }}</v-btn>
-        <v-btn color="primary" variant="flat" @click="saveModelPricing" :loading="savingPricing">{{ t('common.save') }}</v-btn>
-      </v-card-actions>
     </v-card>
   </v-dialog>
 
   <!-- 删除模型确认对话框 -->
   <v-dialog v-model="showDeleteModelDialog" max-width="400">
-    <v-card>
-      <v-card-title class="text-error">{{ t('common.confirm') }}</v-card-title>
-      <v-card-text>{{ t('pricing.confirmDeleteModel', { model: deletingModel }) }}</v-card-text>
-      <v-card-actions>
+    <v-card class="modal-card">
+      <v-card-title class="d-flex align-center modal-header pa-4 text-error">
+        {{ t('common.confirm') }}
         <v-spacer />
-        <v-btn variant="text" @click="showDeleteModelDialog = false">{{ t('common.cancel') }}</v-btn>
-        <v-btn color="error" variant="flat" @click="deleteModelPricing" :loading="deletingPricingModel">{{ t('common.confirm') }}</v-btn>
-      </v-card-actions>
+        <v-btn icon variant="text" size="small" @click="showDeleteModelDialog = false" class="modal-action-btn">
+          <v-icon>mdi-close</v-icon>
+        </v-btn>
+        <v-btn icon variant="flat" size="small" color="error" @click="deleteModelPricing" :loading="deletingPricingModel" class="modal-action-btn">
+          <v-icon>mdi-check</v-icon>
+        </v-btn>
+      </v-card-title>
+      <v-card-text class="modal-content">{{ t('pricing.confirmDeleteModel', { model: deletingModel }) }}</v-card-text>
     </v-card>
   </v-dialog>
 
   <!-- 重置定价确认对话框 -->
   <v-dialog v-model="showResetPricingDialog" max-width="400">
-    <v-card>
-      <v-card-title class="text-warning">{{ t('pricing.confirmReset') }}</v-card-title>
-      <v-card-text>{{ t('pricing.confirmResetDesc') }}</v-card-text>
-      <v-card-actions>
+    <v-card class="modal-card">
+      <v-card-title class="d-flex align-center modal-header pa-4 text-warning">
+        {{ t('pricing.confirmReset') }}
         <v-spacer />
-        <v-btn variant="text" @click="showResetPricingDialog = false">{{ t('common.cancel') }}</v-btn>
-        <v-btn color="warning" variant="flat" @click="resetPricing" :loading="resettingPricing">{{ t('common.confirm') }}</v-btn>
-      </v-card-actions>
+        <v-btn icon variant="text" size="small" @click="showResetPricingDialog = false" class="modal-action-btn">
+          <v-icon>mdi-close</v-icon>
+        </v-btn>
+        <v-btn icon variant="flat" size="small" color="warning" @click="resetPricing" :loading="resettingPricing" class="modal-action-btn">
+          <v-icon>mdi-check</v-icon>
+        </v-btn>
+      </v-card-title>
+      <v-card-text class="modal-content">{{ t('pricing.confirmResetDesc') }}</v-card-text>
     </v-card>
   </v-dialog>
 </template>

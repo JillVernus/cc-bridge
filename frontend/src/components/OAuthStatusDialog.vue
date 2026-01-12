@@ -1,18 +1,19 @@
 <template>
   <v-dialog v-model="dialogVisible" max-width="600" persistent>
-    <v-card>
-      <v-card-title class="d-flex align-center">
+    <v-card class="modal-card">
+      <v-card-title class="d-flex align-center modal-header pa-4">
         <v-icon class="mr-2" color="primary">mdi-shield-account</v-icon>
         {{ t('oauth.status') }}
         <v-spacer />
-        <v-btn icon variant="text" @click="close">
+        <v-btn icon variant="text" size="small" @click="close" class="modal-action-btn">
           <v-icon>mdi-close</v-icon>
+        </v-btn>
+        <v-btn icon variant="flat" size="small" color="primary" @click="refresh" :loading="loading" class="modal-action-btn">
+          <v-icon>mdi-refresh</v-icon>
         </v-btn>
       </v-card-title>
 
-      <v-divider />
-
-      <v-card-text class="pa-4">
+      <v-card-text class="modal-content pa-4">
         <!-- Loading state -->
         <div v-if="loading" class="d-flex justify-center align-center py-8">
           <v-progress-circular indeterminate color="primary" />
@@ -260,17 +261,6 @@
           </v-list>
         </div>
       </v-card-text>
-
-      <v-divider />
-
-      <v-card-actions>
-        <v-spacer />
-        <v-btn variant="text" @click="close">{{ t('common.close') }}</v-btn>
-        <v-btn color="primary" variant="tonal" @click="refresh" :loading="loading">
-          <v-icon start>mdi-refresh</v-icon>
-          {{ t('common.refresh') }}
-        </v-btn>
-      </v-card-actions>
     </v-card>
   </v-dialog>
 </template>

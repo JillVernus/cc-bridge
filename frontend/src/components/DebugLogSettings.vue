@@ -1,11 +1,18 @@
 <template>
   <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="550">
-    <v-card class="settings-card">
-      <v-card-title class="d-flex align-center">
+    <v-card class="settings-card modal-card">
+      <v-card-title class="d-flex align-center modal-header pa-4">
         <v-icon class="mr-2">mdi-bug</v-icon>
         {{ t('debugLog.title') }}
+        <v-spacer />
+        <v-btn icon variant="text" size="small" @click="$emit('update:modelValue', false)" class="modal-action-btn">
+          <v-icon>mdi-close</v-icon>
+        </v-btn>
+        <v-btn icon variant="flat" size="small" color="primary" @click="saveConfig" :loading="saving" class="modal-action-btn">
+          <v-icon>mdi-check</v-icon>
+        </v-btn>
       </v-card-title>
-      <v-card-text>
+      <v-card-text class="modal-content">
         <div v-if="loading" class="text-center pa-4">
           <v-progress-circular indeterminate size="24" />
         </div>
@@ -90,24 +97,23 @@
           {{ t('debugLog.loadFailed') }}
         </div>
       </v-card-text>
-      <v-card-actions>
-        <v-spacer />
-        <v-btn variant="text" @click="$emit('update:modelValue', false)">{{ t('common.cancel') }}</v-btn>
-        <v-btn color="primary" variant="flat" @click="saveConfig" :loading="saving">{{ t('common.save') }}</v-btn>
-      </v-card-actions>
     </v-card>
   </v-dialog>
 
   <!-- Purge Confirmation Dialog -->
   <v-dialog v-model="showPurgeDialog" max-width="400">
-    <v-card>
-      <v-card-title class="text-error">{{ t('debugLog.confirmPurge') }}</v-card-title>
-      <v-card-text>{{ t('debugLog.confirmPurgeDesc') }}</v-card-text>
-      <v-card-actions>
+    <v-card class="modal-card">
+      <v-card-title class="d-flex align-center modal-header pa-4 text-error">
+        {{ t('debugLog.confirmPurge') }}
         <v-spacer />
-        <v-btn variant="text" @click="showPurgeDialog = false">{{ t('common.cancel') }}</v-btn>
-        <v-btn color="error" variant="flat" @click="purgeAll" :loading="purging">{{ t('common.confirm') }}</v-btn>
-      </v-card-actions>
+        <v-btn icon variant="text" size="small" @click="showPurgeDialog = false" class="modal-action-btn">
+          <v-icon>mdi-close</v-icon>
+        </v-btn>
+        <v-btn icon variant="flat" size="small" color="error" @click="purgeAll" :loading="purging" class="modal-action-btn">
+          <v-icon>mdi-check</v-icon>
+        </v-btn>
+      </v-card-title>
+      <v-card-text class="modal-content">{{ t('debugLog.confirmPurgeDesc') }}</v-card-text>
     </v-card>
   </v-dialog>
 

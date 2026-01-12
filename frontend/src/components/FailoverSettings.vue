@@ -1,11 +1,21 @@
 <template>
   <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="900">
-    <v-card class="settings-card">
-      <v-card-title class="d-flex align-center">
+    <v-card class="settings-card modal-card">
+      <v-card-title class="d-flex align-center modal-header pa-4">
         <v-icon class="mr-2">mdi-swap-horizontal</v-icon>
         {{ t('failover.title') }}
+        <v-spacer />
+        <v-btn variant="text" size="small" color="warning" @click="resetConfig" :loading="resetting" :disabled="!config" class="mr-2">
+          {{ t('failover.reset') }}
+        </v-btn>
+        <v-btn icon variant="text" size="small" @click="$emit('update:modelValue', false)" class="modal-action-btn">
+          <v-icon>mdi-close</v-icon>
+        </v-btn>
+        <v-btn icon variant="flat" size="small" color="primary" @click="saveConfig" :loading="saving" class="modal-action-btn">
+          <v-icon>mdi-check</v-icon>
+        </v-btn>
       </v-card-title>
-      <v-card-text>
+      <v-card-text class="modal-content">
         <div v-if="loading" class="text-center pa-4">
           <v-progress-circular indeterminate size="24" />
         </div>
@@ -244,14 +254,6 @@
           {{ t('failover.loadFailed') }}
         </div>
       </v-card-text>
-      <v-card-actions>
-        <v-btn variant="text" color="warning" @click="resetConfig" :loading="resetting" :disabled="!config">
-          {{ t('failover.reset') }}
-        </v-btn>
-        <v-spacer />
-        <v-btn variant="text" @click="$emit('update:modelValue', false)">{{ t('common.cancel') }}</v-btn>
-        <v-btn color="primary" variant="flat" @click="saveConfig" :loading="saving">{{ t('common.save') }}</v-btn>
-      </v-card-actions>
     </v-card>
   </v-dialog>
 
