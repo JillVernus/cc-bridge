@@ -184,6 +184,11 @@ func (m *Manager) AddDebugLog(entry *DebugLogEntry) error {
 		return fmt.Errorf("failed to insert debug log: %w", err)
 	}
 
+	// Broadcast debug data available event
+	if m.broadcaster != nil {
+		m.broadcaster.Broadcast(NewLogDebugDataEvent(entry.RequestID))
+	}
+
 	return nil
 }
 

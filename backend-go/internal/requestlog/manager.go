@@ -529,12 +529,101 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 		return fmt.Errorf("request log not found: %s", id)
 	}
 
-	// Broadcast log updated event
+	// Broadcast log updated event - read complete record from DB to include api_key_id and has_debug_data
 	if m.broadcaster != nil {
-		m.broadcaster.Broadcast(NewLogUpdatedEvent(id, record))
+		if completeRecord, err := m.getCompleteRecordForSSE(id); err == nil {
+			m.broadcaster.Broadcast(NewLogUpdatedEvent(id, completeRecord))
+		} else {
+			// Fallback to partial record if read fails
+			m.broadcaster.Broadcast(NewLogUpdatedEvent(id, record))
+		}
 	}
 
 	return nil
+}
+
+// getCompleteRecordForSSE fetches a complete record for SSE broadcasting
+// This includes fields like api_key_id and computed has_debug_data
+// Note: caller must hold the mutex
+func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
+	query := `
+		SELECT r.id, r.status, r.initial_time, r.complete_time, r.duration_ms,
+			   r.provider, r.provider_name, r.model, r.response_model, r.input_tokens, r.output_tokens,
+			   r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
+			   r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
+			   r.http_status, r.stream, r.channel_id, r.channel_name,
+			   r.endpoint, r.client_id, r.session_id, r.api_key_id, r.error, r.upstream_error, r.failover_info,
+			   CASE WHEN d.request_id IS NOT NULL THEN 1 ELSE 0 END as has_debug_data
+		FROM request_logs r
+		LEFT JOIN request_debug_logs d ON r.id = d.request_id
+		WHERE r.id = ?
+	`
+
+	var r RequestLog
+	var channelID, apiKeyID sql.NullInt64
+	var channelName, endpoint, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr, status, providerName, responseModel sql.NullString
+	var initialTime, completeTime sql.NullString
+	var hasDebugData int
+
+	err := m.db.QueryRow(query, id).Scan(
+		&r.ID, &status, &initialTime, &completeTime, &r.DurationMs,
+		&r.Type, &providerName, &r.Model, &responseModel, &r.InputTokens, &r.OutputTokens,
+		&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
+		&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
+		&r.HTTPStatus, &r.Stream, &channelID, &channelName,
+		&endpoint, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr,
+		&hasDebugData,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	r.HasDebugData = hasDebugData == 1
+
+	if status.Valid {
+		r.Status = status.String
+	}
+	if providerName.Valid {
+		r.ProviderName = providerName.String
+	}
+	if responseModel.Valid {
+		r.ResponseModel = responseModel.String
+	}
+	if initialTime.Valid && initialTime.String != "" {
+		r.InitialTime = parseTimeString(initialTime.String)
+	}
+	if completeTime.Valid && completeTime.String != "" {
+		r.CompleteTime = parseTimeString(completeTime.String)
+	}
+	if channelID.Valid {
+		r.ChannelID = int(channelID.Int64)
+	}
+	if channelName.Valid {
+		r.ChannelName = channelName.String
+	}
+	if endpoint.Valid {
+		r.Endpoint = endpoint.String
+	}
+	if clientID.Valid {
+		r.ClientID = clientID.String
+	}
+	if sessionID.Valid {
+		r.SessionID = sessionID.String
+	}
+	if apiKeyID.Valid {
+		r.APIKeyID = &apiKeyID.Int64
+	}
+	if errorStr.Valid {
+		r.Error = errorStr.String
+	}
+	if upstreamErrorStr.Valid {
+		r.UpstreamError = upstreamErrorStr.String
+	}
+	if failoverInfoStr.Valid {
+		r.FailoverInfo = failoverInfoStr.String
+	}
+
+	return &r, nil
 }
 
 // GetRecent retrieves the most recent request logs

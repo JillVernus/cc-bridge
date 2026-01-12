@@ -2,7 +2,7 @@ import { ref, onUnmounted, type Ref } from 'vue'
 import api from '../services/api'
 
 // SSE Event types (matching backend events.go)
-export type SSEEventType = 'log:created' | 'log:updated' | 'log:stats' | 'heartbeat' | 'connected'
+export type SSEEventType = 'log:created' | 'log:updated' | 'log:debugdata' | 'log:stats' | 'heartbeat' | 'connected'
 
 export interface LogCreatedPayload {
   id: string
@@ -33,6 +33,12 @@ export interface LogUpdatedPayload {
   cacheReadInputTokens: number
   totalTokens: number
   price: number
+  inputCost: number
+  outputCost: number
+  cacheCreationCost: number
+  cacheReadCost: number
+  apiKeyId?: number
+  hasDebugData: boolean
   error?: string
   upstreamError?: string
   failoverInfo?: string
@@ -56,6 +62,11 @@ export interface StatsPayload {
   byProvider?: Record<string, { count: number; cost: number }>
 }
 
+export interface LogDebugDataPayload {
+  id: string
+  hasDebugData: boolean
+}
+
 export interface SSEEvent<T = unknown> {
   type: SSEEventType
   data: T
@@ -67,6 +78,7 @@ export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'err
 export interface UseLogStreamOptions {
   onLogCreated?: (payload: LogCreatedPayload) => void
   onLogUpdated?: (payload: LogUpdatedPayload) => void
+  onLogDebugData?: (payload: LogDebugDataPayload) => void
   onStats?: (payload: StatsPayload) => void
   onConnectionChange?: (state: ConnectionState) => void
   maxRetries?: number
@@ -80,6 +92,7 @@ export function useLogStream(options: UseLogStreamOptions = {}) {
   const {
     onLogCreated,
     onLogUpdated,
+    onLogDebugData,
     onStats,
     onConnectionChange,
     maxRetries = 5,
@@ -156,6 +169,15 @@ export function useLogStream(options: UseLogStreamOptions = {}) {
           onLogUpdated?.(event.data)
         } catch (err) {
           console.error('📡 SSE: Failed to parse log:updated event', err)
+        }
+      })
+
+      eventSource.addEventListener('log:debugdata', (e: MessageEvent) => {
+        try {
+          const event: SSEEvent<LogDebugDataPayload> = JSON.parse(e.data)
+          onLogDebugData?.(event.data)
+        } catch (err) {
+          console.error('📡 SSE: Failed to parse log:debugdata event', err)
         }
       })
 

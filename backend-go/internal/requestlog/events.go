@@ -7,10 +7,11 @@ import (
 
 // Event type constants
 const (
-	EventLogCreated = "log:created"
-	EventLogUpdated = "log:updated"
-	EventLogStats   = "log:stats"
-	EventHeartbeat  = "heartbeat"
+	EventLogCreated   = "log:created"
+	EventLogUpdated   = "log:updated"
+	EventLogDebugData = "log:debugdata"
+	EventLogStats     = "log:stats"
+	EventHeartbeat    = "heartbeat"
 )
 
 // LogEvent represents an SSE event to be sent to clients
@@ -51,11 +52,19 @@ type LogUpdatedPayload struct {
 	CacheReadInputTokens     int       `json:"cacheReadInputTokens"`
 	TotalTokens              int       `json:"totalTokens"`
 	Price                    float64   `json:"price"`
-	Error                    string    `json:"error,omitempty"`
-	UpstreamError            string    `json:"upstreamError,omitempty"`
-	FailoverInfo             string    `json:"failoverInfo,omitempty"`
-	ResponseModel            string    `json:"responseModel,omitempty"`
-	CompleteTime             time.Time `json:"completeTime"`
+	// Cost breakdown
+	InputCost         float64 `json:"inputCost"`
+	OutputCost        float64 `json:"outputCost"`
+	CacheCreationCost float64 `json:"cacheCreationCost"`
+	CacheReadCost     float64 `json:"cacheReadCost"`
+	// Other fields
+	APIKeyID      *int64    `json:"apiKeyId"`
+	HasDebugData  bool      `json:"hasDebugData"`
+	Error         string    `json:"error,omitempty"`
+	UpstreamError string    `json:"upstreamError,omitempty"`
+	FailoverInfo  string    `json:"failoverInfo,omitempty"`
+	ResponseModel string    `json:"responseModel,omitempty"`
+	CompleteTime  time.Time `json:"completeTime"`
 }
 
 // StatsPayload contains data for log:stats events
@@ -106,6 +115,12 @@ func NewLogUpdatedEvent(id string, record *RequestLog) *LogEvent {
 			CacheReadInputTokens:     record.CacheReadInputTokens,
 			TotalTokens:              record.TotalTokens,
 			Price:                    record.Price,
+			InputCost:                record.InputCost,
+			OutputCost:               record.OutputCost,
+			CacheCreationCost:        record.CacheCreationCost,
+			CacheReadCost:            record.CacheReadCost,
+			APIKeyID:                 record.APIKeyID,
+			HasDebugData:             record.HasDebugData,
 			Error:                    record.Error,
 			UpstreamError:            record.UpstreamError,
 			FailoverInfo:             record.FailoverInfo,
@@ -135,6 +150,24 @@ func NewHeartbeatEvent() *LogEvent {
 	return &LogEvent{
 		Type:      EventHeartbeat,
 		Data:      nil,
+		Timestamp: time.Now(),
+	}
+}
+
+// LogDebugDataPayload contains data for log:debugdata events
+type LogDebugDataPayload struct {
+	ID           string `json:"id"`
+	HasDebugData bool   `json:"hasDebugData"`
+}
+
+// NewLogDebugDataEvent creates an event to notify that debug data is available
+func NewLogDebugDataEvent(id string) *LogEvent {
+	return &LogEvent{
+		Type: EventLogDebugData,
+		Data: LogDebugDataPayload{
+			ID:           id,
+			HasDebugData: true,
+		},
 		Timestamp: time.Now(),
 	}
 }

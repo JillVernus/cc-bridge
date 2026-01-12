@@ -344,12 +344,22 @@
 
     <!-- 设置对话框 -->
     <v-dialog v-model="showSettings" max-width="500">
-      <v-card class="settings-card">
-        <v-card-title class="d-flex align-center">
+      <v-card class="settings-card modal-card">
+        <v-card-title class="d-flex align-center modal-header pa-4">
           <v-icon class="mr-2">mdi-cog</v-icon>
           {{ t('requestLog.settings') }}
+          <v-spacer />
+          <v-btn
+            icon
+            variant="text"
+            size="small"
+            @click="showSettings = false"
+            class="modal-action-btn"
+          >
+            <v-icon>mdi-close</v-icon>
+          </v-btn>
         </v-card-title>
-        <v-card-text>
+        <v-card-text class="modal-content">
           <div class="settings-section mb-4">
             <div class="text-subtitle-2 mb-2">{{ t('requestLog.columnVisibility') }}</div>
             <div class="column-visibility-grid">
@@ -474,66 +484,85 @@
             <div class="text-caption text-grey mt-2">{{ t('requestLog.clearLogsDesc') }}</div>
           </div>
         </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="showSettings = false">{{ t('common.close') }}</v-btn>
-        </v-card-actions>
       </v-card>
     </v-dialog>
 
     <!-- 确认对话框 -->
     <v-dialog v-model="showConfirmClear" max-width="400">
-      <v-card>
-        <v-card-title class="text-error">{{ t('requestLog.confirmClear') }}</v-card-title>
-        <v-card-text>{{ t('requestLog.confirmClearDesc') }}</v-card-text>
-        <v-card-actions>
+      <v-card class="modal-card">
+        <v-card-title class="d-flex align-center modal-header pa-4 text-error">
+          {{ t('requestLog.confirmClear') }}
           <v-spacer />
-          <v-btn variant="text" @click="showConfirmClear = false">{{ t('common.cancel') }}</v-btn>
-          <v-btn color="error" variant="flat" @click="clearLogs" :loading="clearing">{{ t('requestLog.confirmDelete') }}</v-btn>
-        </v-card-actions>
+          <v-btn icon variant="text" size="small" @click="showConfirmClear = false" class="modal-action-btn">
+            <v-icon>mdi-close</v-icon>
+          </v-btn>
+          <v-btn icon variant="flat" size="small" color="error" @click="clearLogs" :loading="clearing" class="modal-action-btn">
+            <v-icon>mdi-check</v-icon>
+          </v-btn>
+        </v-card-title>
+        <v-card-text class="modal-content">{{ t('requestLog.confirmClearDesc') }}</v-card-text>
       </v-card>
     </v-dialog>
 
     <!-- 确认清理对话框 -->
     <v-dialog v-model="showConfirmCleanup" max-width="400">
-      <v-card>
-        <v-card-title class="text-warning">{{ t('requestLog.confirmCleanup') }}</v-card-title>
-        <v-card-text>{{ t('requestLog.confirmCleanupDesc', { days: retentionDays }) }}</v-card-text>
-        <v-card-actions>
+      <v-card class="modal-card">
+        <v-card-title class="d-flex align-center modal-header pa-4 text-warning">
+          {{ t('requestLog.confirmCleanup') }}
           <v-spacer />
-          <v-btn variant="text" @click="showConfirmCleanup = false">{{ t('common.cancel') }}</v-btn>
-          <v-btn color="warning" variant="flat" @click="cleanupLogs" :loading="cleaning">{{ t('requestLog.confirmCleanupBtn') }}</v-btn>
-        </v-card-actions>
+          <v-btn icon variant="text" size="small" @click="showConfirmCleanup = false" class="modal-action-btn">
+            <v-icon>mdi-close</v-icon>
+          </v-btn>
+          <v-btn icon variant="flat" size="small" color="warning" @click="cleanupLogs" :loading="cleaning" class="modal-action-btn">
+            <v-icon>mdi-check</v-icon>
+          </v-btn>
+        </v-card-title>
+        <v-card-text class="modal-content">{{ t('requestLog.confirmCleanupDesc', { days: retentionDays }) }}</v-card-text>
       </v-card>
     </v-dialog>
 
     <!-- 清理结果对话框 -->
     <v-dialog v-model="showCleanupResult" max-width="400">
-      <v-card>
-        <v-card-title class="text-success d-flex align-center">
+      <v-card class="modal-card">
+        <v-card-title class="d-flex align-center modal-header pa-4 text-success">
           <v-icon class="mr-2" color="success">mdi-check-circle</v-icon>
           {{ t('requestLog.cleanupComplete') }}
+          <v-spacer />
+          <v-btn icon variant="text" size="small" @click="showCleanupResult = false" class="modal-action-btn">
+            <v-icon>mdi-close</v-icon>
+          </v-btn>
         </v-card-title>
-        <v-card-text>
+        <v-card-text class="modal-content">
           <div class="text-body-1">
             {{ t('requestLog.cleanupResultDesc', { count: cleanupResultCount, days: cleanupResultDays }) }}
           </div>
         </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn color="primary" variant="flat" @click="showCleanupResult = false">{{ t('common.close') }}</v-btn>
-        </v-card-actions>
       </v-card>
     </v-dialog>
 
     <!-- 用户别名对话框 -->
     <v-dialog v-model="showAliasDialog" max-width="450">
-      <v-card>
-        <v-card-title class="d-flex align-center">
+      <v-card class="modal-card">
+        <v-card-title class="d-flex align-center modal-header pa-4">
           <v-icon class="mr-2">mdi-account-edit</v-icon>
           {{ t('requestLog.assignAlias') }}
+          <v-spacer />
+          <v-btn icon variant="text" size="small" @click="showAliasDialog = false" class="modal-action-btn">
+            <v-icon>mdi-close</v-icon>
+          </v-btn>
+          <v-btn
+            icon
+            variant="flat"
+            size="small"
+            color="primary"
+            @click="saveAlias"
+            :disabled="!!aliasError || !aliasInput.trim()"
+            class="modal-action-btn"
+          >
+            <v-icon>mdi-check</v-icon>
+          </v-btn>
         </v-card-title>
-        <v-card-text>
+        <v-card-text class="modal-content">
           <!-- Full User ID (read-only) -->
           <div class="text-caption text-grey mb-1">{{ t('requestLog.clientId') }}</div>
           <div class="mono-text text-body-2 mb-4 user-id-display">
@@ -552,29 +581,19 @@
             counter
             @input="validateAlias"
           />
-        </v-card-text>
-        <v-card-actions>
+          <!-- Remove alias button (only shown if alias exists) -->
           <v-btn
             v-if="getUserAlias(editingUserId)"
             color="error"
-            variant="text"
+            variant="tonal"
+            size="small"
             @click="removeAlias()"
+            class="mt-2"
           >
+            <v-icon class="mr-1" size="16">mdi-delete</v-icon>
             {{ t('requestLog.removeAlias') }}
           </v-btn>
-          <v-spacer />
-          <v-btn variant="text" @click="showAliasDialog = false">
-            {{ t('common.cancel') }}
-          </v-btn>
-          <v-btn
-            color="primary"
-            variant="flat"
-            @click="saveAlias"
-            :disabled="!!aliasError || !aliasInput.trim()"
-          >
-            {{ t('common.save') }}
-          </v-btn>
-        </v-card-actions>
+        </v-card-text>
       </v-card>
     </v-dialog>
 
@@ -1907,6 +1926,14 @@ const handleLogUpdated = (payload: LogUpdatedPayload) => {
     updated.cacheReadInputTokens = payload.cacheReadInputTokens
     updated.totalTokens = payload.totalTokens
     updated.price = payload.price
+    // Cost breakdown
+    updated.inputCost = payload.inputCost
+    updated.outputCost = payload.outputCost
+    updated.cacheCreationCost = payload.cacheCreationCost
+    updated.cacheReadCost = payload.cacheReadCost
+    // Other fields
+    updated.apiKeyId = payload.apiKeyId
+    updated.hasDebugData = payload.hasDebugData
     updated.error = payload.error
     updated.upstreamError = payload.upstreamError
     updated.failoverInfo = payload.failoverInfo
@@ -1976,19 +2003,29 @@ const handleLogUpdated = (payload: LogUpdatedPayload) => {
   }
 }
 
+const handleLogDebugData = (payload: { id: string; hasDebugData: boolean }) => {
+  // Find and update the log's hasDebugData field
+  const index = logs.value.findIndex(l => l.id === payload.id)
+  if (index !== -1) {
+    const updated = { ...logs.value[index] }
+    updated.hasDebugData = payload.hasDebugData
+    logs.value = [...logs.value.slice(0, index), updated, ...logs.value.slice(index + 1)]
+  }
+}
+
 const handleSSEConnectionChange = (state: ConnectionState) => {
   sseConnectionState.value = state
   console.log(`📡 SSE connection state: ${state}`)
 
   if (state === 'connected') {
-    // SSE connected - stop polling and do one full refresh to sync state
+    // SSE connected - disable polling (SSE handles real-time updates)
+    autoRefreshEnabled.value = false
     stopAutoRefresh()
     silentRefresh()
   } else if (state === 'disconnected' || state === 'error') {
-    // SSE disconnected - start polling as fallback
-    if (autoRefreshEnabled.value) {
-      startAutoRefresh()
-    }
+    // SSE disconnected - enable polling as fallback
+    autoRefreshEnabled.value = true
+    startAutoRefresh()
   }
 }
 
@@ -1996,6 +2033,7 @@ const handleSSEConnectionChange = (state: ConnectionState) => {
 const { connectionState: sseState, isPollingFallback, connect: connectSSE, disconnect: disconnectSSE } = useLogStream({
   onLogCreated: handleLogCreated,
   onLogUpdated: handleLogUpdated,
+  onLogDebugData: handleLogDebugData,
   onConnectionChange: handleSSEConnectionChange,
   maxRetries: 5,
   autoConnect: false
@@ -2698,6 +2736,31 @@ const silentRefresh = async () => {
 <style scoped>
 .request-log-container {
   padding: 0;
+}
+
+/* Modal card structure */
+.modal-card {
+  display: flex;
+  flex-direction: column;
+  max-height: 85vh;
+}
+
+.modal-header {
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+}
+
+.modal-content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 16px;
+}
+
+/* iOS-style action buttons */
+.modal-action-btn {
+  width: 36px;
+  height: 36px;
 }
 
 /* Live indicator pulse animation */
