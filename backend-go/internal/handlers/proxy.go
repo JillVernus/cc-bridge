@@ -1627,6 +1627,7 @@ func handleNormalResponse(c *gin.Context, resp *http.Response, provider provider
 				record.OutputTokens = usage.OutputTokens
 				record.CacheCreationInputTokens = usage.CacheCreationInputTokens
 				record.CacheReadInputTokens = usage.CacheReadInputTokens
+				record.TotalTokens = usage.TotalTokens
 
 				if pm := pricing.GetManager(); pm != nil {
 					var multipliers *pricing.PriceMultipliers
@@ -1774,6 +1775,7 @@ func handleStreamResponse(c *gin.Context, resp *http.Response, provider provider
 							record.OutputTokens = usage.OutputTokens
 							record.CacheCreationInputTokens = usage.CacheCreationInputTokens
 							record.CacheReadInputTokens = usage.CacheReadInputTokens
+							record.TotalTokens = usage.TotalTokens
 
 							if pm := pricing.GetManager(); pm != nil {
 								var multipliers *pricing.PriceMultipliers

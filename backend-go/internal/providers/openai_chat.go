@@ -434,19 +434,20 @@ func extractOpenAIChatUsage(openaiResp map[string]interface{}) *types.Usage {
 
 	promptTokens := getIntFromAny(usageMap["prompt_tokens"])
 	completionTokens := getIntFromAny(usageMap["completion_tokens"])
+	totalTokens := getIntFromAny(usageMap["total_tokens"])
 	if promptTokens == 0 && completionTokens == 0 {
 		// Some upstreams only return total_tokens; treat it as output when nothing else exists.
-		totalTokens := getIntFromAny(usageMap["total_tokens"])
 		if totalTokens == 0 {
 			return nil
 		}
-		return &types.Usage{InputTokens: 0, OutputTokens: totalTokens}
+		return &types.Usage{InputTokens: 0, OutputTokens: totalTokens, TotalTokens: totalTokens}
 	}
 	return &types.Usage{
 		InputTokens:      promptTokens,
 		OutputTokens:     completionTokens,
 		PromptTokens:     promptTokens,
 		CompletionTokens: completionTokens,
+		TotalTokens:      totalTokens,
 	}
 }
 

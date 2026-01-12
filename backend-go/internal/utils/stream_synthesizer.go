@@ -22,6 +22,7 @@ type StreamSynthesizer struct {
 	outputTokens             int
 	cacheCreationInputTokens int
 	cacheReadInputTokens     int
+	totalTokens              int
 	model                    string
 }
 
@@ -38,6 +39,7 @@ type StreamUsage struct {
 	OutputTokens             int    `json:"outputTokens"`
 	CacheCreationInputTokens int    `json:"cacheCreationInputTokens"`
 	CacheReadInputTokens     int    `json:"cacheReadInputTokens"`
+	TotalTokens              int    `json:"totalTokens"`
 	Model                    string `json:"model"`
 }
 
@@ -413,6 +415,10 @@ func (s *StreamSynthesizer) extractClaudeUsage(usage map[string]interface{}) {
 	if cacheRead, ok := usage["cache_read_input_tokens"].(float64); ok && int(cacheRead) > 0 {
 		s.cacheReadInputTokens = int(cacheRead)
 	}
+	// Extract total_tokens if provided (some providers include this directly)
+	if totalTokens, ok := usage["total_tokens"].(float64); ok && int(totalTokens) > 0 {
+		s.totalTokens = int(totalTokens)
+	}
 }
 
 // GetSynthesizedContent 获取合成的内容
@@ -503,6 +509,7 @@ func (s *StreamSynthesizer) GetUsage() *StreamUsage {
 		OutputTokens:             s.outputTokens,
 		CacheCreationInputTokens: s.cacheCreationInputTokens,
 		CacheReadInputTokens:     s.cacheReadInputTokens,
+		TotalTokens:              s.totalTokens,
 		Model:                    s.model,
 	}
 }
