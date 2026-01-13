@@ -201,6 +201,7 @@ const availableClaudeChannels = computed(() => {
       serviceType: ch.serviceType,
       index: ch.index
     }))
+    .sort((a, b) => a.name.localeCompare(b.name))
 })
 
 // Get available channels for a specific position (exclude already used in this pattern)
