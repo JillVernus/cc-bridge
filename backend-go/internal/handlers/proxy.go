@@ -1673,6 +1673,71 @@ func handleNormalResponse(c *gin.Context, resp *http.Response, provider provider
 func handleStreamResponse(c *gin.Context, resp *http.Response, provider providers.Provider, envCfg *config.EnvConfig, cfgManager *config.ConfigManager, startTime time.Time, upstream *config.UpstreamConfig, reqLogManager *requestlog.Manager, requestLogID string, requestModel string, usageManager *quota.UsageManager) {
 	defer resp.Body.Close()
 
+	// Check if upstream returned a non-SSE response (e.g., JSON error with HTTP 200)
+	// This can happen when upstream returns an error but with 200 status code
+	contentType := resp.Header.Get("Content-Type")
+	if strings.Contains(contentType, "application/json") && !strings.Contains(contentType, "text/event-stream") {
+		// Read the response body
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Printf("⚠️ Failed to read non-SSE response body: %v", err)
+			c.JSON(500, gin.H{"error": "Failed to read response"})
+			return
+		}
+
+		completeTime := time.Now()
+		durationMs := completeTime.Sub(startTime).Milliseconds()
+
+		// Check if this is an error response
+		var errResp map[string]interface{}
+		isError := false
+		if err := json.Unmarshal(bodyBytes, &errResp); err == nil {
+			if _, hasError := errResp["error"]; hasError {
+				isError = true
+			}
+		}
+
+		if envCfg.EnableResponseLogs {
+			log.Printf("⚠️ Upstream returned non-SSE response (Content-Type: %s) for streaming request", contentType)
+			if envCfg.IsDevelopment() {
+				formattedBody := utils.FormatJSONBytesForLog(bodyBytes, 500)
+				log.Printf("📦 Non-SSE response body:\n%s", formattedBody)
+			}
+		}
+
+		// Update request log
+		if reqLogManager != nil && requestLogID != "" {
+			status := requestlog.StatusCompleted
+			errorMsg := ""
+			if isError {
+				status = requestlog.StatusError
+				errorMsg = "upstream returned error with HTTP 200"
+			}
+			record := &requestlog.RequestLog{
+				Status:        status,
+				CompleteTime:  completeTime,
+				DurationMs:    durationMs,
+				Type:          upstream.ServiceType,
+				ProviderName:  upstream.Name,
+				HTTPStatus:    resp.StatusCode,
+				ChannelID:     upstream.Index,
+				ChannelName:   upstream.Name,
+				Error:         errorMsg,
+				UpstreamError: string(bodyBytes),
+			}
+			if err := reqLogManager.Update(requestLogID, record); err != nil {
+				log.Printf("⚠️ 请求日志更新失败: %v", err)
+			}
+
+			// Save debug log
+			SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, bodyBytes)
+		}
+
+		// Forward the response to client
+		c.Data(resp.StatusCode, contentType, bodyBytes)
+		return
+	}
+
 	eventChan, errChan, err := provider.HandleStreamResponse(resp.Body)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to handle stream response"})
