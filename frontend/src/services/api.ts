@@ -183,6 +183,8 @@ export interface Channel {
   rateLimitRpm?: number                    // Requests per minute (0 = disabled)
   queueEnabled?: boolean                   // Enable queue mode instead of reject
   queueTimeout?: number                    // Max seconds to wait in queue (default 60)
+  // Per-channel API key load balancing strategy (overrides global setting)
+  keyLoadBalance?: '' | 'round-robin' | 'random' | 'failover'
   // Composite channel mappings
   compositeMappings?: CompositeMapping[]   // Model-to-channel mappings for composite channels
 }

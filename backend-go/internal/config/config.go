@@ -99,6 +99,9 @@ type UpstreamConfig struct {
 	QueueTimeout int  `json:"queueTimeout,omitempty"` // Max seconds to wait in queue (default 60)
 	// Composite channel mappings (only for serviceType="composite")
 	CompositeMappings []CompositeMapping `json:"compositeMappings,omitempty"`
+	// Per-channel API key load balancing strategy (overrides global setting)
+	// Valid values: "" (inherit global), "round-robin", "random", "failover"
+	KeyLoadBalance string `json:"keyLoadBalance,omitempty"`
 }
 
 // GetResponseHeaderTimeout 获取响应头超时时间（秒），默认120秒
@@ -881,12 +884,22 @@ func (cm *ConfigManager) GetCurrentUpstream() (*UpstreamConfig, error) {
 
 // GetNextAPIKey 获取下一个 API 密钥（Messages 负载均衡）
 func (cm *ConfigManager) GetNextAPIKey(upstream *UpstreamConfig, failedKeys map[string]bool) (string, error) {
-	return cm.getNextAPIKeyWithStrategy(upstream, failedKeys, cm.config.LoadBalance, &cm.requestCount)
+	// Use per-channel key load balance setting if set, otherwise fall back to global
+	strategy := upstream.KeyLoadBalance
+	if strategy == "" {
+		strategy = cm.config.LoadBalance
+	}
+	return cm.getNextAPIKeyWithStrategy(upstream, failedKeys, strategy, &cm.requestCount)
 }
 
 // GetNextResponsesAPIKey 获取下一个 API 密钥（Responses 负载均衡）
 func (cm *ConfigManager) GetNextResponsesAPIKey(upstream *UpstreamConfig, failedKeys map[string]bool) (string, error) {
-	return cm.getNextAPIKeyWithStrategy(upstream, failedKeys, cm.config.ResponsesLoadBalance, &cm.responsesRequestCount)
+	// Use per-channel key load balance setting if set, otherwise fall back to global
+	strategy := upstream.KeyLoadBalance
+	if strategy == "" {
+		strategy = cm.config.ResponsesLoadBalance
+	}
+	return cm.getNextAPIKeyWithStrategy(upstream, failedKeys, strategy, &cm.responsesRequestCount)
 }
 
 func (cm *ConfigManager) getNextAPIKeyWithStrategy(upstream *UpstreamConfig, failedKeys map[string]bool, strategy string, requestCounter *int) (string, error) {

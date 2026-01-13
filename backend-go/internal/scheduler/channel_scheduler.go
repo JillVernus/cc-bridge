@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"sort"
 	"strings"
 	"sync"
@@ -27,6 +28,9 @@ type ChannelScheduler struct {
 	responsesMetricsManager *metrics.MetricsManager // Responses 渠道指标
 	traceAffinity           *session.TraceAffinityManager
 	suspensionChecker       SuspensionChecker // For checking quota channel suspension
+	// Round-robin counters for channel-level load balancing
+	messagesRoundRobinCounter  int
+	responsesRoundRobinCounter int
 }
 
 // NewChannelScheduler 创建多渠道调度器
@@ -193,7 +197,8 @@ func (s *ChannelScheduler) SelectChannel(
 		}
 	}
 
-	// 2. 按优先级遍历活跃渠道
+	// 2. Build list of healthy candidate channels
+	var healthyCandidates []ChannelInfo
 	for _, ch := range activeChannels {
 		// 跳过本次请求已经失败的渠道
 		if failedChannels[ch.Index] {
@@ -223,23 +228,54 @@ func (s *ChannelScheduler) SelectChannel(
 		upstream := s.getUpstreamByIndex(ch.Index, isResponses)
 		// Composite channels don't need API keys; regular channels do
 		if upstream != nil && (config.IsCompositeChannel(upstream) || len(upstream.APIKeys) > 0) {
-			log.Printf("✅ 选择渠道: [%d] %s (优先级: %d)", ch.Index, upstream.Name, ch.Priority)
-			result := &SelectionResult{
-				Upstream:     upstream,
-				ChannelIndex: ch.Index,
-				Reason:       "priority_order",
-			}
-			resolved, err := s.resolveCompositeChannel(result, model, isResponses, failedChannels, metricsManager, useCircuitBreaker)
-			if err == nil {
-				return resolved, nil
-			}
-			log.Printf("⚠️ [Composite] Failed to resolve channel [%d] %s: %v", ch.Index, upstream.Name, err)
-			failedChannels[ch.Index] = true
-			continue
+			healthyCandidates = append(healthyCandidates, ch)
 		}
 	}
 
-	// 3. 所有健康渠道都失败，选择失败率最低的作为降级
+	if len(healthyCandidates) == 0 {
+		// 3. 所有健康渠道都失败，选择失败率最低的作为降级
+		return s.selectFallbackChannel(activeChannels, failedChannels, isResponses, model, metricsManager, useCircuitBreaker)
+	}
+
+	// 3. Apply channel selection strategy
+	loadBalanceStrategy := cfg.LoadBalance
+	if isResponses {
+		loadBalanceStrategy = cfg.ResponsesLoadBalance
+	}
+
+	// Order candidates based on strategy
+	orderedCandidates := s.orderChannelsByStrategy(healthyCandidates, loadBalanceStrategy, isResponses)
+
+	// Try each candidate in order
+	for _, ch := range orderedCandidates {
+		upstream := s.getUpstreamByIndex(ch.Index, isResponses)
+		if upstream == nil {
+			continue
+		}
+
+		reason := "priority_order"
+		switch loadBalanceStrategy {
+		case "round-robin":
+			reason = "round_robin"
+		case "random":
+			reason = "random"
+		}
+
+		log.Printf("✅ 选择渠道: [%d] %s (策略: %s)", ch.Index, upstream.Name, reason)
+		result := &SelectionResult{
+			Upstream:     upstream,
+			ChannelIndex: ch.Index,
+			Reason:       reason,
+		}
+		resolved, err := s.resolveCompositeChannel(result, model, isResponses, failedChannels, metricsManager, useCircuitBreaker)
+		if err == nil {
+			return resolved, nil
+		}
+		log.Printf("⚠️ [Composite] Failed to resolve channel [%d] %s: %v", ch.Index, upstream.Name, err)
+		failedChannels[ch.Index] = true
+	}
+
+	// 4. 所有健康渠道都失败，选择失败率最低的作为降级
 	return s.selectFallbackChannel(activeChannels, failedChannels, isResponses, model, metricsManager, useCircuitBreaker)
 }
 
@@ -259,6 +295,58 @@ func (s *ChannelScheduler) findPromotedChannel(activeChannels []ChannelInfo, isR
 		}
 	}
 	return nil
+}
+
+// orderChannelsByStrategy orders channels based on the load balancing strategy
+// - failover: keep priority order (already sorted)
+// - round-robin: rotate starting position based on counter
+// - random: shuffle the channels
+func (s *ChannelScheduler) orderChannelsByStrategy(channels []ChannelInfo, strategy string, isResponses bool) []ChannelInfo {
+	if len(channels) <= 1 {
+		return channels
+	}
+
+	// Make a copy to avoid modifying the original
+	result := make([]ChannelInfo, len(channels))
+	copy(result, channels)
+
+	switch strategy {
+	case "round-robin":
+		// Get and increment the counter (need write lock for this)
+		// Note: We're already holding RLock, so we need to be careful
+		// For simplicity, use atomic-like behavior by reading counter value
+		var counter int
+		if isResponses {
+			counter = s.responsesRoundRobinCounter
+			s.responsesRoundRobinCounter++
+		} else {
+			counter = s.messagesRoundRobinCounter
+			s.messagesRoundRobinCounter++
+		}
+		// Rotate the slice: start from counter % len position
+		startIdx := counter % len(result)
+		if startIdx > 0 {
+			rotated := make([]ChannelInfo, len(result))
+			copy(rotated, result[startIdx:])
+			copy(rotated[len(result)-startIdx:], result[:startIdx])
+			result = rotated
+		}
+		log.Printf("🔄 Round-robin: counter=%d, startIdx=%d, first=[%d] %s",
+			counter, startIdx, result[0].Index, result[0].Name)
+
+	case "random":
+		// Shuffle using Fisher-Yates algorithm
+		for i := len(result) - 1; i > 0; i-- {
+			j := rand.Intn(i + 1)
+			result[i], result[j] = result[j], result[i]
+		}
+		log.Printf("🎲 Random: first=[%d] %s", result[0].Index, result[0].Name)
+
+	default: // "failover" or any other value - keep priority order
+		log.Printf("🔀 Failover: first=[%d] %s (priority: %d)", result[0].Index, result[0].Name, result[0].Priority)
+	}
+
+	return result
 }
 
 // filterByAllowedChannels filters channels to only those in the allowed list

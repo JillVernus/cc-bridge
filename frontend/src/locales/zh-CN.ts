@@ -95,15 +95,28 @@ export default {
 
   // Load Balance
   loadBalance: {
-    title: 'API密钥分配策略',
+    title: '渠道选择策略',
+    roundRobin: '轮询 (Round Robin)',
+    roundRobinDesc: '按顺序依次选择渠道',
+    random: '随机 (Random)',
+    randomDesc: '随机选择渠道',
+    failover: '故障转移 (Failover)',
+    failoverDesc: '优先使用主渠道，失败时切换',
+    updated: '负载均衡策略已更新为: {strategy}',
+    updateFailed: '更新负载均衡策略失败: {error}',
+  },
+
+  // Per-channel key load balance
+  keyLoadBalance: {
+    title: 'API密钥策略',
+    inherit: '继承 (全局)',
+    inheritDesc: '使用全局渠道策略',
     roundRobin: '轮询 (Round Robin)',
     roundRobinDesc: '按顺序依次使用API密钥',
     random: '随机 (Random)',
     randomDesc: '随机选择API密钥',
     failover: '故障转移 (Failover)',
-    failoverDesc: '优先第一个，失败时切换',
-    updated: '负载均衡策略已更新为: {strategy}',
-    updateFailed: '更新负载均衡策略失败: {error}',
+    failoverDesc: '优先第一个密钥，失败时切换',
   },
 
   // Channel

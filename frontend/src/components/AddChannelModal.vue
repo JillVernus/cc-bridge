@@ -251,6 +251,28 @@
               />
             </v-col>
 
+            <!-- API密钥负载均衡策略（非 Composite 类型） -->
+            <v-col cols="12" md="6" v-if="!isCompositeChannel">
+              <v-select
+                v-model="form.keyLoadBalance"
+                :label="t('keyLoadBalance.title')"
+                :items="keyLoadBalanceOptions"
+                item-title="title"
+                item-value="value"
+                prepend-inner-icon="mdi-key-chain"
+                variant="outlined"
+                density="comfortable"
+              >
+                <template v-slot:item="{ props, item }">
+                  <v-list-item v-bind="props">
+                    <template v-slot:subtitle>
+                      {{ item.raw.description }}
+                    </template>
+                  </v-list-item>
+                </template>
+              </v-select>
+            </v-col>
+
             <!-- 描述 -->
             <v-col cols="12">
               <v-textarea
@@ -1287,6 +1309,14 @@ const serviceTypeOptions = computed(() => {
   }
 })
 
+// Per-channel API key load balance options
+const keyLoadBalanceOptions = computed(() => [
+  { title: t('keyLoadBalance.inherit'), value: '', description: t('keyLoadBalance.inheritDesc') },
+  { title: t('keyLoadBalance.roundRobin'), value: 'round-robin', description: t('keyLoadBalance.roundRobinDesc') },
+  { title: t('keyLoadBalance.random'), value: 'random', description: t('keyLoadBalance.randomDesc') },
+  { title: t('keyLoadBalance.failover'), value: 'failover', description: t('keyLoadBalance.failoverDesc') }
+])
+
 // 全部源模型选项 - 根据渠道类型动态显示
 const allSourceModelOptions = computed(() => {
   if (props.channelType === 'responses') {
@@ -1357,7 +1387,9 @@ const form = reactive({
   // Per-channel rate limiting
   rateLimitRpm: undefined as number | undefined,
   queueEnabled: false,
-  queueTimeout: 60
+  queueTimeout: 60,
+  // Per-channel API key load balance strategy
+  keyLoadBalance: '' as '' | 'round-robin' | 'random' | 'failover'
 })
 
 // OAuth 相关状态
@@ -1756,6 +1788,8 @@ const resetForm = () => {
   form.rateLimitRpm = undefined
   form.queueEnabled = false
   form.queueTimeout = 60
+  // Reset key load balance
+  form.keyLoadBalance = ''
   newApiKey.value = ''
   newMapping.source = ''
   newMapping.target = ''
@@ -1858,6 +1892,9 @@ const loadChannelData = (channel: Channel) => {
   form.rateLimitRpm = typeof channel.rateLimitRpm === 'number' ? channel.rateLimitRpm : undefined
   form.queueEnabled = channel.queueEnabled || false
   form.queueTimeout = channel.queueTimeout || 60
+
+  // Load key load balance setting
+  form.keyLoadBalance = channel.keyLoadBalance || ''
 
   // 加载 OAuth tokens（如果存在）
   if (channel.oauthTokens) {
@@ -2209,7 +2246,9 @@ const handleSubmit = async () => {
     // Per-channel rate limiting
     rateLimitRpm: typeof form.rateLimitRpm === 'number' && !Number.isNaN(form.rateLimitRpm) && form.rateLimitRpm >= 0 ? Math.floor(form.rateLimitRpm) : undefined,
     queueEnabled: typeof form.rateLimitRpm === 'number' && form.rateLimitRpm > 0 ? form.queueEnabled : undefined,
-    queueTimeout: typeof form.rateLimitRpm === 'number' && form.rateLimitRpm > 0 && form.queueEnabled ? (typeof form.queueTimeout === 'number' && !Number.isNaN(form.queueTimeout) && form.queueTimeout > 0 ? Math.floor(form.queueTimeout) : 60) : undefined
+    queueTimeout: typeof form.rateLimitRpm === 'number' && form.rateLimitRpm > 0 && form.queueEnabled ? (typeof form.queueTimeout === 'number' && !Number.isNaN(form.queueTimeout) && form.queueTimeout > 0 ? Math.floor(form.queueTimeout) : 60) : undefined,
+    // Per-channel API key load balance strategy
+    keyLoadBalance: form.keyLoadBalance || undefined
   }
 
   // 对于 OAuth 渠道，添加 OAuth tokens

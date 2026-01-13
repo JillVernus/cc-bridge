@@ -95,15 +95,28 @@ export default {
 
   // Load Balance
   loadBalance: {
-    title: 'API Key Distribution Strategy',
+    title: 'Channel Selection Strategy',
+    roundRobin: 'Round Robin',
+    roundRobinDesc: 'Cycle through channels in order',
+    random: 'Random',
+    randomDesc: 'Randomly select a channel',
+    failover: 'Failover',
+    failoverDesc: 'Use primary, switch on failure',
+    updated: 'Load balance strategy updated to: {strategy}',
+    updateFailed: 'Failed to update load balance strategy: {error}',
+  },
+
+  // Per-channel key load balance
+  keyLoadBalance: {
+    title: 'API Key Strategy',
+    inherit: 'Inherit (Global)',
+    inheritDesc: 'Use the global channel strategy',
     roundRobin: 'Round Robin',
     roundRobinDesc: 'Use API keys in sequence',
     random: 'Random',
     randomDesc: 'Randomly select API key',
     failover: 'Failover',
-    failoverDesc: 'Use first, switch on failure',
-    updated: 'Load balance strategy updated to: {strategy}',
-    updateFailed: 'Failed to update load balance strategy: {error}',
+    failoverDesc: 'Use first key, switch on failure',
   },
 
   // Channel
