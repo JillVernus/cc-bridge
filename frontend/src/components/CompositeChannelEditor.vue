@@ -38,51 +38,71 @@
 
           <!-- Vertical Channel List -->
           <div class="channel-list">
-            <template v-for="(channelId, index) in modelChains[pattern]" :key="`${pattern}-${index}-${channelId}`">
-              <!-- Channel Select -->
-              <div class="channel-item">
-                <v-select
-                  :modelValue="channelId"
-                  @update:modelValue="(val) => updateChannelAt(pattern, index, val)"
-                  :items="getAvailableChannelsFor(pattern, index)"
-                  item-title="name"
-                  item-value="id"
-                  variant="outlined"
-                  density="compact"
-                  hide-details
-                  :placeholder="index === 0 ? t('addChannel.primary') : t('addChannel.failoverN', { n: index })"
-                  class="channel-select"
-                  :class="{ 'primary-select': index === 0 }"
-                >
-                  <template #item="{ item, props }">
-                    <v-list-item v-bind="props">
-                      <template #prepend>
-                        <v-icon size="small" :color="getChannelStatusColor(item.raw)">mdi-server</v-icon>
+            <draggable
+              :modelValue="modelChains[pattern]"
+              @update:modelValue="(val: string[]) => onDragEnd(pattern, val)"
+              item-key="index"
+              handle=".drag-handle"
+              :animation="150"
+              ghost-class="drag-ghost"
+              class="draggable-container"
+            >
+              <template #item="{ element: channelId, index }">
+                <div class="channel-row">
+                  <!-- Channel Select -->
+                  <div class="channel-item" :class="{ 'is-draggable': channelId !== '' }">
+                    <!-- Drag Handle (only for populated slots) -->
+                    <v-icon
+                      v-if="channelId !== ''"
+                      size="small"
+                      class="drag-handle"
+                      color="grey"
+                    >mdi-drag-vertical</v-icon>
+                    <div v-else class="drag-handle-placeholder"></div>
+                    <v-select
+                      :modelValue="channelId"
+                      @update:modelValue="(val) => updateChannelAt(pattern, index, val)"
+                      :items="getAvailableChannelsFor(pattern, index)"
+                      item-title="name"
+                      item-value="id"
+                      variant="outlined"
+                      density="compact"
+                      hide-details
+                      :placeholder="index === 0 ? t('addChannel.primary') : t('addChannel.failoverN', { n: index })"
+                      class="channel-select"
+                      :class="{ 'primary-select': index === 0 }"
+                    >
+                      <template #item="{ item, props }">
+                        <v-list-item v-bind="props">
+                          <template #prepend>
+                            <v-icon size="small" :color="getChannelStatusColor(item.raw)">mdi-server</v-icon>
+                          </template>
+                          <template #append>
+                            <v-chip size="x-small" variant="outlined">{{ item.raw.serviceType }}</v-chip>
+                          </template>
+                        </v-list-item>
                       </template>
-                      <template #append>
-                        <v-chip size="x-small" variant="outlined">{{ item.raw.serviceType }}</v-chip>
-                      </template>
-                    </v-list-item>
-                  </template>
-                </v-select>
-                <!-- Remove button -->
-                <v-btn
-                  size="x-small"
-                  icon
-                  variant="text"
-                  color="error"
-                  class="remove-btn"
-                  @click="removeChannelAt(pattern, index)"
-                >
-                  <v-icon size="x-small">mdi-close</v-icon>
-                </v-btn>
-              </div>
+                    </v-select>
+                    <!-- Remove button -->
+                    <v-btn
+                      size="x-small"
+                      icon
+                      variant="text"
+                      color="error"
+                      class="remove-btn"
+                      @click="removeChannelAt(pattern, index)"
+                    >
+                      <v-icon size="x-small">mdi-close</v-icon>
+                    </v-btn>
+                  </div>
 
-              <!-- Arrow (except for last) -->
-              <div v-if="index < modelChains[pattern].length - 1" class="arrow-down">
-                <v-icon size="small" color="grey">mdi-arrow-down</v-icon>
-              </div>
-            </template>
+                  <!-- Arrow (except for last) -->
+                  <div v-if="index < modelChains[pattern].length - 1" class="arrow-down">
+                    <v-icon size="small" color="grey">mdi-arrow-down</v-icon>
+                  </div>
+                </div>
+              </template>
+            </draggable>
 
             <!-- Add Button -->
             <v-btn
@@ -118,6 +138,7 @@
 <script setup lang="ts">
 import { computed, watch, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
+import draggable from 'vuedraggable'
 import type { Channel, CompositeMapping } from '../services/api'
 
 const { t } = useI18n()
@@ -238,6 +259,13 @@ const addChannelSlot = (model: string) => {
   // Don't call emitChanges() here - empty slots shouldn't be persisted
 }
 
+// Handle drag reorder
+const onDragEnd = (model: string, newOrder: string[]) => {
+  if (!modelChains[model]) return
+  modelChains[model] = newOrder
+  emitChanges()
+}
+
 // Validation
 const isModelValid = (model: string): boolean => {
   const chain = modelChains[model]?.filter(id => id !== '') || []
@@ -320,11 +348,55 @@ const getChannelStatusColor = (channel: { status?: string }): string => {
   width: 100%;
 }
 
+.draggable-container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.channel-row {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
 .channel-item {
   display: flex;
   align-items: center;
   gap: 4px;
   width: 100%;
+}
+
+.channel-item.is-draggable {
+  cursor: default;
+}
+
+.drag-handle {
+  cursor: grab;
+  flex-shrink: 0;
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
+}
+
+.drag-handle:hover {
+  opacity: 1;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.drag-handle-placeholder {
+  width: 20px;
+  flex-shrink: 0;
+}
+
+.drag-ghost {
+  opacity: 0.5;
+  background: rgba(var(--v-theme-primary), 0.1);
+  border-radius: 4px;
 }
 
 .channel-select {
