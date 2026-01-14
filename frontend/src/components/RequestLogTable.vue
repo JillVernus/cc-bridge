@@ -405,6 +405,26 @@
           <v-divider class="my-4" />
 
           <div class="settings-section mb-4">
+            <div class="text-subtitle-2 mb-2">{{ t('requestLog.autoRefreshInterval') }}</div>
+            <div class="d-flex align-center ga-3">
+              <v-slider
+                v-model="autoRefreshInterval"
+                :min="1"
+                :max="60"
+                :step="1"
+                thumb-label
+                hide-details
+                style="max-width: 300px"
+                @update:model-value="saveAutoRefreshInterval"
+              />
+              <span class="text-body-2" style="min-width: 60px">{{ autoRefreshInterval }}s</span>
+            </div>
+            <div class="text-caption text-grey mt-2">{{ t('requestLog.autoRefreshIntervalDesc') }}</div>
+          </div>
+
+          <v-divider class="my-4" />
+
+          <div class="settings-section mb-4">
             <div class="text-subtitle-2 mb-2">{{ t('requestLog.retentionCleanup') }}</div>
             <div class="d-flex align-center ga-2">
               <v-select
@@ -599,27 +619,47 @@
 
     <!-- 操作栏 -->
     <div class="action-bar mb-4">
-      <!-- Live indicator -->
-      <v-chip
-        v-if="isSSEConnected"
-        color="success"
-        size="small"
-        variant="flat"
-        class="mr-2 live-indicator"
-      >
-        <v-icon size="12" class="mr-1 pulse-icon">mdi-circle</v-icon>
-        Live
-      </v-chip>
-      <v-chip
-        v-else-if="sseConnectionState === 'connecting'"
-        color="warning"
-        size="small"
-        variant="tonal"
-        class="mr-2"
-      >
-        <v-icon size="14" class="mr-1 spin">mdi-loading</v-icon>
-        Connecting...
-      </v-chip>
+      <!-- Live indicator (clickable to toggle SSE) -->
+      <v-tooltip :text="sseEnabled ? t('requestLog.clickToDisableSSE') : t('requestLog.clickToEnableSSE')" location="top">
+        <template v-slot:activator="{ props }">
+          <v-chip
+            v-if="sseEnabled && isSSEConnected"
+            v-bind="props"
+            color="success"
+            size="small"
+            variant="flat"
+            class="mr-2 live-indicator clickable-chip"
+            @click="toggleSSEEnabled"
+          >
+            <v-icon size="12" class="mr-1 pulse-icon">mdi-circle</v-icon>
+            Live
+          </v-chip>
+          <v-chip
+            v-else-if="sseEnabled && sseConnectionState === 'connecting'"
+            v-bind="props"
+            color="warning"
+            size="small"
+            variant="tonal"
+            class="mr-2 clickable-chip"
+            @click="toggleSSEEnabled"
+          >
+            <v-icon size="14" class="mr-1 spin">mdi-loading</v-icon>
+            Connecting...
+          </v-chip>
+          <v-chip
+            v-else
+            v-bind="props"
+            color="grey"
+            size="small"
+            variant="tonal"
+            class="mr-2 clickable-chip"
+            @click="toggleSSEEnabled"
+          >
+            <v-icon size="12" class="mr-1">mdi-circle-outline</v-icon>
+            {{ t('requestLog.polling') }}
+          </v-chip>
+        </template>
+      </v-tooltip>
       <v-btn
         variant="text"
         size="small"
@@ -1859,8 +1899,52 @@ const stopPanelResize = () => {
 
 // Auto-refresh
 const autoRefreshEnabled = ref(true)
-const AUTO_REFRESH_INTERVAL = 3000
+const autoRefreshInterval = ref(3) // seconds, persisted to localStorage
 let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
+
+const loadAutoRefreshInterval = () => {
+  const saved = localStorage.getItem('requestlog-auto-refresh-interval')
+  if (saved !== null) {
+    const val = parseInt(saved, 10)
+    if (val >= 1 && val <= 60) {
+      autoRefreshInterval.value = val
+    }
+  }
+}
+const saveAutoRefreshInterval = () => {
+  localStorage.setItem('requestlog-auto-refresh-interval', String(autoRefreshInterval.value))
+  // Restart auto-refresh with new interval if enabled
+  if (autoRefreshEnabled.value) {
+    stopAutoRefresh()
+    startAutoRefresh()
+  }
+}
+
+// SSE enabled setting (persisted to localStorage)
+const sseEnabled = ref(true)
+const loadSSEEnabled = () => {
+  const saved = localStorage.getItem('requestlog-sse-enabled')
+  if (saved !== null) {
+    sseEnabled.value = saved === 'true'
+  }
+}
+const saveSSEEnabled = () => {
+  localStorage.setItem('requestlog-sse-enabled', String(sseEnabled.value))
+}
+const toggleSSEEnabled = () => {
+  sseEnabled.value = !sseEnabled.value
+  saveSSEEnabled()
+  if (sseEnabled.value) {
+    // Enable SSE
+    connectSSE()
+  } else {
+    // Disable SSE, fall back to polling
+    disconnectSSE()
+    sseConnectionState.value = 'disconnected'
+    autoRefreshEnabled.value = true
+    startAutoRefresh()
+  }
+}
 
 // SSE connection state
 const sseConnectionState = ref<ConnectionState>('disconnected')
@@ -2596,12 +2680,19 @@ const removeAlias = async (userId?: string) => {
 	  loadPanelWidths()
 	  loadUserAliases()
 	  loadAPIKeys()
+	  loadSSEEnabled()
+	  loadAutoRefreshInterval()
 	  emit('dateRangeChange', getDateRange())
 	  refreshLogs()
-	  // Try SSE first, fall back to polling if it fails
-	  connectSSE()
-	  // Start polling as backup until SSE connects
-	  startAutoRefresh()
+	  if (sseEnabled.value) {
+	    // Try SSE first, fall back to polling if it fails
+	    connectSSE()
+	    // Start polling as backup until SSE connects
+	    startAutoRefresh()
+	  } else {
+	    // SSE disabled, use polling only
+	    startAutoRefresh()
+	  }
 	})
 
 onUnmounted(() => {
@@ -2618,7 +2709,7 @@ const startAutoRefresh = () => {
       if (autoRefreshEnabled.value) {
         silentRefresh()
       }
-    }, AUTO_REFRESH_INTERVAL)
+    }, autoRefreshInterval.value * 1000)
   }
 }
 
@@ -2766,6 +2857,15 @@ const silentRefresh = async () => {
 /* Live indicator pulse animation */
 .live-indicator {
   font-weight: 600;
+}
+
+.clickable-chip {
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.clickable-chip:hover {
+  opacity: 0.8;
 }
 
 .pulse-icon {
