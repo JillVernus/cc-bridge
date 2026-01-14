@@ -43,6 +43,7 @@
               <th class="text-end">{{ t('pricing.outputPrice') }}</th>
               <th class="text-end">{{ t('pricing.cacheCreationPrice') }}</th>
               <th class="text-end">{{ t('pricing.cacheReadPrice') }}</th>
+              <th class="text-center">{{ t('pricing.exportToModels') }}</th>
               <th class="text-center">{{ t('pricing.operation') }}</th>
             </tr>
           </thead>
@@ -57,6 +58,11 @@
               <td class="text-end text-caption">{{ formatCachePrice(pricing.cacheCreationPrice) }}</td>
               <td class="text-end text-caption">{{ formatCachePrice(pricing.cacheReadPrice) }}</td>
               <td class="text-center">
+                <v-icon size="16" :color="pricing.exportToModels !== false ? 'success' : 'grey'">
+                  {{ pricing.exportToModels !== false ? 'mdi-check-circle' : 'mdi-close-circle' }}
+                </v-icon>
+              </td>
+              <td class="text-center">
                 <v-btn icon size="x-small" variant="text" @click="editModel(String(model))" :title="t('common.edit')">
                   <v-icon size="16">mdi-pencil</v-icon>
                 </v-btn>
@@ -69,7 +75,7 @@
               </td>
             </tr>
             <tr v-if="!pricingConfig || Object.keys(pricingConfig.models).length === 0">
-              <td colspan="6" class="text-center text-caption text-grey">{{ t('pricing.noPricingConfig') }}</td>
+              <td colspan="7" class="text-center text-caption text-grey">{{ t('pricing.noPricingConfig') }}</td>
             </tr>
           </tbody>
         </v-table>
@@ -154,6 +160,14 @@
             />
           </v-col>
         </v-row>
+        <v-checkbox
+          v-model="modelForm.exportToModels"
+          :label="t('pricing.exportToModels')"
+          :hint="t('pricing.exportToModelsHint')"
+          persistent-hint
+          density="compact"
+          class="mt-2"
+        />
       </v-card-text>
     </v-card>
   </v-dialog>
@@ -227,7 +241,8 @@ const modelForm = ref({
   inputPrice: 0,
   outputPrice: 0,
   cacheCreationPrice: 0,
-  cacheReadPrice: 0
+  cacheReadPrice: 0,
+  exportToModels: true
 })
 
 // Load pricing when dialog opens
@@ -258,7 +273,8 @@ const editModel = (model: string) => {
       inputPrice: pricing.inputPrice,
       outputPrice: pricing.outputPrice,
       cacheCreationPrice: pricing.cacheCreationPrice || 0,
-      cacheReadPrice: pricing.cacheReadPrice || 0
+      cacheReadPrice: pricing.cacheReadPrice || 0,
+      exportToModels: pricing.exportToModels !== false
     }
     showAddModelDialog.value = true
   }
@@ -274,7 +290,8 @@ const duplicateModel = (model: string) => {
       inputPrice: pricing.inputPrice,
       outputPrice: pricing.outputPrice,
       cacheCreationPrice: pricing.cacheCreationPrice || 0,
-      cacheReadPrice: pricing.cacheReadPrice || 0
+      cacheReadPrice: pricing.cacheReadPrice || 0,
+      exportToModels: pricing.exportToModels !== false
     }
     showAddModelDialog.value = true
   }
@@ -289,7 +306,8 @@ const cancelModelEdit = () => {
     inputPrice: 0,
     outputPrice: 0,
     cacheCreationPrice: 0,
-    cacheReadPrice: 0
+    cacheReadPrice: 0,
+    exportToModels: true
   }
 }
 
@@ -303,7 +321,8 @@ const saveModelPricing = async () => {
       outputPrice: modelForm.value.outputPrice,
       cacheCreationPrice: modelForm.value.cacheCreationPrice === 0 ? 0 : (modelForm.value.cacheCreationPrice || undefined),
       cacheReadPrice: modelForm.value.cacheReadPrice === 0 ? 0 : (modelForm.value.cacheReadPrice || undefined),
-      description: modelForm.value.description || undefined
+      description: modelForm.value.description || undefined,
+      exportToModels: modelForm.value.exportToModels
     }
     await api.setModelPricing(modelForm.value.name, pricing)
     await loadPricing()

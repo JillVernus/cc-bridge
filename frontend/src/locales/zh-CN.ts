@@ -495,6 +495,8 @@ export default {
     confirmReset: '确认重置',
     confirmResetDesc: '确定要将所有定价配置重置为默认值吗？自定义的定价将会丢失。',
     duplicate: '复制',
+    exportToModels: '导出',
+    exportToModelsHint: '在 /v1/models API 中显示',
   },
 
   // Backup & Restore

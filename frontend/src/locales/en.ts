@@ -495,6 +495,8 @@ export default {
     confirmReset: 'Confirm Reset',
     confirmResetDesc: 'Are you sure you want to reset all pricing to defaults? Custom prices will be lost.',
     duplicate: 'Duplicate',
+    exportToModels: 'Export',
+    exportToModelsHint: 'Show in /v1/models API',
   },
 
   // Backup & Restore

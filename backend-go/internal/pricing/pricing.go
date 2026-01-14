@@ -18,6 +18,7 @@ type ModelPricing struct {
 	CacheCreationPrice      *float64 `json:"cacheCreationPrice"`      // 缓存创建价格 ($/1M tokens)，nil 时使用 inputPrice * 1.25
 	CacheReadPrice          *float64 `json:"cacheReadPrice"`          // 缓存读取价格 ($/1M tokens)，nil 时使用 inputPrice * 0.1
 	Description             string   `json:"description,omitempty"`   // 模型描述
+	ExportToModels          *bool    `json:"exportToModels,omitempty"` // 是否导出到 /v1/models API，nil 或 true 时导出
 }
 
 // PricingConfig 定价配置
@@ -245,6 +246,21 @@ func (pm *PricingManager) GetConfig() PricingConfig {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 	return pm.config
+}
+
+// GetExportableModels 获取可导出到 /v1/models API 的模型列表
+func (pm *PricingManager) GetExportableModels() map[string]ModelPricing {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	result := make(map[string]ModelPricing)
+	for modelID, pricing := range pm.config.Models {
+		// nil 或 true 时导出
+		if pricing.ExportToModels == nil || *pricing.ExportToModels {
+			result[modelID] = pricing
+		}
+	}
+	return result
 }
 
 // UpdateConfig 更新配置

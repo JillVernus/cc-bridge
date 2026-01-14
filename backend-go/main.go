@@ -419,6 +419,7 @@ func main() {
 	v1Group.Use(middleware.ProxyAuthMiddlewareWithAPIKey(envCfg, apiKeyManager))
 	v1Group.Use(middleware.APIRateLimitMiddleware(apiRateLimiter))
 	{
+		v1Group.GET("/models", handlers.GetModels())
 		v1Group.POST("/messages", handlers.ProxyHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker, channelRateLimiter))
 		v1Group.POST("/responses", handlers.ResponsesHandlerWithAPIKey(envCfg, cfgManager, sessionManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker, channelRateLimiter))
 	}

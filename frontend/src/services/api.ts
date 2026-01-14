@@ -1004,6 +1004,7 @@ export interface ModelPricing {
   cacheCreationPrice?: number | null  // 缓存创建价格 ($/1M tokens)，null/undefined 表示使用默认值，0 表示免费
   cacheReadPrice?: number | null      // 缓存读取价格 ($/1M tokens)，null/undefined 表示使用默认值，0 表示免费
   description?: string            // 模型描述
+  exportToModels?: boolean        // 是否导出到 /v1/models API，undefined 或 true 时导出
 }
 
 export interface PricingConfig {
