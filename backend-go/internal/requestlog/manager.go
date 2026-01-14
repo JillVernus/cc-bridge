@@ -447,8 +447,8 @@ func (m *Manager) Add(record *RequestLog) error {
 		return fmt.Errorf("failed to insert request log: %w", err)
 	}
 
-	// Broadcast log created event
-	if m.broadcaster != nil {
+	// Broadcast log created event (skip if no clients to save memory)
+	if m.broadcaster != nil && m.broadcaster.HasClients() {
 		m.broadcaster.Broadcast(NewLogCreatedEvent(record))
 	}
 
@@ -529,8 +529,9 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 		return fmt.Errorf("request log not found: %s", id)
 	}
 
-	// Broadcast log updated event - read complete record from DB to include api_key_id and has_debug_data
-	if m.broadcaster != nil {
+	// Broadcast log updated event (skip if no clients to save memory)
+	// Read complete record from DB to include api_key_id and has_debug_data
+	if m.broadcaster != nil && m.broadcaster.HasClients() {
 		if completeRecord, err := m.getCompleteRecordForSSE(id); err == nil {
 			m.broadcaster.Broadcast(NewLogUpdatedEvent(id, completeRecord))
 		} else {

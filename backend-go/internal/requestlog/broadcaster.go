@@ -79,6 +79,13 @@ func (b *Broadcaster) ClientCount() int {
 	return len(b.clients)
 }
 
+// HasClients returns true if there are any connected clients
+func (b *Broadcaster) HasClients() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return len(b.clients) > 0
+}
+
 func (b *Broadcaster) generateClientID() string {
 	seq := b.clientSeq.Add(1)
 	return "sse_" + string(rune('A'+seq%26)) + string(rune('0'+seq/26%10))
