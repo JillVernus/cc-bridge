@@ -499,6 +499,27 @@ export default {
     exportToModelsHint: '在 /v1/models API 中显示',
   },
 
+  // Model Aliases Settings
+  modelAliases: {
+    title: '模型别名',
+    description: '配置渠道设置中模型映射的源模型选项',
+    messagesModels: 'Messages API 模型',
+    responsesModels: 'Responses API 模型',
+    addModel: '添加',
+    editModel: '编辑模型',
+    resetDefault: '重置默认',
+    modelValue: '模型名称',
+    modelValuePlaceholder: '例如：opus',
+    modelDescription: '描述',
+    modelDescriptionOptional: '描述（可选）',
+    modelDescriptionPlaceholder: '例如：Claude Opus',
+    noModels: '暂无模型配置',
+    loadFailed: '加载模型别名失败',
+    confirmDelete: '确定要删除模型 "{model}" 吗？',
+    confirmReset: '确认重置',
+    confirmResetDesc: '确定要将所有模型别名重置为默认值吗？自定义的别名将会丢失。',
+  },
+
   // Backup & Restore
   backup: {
     title: '备份与恢复',

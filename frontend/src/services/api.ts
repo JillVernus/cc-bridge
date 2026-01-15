@@ -659,6 +659,28 @@ class ApiService {
     })
   }
 
+  // ============== 模型别名配置 API ==============
+
+  // 获取模型别名配置
+  async getModelAliases(): Promise<AliasesConfig> {
+    return this.request('/model-aliases')
+  }
+
+  // 更新模型别名配置
+  async updateModelAliases(config: AliasesConfig): Promise<{ message: string; config: AliasesConfig }> {
+    return this.request('/model-aliases', {
+      method: 'PUT',
+      body: JSON.stringify(config)
+    })
+  }
+
+  // 重置模型别名配置为默认值
+  async resetModelAliasesToDefault(): Promise<{ message: string; config: AliasesConfig }> {
+    return this.request('/model-aliases/reset', {
+      method: 'POST'
+    })
+  }
+
   // ============== 速率限制配置 API ==============
 
   // 获取速率限制配置
@@ -1010,6 +1032,17 @@ export interface ModelPricing {
 export interface PricingConfig {
   models: Record<string, ModelPricing>
   currency: string
+}
+
+// 模型别名配置类型
+export interface ModelAlias {
+  value: string
+  description?: string
+}
+
+export interface AliasesConfig {
+  messagesModels: ModelAlias[]
+  responsesModels: ModelAlias[]
 }
 
 // 渠道价格乘数配置（用于渠道级别的折扣）

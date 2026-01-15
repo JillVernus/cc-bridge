@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/JillVernus/cc-bridge/internal/aliases"
 	"github.com/JillVernus/cc-bridge/internal/apikey"
 	"github.com/JillVernus/cc-bridge/internal/config"
 	"github.com/JillVernus/cc-bridge/internal/handlers"
@@ -173,6 +174,14 @@ func main() {
 		log.Printf("⚠️ 定价管理器初始化失败: %v (将使用默认定价)", err)
 	} else {
 		log.Printf("✅ 定价管理器已初始化")
+	}
+
+	// 初始化模型别名管理器
+	_, err = aliases.InitManager(".config/model-aliases.json")
+	if err != nil {
+		log.Printf("⚠️ 模型别名管理器初始化失败: %v (将使用默认别名)", err)
+	} else {
+		log.Printf("✅ 模型别名管理器已初始化")
 	}
 
 	// 初始化速率限制配置管理器
@@ -391,6 +400,11 @@ func main() {
 		apiGroup.PUT("/pricing/models/:model", handlers.AddModelPricing())
 		apiGroup.DELETE("/pricing/models/:model", handlers.DeleteModelPricing())
 		apiGroup.POST("/pricing/reset", handlers.ResetPricingToDefault())
+
+		// 模型别名配置 API
+		apiGroup.GET("/model-aliases", handlers.GetAliases())
+		apiGroup.PUT("/model-aliases", handlers.UpdateAliases())
+		apiGroup.POST("/model-aliases/reset", handlers.ResetAliasesToDefault())
 
 		// 速率限制配置 API
 		apiGroup.GET("/ratelimit", handlers.GetRateLimitConfig())

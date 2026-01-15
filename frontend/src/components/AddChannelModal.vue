@@ -1095,7 +1095,7 @@
 import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useTheme } from 'vuetify'
 import { useI18n } from 'vue-i18n'
-import type { Channel, OAuthTokens } from '../services/api'
+import type { Channel, OAuthTokens, AliasesConfig } from '../services/api'
 import { api } from '../services/api'
 import CompositeChannelEditor from './CompositeChannelEditor.vue'
 
@@ -1135,6 +1135,9 @@ const activeTab = ref('config')
 const quickInput = ref('')
 const detectedBaseUrl = ref('')
 const detectedApiKeys = ref<string[]>([])
+
+// 模型别名配置（从后端获取）
+const aliasesConfig = ref<AliasesConfig | null>(null)
 
 // 切换模式时，将快速模式检测到的值同步到详细表单，但不清空快速模式输入
 const toggleMode = () => {
@@ -1317,10 +1320,17 @@ const keyLoadBalanceOptions = computed(() => [
   { title: t('keyLoadBalance.failover'), value: 'failover', description: t('keyLoadBalance.failoverDesc') }
 ])
 
-// 全部源模型选项 - 根据渠道类型动态显示
+// 全部源模型选项 - 从配置获取，回退到默认值
 const allSourceModelOptions = computed(() => {
   if (props.channelType === 'responses') {
-    // Responses API (Codex) 常用模型名称
+    // Responses API models from config
+    if (aliasesConfig.value?.responsesModels?.length) {
+      return aliasesConfig.value.responsesModels.map(m => ({
+        title: m.description ? `${m.value} (${m.description})` : m.value,
+        value: m.value
+      }))
+    }
+    // Fallback defaults
     return [
       { title: 'codex', value: 'codex' },
       { title: 'gpt-5.1-codex-max', value: 'gpt-5.1-codex-max' },
@@ -1329,7 +1339,14 @@ const allSourceModelOptions = computed(() => {
       { title: 'gpt-5.1', value: 'gpt-5.1' }
     ]
   } else {
-    // Messages API (Claude) 常用模型别名
+    // Messages API models from config
+    if (aliasesConfig.value?.messagesModels?.length) {
+      return aliasesConfig.value.messagesModels.map(m => ({
+        title: m.description ? `${m.value} (${m.description})` : m.value,
+        value: m.value
+      }))
+    }
+    // Fallback defaults
     return [
       { title: 'opus', value: 'opus' },
       { title: 'sonnet', value: 'sonnet' },
@@ -2290,6 +2307,14 @@ watch(
       activeTab.value = 'config'
       // Increment key to force CompositeChannelEditor re-creation
       compositeEditorReopenCount.value++
+      // Refresh model aliases config (only if authenticated)
+      if (api.getApiKey()) {
+        api.getModelAliases().then(config => {
+          aliasesConfig.value = config
+        }).catch(err => {
+          console.warn('Failed to load model aliases config:', err)
+        })
+      }
       if (props.channel) {
         // 编辑模式：使用表单模式
         isQuickMode.value = false

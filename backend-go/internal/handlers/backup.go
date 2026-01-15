@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JillVernus/cc-bridge/internal/aliases"
 	"github.com/JillVernus/cc-bridge/internal/config"
 	"github.com/JillVernus/cc-bridge/internal/pricing"
 	"github.com/gin-gonic/gin"
@@ -17,10 +18,11 @@ import (
 
 // BackupData represents the combined backup of config and pricing
 type BackupData struct {
-	Version   string                `json:"version"`
-	CreatedAt string                `json:"createdAt"`
-	Config    *config.Config        `json:"config"`
+	Version   string                 `json:"version"`
+	CreatedAt string                 `json:"createdAt"`
+	Config    *config.Config         `json:"config"`
 	Pricing   *pricing.PricingConfig `json:"pricing,omitempty"`
+	Aliases   *aliases.AliasesConfig `json:"aliases,omitempty"`
 }
 
 // BackupInfo represents metadata about a backup file
@@ -63,6 +65,14 @@ func CreateBackup(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			pricingConfig = &pc
 		}
 
+		// Get current aliases (may be nil if not initialized)
+		var aliasesConfig *aliases.AliasesConfig
+		am := aliases.GetManager()
+		if am != nil {
+			ac := am.GetConfig()
+			aliasesConfig = &ac
+		}
+
 		// Create backup data
 		timestamp := time.Now()
 		backupData := BackupData{
@@ -70,6 +80,7 @@ func CreateBackup(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			CreatedAt: timestamp.Format(time.RFC3339),
 			Config:    &cfg,
 			Pricing:   pricingConfig,
+			Aliases:   aliasesConfig,
 		}
 
 		// Marshal to JSON
@@ -226,6 +237,17 @@ func RestoreBackup(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			if pm != nil {
 				if err := pm.UpdateConfig(*backupData.Pricing); err != nil {
 					c.JSON(500, gin.H{"error": "Failed to restore pricing: " + err.Error()})
+					return
+				}
+			}
+		}
+
+		// Restore aliases
+		if backupData.Aliases != nil {
+			am := aliases.GetManager()
+			if am != nil {
+				if err := am.UpdateConfig(*backupData.Aliases); err != nil {
+					c.JSON(500, gin.H{"error": "Failed to restore aliases: " + err.Error()})
 					return
 				}
 			}

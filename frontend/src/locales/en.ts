@@ -499,6 +499,27 @@ export default {
     exportToModelsHint: 'Show in /v1/models API',
   },
 
+  // Model Aliases Settings
+  modelAliases: {
+    title: 'Model Aliases',
+    description: 'Configure source model options for model mapping in channel settings',
+    messagesModels: 'Messages API Models',
+    responsesModels: 'Responses API Models',
+    addModel: 'Add',
+    editModel: 'Edit Model',
+    resetDefault: 'Reset Default',
+    modelValue: 'Model Name',
+    modelValuePlaceholder: 'e.g., opus',
+    modelDescription: 'Description',
+    modelDescriptionOptional: 'Description (optional)',
+    modelDescriptionPlaceholder: 'e.g., Claude Opus',
+    noModels: 'No models configured',
+    loadFailed: 'Failed to load model aliases',
+    confirmDelete: 'Are you sure you want to delete model "{model}"?',
+    confirmReset: 'Confirm Reset',
+    confirmResetDesc: 'Are you sure you want to reset all model aliases to defaults? Custom aliases will be lost.',
+  },
+
   // Backup & Restore
   backup: {
     title: 'Backup & Restore',

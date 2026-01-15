@@ -76,6 +76,12 @@
               </template>
               <v-list-item-title>{{ t('app.pricingSettings') }}</v-list-item-title>
             </v-list-item>
+            <v-list-item @click="showModelAliasSettings = true">
+              <template #prepend>
+                <v-icon size="small">mdi-tag-multiple</v-icon>
+              </template>
+              <v-list-item-title>{{ t('modelAliases.title') }}</v-list-item-title>
+            </v-list-item>
             <v-list-item @click="showRateLimitSettings = true">
               <template #prepend>
                 <v-icon size="small">mdi-speedometer</v-icon>
@@ -479,6 +485,9 @@
     <!-- 定价设置对话框 -->
     <PricingSettings v-model="showPricingSettings" />
 
+    <!-- 模型别名设置对话框 -->
+    <ModelAliasSettings v-model="showModelAliasSettings" />
+
     <!-- 速率限制设置对话框 -->
     <RateLimitSettings v-model="showRateLimitSettings" />
 
@@ -614,6 +623,7 @@ import ChannelOrchestration from './components/ChannelOrchestration.vue'
 import RequestLogTable from './components/RequestLogTable.vue'
 import APIKeyManagement from './components/APIKeyManagement.vue'
 import PricingSettings from './components/PricingSettings.vue'
+import ModelAliasSettings from './components/ModelAliasSettings.vue'
 import RateLimitSettings from './components/RateLimitSettings.vue'
 import DebugLogSettings from './components/DebugLogSettings.vue'
 import FailoverSettings from './components/FailoverSettings.vue'
@@ -652,6 +662,7 @@ const newApiKey = ref('')
 const isPingingAll = ref(false)
 const appVersion = ref('') // 应用版本号
 const showPricingSettings = ref(false) // 定价设置对话框
+const showModelAliasSettings = ref(false) // 模型别名设置对话框
 const showRateLimitSettings = ref(false) // 速率限制设置对话框
 const showDebugLogSettings = ref(false) // 调试日志设置对话框
 const showFailoverSettings = ref(false) // 故障转移设置对话框
@@ -1304,6 +1315,7 @@ const handleKeydown = (event: KeyboardEvent) => {
     showDeleteChannelConfirm.value = false
     showDeleteApiKeyConfirm.value = false
     showPricingSettings.value = false
+    showModelAliasSettings.value = false
     showRateLimitSettings.value = false
     showDebugLogSettings.value = false
     showFailoverSettings.value = false
