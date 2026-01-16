@@ -364,6 +364,9 @@
                       :placeholder="targetModelPlaceholder"
                       :items="targetModelOptions"
                       :loading="upstreamModelsLoading"
+                      item-value="value"
+                      item-title="title"
+                      :return-object="false"
                       variant="outlined"
                       density="comfortable"
                       hide-details
