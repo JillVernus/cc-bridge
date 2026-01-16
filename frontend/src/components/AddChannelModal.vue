@@ -1298,7 +1298,8 @@ const serviceTypeOptions = computed(() => {
       { title: t('addChannel.serviceTypeOpenAIOAuth'), value: 'openai-oauth' },
       { title: t('addChannel.serviceTypeOpenAI'), value: 'openai' },
       { title: t('addChannel.serviceTypeOpenAIOld'), value: 'openaiold' },
-      { title: 'Claude', value: 'claude' }
+      { title: 'Claude', value: 'claude' },
+      { title: 'Gemini', value: 'gemini' }
     ]
   } else {
     return [
@@ -1307,6 +1308,7 @@ const serviceTypeOptions = computed(() => {
       { title: t('addChannel.serviceTypeOpenAIOld'), value: 'openaiold' },
       { title: 'Claude', value: 'claude' },
       { title: 'Gemini', value: 'gemini' },
+      { title: t('addChannel.serviceTypeResponses'), value: 'responses' },
       { title: t('addChannel.serviceTypeComposite'), value: 'composite' }
     ]
   }

@@ -34,6 +34,8 @@ func GetProvider(serviceType string) Provider {
 		return &GeminiProvider{}
 	case "claude":
 		return &ClaudeProvider{}
+	case "responses":
+		return &ResponsesUpstreamProvider{}
 	default:
 		return nil
 	}

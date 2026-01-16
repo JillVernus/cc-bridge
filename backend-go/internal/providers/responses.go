@@ -36,6 +36,8 @@ func (p *ResponsesProvider) ConvertToProviderRequest(
 	c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
 	var providerReq interface{}
+	var model string
+	var stream bool
 
 	// 2. 使用转换器工厂创建转换器
 	converter := converters.NewConverter(upstream.ServiceType)
@@ -48,9 +50,13 @@ func (p *ResponsesProvider) ConvertToProviderRequest(
 			return nil, bodyBytes, fmt.Errorf("透传模式下解析请求失败: %w", err)
 		}
 
-		// 只做模型重定向
-		if model, ok := reqMap["model"].(string); ok {
-			reqMap["model"] = config.RedirectModel(model, upstream)
+		// 提取 model 和 stream 用于 URL 构建
+		if m, ok := reqMap["model"].(string); ok {
+			model = config.RedirectModel(m, upstream)
+			reqMap["model"] = model
+		}
+		if s, ok := reqMap["stream"].(bool); ok {
+			stream = s
 		}
 
 		providerReq = reqMap
@@ -69,6 +75,8 @@ func (p *ResponsesProvider) ConvertToProviderRequest(
 
 		// 模型重定向
 		responsesReq.Model = config.RedirectModel(responsesReq.Model, upstream)
+		model = responsesReq.Model
+		stream = responsesReq.Stream
 
 		// 转换请求
 		convertedReq, err := converter.ToProviderRequest(sess, &responsesReq)
@@ -85,7 +93,7 @@ func (p *ResponsesProvider) ConvertToProviderRequest(
 	}
 
 	// 7. 构建 HTTP 请求
-	targetURL := p.buildTargetURL(upstream)
+	targetURL := p.buildTargetURL(upstream, model, stream)
 	req, err := http.NewRequest("POST", targetURL, bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, bodyBytes, err
@@ -120,8 +128,18 @@ func (p *ResponsesProvider) ConvertToProviderRequest(
 // 智能拼接逻辑：
 // 1. 如果 baseURL 已包含版本号后缀（如 /v1, /v2, /v8, /v1beta），直接拼接端点路径
 // 2. 如果 baseURL 不包含版本号后缀，自动添加 /v1 再拼接端点路径
-func (p *ResponsesProvider) buildTargetURL(upstream *config.UpstreamConfig) string {
+// 3. Gemini 使用特殊的 URL 格式：{baseURL}/models/{model}:generateContent
+func (p *ResponsesProvider) buildTargetURL(upstream *config.UpstreamConfig, model string, stream bool) string {
 	baseURL := strings.TrimSuffix(upstream.BaseURL, "/")
+
+	// Gemini 使用特殊的 URL 格式
+	if upstream.ServiceType == "gemini" {
+		action := "generateContent"
+		if stream {
+			action = "streamGenerateContent?alt=sse"
+		}
+		return fmt.Sprintf("%s/models/%s:%s", baseURL, model, action)
+	}
 
 	// 使用正则表达式检测 baseURL 是否以版本号结尾（/v1, /v2, /v1beta, /v2alpha等）
 	versionPattern := regexp.MustCompile(`/v\d+[a-z]*$`)
