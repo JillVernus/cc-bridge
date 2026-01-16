@@ -478,6 +478,69 @@
 
     <v-divider class="my-2" />
 
+    <!-- 组合渠道池 (disabled composite channels) -->
+    <div v-if="disabledCompositeChannels.length > 0" class="pt-2 pb-3">
+      <div class="inactive-pool-header">
+        <div class="text-subtitle-2 text-medium-emphasis d-flex align-center">
+          <v-icon size="small" class="mr-1" color="purple">mdi-layers-triple</v-icon>
+          {{ t('orchestration.compositePool') }}
+          <v-chip size="x-small" class="ml-2" color="purple" variant="tonal">{{ disabledCompositeChannels.length }}</v-chip>
+        </div>
+        <span class="text-caption text-medium-emphasis">{{ t('orchestration.compositePoolDesc') }}</span>
+      </div>
+
+      <div class="inactive-pool composite-pool">
+        <div v-for="channel in disabledCompositeChannels" :key="channel.index" class="inactive-channel-row composite-channel-row">
+          <!-- 渠道信息 -->
+          <div class="channel-info">
+            <div class="channel-info-main">
+              <span class="font-weight-medium">{{ channel.name }}</span>
+            </div>
+            <div v-if="channel.description" class="channel-info-desc text-caption text-disabled">
+              {{ channel.description }}
+            </div>
+          </div>
+
+          <!-- 操作按钮 -->
+          <div class="channel-actions">
+            <v-btn size="small" color="success" variant="tonal" @click="enableChannel(channel.index)">
+              <v-icon start size="18">mdi-play-circle</v-icon>
+              {{ t('common.enabled') }}
+            </v-btn>
+
+            <v-menu>
+              <template #activator="{ props }">
+                <v-btn icon size="small" variant="text" v-bind="props">
+                  <v-icon size="18">mdi-dots-vertical</v-icon>
+                </v-btn>
+              </template>
+              <v-list density="compact">
+                <v-list-item @click="$emit('edit', channel)">
+                  <template #prepend>
+                    <v-icon size="small">mdi-pencil</v-icon>
+                  </template>
+                  <v-list-item-title>{{ t('common.edit') }}</v-list-item-title>
+                </v-list-item>
+                <v-divider />
+                <v-list-item @click="enableChannel(channel.index)">
+                  <template #prepend>
+                    <v-icon size="small" color="success">mdi-play-circle</v-icon>
+                  </template>
+                  <v-list-item-title>{{ t('common.enabled') }}</v-list-item-title>
+                </v-list-item>
+                <v-list-item @click="$emit('delete', channel.index)">
+                  <template #prepend>
+                    <v-icon size="small" color="error">mdi-delete</v-icon>
+                  </template>
+                  <v-list-item-title>{{ t('common.delete') }}</v-list-item-title>
+                </v-list-item>
+              </v-list>
+            </v-menu>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 备用资源池 (disabled only) -->
     <div class="pt-2 pb-3">
       <div class="inactive-pool-header">
@@ -718,9 +781,14 @@ const toggleChannelChart = (channelId: number) => {
 // 活跃渠道（可拖拽排序）- 包含 active 和 suspended 状态
 const activeChannels = ref<Channel[]>([])
 
-// 计算属性：非活跃渠道 - 仅 disabled 状态
+// 计算属性：禁用的组合渠道 - 单独分组
+const disabledCompositeChannels = computed(() => {
+  return props.channels.filter(ch => ch.status === 'disabled' && ch.serviceType === 'composite')
+})
+
+// 计算属性：非活跃渠道 - 仅 disabled 状态，排除组合渠道
 const inactiveChannels = computed(() => {
-  return props.channels.filter(ch => ch.status === 'disabled')
+  return props.channels.filter(ch => ch.status === 'disabled' && ch.serviceType !== 'composite')
 })
 
 // 计算属性：是否为多渠道模式
@@ -1271,6 +1339,35 @@ defineExpose({
 .v-theme--dark .inactive-pool {
   background: rgb(var(--v-theme-surface));
   border-color: rgba(255, 255, 255, 0.5);
+}
+
+/* 组合渠道池样式 - 紫色主题 */
+.composite-pool {
+  border-color: rgba(156, 39, 176, 0.5);
+}
+
+.v-theme--dark .composite-pool {
+  border-color: rgba(186, 104, 200, 0.6);
+}
+
+.composite-channel-row {
+  border-color: rgba(156, 39, 176, 0.6);
+  box-shadow: 3px 3px 0 0 rgba(156, 39, 176, 0.4);
+}
+
+.composite-channel-row:hover {
+  background: rgba(156, 39, 176, 0.08);
+  box-shadow: 4px 4px 0 0 rgba(156, 39, 176, 0.5);
+}
+
+.v-theme--dark .composite-channel-row {
+  border-color: rgba(186, 104, 200, 0.7);
+  box-shadow: 3px 3px 0 0 rgba(186, 104, 200, 0.5);
+}
+
+.v-theme--dark .composite-channel-row:hover {
+  background: rgba(186, 104, 200, 0.12);
+  box-shadow: 4px 4px 0 0 rgba(186, 104, 200, 0.6);
 }
 
 .inactive-channel-row {
