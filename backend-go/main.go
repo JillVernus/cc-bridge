@@ -308,6 +308,7 @@ func main() {
 		apiGroup.POST("/channels/:id/resume", handlers.ResumeChannel(channelScheduler, false))
 		apiGroup.POST("/channels/:id/promotion", handlers.SetChannelPromotion(cfgManager))
 		apiGroup.GET("/channels/:id/test-mapping", handlers.TestCompositeMapping(cfgManager))
+		apiGroup.GET("/channels/:id/models", handlers.FetchUpstreamModels(cfgManager))
 		apiGroup.GET("/channels/metrics", handlers.GetChannelMetrics(messagesMetricsManager))
 		apiGroup.GET("/channels/scheduler/stats", handlers.GetSchedulerStats(channelScheduler))
 
@@ -334,6 +335,7 @@ func main() {
 		apiGroup.POST("/responses/channels/:id/promotion", handlers.SetResponsesChannelPromotion(cfgManager))
 		apiGroup.GET("/responses/channels/metrics", handlers.GetResponsesChannelMetrics(responsesMetricsManager))
 		apiGroup.GET("/responses/channels/:id/oauth/status", handlers.GetResponsesChannelOAuthStatus(cfgManager))
+		apiGroup.GET("/responses/channels/:id/models", handlers.FetchResponsesUpstreamModels(cfgManager))
 
 		// 负载均衡
 		apiGroup.PUT("/loadbalance", handlers.UpdateLoadBalance(cfgManager))

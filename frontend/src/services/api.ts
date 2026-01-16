@@ -338,6 +338,16 @@ class ApiService {
     return this.request('/ping')
   }
 
+  // Fetch models from upstream provider
+  async fetchUpstreamModels(channelId: number): Promise<{ success: boolean; models?: Array<{ id: string; object?: string; owned_by?: string }>; error?: string }> {
+    return this.request(`/channels/${channelId}/models`)
+  }
+
+  // Fetch models from Responses upstream provider
+  async fetchResponsesUpstreamModels(channelId: number): Promise<{ success: boolean; models?: Array<{ id: string; object?: string; owned_by?: string }>; error?: string }> {
+    return this.request(`/responses/channels/${channelId}/models`)
+  }
+
   async updateLoadBalance(strategy: string): Promise<void> {
     await this.request('/loadbalance', {
       method: 'PUT',

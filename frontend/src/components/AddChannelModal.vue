@@ -358,16 +358,44 @@
                       :placeholder="t('addChannel.selectSourceModel')"
                     />
                     <v-icon color="primary">mdi-arrow-right</v-icon>
-                    <v-text-field
+                    <v-combobox
                       v-model="newMapping.target"
                       :label="t('addChannel.targetModel')"
                       :placeholder="targetModelPlaceholder"
+                      :items="targetModelOptions"
+                      :loading="upstreamModelsLoading"
                       variant="outlined"
                       density="comfortable"
                       hide-details
                       class="flex-1-1"
                       @keyup.enter="addModelMapping"
-                    />
+                    >
+                      <template #append-inner>
+                        <v-tooltip :text="upstreamModelsError || t('addChannel.fetchModelsTooltip')" location="top">
+                          <template #activator="{ props: tooltipProps }">
+                            <v-btn
+                              v-bind="tooltipProps"
+                              icon
+                              variant="text"
+                              size="x-small"
+                              :loading="upstreamModelsLoading"
+                              :color="upstreamModelsError ? 'warning' : 'primary'"
+                              :disabled="!isEditing"
+                              @click.stop="fetchUpstreamModels"
+                            >
+                              <v-icon size="small">{{ upstreamModelsError ? 'mdi-alert' : 'mdi-refresh' }}</v-icon>
+                            </v-btn>
+                          </template>
+                        </v-tooltip>
+                      </template>
+                      <template #no-data>
+                        <v-list-item>
+                          <v-list-item-title class="text-caption text-medium-emphasis">
+                            {{ isEditing ? t('addChannel.clickRefreshToLoad') : t('addChannel.saveChannelFirst') }}
+                          </v-list-item-title>
+                        </v-list-item>
+                      </template>
+                    </v-combobox>
                     <v-btn
                       color="secondary"
                       variant="elevated"
@@ -1541,6 +1569,47 @@ const newMapping = reactive({
   target: ''
 })
 
+// Upstream models fetching state
+const upstreamModels = ref<Array<{ id: string; owned_by?: string }>>([])
+const upstreamModelsLoading = ref(false)
+const upstreamModelsError = ref('')
+
+// Computed list of target model options for combobox
+const targetModelOptions = computed(() => {
+  return upstreamModels.value.map(m => ({
+    title: m.owned_by ? `${m.id} (${m.owned_by})` : m.id,
+    value: m.id
+  }))
+})
+
+// Fetch upstream models from the channel
+const fetchUpstreamModels = async () => {
+  // Need channel index for API call - only works in edit mode
+  if (!props.channel || props.channel.index === undefined) {
+    upstreamModelsError.value = t('addChannel.saveChannelFirst')
+    return
+  }
+
+  upstreamModelsLoading.value = true
+  upstreamModelsError.value = ''
+
+  try {
+    const result = props.channelType === 'responses'
+      ? await api.fetchResponsesUpstreamModels(props.channel.index)
+      : await api.fetchUpstreamModels(props.channel.index)
+
+    if (result.success && result.models) {
+      upstreamModels.value = result.models
+    } else {
+      upstreamModelsError.value = result.error || t('addChannel.fetchModelsFailed')
+    }
+  } catch (err) {
+    upstreamModelsError.value = err instanceof Error ? err.message : t('addChannel.fetchModelsFailed')
+  } finally {
+    upstreamModelsLoading.value = false
+  }
+}
+
 // 新价格乘数输入
 const newMultiplier = reactive({
   modelKey: '',
@@ -1852,9 +1921,19 @@ const resetForm = () => {
   newCompositeMapping.pattern = ''
   newCompositeMapping.targetChannelId = ''
   newCompositeMapping.targetModel = ''
+
+  // Reset upstream models state (channel-specific)
+  upstreamModels.value = []
+  upstreamModelsLoading.value = false
+  upstreamModelsError.value = ''
 }
 
 const loadChannelData = (channel: Channel) => {
+  // Clear upstream models state (channel-specific, must not persist across channels)
+  upstreamModels.value = []
+  upstreamModelsLoading.value = false
+  upstreamModelsError.value = ''
+
   form.name = channel.name
   form.serviceType = channel.serviceType
   form.baseUrl = channel.baseUrl
