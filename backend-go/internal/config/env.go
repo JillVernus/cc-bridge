@@ -36,6 +36,11 @@ type EnvConfig struct {
 	LogToConsole  bool // 是否同时输出到控制台
 	// 安全相关配置
 	TrustedProxies []string // 可信代理 IP/CIDR 列表（用于正确获取客户端 IP）
+	// 存储后端配置
+	StorageBackend     string // "json" (default) or "database"
+	DatabaseType       string // "sqlite" or "postgresql"
+	DatabaseURL        string // SQLite path or PostgreSQL connection string
+	ConfigPollInterval int    // Config polling interval in seconds (for database backend)
 }
 
 // NewEnvConfig 创建环境配置
@@ -78,6 +83,11 @@ func NewEnvConfig() *EnvConfig {
 		LogToConsole:  getEnv("LOG_TO_CONSOLE", "true") != "false",
 		// 安全配置
 		TrustedProxies: trustedProxies,
+		// 存储后端配置
+		StorageBackend:     getEnv("STORAGE_BACKEND", "json"),      // "json" or "database"
+		DatabaseType:       getEnv("DATABASE_TYPE", "sqlite"),      // "sqlite" or "postgresql"
+		DatabaseURL:        getEnv("DATABASE_URL", ""),             // Connection string
+		ConfigPollInterval: getEnvAsInt("CONFIG_POLL_INTERVAL", 5), // seconds
 	}
 }
 
@@ -89,6 +99,16 @@ func (c *EnvConfig) IsDevelopment() bool {
 // IsProduction 是否为生产环境
 func (c *EnvConfig) IsProduction() bool {
 	return c.Env == "production"
+}
+
+// UseDatabaseStorage returns true if database storage backend is enabled
+func (c *EnvConfig) UseDatabaseStorage() bool {
+	return c.StorageBackend == "database"
+}
+
+// UseJSONStorage returns true if JSON file storage backend is enabled (default)
+func (c *EnvConfig) UseJSONStorage() bool {
+	return c.StorageBackend != "database"
 }
 
 // ShouldLog 是否应该记录日志

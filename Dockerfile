@@ -36,6 +36,9 @@ RUN cd backend-go && go mod tidy && go mod download
 # 使用 Makefile 构建整个项目（前端 + 后端）
 RUN make build
 
+# 构建数据库迁移工具
+RUN cd backend-go && go build -ldflags="-s -w" -o ../dist/dbmigrate ./cmd/dbmigrate
+
 # --- 阶段 3: 运行时 ---
 FROM alpine:latest AS runtime
 
@@ -46,6 +49,7 @@ RUN apk --no-cache add ca-certificates tzdata
 
 # 从构建阶段复制 Go 二进制文件（已内嵌前端资源）
 COPY --from=builder /src/dist/cc-bridge /app/cc-bridge
+COPY --from=builder /src/dist/dbmigrate /app/dbmigrate
 
 # 创建配置目录和日志目录
 RUN mkdir -p /app/.config/backups /app/logs

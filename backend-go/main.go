@@ -95,13 +95,32 @@ func main() {
 	failoverTracker := config.NewFailoverTracker()
 	log.Printf("✅ 故障转移阈值跟踪器已初始化")
 
+	// Initialize database storage if STORAGE_BACKEND=database
+	// This is done early so we can use unified database for request logs and API keys
+	dbStorageMgr := InitDBStorage(envCfg, cfgManager)
+	if dbStorageMgr != nil {
+		defer dbStorageMgr.Close()
+	}
+
 	// 初始化请求日志管理器
-	reqLogManager, err := requestlog.NewManager(".config/request_logs.db")
-	if err != nil {
-		log.Printf("⚠️ 请求日志管理器初始化失败: %v (日志功能将被禁用)", err)
-		reqLogManager = nil
+	// When using unified database, get the manager from dbStorageMgr
+	var reqLogManager *requestlog.Manager
+	if dbStorageMgr != nil && dbStorageMgr.GetRequestLogManager() != nil {
+		reqLogManager = dbStorageMgr.GetRequestLogManager()
+		log.Printf("✅ 请求日志管理器已初始化 (using unified database)")
 	} else {
-		log.Printf("✅ 请求日志管理器已初始化")
+		// Fallback to separate database
+		var err error
+		reqLogManager, err = requestlog.NewManager(".config/request_logs.db")
+		if err != nil {
+			log.Printf("⚠️ 请求日志管理器初始化失败: %v (日志功能将被禁用)", err)
+			reqLogManager = nil
+		} else {
+			log.Printf("✅ 请求日志管理器已初始化")
+		}
+	}
+
+	if reqLogManager != nil {
 
 		// 连接调度器与请求日志管理器（用于配额渠道暂停检查）
 		channelScheduler.SetSuspensionChecker(reqLogManager)
@@ -156,9 +175,15 @@ func main() {
 		log.Printf("✅ 用量配额管理器已初始化")
 	}
 
-	// 初始化 API Key 管理器（使用与请求日志相同的数据库）
+	// 初始化 API Key 管理器
+	// When using unified database, get the manager from dbStorageMgr
 	var apiKeyManager *apikey.Manager
-	if reqLogManager != nil {
+	if dbStorageMgr != nil && dbStorageMgr.GetAPIKeyManager() != nil {
+		apiKeyManager = dbStorageMgr.GetAPIKeyManager()
+		log.Printf("✅ API Key 管理器已初始化 (using unified database)")
+	} else if reqLogManager != nil {
+		// Fallback to using request log manager's database
+		var err error
 		apiKeyManager, err = apikey.NewManager(reqLogManager.GetDB())
 		if err != nil {
 			log.Printf("⚠️ API Key 管理器初始化失败: %v (API Key 功能将被禁用)", err)

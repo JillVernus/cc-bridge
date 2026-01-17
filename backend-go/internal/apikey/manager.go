@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/JillVernus/cc-bridge/internal/database"
 	_ "modernc.org/sqlite"
 )
 
@@ -23,16 +24,18 @@ const (
 
 // Manager manages API key storage and validation using SQLite
 type Manager struct {
-	db    *sql.DB
-	mu    sync.RWMutex
-	cache map[string]*ValidatedKey // key_hash -> ValidatedKey
+	db      *sql.DB
+	mu      sync.RWMutex
+	cache   map[string]*ValidatedKey // key_hash -> ValidatedKey
+	dialect database.Dialect
 }
 
 // NewManager creates a new API key manager with SQLite storage
 func NewManager(db *sql.DB) (*Manager, error) {
 	m := &Manager{
-		db:    db,
-		cache: make(map[string]*ValidatedKey),
+		db:      db,
+		cache:   make(map[string]*ValidatedKey),
+		dialect: database.DialectSQLite,
 	}
 
 	if err := m.initSchema(); err != nil {
@@ -100,17 +103,26 @@ func (m *Manager) initSchema() error {
 	return nil
 }
 
+// convertQuery converts ? placeholders to $1, $2, etc. for PostgreSQL
+func (m *Manager) convertQuery(query string) string {
+	if m.dialect != database.DialectPostgreSQL {
+		return query
+	}
+	return database.ConvertPlaceholders(query, m.dialect)
+}
+
 // refreshCache loads all active keys into the in-memory cache
 func (m *Manager) refreshCache() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	rows, err := m.db.Query(`
+	query := `
 		SELECT id, name, key_hash, is_admin, rate_limit_rpm,
 			   allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_models
 		FROM api_keys
 		WHERE status = ?
-	`, StatusActive)
+	`
+	rows, err := m.db.Query(m.convertQuery(query), StatusActive)
 	if err != nil {
 		return err
 	}
@@ -188,20 +200,38 @@ func (m *Manager) Create(req *CreateAPIKeyRequest) (*CreateAPIKeyResponse, error
 	allowedChannelsResp := marshalJSONNullable(req.AllowedChannelsResp)
 	allowedModels := marshalJSONNullable(req.AllowedModels)
 
-	result, err := m.db.Exec(`
-		INSERT INTO api_keys (name, key_hash, key_prefix, description, status, is_admin, rate_limit_rpm,
-			allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_models,
-			created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, req.Name, keyHash, keyPrefixStr, req.Description, StatusActive, req.IsAdmin, req.RateLimitRPM,
-		allowedEndpoints, allowedChannelsMsg, allowedChannelsResp, allowedModels, now, now)
-	if err != nil {
-		return nil, fmt.Errorf("failed to insert API key: %w", err)
-	}
+	var id int64
 
-	id, err := result.LastInsertId()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get last insert ID: %w", err)
+	if m.dialect == database.DialectPostgreSQL {
+		// PostgreSQL doesn't support LastInsertId(), use RETURNING instead
+		query := `
+			INSERT INTO api_keys (name, key_hash, key_prefix, description, status, is_admin, rate_limit_rpm,
+				allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_models,
+				created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			RETURNING id
+		`
+		err = m.db.QueryRow(query, req.Name, keyHash, keyPrefixStr, req.Description, StatusActive, req.IsAdmin, req.RateLimitRPM,
+			allowedEndpoints, allowedChannelsMsg, allowedChannelsResp, allowedModels, now, now).Scan(&id)
+		if err != nil {
+			return nil, fmt.Errorf("failed to insert API key: %w", err)
+		}
+	} else {
+		result, err := m.db.Exec(`
+			INSERT INTO api_keys (name, key_hash, key_prefix, description, status, is_admin, rate_limit_rpm,
+				allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_models,
+				created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, req.Name, keyHash, keyPrefixStr, req.Description, StatusActive, req.IsAdmin, req.RateLimitRPM,
+			allowedEndpoints, allowedChannelsMsg, allowedChannelsResp, allowedModels, now, now)
+		if err != nil {
+			return nil, fmt.Errorf("failed to insert API key: %w", err)
+		}
+
+		id, err = result.LastInsertId()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get last insert ID: %w", err)
+		}
 	}
 
 	// Add to cache
@@ -246,13 +276,13 @@ func (m *Manager) GetByID(id int64) (*APIKey, error) {
 	var description sql.NullString
 	var allowedEndpoints, allowedChannelsMsg, allowedChannelsResp, allowedModels sql.NullString
 
-	err := m.db.QueryRow(`
+	err := m.db.QueryRow(m.convertQuery(`
 		SELECT id, name, key_prefix, description, status, is_admin, rate_limit_rpm,
 			   allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_models,
 			   created_at, updated_at, last_used_at
 		FROM api_keys
 		WHERE id = ?
-	`, id).Scan(&key.ID, &key.Name, &key.KeyPrefix, &description, &key.Status, &key.IsAdmin, &key.RateLimitRPM,
+	`), id).Scan(&key.ID, &key.Name, &key.KeyPrefix, &description, &key.Status, &key.IsAdmin, &key.RateLimitRPM,
 		&allowedEndpoints, &allowedChannelsMsg, &allowedChannelsResp, &allowedModels,
 		&createdAt, &updatedAt, &lastUsedAt)
 
@@ -308,14 +338,14 @@ func (m *Manager) List(filter *APIKeyFilter) (*APIKeyListResponse, error) {
 	}
 
 	// Get total count
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM api_keys %s", whereClause)
+	countQuery := m.convertQuery(fmt.Sprintf("SELECT COUNT(*) FROM api_keys %s", whereClause))
 	var total int64
 	if err := m.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
 		return nil, fmt.Errorf("failed to count API keys: %w", err)
 	}
 
 	// Get records
-	query := fmt.Sprintf(`
+	query := m.convertQuery(fmt.Sprintf(`
 		SELECT id, name, key_prefix, description, status, is_admin, rate_limit_rpm,
 			   allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_models,
 			   created_at, updated_at, last_used_at
@@ -323,7 +353,7 @@ func (m *Manager) List(filter *APIKeyFilter) (*APIKeyListResponse, error) {
 		%s
 		ORDER BY created_at DESC
 		LIMIT ? OFFSET ?
-	`, whereClause)
+	`, whereClause))
 
 	args = append(args, filter.Limit, filter.Offset)
 
@@ -424,7 +454,7 @@ func (m *Manager) Update(id int64, req *UpdateAPIKeyRequest) (*APIKey, error) {
 	args = append(args, time.Now())
 	args = append(args, id)
 
-	query := fmt.Sprintf("UPDATE api_keys SET %s WHERE id = ?", strings.Join(updates, ", "))
+	query := m.convertQuery(fmt.Sprintf("UPDATE api_keys SET %s WHERE id = ?", strings.Join(updates, ", ")))
 	result, err := m.db.Exec(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update API key: %w", err)
@@ -447,7 +477,7 @@ func (m *Manager) Update(id int64, req *UpdateAPIKeyRequest) (*APIKey, error) {
 func (m *Manager) Delete(id int64) error {
 	// Get the key hash first to remove from cache
 	var keyHash string
-	err := m.db.QueryRow("SELECT key_hash FROM api_keys WHERE id = ?", id).Scan(&keyHash)
+	err := m.db.QueryRow(m.convertQuery("SELECT key_hash FROM api_keys WHERE id = ?"), id).Scan(&keyHash)
 	if err == sql.ErrNoRows {
 		return fmt.Errorf("API key not found")
 	}
@@ -455,7 +485,7 @@ func (m *Manager) Delete(id int64) error {
 		return fmt.Errorf("failed to get API key: %w", err)
 	}
 
-	result, err := m.db.Exec("DELETE FROM api_keys WHERE id = ?", id)
+	result, err := m.db.Exec(m.convertQuery("DELETE FROM api_keys WHERE id = ?"), id)
 	if err != nil {
 		return fmt.Errorf("failed to delete API key: %w", err)
 	}
@@ -479,9 +509,9 @@ func (m *Manager) SetStatus(id int64, status string) error {
 		return fmt.Errorf("invalid status: %s", status)
 	}
 
-	result, err := m.db.Exec(`
+	result, err := m.db.Exec(m.convertQuery(`
 		UPDATE api_keys SET status = ?, updated_at = ? WHERE id = ?
-	`, status, time.Now(), id)
+	`), status, time.Now(), id)
 	if err != nil {
 		return fmt.Errorf("failed to update API key status: %w", err)
 	}
@@ -501,7 +531,7 @@ func (m *Manager) SetStatus(id int64, status string) error {
 func (m *Manager) Enable(id int64) error {
 	// Check current status - can only enable disabled keys
 	var currentStatus string
-	err := m.db.QueryRow("SELECT status FROM api_keys WHERE id = ?", id).Scan(&currentStatus)
+	err := m.db.QueryRow(m.convertQuery("SELECT status FROM api_keys WHERE id = ?"), id).Scan(&currentStatus)
 	if err == sql.ErrNoRows {
 		return fmt.Errorf("API key not found")
 	}
@@ -522,7 +552,7 @@ func (m *Manager) Enable(id int64) error {
 // Disable disables an API key (can be re-enabled)
 func (m *Manager) Disable(id int64) error {
 	var currentStatus string
-	err := m.db.QueryRow("SELECT status FROM api_keys WHERE id = ?", id).Scan(&currentStatus)
+	err := m.db.QueryRow(m.convertQuery("SELECT status FROM api_keys WHERE id = ?"), id).Scan(&currentStatus)
 	if err == sql.ErrNoRows {
 		return fmt.Errorf("API key not found")
 	}
@@ -568,12 +598,12 @@ func (m *Manager) Validate(key string) *ValidatedKey {
 	var rateLimitRPM int
 	var allowedEndpoints, allowedChannelsMsg, allowedChannelsResp, allowedModels sql.NullString
 
-	err := m.db.QueryRow(`
+	err := m.db.QueryRow(m.convertQuery(`
 		SELECT id, name, status, is_admin, rate_limit_rpm,
 			   allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_models
 		FROM api_keys
 		WHERE key_hash = ?
-	`, keyHash).Scan(&id, &name, &status, &isAdmin, &rateLimitRPM,
+	`), keyHash).Scan(&id, &name, &status, &isAdmin, &rateLimitRPM,
 		&allowedEndpoints, &allowedChannelsMsg, &allowedChannelsResp, &allowedModels)
 
 	if err != nil || status != StatusActive {
@@ -607,7 +637,7 @@ func (m *Manager) Validate(key string) *ValidatedKey {
 func (m *Manager) updateLastUsed(id int64) {
 	maxRetries := 3
 	for i := 0; i < maxRetries; i++ {
-		_, err := m.db.Exec("UPDATE api_keys SET last_used_at = ? WHERE id = ?", time.Now(), id)
+		_, err := m.db.Exec(m.convertQuery("UPDATE api_keys SET last_used_at = ? WHERE id = ?"), time.Now(), id)
 		if err == nil {
 			return
 		}

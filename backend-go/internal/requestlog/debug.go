@@ -158,14 +158,37 @@ func (m *Manager) AddDebugLog(entry *DebugLogEntry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	query := `
-	INSERT OR REPLACE INTO request_debug_logs (
-		request_id, request_method, request_path,
-		request_headers, request_body, request_body_size,
-		response_status, response_headers, response_body, response_body_size,
-		created_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`
+	var query string
+	if m.isPostgres() {
+		query = `
+		INSERT INTO request_debug_logs (
+			request_id, request_method, request_path,
+			request_headers, request_body, request_body_size,
+			response_status, response_headers, response_body, response_body_size,
+			created_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		ON CONFLICT (request_id) DO UPDATE SET
+			request_method = EXCLUDED.request_method,
+			request_path = EXCLUDED.request_path,
+			request_headers = EXCLUDED.request_headers,
+			request_body = EXCLUDED.request_body,
+			request_body_size = EXCLUDED.request_body_size,
+			response_status = EXCLUDED.response_status,
+			response_headers = EXCLUDED.response_headers,
+			response_body = EXCLUDED.response_body,
+			response_body_size = EXCLUDED.response_body_size,
+			created_at = EXCLUDED.created_at
+		`
+	} else {
+		query = `
+		INSERT OR REPLACE INTO request_debug_logs (
+			request_id, request_method, request_path,
+			request_headers, request_body, request_body_size,
+			response_status, response_headers, response_body, response_body_size,
+			created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`
+	}
 
 	_, err = m.db.Exec(query,
 		entry.RequestID,
@@ -197,14 +220,14 @@ func (m *Manager) GetDebugLog(requestID string) (*DebugLogEntry, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	query := `
+	query := m.convertQuery(`
 	SELECT request_id, request_method, request_path,
 		   request_headers, request_body, request_body_size,
 		   response_status, response_headers, response_body, response_body_size,
 		   created_at
 	FROM request_debug_logs
 	WHERE request_id = ?
-	`
+	`)
 
 	var entry DebugLogEntry
 	var reqHeadersBlob, reqBodyBlob, respHeadersBlob, respBodyBlob []byte
@@ -254,7 +277,7 @@ func (m *Manager) HasDebugLog(requestID string) bool {
 	defer m.mu.RUnlock()
 
 	var count int
-	err := m.db.QueryRow(`SELECT COUNT(*) FROM request_debug_logs WHERE request_id = ?`, requestID).Scan(&count)
+	err := m.db.QueryRow(m.convertQuery(`SELECT COUNT(*) FROM request_debug_logs WHERE request_id = ?`), requestID).Scan(&count)
 	if err != nil {
 		return false
 	}
@@ -271,7 +294,7 @@ func (m *Manager) PurgeExpiredDebugLogs(retentionHours int) (int64, error) {
 	defer m.mu.Unlock()
 
 	cutoff := time.Now().Add(-time.Duration(retentionHours) * time.Hour)
-	result, err := m.db.Exec(`DELETE FROM request_debug_logs WHERE created_at < ?`, cutoff)
+	result, err := m.db.Exec(m.convertQuery(`DELETE FROM request_debug_logs WHERE created_at < ?`), cutoff)
 	if err != nil {
 		return 0, fmt.Errorf("failed to purge expired debug logs: %w", err)
 	}

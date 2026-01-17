@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/JillVernus/cc-bridge/internal/database"
 	_ "modernc.org/sqlite"
 )
 
@@ -20,6 +21,7 @@ type Manager struct {
 	mu          sync.RWMutex
 	dbPath      string
 	broadcaster *Broadcaster
+	dialect     database.Dialect // sqlite or postgresql
 }
 
 // NewManager creates a new request log manager with SQLite storage
@@ -60,6 +62,7 @@ func NewManager(dbPath string) (*Manager, error) {
 		db:          db,
 		dbPath:      dbPath,
 		broadcaster: NewBroadcaster(),
+		dialect:     database.DialectSQLite,
 	}
 
 	if err := m.initSchema(); err != nil {
@@ -69,6 +72,19 @@ func NewManager(dbPath string) (*Manager, error) {
 
 	log.Printf("📊 Request log manager initialized: %s", dbPath)
 	return m, nil
+}
+
+// convertQuery converts ? placeholders to $1, $2, etc. for PostgreSQL
+func (m *Manager) convertQuery(query string) string {
+	if m.dialect != database.DialectPostgreSQL {
+		return query
+	}
+	return database.ConvertPlaceholders(query, m.dialect)
+}
+
+// isPostgres returns true if using PostgreSQL
+func (m *Manager) isPostgres() bool {
+	return m.dialect == database.DialectPostgreSQL
 }
 
 // initSchema creates the necessary tables and indexes
@@ -297,7 +313,7 @@ func (m *Manager) initSchema() error {
 
 	// Migration: Update old error records with timeout error message to use timeout status
 	// This fixes records created before the StatusTimeout constant was added
-	result, err := m.db.Exec(`UPDATE request_logs SET status = ? WHERE status = ? AND (error = 'request timed out' OR error = 'timeout')`, StatusTimeout, StatusError)
+	result, err := m.db.Exec(m.convertQuery(`UPDATE request_logs SET status = ? WHERE status = ? AND (error = 'request timed out' OR error = 'timeout')`), StatusTimeout, StatusError)
 	if err != nil {
 		log.Printf("⚠️ Failed to migrate timeout records: %v", err)
 	} else if rowsAffected, _ := result.RowsAffected(); rowsAffected > 0 {
@@ -408,7 +424,7 @@ func (m *Manager) Add(record *RequestLog) error {
 		apiKeyID = nil
 	}
 
-	_, err := m.db.Exec(query,
+	_, err := m.db.Exec(m.convertQuery(query),
 		record.ID,
 		record.Status,
 		record.InitialTime,
@@ -490,7 +506,7 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 	WHERE id = ?
 	`
 
-	result, err := m.db.Exec(query,
+	result, err := m.db.Exec(m.convertQuery(query),
 		record.Status,
 		record.CompleteTime,
 		record.DurationMs,
@@ -685,14 +701,14 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 	}
 
 	// Get total count (use same alias for consistency with conditions)
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM request_logs r %s", whereClause)
+	countQuery := m.convertQuery(fmt.Sprintf("SELECT COUNT(*) FROM request_logs r %s", whereClause))
 	var total int64
 	if err := m.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
 		return nil, fmt.Errorf("failed to count request logs: %w", err)
 	}
 
 	// Get records with debug data check via LEFT JOIN
-	query := fmt.Sprintf(`
+	query := m.convertQuery(fmt.Sprintf(`
 		SELECT r.id, r.status, r.initial_time, r.complete_time, r.duration_ms,
 			   r.provider, r.provider_name, r.model, r.response_model, r.reasoning_effort, r.input_tokens, r.output_tokens,
 			   r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
@@ -705,7 +721,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		%s
 		ORDER BY r.initial_time DESC
 		LIMIT ? OFFSET ?
-	`, whereClause)
+	`, whereClause))
 
 	args = append(args, filter.Limit, filter.Offset)
 
@@ -844,7 +860,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 	}
 
 	// Get total stats
-	query := fmt.Sprintf(`
+	query := m.convertQuery(fmt.Sprintf(`
 		SELECT
 			COUNT(*),
 			COALESCE(SUM(input_tokens), 0),
@@ -856,7 +872,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 			MIN(initial_time),
 			MAX(initial_time)
 		FROM request_logs %s
-	`, whereClause)
+	`, whereClause))
 
 	var minTimeStr, maxTimeStr sql.NullString
 	err := m.db.QueryRow(query, args...).Scan(
@@ -891,7 +907,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 	}
 
 	// Get stats by provider (group by provider_name, the actual channel name)
-	providerQuery := fmt.Sprintf(`
+	providerQuery := m.convertQuery(fmt.Sprintf(`
 		SELECT COALESCE(provider_name, provider), COUNT(*),
 			COALESCE(SUM(input_tokens), 0),
 			COALESCE(SUM(output_tokens), 0),
@@ -900,7 +916,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 			COALESCE(SUM(price), 0)
 		FROM request_logs %s
 		GROUP BY COALESCE(provider_name, provider)
-	`, whereClause)
+	`, whereClause))
 
 	providerRows, err := m.db.Query(providerQuery, args...)
 	if err != nil {
@@ -918,7 +934,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 	}
 
 	// Get stats by model
-	modelQuery := fmt.Sprintf(`
+	modelQuery := m.convertQuery(fmt.Sprintf(`
 		SELECT model, COUNT(*),
 			COALESCE(SUM(input_tokens), 0),
 			COALESCE(SUM(output_tokens), 0),
@@ -927,7 +943,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 			COALESCE(SUM(price), 0)
 		FROM request_logs %s
 		GROUP BY model
-	`, whereClause)
+	`, whereClause))
 
 	modelRows, err := m.db.Query(modelQuery, args...)
 	if err != nil {
@@ -945,7 +961,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 	}
 
 	// Get stats by user
-	userQuery := fmt.Sprintf(`
+	userQuery := m.convertQuery(fmt.Sprintf(`
 		SELECT COALESCE(NULLIF(TRIM(client_id), ''), '<unknown>'), COUNT(*),
 			COALESCE(SUM(input_tokens), 0),
 			COALESCE(SUM(output_tokens), 0),
@@ -954,7 +970,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 			COALESCE(SUM(price), 0)
 		FROM request_logs %s
 		GROUP BY COALESCE(NULLIF(TRIM(client_id), ''), '<unknown>')
-	`, whereClause)
+	`, whereClause))
 
 	userRows, err := m.db.Query(userQuery, args...)
 	if err != nil {
@@ -972,7 +988,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 	}
 
 	// Get stats by session
-	sessionQuery := fmt.Sprintf(`
+	sessionQuery := m.convertQuery(fmt.Sprintf(`
 		SELECT COALESCE(NULLIF(TRIM(session_id), ''), '<unknown>'), COUNT(*),
 			COALESCE(SUM(input_tokens), 0),
 			COALESCE(SUM(output_tokens), 0),
@@ -981,7 +997,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 			COALESCE(SUM(price), 0)
 		FROM request_logs %s
 		GROUP BY COALESCE(NULLIF(TRIM(session_id), ''), '<unknown>')
-	`, whereClause)
+	`, whereClause))
 
 	sessionRows, err := m.db.Query(sessionQuery, args...)
 	if err != nil {
@@ -999,7 +1015,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 	}
 
 	// Get stats by API key (0 = master, NULL = unknown)
-	apiKeyQuery := fmt.Sprintf(`
+	apiKeyQuery := m.convertQuery(fmt.Sprintf(`
 		SELECT CASE WHEN api_key_id IS NULL THEN '<unknown>' WHEN api_key_id = 0 THEN 'master' ELSE CAST(api_key_id AS TEXT) END, COUNT(*),
 			COALESCE(SUM(input_tokens), 0),
 			COALESCE(SUM(output_tokens), 0),
@@ -1008,7 +1024,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 			COALESCE(SUM(price), 0)
 		FROM request_logs %s
 		GROUP BY CASE WHEN api_key_id IS NULL THEN '<unknown>' WHEN api_key_id = 0 THEN 'master' ELSE CAST(api_key_id AS TEXT) END
-	`, whereClause)
+	`, whereClause))
 
 	apiKeyRows, err := m.db.Query(apiKeyQuery, args...)
 	if err != nil {
@@ -1106,7 +1122,7 @@ func (m *Manager) Cleanup(retentionDays int) (int64, error) {
 
 	cutoff := time.Now().AddDate(0, 0, -retentionDays)
 
-	result, err := m.db.Exec("DELETE FROM request_logs WHERE initial_time < ?", cutoff)
+	result, err := m.db.Exec(m.convertQuery("DELETE FROM request_logs WHERE initial_time < ?"), cutoff)
 	if err != nil {
 		return 0, fmt.Errorf("failed to cleanup old records: %w", err)
 	}
@@ -1139,7 +1155,7 @@ func (m *Manager) CleanupStalePending(timeoutSeconds int) (int64, error) {
 	WHERE status = ? AND initial_time < ?
 	`
 
-	result, err := m.db.Exec(query,
+	result, err := m.db.Exec(m.convertQuery(query),
 		StatusTimeout,
 		now,
 		"request timed out",
@@ -1195,7 +1211,7 @@ func (m *Manager) GetActiveSessions(threshold time.Duration) ([]ActiveSession, e
 		ORDER BY last_request_time DESC
 	`
 
-	rows, err := m.db.Query(query, StatusPending, StatusTimeout, StatusFailover, cutoff)
+	rows, err := m.db.Query(m.convertQuery(query), StatusPending, StatusTimeout, StatusFailover, cutoff)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query active sessions: %w", err)
 	}
@@ -1240,9 +1256,17 @@ func (m *Manager) GetActiveSessions(threshold time.Duration) ([]ActiveSession, e
 	return sessions, nil
 }
 
-// Close closes the database connection
+// Close closes the database connection.
+// When using shared DB (via NewManagerWithDB), this is a no-op.
 func (m *Manager) Close() error {
-	return m.db.Close()
+	// Don't close shared database connections
+	if m.dbPath == "" {
+		return nil
+	}
+	if m.db != nil {
+		return m.db.Close()
+	}
+	return nil
 }
 
 // GetDB returns the underlying database connection
@@ -1340,7 +1364,7 @@ func (m *Manager) SetAlias(userID, alias string) error {
 		alias = excluded.alias,
 		updated_at = CURRENT_TIMESTAMP
 	`
-	_, err = m.db.Exec(query, userID, alias)
+	_, err = m.db.Exec(m.convertQuery(query), userID, alias)
 	if err != nil {
 		return fmt.Errorf("failed to set user alias: %w", err)
 	}
@@ -1353,7 +1377,7 @@ func (m *Manager) DeleteAlias(userID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	result, err := m.db.Exec(`DELETE FROM user_aliases WHERE user_id = ?`, userID)
+	result, err := m.db.Exec(m.convertQuery(`DELETE FROM user_aliases WHERE user_id = ?`), userID)
 	if err != nil {
 		return fmt.Errorf("failed to delete user alias: %w", err)
 	}
@@ -1502,7 +1526,7 @@ func (m *Manager) GetStatsHistory(duration string, endpoint string) (*StatsHisto
 
 	query += ` ORDER BY initial_time ASC`
 
-	rows, err := m.db.Query(query, args...)
+	rows, err := m.db.Query(m.convertQuery(query), args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query stats history: %w", err)
 	}
@@ -1686,7 +1710,7 @@ func (m *Manager) GetStatsHistoryRange(duration string, from, to time.Time, endp
 	}
 	query += ` ORDER BY initial_time ASC`
 
-	rows, err := m.db.Query(query, args...)
+	rows, err := m.db.Query(m.convertQuery(query), args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query stats history (range): %w", err)
 	}
@@ -1862,7 +1886,7 @@ func (m *Manager) GetProviderStatsHistory(duration string, endpoint string) (*Pr
 	}
 	baselineQuery += ` GROUP BY COALESCE(provider_name, provider)`
 
-	baselineRows, err := m.db.Query(baselineQuery, baselineArgs...)
+	baselineRows, err := m.db.Query(m.convertQuery(baselineQuery), baselineArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query provider baseline cost: %w", err)
 	}
@@ -1900,7 +1924,7 @@ func (m *Manager) GetProviderStatsHistory(duration string, endpoint string) (*Pr
 
 	query += ` ORDER BY initial_time ASC`
 
-	rows, err := m.db.Query(query, args...)
+	rows, err := m.db.Query(m.convertQuery(query), args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query provider stats history: %w", err)
 	}
@@ -2159,7 +2183,7 @@ func (m *Manager) GetProviderStatsHistoryRange(duration string, from, to time.Ti
 		}
 		baselineQuery += ` GROUP BY COALESCE(provider_name, provider)`
 
-		baselineRows, err := m.db.Query(baselineQuery, baselineArgs...)
+		baselineRows, err := m.db.Query(m.convertQuery(baselineQuery), baselineArgs...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query provider baseline cost (range): %w", err)
 		}
@@ -2195,7 +2219,7 @@ func (m *Manager) GetProviderStatsHistoryRange(duration string, from, to time.Ti
 	}
 	query += ` ORDER BY initial_time ASC`
 
-	rows, err := m.db.Query(query, args...)
+	rows, err := m.db.Query(m.convertQuery(query), args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query provider stats history (range): %w", err)
 	}
@@ -2439,7 +2463,7 @@ func (m *Manager) GetChannelStatsHistory(channelID int, duration string, endpoin
 
 	query += ` ORDER BY initial_time ASC`
 
-	rows, err := m.db.Query(query, args...)
+	rows, err := m.db.Query(m.convertQuery(query), args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query channel stats history: %w", err)
 	}
@@ -2686,7 +2710,7 @@ func (m *Manager) SaveChannelQuota(q *ChannelQuota) error {
 		updated_at = excluded.updated_at
 	`
 
-	_, err := m.db.Exec(query,
+	_, err := m.db.Exec(m.convertQuery(query),
 		q.ChannelID, q.ChannelName, q.PlanType,
 		q.PrimaryUsedPercent, q.PrimaryWindowMinutes, q.PrimaryResetAt,
 		q.SecondaryUsedPercent, q.SecondaryWindowMinutes, q.SecondaryResetAt,
@@ -2713,7 +2737,7 @@ func (m *Manager) GetChannelQuota(channelID int) (*ChannelQuota, error) {
 	var q ChannelQuota
 	var primaryResetAt, secondaryResetAt, exceededAt, recoverAt sql.NullTime
 
-	err := m.db.QueryRow(query, channelID).Scan(
+	err := m.db.QueryRow(m.convertQuery(query), channelID).Scan(
 		&q.ChannelID, &q.ChannelName, &q.PlanType,
 		&q.PrimaryUsedPercent, &q.PrimaryWindowMinutes, &primaryResetAt,
 		&q.SecondaryUsedPercent, &q.SecondaryWindowMinutes, &secondaryResetAt,
@@ -2812,10 +2836,22 @@ func (m *Manager) SuspendChannel(channelID int, channelType string, suspendedUnt
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	query := `
-		INSERT OR REPLACE INTO channel_suspensions (channel_id, channel_type, suspended_at, suspended_until, reason)
-		VALUES (?, ?, ?, ?, ?)
-	`
+	var query string
+	if m.dialect == database.DialectPostgreSQL {
+		query = `
+			INSERT INTO channel_suspensions (channel_id, channel_type, suspended_at, suspended_until, reason)
+			VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT (channel_id, channel_type) DO UPDATE SET
+				suspended_at = EXCLUDED.suspended_at,
+				suspended_until = EXCLUDED.suspended_until,
+				reason = EXCLUDED.reason
+		`
+	} else {
+		query = `
+			INSERT OR REPLACE INTO channel_suspensions (channel_id, channel_type, suspended_at, suspended_until, reason)
+			VALUES (?, ?, ?, ?, ?)
+		`
+	}
 	_, err := m.db.Exec(query, channelID, channelType, time.Now(), suspendedUntil, reason)
 	if err != nil {
 		return fmt.Errorf("failed to suspend channel: %w", err)
@@ -2836,7 +2872,7 @@ func (m *Manager) IsChannelSuspended(channelID int, channelType string) (bool, t
 	var reason sql.NullString
 
 	query := `SELECT suspended_until, reason FROM channel_suspensions WHERE channel_id = ? AND channel_type = ?`
-	err := m.db.QueryRow(query, channelID, channelType).Scan(&suspendedUntil, &reason)
+	err := m.db.QueryRow(m.convertQuery(query), channelID, channelType).Scan(&suspendedUntil, &reason)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			// Real DB error - log it but treat as not suspended to avoid blocking requests
@@ -2870,7 +2906,7 @@ func (m *Manager) ClearChannelSuspension(channelID int, channelType string) (boo
 	defer m.mu.Unlock()
 
 	query := `DELETE FROM channel_suspensions WHERE channel_id = ? AND channel_type = ?`
-	result, err := m.db.Exec(query, channelID, channelType)
+	result, err := m.db.Exec(m.convertQuery(query), channelID, channelType)
 	if err != nil {
 		return false, fmt.Errorf("failed to clear channel suspension: %w", err)
 	}
@@ -2888,7 +2924,7 @@ func (m *Manager) ClearExpiredSuspensions() (int64, error) {
 	defer m.mu.Unlock()
 
 	query := `DELETE FROM channel_suspensions WHERE suspended_until < ?`
-	result, err := m.db.Exec(query, time.Now())
+	result, err := m.db.Exec(m.convertQuery(query), time.Now())
 	if err != nil {
 		return 0, fmt.Errorf("failed to clear expired suspensions: %w", err)
 	}
@@ -2906,7 +2942,7 @@ func (m *Manager) GetAllSuspensions() ([]*ChannelSuspension, error) {
 			  WHERE suspended_until > ?
 			  ORDER BY channel_id, channel_type`
 
-	rows, err := m.db.Query(query, time.Now())
+	rows, err := m.db.Query(m.convertQuery(query), time.Now())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get suspensions: %w", err)
 	}

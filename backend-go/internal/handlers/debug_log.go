@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/JillVernus/cc-bridge/internal/config"
@@ -93,7 +94,7 @@ func SaveDebugLog(
 	go func() {
 		if err := reqLogManager.AddDebugLog(entry); err != nil {
 			// Log error but don't fail the request
-			// log.Printf("⚠️ Failed to save debug log: %v", err)
+			log.Printf("⚠️ Failed to save debug log: %v", err)
 		}
 	}()
 }

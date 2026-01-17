@@ -15,7 +15,7 @@ GREEN=\033[0;32m
 YELLOW=\033[0;33m
 NC=\033[0m # No Color
 
-.PHONY: help dev build run clean install-air test copy-frontend
+.PHONY: help dev build run clean install-air test copy-frontend build-dbmigrate
 
 # 默认目标 - 显示帮助
 help:
@@ -64,6 +64,12 @@ build:
 	@echo "$(GREEN)📦 构建生产版本...$(NC)"
 	@go build -ldflags="$(LDFLAGS) -s -w" -o $(BUILD_DIR)/$(BINARY_NAME) $(MAIN_PATH)
 	@echo "$(GREEN)✅ 构建完成: $(BUILD_DIR)/$(BINARY_NAME)$(NC)"
+
+# 构建数据库迁移工具
+build-dbmigrate:
+	@echo "$(GREEN)📦 构建数据库迁移工具...$(NC)"
+	@go build -ldflags="-s -w" -o $(BUILD_DIR)/dbmigrate ./cmd/dbmigrate
+	@echo "$(GREEN)✅ 构建完成: $(BUILD_DIR)/dbmigrate$(NC)"
 
 # 构建当前平台版本
 build-local:
