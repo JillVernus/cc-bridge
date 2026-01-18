@@ -1358,7 +1358,7 @@ func (m *Manager) SetAlias(userID, alias string) error {
 
 	// Check if alias is unique (excluding current user)
 	var count int
-	err := m.db.QueryRow(`SELECT COUNT(*) FROM user_aliases WHERE alias = ? AND user_id != ?`, alias, userID).Scan(&count)
+	err := m.db.QueryRow(m.convertQuery(`SELECT COUNT(*) FROM user_aliases WHERE alias = ? AND user_id != ?`), alias, userID).Scan(&count)
 	if err != nil {
 		return fmt.Errorf("failed to check alias uniqueness: %w", err)
 	}
