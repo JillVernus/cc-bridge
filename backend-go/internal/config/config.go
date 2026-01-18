@@ -438,6 +438,7 @@ type ConfigManager struct {
 	keyRecoveryTime       time.Duration
 	maxFailureCount       int
 	dbStorage             *DBConfigStorage // Database storage adapter (nil if using JSON-only mode)
+	disableFileWatcher    bool             // Disable file watcher when using database polling
 }
 
 const (
@@ -460,9 +461,13 @@ func NewConfigManager(configFile string) (*ConfigManager, error) {
 		return nil, err
 	}
 
-	// 启动文件监听
-	if err := cm.startWatcher(); err != nil {
-		log.Printf("启动配置文件监听失败: %v", err)
+	// 启动文件监听（仅在未禁用时）
+	if !cm.disableFileWatcher {
+		if err := cm.startWatcher(); err != nil {
+			log.Printf("启动配置文件监听失败: %v", err)
+		}
+	} else {
+		log.Printf("📁 File watcher disabled (using database polling)")
 	}
 
 	// 启动定期清理
@@ -771,6 +776,14 @@ func (cm *ConfigManager) SetDBStorage(dbStorage *DBConfigStorage) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 	cm.dbStorage = dbStorage
+	// Disable file watcher when using database storage (polling handles sync)
+	cm.disableFileWatcher = true
+	// Close existing watcher if it's running
+	if cm.watcher != nil {
+		cm.watcher.Close()
+		cm.watcher = nil
+		log.Printf("📁 File watcher stopped (switched to database polling)")
+	}
 }
 
 // ReloadConfig 从磁盘重新加载配置
