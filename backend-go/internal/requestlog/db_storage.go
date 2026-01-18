@@ -1,6 +1,7 @@
 package requestlog
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -11,12 +12,26 @@ import (
 // NewManagerWithDB creates a new request log manager using a shared database connection.
 // This is used when STORAGE_BACKEND=database to consolidate all storage into one DB.
 // Unlike NewManager, this version does NOT initialize schemas (handled by migrations).
-func NewManagerWithDB(db database.DB) (*Manager, error) {
+// connStr is the PostgreSQL connection string (empty for SQLite)
+func NewManagerWithDB(db database.DB, connStr string) (*Manager, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+
 	m := &Manager{
-		db:          db.Raw(),
-		dbPath:      "", // No path when using shared DB
-		broadcaster: NewBroadcaster(),
-		dialect:     db.Dialect(),
+		db:           db.Raw(),
+		dbPath:       "", // No path when using shared DB
+		broadcaster:  NewBroadcaster(),
+		dialect:      db.Dialect(),
+		connStr:      connStr,
+		listenerCtx:  ctx,
+		listenerStop: cancel,
+	}
+
+	// Start PostgreSQL LISTEN for cross-instance SSE (only for PostgreSQL)
+	if m.isPostgres() && connStr != "" {
+		if err := m.startPGListener(ctx); err != nil {
+			log.Printf("⚠️ Failed to start PostgreSQL LISTEN: %v", err)
+			log.Printf("📡 SSE will work for current instance only")
+		}
 	}
 
 	log.Printf("📊 Request log manager initialized (using shared database)")

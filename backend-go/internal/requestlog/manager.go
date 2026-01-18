@@ -1,6 +1,7 @@
 package requestlog
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -17,11 +18,14 @@ import (
 
 // Manager manages request log storage using SQLite
 type Manager struct {
-	db          *sql.DB
-	mu          sync.RWMutex
-	dbPath      string
-	broadcaster *Broadcaster
-	dialect     database.Dialect // sqlite or postgresql
+	db           *sql.DB
+	mu           sync.RWMutex
+	dbPath       string
+	broadcaster  *Broadcaster
+	dialect      database.Dialect // sqlite or postgresql
+	connStr      string           // PostgreSQL connection string (for LISTEN)
+	listenerCtx  context.Context
+	listenerStop context.CancelFunc
 }
 
 // NewManager creates a new request log manager with SQLite storage
@@ -468,6 +472,9 @@ func (m *Manager) Add(record *RequestLog) error {
 		m.broadcaster.Broadcast(NewLogCreatedEvent(record))
 	}
 
+	// Notify other instances (PostgreSQL only)
+	m.notifyOtherInstances("created", record.ID)
+
 	return nil
 }
 
@@ -555,6 +562,9 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 			m.broadcaster.Broadcast(NewLogUpdatedEvent(id, record))
 		}
 	}
+
+	// Notify other instances (PostgreSQL only)
+	m.notifyOtherInstances("updated", id)
 
 	return nil
 }

@@ -80,7 +80,7 @@ func InitDBStorage(envCfg *config.EnvConfig, cfgManager *config.ConfigManager) *
 	}
 
 	// Initialize RequestLogManager with shared database
-	reqLogMgr, err := requestlog.NewManagerWithDB(db)
+	reqLogMgr, err := requestlog.NewManagerWithDB(db, envCfg.DatabaseURL)
 	if err != nil {
 		log.Printf("⚠️ Failed to initialize request log manager with shared DB: %v", err)
 	} else {
