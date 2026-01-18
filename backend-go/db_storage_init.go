@@ -110,6 +110,7 @@ func InitDBStorage(envCfg *config.EnvConfig, cfgManager *config.ConfigManager) *
 
 	// Link to managers
 	mgr.configStorage.SetConfigManager(cfgManager)
+	cfgManager.SetDBStorage(mgr.configStorage) // Enable write-through caching
 	if pricingMgr := pricing.GetManager(); pricingMgr != nil {
 		mgr.pricingStorage.SetPricingManager(pricingMgr)
 	}

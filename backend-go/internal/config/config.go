@@ -437,6 +437,7 @@ type ConfigManager struct {
 	failedKeysCache       map[string]*FailedKey
 	keyRecoveryTime       time.Duration
 	maxFailureCount       int
+	dbStorage             *DBConfigStorage // Database storage adapter (nil if using JSON-only mode)
 }
 
 const (
@@ -740,7 +741,22 @@ func (cm *ConfigManager) saveConfigLocked(config Config) error {
 	}
 
 	cm.config = config
-	return os.WriteFile(cm.configFile, data, 0644)
+
+	// Write to JSON file
+	if err := os.WriteFile(cm.configFile, data, 0644); err != nil {
+		return err
+	}
+
+	// Write-through to database if available (for multi-instance sync)
+	if cm.dbStorage != nil {
+		if err := cm.dbStorage.SaveConfigToDB(&config); err != nil {
+			log.Printf("⚠️ Failed to sync config to database: %v", err)
+			// Don't fail the entire save operation if DB write fails
+			// JSON file is still the source of truth for single-instance deployments
+		}
+	}
+
+	return nil
 }
 
 // SaveConfig 保存配置
@@ -748,6 +764,13 @@ func (cm *ConfigManager) SaveConfig() error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 	return cm.saveConfigLocked(cm.config)
+}
+
+// SetDBStorage sets the database storage adapter for write-through caching
+func (cm *ConfigManager) SetDBStorage(dbStorage *DBConfigStorage) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	cm.dbStorage = dbStorage
 }
 
 // ReloadConfig 从磁盘重新加载配置
