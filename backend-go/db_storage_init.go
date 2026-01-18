@@ -96,15 +96,21 @@ func InitDBStorage(envCfg *config.EnvConfig, cfgManager *config.ConfigManager) *
 	}
 
 	// Migrate from JSON files if needed
-	if err := mgr.MigrateFromJSON(); err != nil {
-		log.Printf("⚠️ JSON migration had errors: %v", err)
+	if !envCfg.SkipMigration {
+		if err := mgr.MigrateFromJSON(); err != nil {
+			log.Printf("⚠️ JSON migration had errors: %v", err)
+		}
+	} else {
+		log.Printf("⏭️ Skipping data migration (SKIP_MIGRATION=true)")
 	}
 
 	// Migrate from legacy request_logs.db if it exists
-	legacyDBPath := ".config/request_logs.db"
-	if _, err := os.Stat(legacyDBPath); err == nil {
-		if err := requestlog.MigrateFromLegacyDB(legacyDBPath, db); err != nil {
-			log.Printf("⚠️ Legacy database migration had errors: %v", err)
+	if !envCfg.SkipMigration {
+		legacyDBPath := ".config/request_logs.db"
+		if _, err := os.Stat(legacyDBPath); err == nil {
+			if err := requestlog.MigrateFromLegacyDB(legacyDBPath, db); err != nil {
+				log.Printf("⚠️ Legacy database migration had errors: %v", err)
+			}
 		}
 	}
 

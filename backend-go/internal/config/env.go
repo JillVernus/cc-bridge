@@ -41,6 +41,7 @@ type EnvConfig struct {
 	DatabaseType       string // "sqlite" or "postgresql"
 	DatabaseURL        string // SQLite path or PostgreSQL connection string
 	ConfigPollInterval int    // Config polling interval in seconds (for database backend)
+	SkipMigration      bool   // Skip data migration checks on startup (for faster restarts)
 }
 
 // NewEnvConfig 创建环境配置
@@ -88,6 +89,7 @@ func NewEnvConfig() *EnvConfig {
 		DatabaseType:       getEnv("DATABASE_TYPE", "sqlite"),      // "sqlite" or "postgresql"
 		DatabaseURL:        getEnv("DATABASE_URL", ""),             // Connection string
 		ConfigPollInterval: getEnvAsInt("CONFIG_POLL_INTERVAL", 5), // seconds
+		SkipMigration:      getEnv("SKIP_MIGRATION", "false") == "true", // Skip migration checks
 	}
 }
 

@@ -733,7 +733,29 @@ func (cm *ConfigManager) warnInsecureChannels() {
 
 // saveConfigLocked 保存配置（已加锁）
 func (cm *ConfigManager) saveConfigLocked(config Config) error {
-	// 备份当前配置
+	// When using database storage, skip JSON file operations
+	// Database is the source of truth in multi-instance deployments
+	if cm.dbStorage != nil {
+		cm.config = config
+
+		// Write to database asynchronously (non-blocking)
+		configCopy := config
+		go func() {
+			start := time.Now()
+			if err := cm.dbStorage.SaveConfigToDB(&configCopy); err != nil {
+				log.Printf("⚠️ Failed to sync config to database: %v", err)
+			} else {
+				elapsed := time.Since(start)
+				if elapsed > 100*time.Millisecond {
+					log.Printf("⏱️ Database sync took %v (async)", elapsed)
+				}
+			}
+		}()
+
+		return nil
+	}
+
+	// JSON-only mode: backup, write to file
 	cm.backupConfig()
 
 	// 清理已废弃字段，确保不会被序列化到 JSON
@@ -748,29 +770,7 @@ func (cm *ConfigManager) saveConfigLocked(config Config) error {
 	cm.config = config
 
 	// Write to JSON file
-	if err := os.WriteFile(cm.configFile, data, 0644); err != nil {
-		return err
-	}
-
-	// Write-through to database if available (for multi-instance sync)
-	// Use async write to avoid blocking the user
-	if cm.dbStorage != nil {
-		// Make a copy of config for async write (avoid race conditions)
-		configCopy := config
-		go func() {
-			start := time.Now()
-			if err := cm.dbStorage.SaveConfigToDB(&configCopy); err != nil {
-				log.Printf("⚠️ Failed to sync config to database: %v", err)
-			} else {
-				elapsed := time.Since(start)
-				if elapsed > 100*time.Millisecond {
-					log.Printf("⏱️ Database sync took %v (async)", elapsed)
-				}
-			}
-		}()
-	}
-
-	return nil
+	return os.WriteFile(cm.configFile, data, 0644)
 }
 
 // SaveConfig 保存配置
