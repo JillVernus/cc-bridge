@@ -169,17 +169,35 @@ func (s *DBConfigStorage) insertChannelTx(tx *sql.Tx, channelType string, index 
 		status = "active"
 	}
 
-	_, err := tx.Exec(`
-		INSERT INTO channels (
-			channel_id, channel_type, name, description, website, service_type,
-			base_url, insecure_skip_verify, status, priority, promotion_until,
-			response_header_timeout, quota_type, quota_limit, quota_reset_at,
-			quota_reset_interval, quota_reset_unit, quota_reset_mode,
-			rate_limit_rpm, queue_enabled, queue_timeout, key_load_balance,
-			api_keys, model_mapping, price_multipliers, oauth_tokens,
-			quota_models, composite_mappings
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`,
+	// Build dialect-aware INSERT query
+	var query string
+	if s.db.Dialect() == database.DialectPostgreSQL {
+		query = `
+			INSERT INTO channels (
+				channel_id, channel_type, name, description, website, service_type,
+				base_url, insecure_skip_verify, status, priority, promotion_until,
+				response_header_timeout, quota_type, quota_limit, quota_reset_at,
+				quota_reset_interval, quota_reset_unit, quota_reset_mode,
+				rate_limit_rpm, queue_enabled, queue_timeout, key_load_balance,
+				api_keys, model_mapping, price_multipliers, oauth_tokens,
+				quota_models, composite_mappings
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+		`
+	} else {
+		query = `
+			INSERT INTO channels (
+				channel_id, channel_type, name, description, website, service_type,
+				base_url, insecure_skip_verify, status, priority, promotion_until,
+				response_header_timeout, quota_type, quota_limit, quota_reset_at,
+				quota_reset_interval, quota_reset_unit, quota_reset_mode,
+				rate_limit_rpm, queue_enabled, queue_timeout, key_load_balance,
+				api_keys, model_mapping, price_multipliers, oauth_tokens,
+				quota_models, composite_mappings
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`
+	}
+
+	_, err := tx.Exec(query,
 		channelID, channelType, upstream.Name, upstream.Description, upstream.Website,
 		upstream.ServiceType, upstream.BaseURL, upstream.InsecureSkipVerify, status,
 		upstream.Priority, promotionUntil, upstream.ResponseHeaderTimeoutSecs,
@@ -421,11 +439,21 @@ func (s *DBConfigStorage) SaveConfigToDB(config *Config) error {
 	settings["failover"] = string(failoverConfig)
 
 	for key, value := range settings {
-		_, err := tx.Exec(`
-			INSERT INTO settings (key, value, category, updated_at)
-			VALUES (?, ?, 'config', CURRENT_TIMESTAMP)
-			ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
-		`, key, value)
+		var query string
+		if s.db.Dialect() == database.DialectPostgreSQL {
+			query = `
+				INSERT INTO settings (key, value, category, updated_at)
+				VALUES ($1, $2, 'config', CURRENT_TIMESTAMP)
+				ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+			`
+		} else {
+			query = `
+				INSERT INTO settings (key, value, category, updated_at)
+				VALUES (?, ?, 'config', CURRENT_TIMESTAMP)
+				ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+			`
+		}
+		_, err := tx.Exec(query, key, value)
 		if err != nil {
 			return fmt.Errorf("failed to upsert setting %s: %w", key, err)
 		}
