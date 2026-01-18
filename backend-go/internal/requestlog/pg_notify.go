@@ -92,18 +92,26 @@ func (m *Manager) handleNotification(payload *NotificationPayload) {
 		return
 	}
 
+	// Small delay to ensure the transaction is fully committed and visible
+	// This handles PostgreSQL's transaction isolation
+	time.Sleep(10 * time.Millisecond)
+
 	// Fetch the log record from database and broadcast to local SSE clients
 	switch payload.EventType {
 	case "created":
 		// Fetch partial record for log:created event
 		if record, err := m.getPartialRecordForSSE(payload.LogID); err == nil {
 			m.broadcaster.Broadcast(NewLogCreatedEvent(record))
+		} else {
+			log.Printf("⚠️ Failed to fetch partial record for SSE: %v", err)
 		}
 
 	case "updated":
 		// Fetch complete record for log:updated event
 		if record, err := m.getCompleteRecordForSSE(payload.LogID); err == nil {
 			m.broadcaster.Broadcast(NewLogUpdatedEvent(payload.LogID, record))
+		} else {
+			log.Printf("⚠️ Failed to fetch complete record for SSE: %v", err)
 		}
 	}
 }
@@ -126,13 +134,12 @@ func (m *Manager) notifyOtherInstances(eventType string, logID string) {
 		return
 	}
 
-	// Send NOTIFY (non-blocking, fire-and-forget)
-	go func() {
-		query := "SELECT pg_notify($1, $2)"
-		if _, err := m.db.Exec(query, pgNotifyChannel, string(data)); err != nil {
-			log.Printf("⚠️ Failed to send NOTIFY: %v", err)
-		}
-	}()
+	// Send NOTIFY synchronously to ensure it happens after the transaction commits
+	// Use a short timeout to avoid blocking
+	query := "SELECT pg_notify($1, $2)"
+	if _, err := m.db.Exec(query, pgNotifyChannel, string(data)); err != nil {
+		log.Printf("⚠️ Failed to send NOTIFY: %v", err)
+	}
 }
 
 // getConnectionString returns the PostgreSQL connection string
