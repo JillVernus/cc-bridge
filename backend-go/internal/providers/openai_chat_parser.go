@@ -222,6 +222,8 @@ func (p *openAIChatToolifyParser) tryEmitInvokes(force bool) {
 	}
 
 	before := captureStr[:startIdx]
+	// Trim leading whitespace after trigger signal
+	before = strings.TrimLeft(before, " \t\r\n")
 	if before != "" {
 		p.events = append(p.events, openAIChatParserEvent{Type: "text", Content: before})
 	}
