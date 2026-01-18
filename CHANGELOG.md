@@ -4,6 +4,17 @@
 
 ---
 
+## [v1.3.172] - 2026-01-18
+
+### 🔧 修复
+
+- **PostgreSQL 查询占位符错误**: 修复 getCompleteRecordForSSE 中未转换 SQL 占位符的问题
+  - 查询现在使用 convertQuery() 将 ? 转换为 PostgreSQL 的 $1 格式
+  - 修复 "syntax error at end of input" 错误
+  - 彻底解决 Instance B 上 log:updated 事件长时间 spinning 的问题
+
+---
+
 ## [v1.3.171] - 2026-01-18
 
 ### 🔧 修复
