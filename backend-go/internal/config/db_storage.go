@@ -400,6 +400,7 @@ func (s *DBConfigStorage) loadChannels(channelType string) ([]UpstreamConfig, er
 }
 
 // SaveConfigToDB saves the current configuration to the database
+// Uses smart UPDATE/INSERT/DELETE to only modify changed channels
 func (s *DBConfigStorage) SaveConfigToDB(config *Config) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -407,23 +408,14 @@ func (s *DBConfigStorage) SaveConfigToDB(config *Config) error {
 	}
 	defer tx.Rollback()
 
-	// Clear existing channels
-	if _, err := tx.Exec("DELETE FROM channels"); err != nil {
-		return fmt.Errorf("failed to clear channels: %w", err)
+	// Sync Messages channels
+	if err := s.syncChannelsTx(tx, "messages", config.Upstream); err != nil {
+		return fmt.Errorf("failed to sync messages channels: %w", err)
 	}
 
-	// Insert Messages channels
-	for i, upstream := range config.Upstream {
-		if err := s.insertChannelTx(tx, "messages", i, &upstream); err != nil {
-			return fmt.Errorf("failed to insert messages channel %d: %w", i, err)
-		}
-	}
-
-	// Insert Responses channels
-	for i, upstream := range config.ResponsesUpstream {
-		if err := s.insertChannelTx(tx, "responses", i, &upstream); err != nil {
-			return fmt.Errorf("failed to insert responses channel %d: %w", i, err)
-		}
+	// Sync Responses channels
+	if err := s.syncChannelsTx(tx, "responses", config.ResponsesUpstream); err != nil {
+		return fmt.Errorf("failed to sync responses channels: %w", err)
 	}
 
 	// Update settings
@@ -460,6 +452,152 @@ func (s *DBConfigStorage) SaveConfigToDB(config *Config) error {
 	}
 
 	return tx.Commit()
+}
+
+// syncChannelsTx synchronizes channels of a specific type using smart UPDATE/INSERT/DELETE
+func (s *DBConfigStorage) syncChannelsTx(tx *sql.Tx, channelType string, channels []UpstreamConfig) error {
+	// Load existing channel IDs from database
+	var query string
+	if s.db.Dialect() == database.DialectPostgreSQL {
+		query = "SELECT channel_id FROM channels WHERE channel_type = $1"
+	} else {
+		query = "SELECT channel_id FROM channels WHERE channel_type = ?"
+	}
+
+	rows, err := tx.Query(query, channelType)
+	if err != nil {
+		return fmt.Errorf("failed to query existing channels: %w", err)
+	}
+
+	existingIDs := make(map[string]bool)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return fmt.Errorf("failed to scan channel_id: %w", err)
+		}
+		existingIDs[id] = true
+	}
+	rows.Close()
+
+	// Track which IDs we're keeping
+	keepIDs := make(map[string]bool)
+
+	// UPDATE or INSERT each channel
+	for i, upstream := range channels {
+		// Generate channel ID if not present
+		channelID := upstream.ID
+		if channelID == "" {
+			channelID = generateChannelID()
+		}
+		keepIDs[channelID] = true
+
+		if existingIDs[channelID] {
+			// UPDATE existing channel
+			if err := s.updateChannelTx(tx, channelType, channelID, i, &upstream); err != nil {
+				return fmt.Errorf("failed to update channel %s: %w", channelID, err)
+			}
+		} else {
+			// INSERT new channel
+			if err := s.insertChannelTx(tx, channelType, i, &upstream); err != nil {
+				return fmt.Errorf("failed to insert channel %s: %w", channelID, err)
+			}
+		}
+	}
+
+	// DELETE channels that are no longer in the config
+	for id := range existingIDs {
+		if !keepIDs[id] {
+			var deleteQuery string
+			if s.db.Dialect() == database.DialectPostgreSQL {
+				deleteQuery = "DELETE FROM channels WHERE channel_id = $1 AND channel_type = $2"
+			} else {
+				deleteQuery = "DELETE FROM channels WHERE channel_id = ? AND channel_type = ?"
+			}
+			if _, err := tx.Exec(deleteQuery, id, channelType); err != nil {
+				return fmt.Errorf("failed to delete channel %s: %w", id, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// updateChannelTx updates an existing channel in the database
+func (s *DBConfigStorage) updateChannelTx(tx *sql.Tx, channelType string, channelID string, index int, upstream *UpstreamConfig) error {
+	// Serialize complex fields to JSON
+	apiKeys, _ := json.Marshal(upstream.APIKeys)
+	modelMapping, _ := json.Marshal(upstream.ModelMapping)
+	priceMultipliers, _ := json.Marshal(upstream.PriceMultipliers)
+	quotaModels, _ := json.Marshal(upstream.QuotaModels)
+	compositeMappings, _ := json.Marshal(upstream.CompositeMappings)
+
+	var oauthTokens []byte
+	if upstream.OAuthTokens != nil {
+		oauthTokens, _ = json.Marshal(upstream.OAuthTokens)
+	}
+
+	var promotionUntil *string
+	if upstream.PromotionUntil != nil {
+		t := upstream.PromotionUntil.Format(time.RFC3339)
+		promotionUntil = &t
+	}
+
+	var quotaResetAt *string
+	if upstream.QuotaResetAt != nil {
+		t := upstream.QuotaResetAt.Format(time.RFC3339)
+		quotaResetAt = &t
+	}
+
+	status := upstream.Status
+	if status == "" {
+		status = "active"
+	}
+
+	// Build dialect-aware UPDATE query
+	var query string
+	if s.db.Dialect() == database.DialectPostgreSQL {
+		query = `
+			UPDATE channels SET
+				name = $1, description = $2, website = $3, service_type = $4,
+				base_url = $5, insecure_skip_verify = $6, status = $7, priority = $8,
+				promotion_until = $9, response_header_timeout = $10, quota_type = $11,
+				quota_limit = $12, quota_reset_at = $13, quota_reset_interval = $14,
+				quota_reset_unit = $15, quota_reset_mode = $16, rate_limit_rpm = $17,
+				queue_enabled = $18, queue_timeout = $19, key_load_balance = $20,
+				api_keys = $21, model_mapping = $22, price_multipliers = $23,
+				oauth_tokens = $24, quota_models = $25, composite_mappings = $26,
+				updated_at = CURRENT_TIMESTAMP
+			WHERE channel_id = $27 AND channel_type = $28
+		`
+	} else {
+		query = `
+			UPDATE channels SET
+				name = ?, description = ?, website = ?, service_type = ?,
+				base_url = ?, insecure_skip_verify = ?, status = ?, priority = ?,
+				promotion_until = ?, response_header_timeout = ?, quota_type = ?,
+				quota_limit = ?, quota_reset_at = ?, quota_reset_interval = ?,
+				quota_reset_unit = ?, quota_reset_mode = ?, rate_limit_rpm = ?,
+				queue_enabled = ?, queue_timeout = ?, key_load_balance = ?,
+				api_keys = ?, model_mapping = ?, price_multipliers = ?,
+				oauth_tokens = ?, quota_models = ?, composite_mappings = ?,
+				updated_at = CURRENT_TIMESTAMP
+			WHERE channel_id = ? AND channel_type = ?
+		`
+	}
+
+	_, err := tx.Exec(query,
+		upstream.Name, upstream.Description, upstream.Website, upstream.ServiceType,
+		upstream.BaseURL, upstream.InsecureSkipVerify, status, upstream.Priority,
+		promotionUntil, upstream.ResponseHeaderTimeoutSecs, upstream.QuotaType,
+		upstream.QuotaLimit, quotaResetAt, upstream.QuotaResetInterval,
+		upstream.QuotaResetUnit, upstream.QuotaResetMode, upstream.RateLimitRpm,
+		upstream.QueueEnabled, upstream.QueueTimeout, upstream.KeyLoadBalance,
+		string(apiKeys), string(modelMapping), string(priceMultipliers),
+		string(oauthTokens), string(quotaModels), string(compositeMappings),
+		channelID, channelType,
+	)
+	return err
 }
 
 // StartPolling starts polling for configuration changes
