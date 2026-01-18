@@ -754,10 +754,16 @@ func (cm *ConfigManager) saveConfigLocked(config Config) error {
 
 	// Write-through to database if available (for multi-instance sync)
 	if cm.dbStorage != nil {
+		start := time.Now()
 		if err := cm.dbStorage.SaveConfigToDB(&config); err != nil {
 			log.Printf("⚠️ Failed to sync config to database: %v", err)
 			// Don't fail the entire save operation if DB write fails
 			// JSON file is still the source of truth for single-instance deployments
+		} else {
+			elapsed := time.Since(start)
+			if elapsed > 100*time.Millisecond {
+				log.Printf("⏱️ Database sync took %v", elapsed)
+			}
 		}
 	}
 
