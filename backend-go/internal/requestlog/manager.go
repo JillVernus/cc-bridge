@@ -573,7 +573,7 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 // This includes fields like api_key_id and computed has_debug_data
 // Note: caller must hold the mutex
 func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
-	query := `
+	query := m.convertQuery(`
 		SELECT r.id, r.status, r.initial_time, r.complete_time, r.duration_ms,
 			   r.provider, r.provider_name, r.model, r.response_model, r.input_tokens, r.output_tokens,
 			   r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
@@ -584,7 +584,7 @@ func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 		FROM request_logs r
 		LEFT JOIN request_debug_logs d ON r.id = d.request_id
 		WHERE r.id = ?
-	`
+	`)
 
 	var r RequestLog
 	var channelID, apiKeyID sql.NullInt64
