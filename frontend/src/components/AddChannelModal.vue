@@ -374,22 +374,63 @@
                       @keyup.enter="addModelMapping"
                     >
                       <template #append-inner>
-                        <v-tooltip :text="upstreamModelsError || t('addChannel.fetchModelsTooltip')" location="top">
-                          <template #activator="{ props: tooltipProps }">
-                            <v-btn
-                              v-bind="tooltipProps"
-                              icon
-                              variant="text"
-                              size="x-small"
-                              :loading="upstreamModelsLoading"
-                              :color="upstreamModelsError ? 'warning' : 'primary'"
-                              :disabled="!isEditing"
-                              @click.stop="fetchUpstreamModels"
-                            >
-                              <v-icon size="small">{{ upstreamModelsError ? 'mdi-alert' : 'mdi-refresh' }}</v-icon>
-                            </v-btn>
-                          </template>
-                        </v-tooltip>
+                        <div class="d-flex align-center ga-1">
+                          <v-menu location="bottom end" :close-on-content-click="true">
+                            <template #activator="{ props: menuProps }">
+                              <v-tooltip :text="thinkingSuffixTooltip" location="top">
+                                <template #activator="{ props: tooltipProps }">
+                                  <v-btn
+                                    v-bind="{ ...menuProps, ...tooltipProps }"
+                                    icon
+                                    variant="text"
+                                    size="x-small"
+                                    :color="thinkingSuffixColor"
+                                    @mousedown.stop.prevent
+                                    @click.stop.prevent
+                                  >
+                                    <v-icon size="small">mdi-brain</v-icon>
+                                  </v-btn>
+                                </template>
+                              </v-tooltip>
+                            </template>
+                            <v-list density="compact">
+                              <v-list-item @click="setThinkingSuffix('')">
+                                <template #prepend>
+                                  <v-icon size="small" v-if="currentThinkingSuffix === ''">mdi-check</v-icon>
+                                </template>
+                                <v-list-item-title>{{ t('addChannel.thinkingSuffixNone') }}</v-list-item-title>
+                              </v-list-item>
+                              <v-divider />
+                              <v-list-item
+                                v-for="level in thinkingSuffixLevels"
+                                :key="level"
+                                @click="setThinkingSuffix(level)"
+                              >
+                                <template #prepend>
+                                  <v-icon size="small" v-if="currentThinkingSuffix === level">mdi-check</v-icon>
+                                </template>
+                                <v-list-item-title>{{ level }}</v-list-item-title>
+                              </v-list-item>
+                            </v-list>
+                          </v-menu>
+
+                          <v-tooltip :text="upstreamModelsError || t('addChannel.fetchModelsTooltip')" location="top">
+                            <template #activator="{ props: tooltipProps }">
+                              <v-btn
+                                v-bind="tooltipProps"
+                                icon
+                                variant="text"
+                                size="x-small"
+                                :loading="upstreamModelsLoading"
+                                :color="upstreamModelsError ? 'warning' : 'primary'"
+                                :disabled="!isEditing"
+                                @click.stop="fetchUpstreamModels"
+                              >
+                                <v-icon size="small">{{ upstreamModelsError ? 'mdi-alert' : 'mdi-refresh' }}</v-icon>
+                              </v-btn>
+                            </template>
+                          </v-tooltip>
+                        </div>
                       </template>
                       <template #no-data>
                         <v-list-item>
@@ -403,7 +444,7 @@
                       color="secondary"
                       variant="elevated"
                       @click="addModelMapping"
-                      :disabled="!newMapping.source.trim() || !newMapping.target.trim()"
+                      :disabled="!String(newMapping.source || '').trim() || !String(newMapping.target || '').trim()"
                     >
                       {{ t('common.add') }}
                     </v-btn>
@@ -1572,6 +1613,64 @@ const newMapping = reactive({
   target: ''
 })
 
+// Optional "thinking suffix" support for model IDs, e.g. "gpt-5.2(high)".
+// UI validates known levels but allows pass-through for unknown suffixes (server may clamp/reject).
+const thinkingSuffixLevels = ['low', 'medium', 'high', 'xhigh'] as const
+
+const splitModelSuffix = (model: string): { base: string; suffix: string; ok: boolean } => {
+  const trimmed = (model || '').trim()
+  if (!trimmed.endsWith(')')) return { base: trimmed, suffix: '', ok: false }
+  const openIdx = trimmed.lastIndexOf('(')
+  if (openIdx <= 0 || openIdx >= trimmed.length - 1) return { base: trimmed, suffix: '', ok: false }
+  const inner = trimmed.slice(openIdx + 1, -1)
+  if (/[()]/.test(inner)) return { base: trimmed, suffix: '', ok: false }
+  return { base: trimmed.slice(0, openIdx), suffix: inner, ok: true }
+}
+
+const normalizeThinkingSuffix = (suffix: string): string => (suffix || '').trim().toLowerCase()
+
+const isSupportedThinkingSuffix = (suffix: string): boolean => {
+  const s = normalizeThinkingSuffix(suffix)
+  return s === '' || thinkingSuffixLevels.includes(s as any)
+}
+
+const currentThinkingSuffix = computed(() => {
+  const { suffix, ok } = splitModelSuffix(String(newMapping.target || ''))
+  if (!ok) return ''
+  const normalized = normalizeThinkingSuffix(suffix)
+  return thinkingSuffixLevels.includes(normalized as any) ? normalized : ''
+})
+
+const thinkingSuffixColor = computed(() => {
+  const { suffix, ok } = splitModelSuffix(String(newMapping.target || ''))
+  if (!ok) return 'grey'
+  if (!suffix.trim()) return 'grey'
+  return isSupportedThinkingSuffix(suffix) ? 'primary' : 'warning'
+})
+
+const thinkingSuffixTooltip = computed(() => {
+  const { base, suffix, ok } = splitModelSuffix(String(newMapping.target || ''))
+  if (!ok || !suffix.trim()) {
+    return t('addChannel.thinkingSuffixTooltipNone')
+  }
+  if (isSupportedThinkingSuffix(suffix)) {
+    return t('addChannel.thinkingSuffixTooltip', { suffix: normalizeThinkingSuffix(suffix) })
+  }
+  return t('addChannel.thinkingSuffixTooltipUnknown', { suffix })
+})
+
+const setThinkingSuffix = (level: string) => {
+  const current = String(newMapping.target || '')
+  const parsed = splitModelSuffix(current)
+  const base = (parsed.ok ? parsed.base : current).trim()
+
+  // If no base model is set, don't create a dangling "(suffix)".
+  if (!base) return
+
+  const suffix = normalizeThinkingSuffix(level)
+  newMapping.target = suffix ? `${base}(${suffix})` : base
+}
+
 // Upstream models fetching state
 const upstreamModels = ref<Array<{ id: string; owned_by?: string }>>([])
 const upstreamModelsLoading = ref(false)
@@ -2199,15 +2298,15 @@ const moveExistingKeyToBottom = async (keyIndex: number) => {
   }
 }
 
-const addModelMapping = () => {
-  const source = newMapping.source.trim()
-  const target = newMapping.target.trim()
-  if (source && target && !form.modelMapping[source]) {
-    form.modelMapping[source] = target
-    newMapping.source = ''
-    newMapping.target = ''
-  }
-}
+	const addModelMapping = () => {
+	  const source = String(newMapping.source || '').trim()
+	  const target = String(newMapping.target || '').trim()
+	  if (source && target && !form.modelMapping[source]) {
+	    form.modelMapping[source] = target
+	    newMapping.source = ''
+	    newMapping.target = ''
+	  }
+	}
 
 const removeModelMapping = (source: string) => {
   delete form.modelMapping[source]

@@ -3,6 +3,8 @@ package apikey
 import (
 	"path/filepath"
 	"strings"
+
+	"github.com/JillVernus/cc-bridge/internal/utils"
 )
 
 // CheckEndpointPermission checks if the API key can access the given endpoint
@@ -28,6 +30,10 @@ func (vk *ValidatedKey) CheckModelPermission(model string) bool {
 		return true // nil = all allowed
 	}
 
+	// Support optional "thinking suffix" appended as "(...)" at the end of the model string.
+	// We preserve full-string matching first, then fall back to the base model for compatibility.
+	baseModel, _, hasSuffix := utils.SplitModelSuffix(model)
+
 	modelLower := strings.ToLower(model)
 	for _, pattern := range vk.AllowedModels {
 		patternLower := strings.ToLower(pattern)
@@ -50,6 +56,28 @@ func (vk *ValidatedKey) CheckModelPermission(model string) bool {
 			}
 		}
 	}
+
+	if hasSuffix {
+		// Retry permission check against the base model (without suffix), to avoid breaking
+		// existing allow-lists that were configured with base model IDs.
+		baseLower := strings.ToLower(baseModel)
+		for _, pattern := range vk.AllowedModels {
+			patternLower := strings.ToLower(pattern)
+			if patternLower == baseLower {
+				return true
+			}
+			if matched, _ := filepath.Match(patternLower, baseLower); matched {
+				return true
+			}
+			if strings.HasSuffix(pattern, "*") {
+				prefix := strings.TrimSuffix(patternLower, "*")
+				if strings.HasPrefix(baseLower, prefix) {
+					return true
+				}
+			}
+		}
+	}
+
 	return false
 }
 

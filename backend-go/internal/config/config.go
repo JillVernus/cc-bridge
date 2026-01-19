@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/JillVernus/cc-bridge/internal/utils"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -28,11 +29,11 @@ type TokenPriceMultipliers struct {
 // OAuthTokens stores OAuth authentication data for OpenAI OAuth channels
 // Matches the structure of Codex CLI's auth.json tokens field
 type OAuthTokens struct {
-	AccessToken  string `json:"access_token"`            // OAuth2 access token for API calls
-	AccountID    string `json:"account_id"`              // ChatGPT account ID (required for API headers)
-	IDToken      string `json:"id_token,omitempty"`      // JWT ID token containing user info
-	RefreshToken string `json:"refresh_token"`           // OAuth2 refresh token for token renewal
-	LastRefresh  string `json:"last_refresh,omitempty"`  // Timestamp of last token refresh
+	AccessToken  string `json:"access_token"`           // OAuth2 access token for API calls
+	AccountID    string `json:"account_id"`             // ChatGPT account ID (required for API headers)
+	IDToken      string `json:"id_token,omitempty"`     // JWT ID token containing user info
+	RefreshToken string `json:"refresh_token"`          // OAuth2 refresh token for token renewal
+	LastRefresh  string `json:"last_refresh,omitempty"` // Timestamp of last token refresh
 }
 
 // GetEffectiveMultiplier 获取有效乘数（0 或未设置时返回 1.0）
@@ -56,18 +57,18 @@ func (t *TokenPriceMultipliers) GetEffectiveMultiplier(tokenType string) float64
 
 // CompositeMapping defines a model-to-channel mapping for composite channels
 type CompositeMapping struct {
-	Pattern         string   `json:"pattern"`                  // Model pattern: "haiku", "sonnet", "opus" (mandatory, no wildcard)
-	TargetChannelID string   `json:"targetChannelId"`          // Primary target channel ID
-	FailoverChain   []string `json:"failoverChain,omitempty"`  // Ordered failover channel IDs (min 1 required)
-	TargetModel     string   `json:"targetModel,omitempty"`    // Optional: override model name sent to target
+	Pattern         string   `json:"pattern"`                 // Model pattern: "haiku", "sonnet", "opus" (mandatory, no wildcard)
+	TargetChannelID string   `json:"targetChannelId"`         // Primary target channel ID
+	FailoverChain   []string `json:"failoverChain,omitempty"` // Ordered failover channel IDs (min 1 required)
+	TargetModel     string   `json:"targetModel,omitempty"`   // Optional: override model name sent to target
 	// Deprecated: use TargetChannelID instead. Kept for migration only.
 	TargetChannel int `json:"targetChannel,omitempty"` // Legacy: target channel index
 }
 
 // UpstreamConfig 上游配置
 type UpstreamConfig struct {
-	Index                     int               `json:"-"`              // Internal index, set at runtime (not persisted to JSON)
-	ID                        string            `json:"id,omitempty"`   // Unique stable identifier for channel references
+	Index                     int               `json:"-"`            // Internal index, set at runtime (not persisted to JSON)
+	ID                        string            `json:"id,omitempty"` // Unique stable identifier for channel references
 	BaseURL                   string            `json:"baseUrl"`
 	APIKeys                   []string          `json:"apiKeys"`
 	ServiceType               string            `json:"serviceType"` // gemini, openai, openai_chat, openaiold, claude, openai-oauth
@@ -1860,9 +1861,32 @@ func RedirectModel(model string, upstream *UpstreamConfig) string {
 		return model
 	}
 
+	trimmedModel := strings.TrimSpace(model)
+	if trimmedModel == "" {
+		return model
+	}
+
+	baseModel, suffix, hasSuffix := utils.SplitModelSuffix(trimmedModel)
+	suffix = strings.TrimSpace(suffix)
+
 	// 直接匹配（精确匹配优先）
-	if mapped, ok := upstream.ModelMapping[model]; ok {
+	// If the mapping is explicitly defined for the full input model (including suffix),
+	// return it as-is (do not auto-propagate suffix).
+	if mapped, ok := upstream.ModelMapping[trimmedModel]; ok {
 		return mapped
+	}
+
+	// If the request model has a suffix, prefer exact mapping on the base model next.
+	if hasSuffix {
+		if mapped, ok := upstream.ModelMapping[baseModel]; ok {
+			// Preserve suffix unless the mapped target already has one (allows explicit override).
+			if suffix != "" {
+				if _, _, targetHasSuffix := utils.SplitModelSuffix(mapped); !targetHasSuffix {
+					return utils.ApplyModelSuffix(mapped, suffix)
+				}
+			}
+			return mapped
+		}
 	}
 
 	// 模糊匹配：按源模型长度从长到短排序，确保最长匹配优先
@@ -1880,9 +1904,26 @@ func RedirectModel(model string, upstream *UpstreamConfig) string {
 		return len(mappings[i].source) > len(mappings[j].source)
 	})
 
+	matchText := trimmedModel
+	if hasSuffix {
+		matchText = baseModel
+	}
+
 	// 按排序后的顺序进行模糊匹配
 	for _, m := range mappings {
-		if strings.Contains(model, m.source) || strings.Contains(m.source, model) {
+		// Try matching against base model first (when suffix exists), but also allow
+		// matches against the full original string for maximum compatibility.
+		matched := strings.Contains(matchText, m.source) || strings.Contains(m.source, matchText)
+		if !matched && hasSuffix {
+			matched = strings.Contains(trimmedModel, m.source) || strings.Contains(m.source, trimmedModel)
+		}
+		if matched {
+			if hasSuffix && suffix != "" {
+				// Preserve suffix unless the mapped target already has one (allows explicit override).
+				if _, _, targetHasSuffix := utils.SplitModelSuffix(m.target); !targetHasSuffix {
+					return utils.ApplyModelSuffix(m.target, suffix)
+				}
+			}
 			return m.target
 		}
 	}
