@@ -391,12 +391,6 @@
                     </template>
                     <v-list-item-title>{{ t('common.edit') }}</v-list-item-title>
                   </v-list-item>
-                  <v-list-item @click="$emit('ping', element.index)">
-                    <template #prepend>
-                      <v-icon size="small">mdi-speedometer</v-icon>
-                    </template>
-                    <v-list-item-title>{{ t('actions.testLatency') }}</v-list-item-title>
-                  </v-list-item>
                   <!-- OAuth Status (only for openai-oauth channels in responses mode) -->
                   <v-list-item
                     v-if="element.serviceType === 'openai-oauth' && channelType === 'responses'"
@@ -643,7 +637,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'edit', channel: Channel): void
   (e: 'delete', channelId: number): void
-  (e: 'ping', channelId: number): void
   (e: 'refresh'): void
   (e: 'error', message: string): void
   (e: 'success', message: string): void
@@ -781,14 +774,18 @@ const toggleChannelChart = (channelId: number) => {
 // 活跃渠道（可拖拽排序）- 包含 active 和 suspended 状态
 const activeChannels = ref<Channel[]>([])
 
-// 计算属性：禁用的组合渠道 - 单独分组
+// 计算属性：禁用的组合渠道 - 单独分组（按名称排序）
 const disabledCompositeChannels = computed(() => {
-  return props.channels.filter(ch => ch.status === 'disabled' && ch.serviceType === 'composite')
+  return props.channels
+    .filter(ch => ch.status === 'disabled' && ch.serviceType === 'composite')
+    .sort((a, b) => a.name.localeCompare(b.name) || a.index - b.index)
 })
 
-// 计算属性：非活跃渠道 - 仅 disabled 状态，排除组合渠道
+// 计算属性：非活跃渠道 - 仅 disabled 状态，排除组合渠道（按名称排序）
 const inactiveChannels = computed(() => {
-  return props.channels.filter(ch => ch.status === 'disabled' && ch.serviceType !== 'composite')
+  return props.channels
+    .filter(ch => ch.status === 'disabled' && ch.serviceType !== 'composite')
+    .sort((a, b) => a.name.localeCompare(b.name) || a.index - b.index)
 })
 
 // 计算属性：是否为多渠道模式

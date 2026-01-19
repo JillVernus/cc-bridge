@@ -307,17 +307,6 @@
               {{ t('actions.addChannel') }}
             </v-btn>
 
-            <v-btn
-              color="info"
-              size="large"
-              @click="pingAllChannels"
-              prepend-icon="mdi-speedometer"
-              variant="tonal"
-              :loading="isPingingAll"
-              class="action-btn"
-            >
-              {{ t('actions.testLatency') }}
-            </v-btn>
 
           </div>
 
@@ -391,7 +380,6 @@
           :channel-type="channelTypeForComponents"
           @edit="editChannel"
           @delete="deleteChannel"
-          @ping="pingChannel"
           @refresh="refreshChannels"
           @error="showErrorToast"
           @success="showSuccessToast"
@@ -659,7 +647,6 @@ const showAddKeyModalRef = ref(false)
 const editingChannel = ref<Channel | null>(null)
 const selectedChannelForKey = ref<number>(-1)
 const newApiKey = ref('')
-const isPingingAll = ref(false)
 const appVersion = ref('') // 应用版本号
 const showPricingSettings = ref(false) // 定价设置对话框
 const showModelAliasSettings = ref(false) // 模型别名设置对话框
@@ -972,42 +959,6 @@ const confirmDeleteApiKey = async () => {
   }
 }
 
-const pingChannel = async (channelId: number) => {
-  try {
-    const result = await api.pingChannel(channelId)
-    const data = activeTab.value === 'messages' ? channelsData.value : responsesChannelsData.value
-    const channel = data.channels?.find(c => c.index === channelId)
-    if (channel) {
-      channel.latency = result.latency
-      channel.status = result.success ? 'healthy' : 'error'
-    }
-    showToast(t('channel.latencyTestComplete', { latency: result.latency }), result.success ? 'success' : 'warning')
-  } catch (error) {
-    showToast(t('channel.latencyTestFailed', { error: error instanceof Error ? error.message : 'Unknown error' }), 'error')
-  }
-}
-
-const pingAllChannels = async () => {
-  if (isPingingAll.value) return
-
-  isPingingAll.value = true
-  try {
-    const results = await api.pingAllChannels()
-    const data = activeTab.value === 'messages' ? channelsData.value : responsesChannelsData.value
-    results.forEach(result => {
-      const channel = data.channels?.find(c => c.index === result.id)
-      if (channel) {
-        channel.latency = result.latency
-        channel.status = result.status as 'healthy' | 'error'
-      }
-    })
-    showToast(t('channel.allLatencyTestComplete'), 'success')
-  } catch (error) {
-    showToast(t('channel.batchLatencyTestFailed', { error: error instanceof Error ? error.message : 'Unknown error' }), 'error')
-  } finally {
-    isPingingAll.value = false
-  }
-}
 
 const updateLoadBalance = async (strategy: string) => {
   try {
