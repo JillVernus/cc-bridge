@@ -45,6 +45,7 @@ func GetGeminiUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 
 		c.JSON(200, gin.H{
 			"channels":    upstreams,
+			"current":     -1, // Gemini doesn't use current channel concept
 			"loadBalance": cfg.GeminiLoadBalance,
 		})
 	}
