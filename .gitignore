@@ -223,8 +223,10 @@ test-*.ts
 .snow/
 refs/
 request_samples/
+sample_request/
 .ace-tool/
 .codex-tasks/
+.ccb_config/
 
 # Claude Code context files (keep root CLAUDE.md only)
 **/CLAUDE.md
