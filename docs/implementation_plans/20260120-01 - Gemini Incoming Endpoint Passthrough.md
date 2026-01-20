@@ -175,6 +175,14 @@ geminiGroup := v1Group.Group("/gemini")
 
 - [x] Fixed `sanitizeQueryString()` to return empty string on parse error (prevents key leakage)
 
+#### Step 2.9: Database Storage Support ✅
+**File:** `backend-go/internal/config/db_storage.go`
+
+- [x] Added `syncChannelsTx` call for "gemini" channel type in `SaveConfigToDB`
+- [x] Added `gemini_load_balance` setting to database
+- [x] Load `GeminiUpstream` from database in `LoadConfigFromDB`
+- [x] Load `gemini_load_balance` setting from database
+
 ### Phase 3: Frontend - Gemini Tab ✅ DONE
 
 #### Step 3.1: Add Gemini Icon ✅
@@ -227,6 +235,22 @@ geminiGroup := v1Group.Group("/gemini")
 - [x] Updated `getDefaultServiceTypeValue()` for gemini
 - [x] Updated `getDefaultBaseUrl()` for gemini (`https://generativelanguage.googleapis.com/v1beta`)
 
+### Phase 4: Bug Fixes ✅ DONE
+
+#### Fix 4.1: Missing 'current' Field in API Response ✅
+**File:** `backend-go/internal/handlers/gemini_config.go`
+
+- [x] Added `"current": -1` to `GetGeminiUpstreams` response
+- [x] Frontend `ChannelsResponse` interface expects this field
+
+#### Fix 4.2: Database Storage Support ✅
+**File:** `backend-go/internal/config/db_storage.go`
+
+- [x] Added Gemini channel sync to `SaveConfigToDB`
+- [x] Added Gemini channel loading in `LoadConfigFromDB`
+- [x] Added `gemini_load_balance` setting persistence
+- [x] Fixes issue where Gemini channels weren't persisted when using PostgreSQL
+
 ## Files Summary
 
 ### Phase 1 ✅ DONE
@@ -242,6 +266,7 @@ geminiGroup := v1Group.Group("/gemini")
 | File | Status | Description |
 |------|--------|-------------|
 | `backend-go/internal/config/config.go` | ✅ Modified | GeminiUpstream field, CRUD methods, load balance, migration |
+| `backend-go/internal/config/db_storage.go` | ✅ Modified | Database storage support for Gemini channels |
 | `backend-go/internal/handlers/gemini_config.go` | ✅ Created | Gemini channel CRUD APIs |
 | `backend-go/internal/handlers/config.go` | ✅ Modified | UpdateGeminiLoadBalance handler |
 | `backend-go/internal/handlers/channel_metrics_handler.go` | ✅ Modified | Gemini support in GetSchedulerStats |
@@ -269,6 +294,23 @@ geminiGroup := v1Group.Group("/gemini")
 - Key rotation uses `GetNextGeminiAPIKey` with `GeminiLoadBalance` strategy
 - Scheduler stats support `?type=gemini` parameter
 - Channel metrics and circuit breakers work independently
+- **Database storage (PostgreSQL) fully supported** - channels persist correctly
+
+## Storage Modes
+
+CC-Bridge supports two storage modes:
+
+### 1. JSON File Storage (Default)
+- Config saved to `backend-go/.config/config.json`
+- File watcher detects changes and reloads automatically
+- Suitable for single-instance deployments
+
+### 2. Database Storage (PostgreSQL/SQLite)
+- Enabled with `STORAGE_BACKEND=database`
+- Config saved to `channels` and `settings` tables
+- Polling mechanism syncs changes across multiple instances
+- Suitable for multi-instance deployments
+- **Gemini channels fully supported** (as of fix 769b31d)
 
 ## Testing
 
@@ -292,5 +334,11 @@ curl -X POST "http://localhost:8080/v1/gemini/models/gemini-2.0-flash:streamGene
 
 ## Commits
 
-[To be added after commit]
+- `bb8ea56` - feat: add Gemini incoming endpoint with direct passthrough
+- `9d39d45` - chore: add .ccb_config and sample_request to gitignore
+- `3bf6978` - fix: add missing 'current' field in Gemini channels API response
+- `769b31d` - fix: add GeminiUpstream sync to database storage
 
+## Known Issues
+
+None - all features fully implemented and tested.
