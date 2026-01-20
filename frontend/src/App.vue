@@ -121,6 +121,10 @@
             <v-icon start :size="$vuetify.display.mobile ? 16 : 20" icon="custom:codex" />
             <span>Codex</span>
           </v-btn>
+          <v-btn value="gemini" class="nav-btn" :size="$vuetify.display.mobile ? 'small' : 'default'">
+            <v-icon start :size="$vuetify.display.mobile ? 16 : 20" icon="custom:gemini" />
+            <span>Gemini</span>
+          </v-btn>
           <v-btn value="apikeys" class="nav-btn" :size="$vuetify.display.mobile ? 'small' : 'default'">
             <v-icon start :size="$vuetify.display.mobile ? 16 : 20">mdi-key-variant</v-icon>
             <span>{{ t('apiKeys.tabTitle') }}</span>
@@ -639,9 +643,10 @@ let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
 const AUTO_REFRESH_INTERVAL = 2000 // 2秒
 
 // 响应式数据
-const activeTab = ref<'messages' | 'responses' | 'logs' | 'apikeys'>('messages') // Tab 切换状态
+const activeTab = ref<'messages' | 'responses' | 'gemini' | 'logs' | 'apikeys'>('messages') // Tab 切换状态
 const channelsData = ref<ChannelsResponse>({ channels: [], current: -1, loadBalance: 'round-robin' })
 const responsesChannelsData = ref<ChannelsResponse>({ channels: [], current: -1, loadBalance: 'round-robin' }) // Responses渠道数据
+const geminiChannelsData = ref<ChannelsResponse>({ channels: [], current: -1, loadBalance: 'round-robin' }) // Gemini渠道数据
 const showAddChannelModal = ref(false)
 const showAddKeyModalRef = ref(false)
 const editingChannel = ref<Channel | null>(null)
@@ -681,7 +686,7 @@ const pendingDeleteApiKey = ref<{ channelId: number; apiKey: string } | null>(nu
 const isDeleting = ref(false)
 
 // 用于传递给子组件的 channelType (排除 'logs' 和 'apikeys')
-const channelTypeForComponents = computed((): 'messages' | 'responses' => {
+const channelTypeForComponents = computed((): 'messages' | 'responses' | 'gemini' => {
   if (activeTab.value === 'logs' || activeTab.value === 'apikeys') {
     return 'messages'
   }
@@ -703,7 +708,10 @@ let toastId = 0
 
 // 计算属性 - 根据当前Tab动态返回数据
 const currentChannelsData = computed(() => {
-  return activeTab.value === 'messages' ? channelsData.value : responsesChannelsData.value
+  if (activeTab.value === 'messages') return channelsData.value
+  if (activeTab.value === 'responses') return responsesChannelsData.value
+  if (activeTab.value === 'gemini') return geminiChannelsData.value
+  return channelsData.value // fallback for logs/apikeys
 })
 
 // 计算属性：活跃渠道数（仅 active 状态）
@@ -772,8 +780,10 @@ const refreshChannels = async () => {
   try {
     if (activeTab.value === 'messages') {
       channelsData.value = await api.getChannels()
-    } else {
+    } else if (activeTab.value === 'responses') {
       responsesChannelsData.value = await api.getResponsesChannels()
+    } else if (activeTab.value === 'gemini') {
+      geminiChannelsData.value = await api.getGeminiChannels()
     }
   } catch (error) {
     handleAuthError(error)
@@ -783,10 +793,13 @@ const refreshChannels = async () => {
 const saveChannel = async (channel: Omit<Channel, 'index' | 'latency' | 'status'>, options?: { isQuickAdd?: boolean }) => {
   try {
     const isResponses = activeTab.value === 'responses'
+    const isGemini = activeTab.value === 'gemini'
     if (editingChannel.value) {
       const { apiKeys, ...channelUpdate } = channel
 
-      if (isResponses) {
+      if (isGemini) {
+        await api.updateGeminiChannel(editingChannel.value.index, channelUpdate)
+      } else if (isResponses) {
         await api.updateResponsesChannel(editingChannel.value.index, channelUpdate)
       } else {
         await api.updateChannel(editingChannel.value.index, channelUpdate)
@@ -796,7 +809,9 @@ const saveChannel = async (channel: Omit<Channel, 'index' | 'latency' | 'status'
       const keyAddErrors: string[] = []
       for (const key of keysToAdd) {
         try {
-          if (isResponses) {
+          if (isGemini) {
+            await api.addGeminiApiKey(editingChannel.value.index, key)
+          } else if (isResponses) {
             await api.addResponsesApiKey(editingChannel.value.index, key)
           } else {
             await api.addApiKey(editingChannel.value.index, key)
@@ -817,7 +832,9 @@ const saveChannel = async (channel: Omit<Channel, 'index' | 'latency' | 'status'
       // Refresh channels to get updated data from server
       await refreshChannels()
     } else {
-      if (isResponses) {
+      if (isGemini) {
+        await api.addGeminiChannel(channel)
+      } else if (isResponses) {
         await api.addResponsesChannel(channel)
       } else {
         await api.addChannel(channel)
@@ -827,7 +844,7 @@ const saveChannel = async (channel: Omit<Channel, 'index' | 'latency' | 'status'
       // 快速添加模式：将新渠道设为第一优先级并设置5分钟促销期
       if (options?.isQuickAdd) {
         await refreshChannels() // 先刷新获取新渠道的 index
-        const data = isResponses ? responsesChannelsData.value : channelsData.value
+        const data = isGemini ? geminiChannelsData.value : (isResponses ? responsesChannelsData.value : channelsData.value)
 
         // 找到新添加的渠道（应该是列表中 index 最大的 active 状态渠道）
         const activeChannels = data.channels?.filter(ch => ch.status !== 'disabled') || []
@@ -843,17 +860,21 @@ const saveChannel = async (channel: Omit<Channel, 'index' | 'latency' | 'status'
               .map(ch => ch.index)
             const newOrder = [newChannel.index, ...otherIndexes]
 
-            if (isResponses) {
+            if (isGemini) {
+              await api.reorderGeminiChannels(newOrder)
+            } else if (isResponses) {
               await api.reorderResponsesChannels(newOrder)
             } else {
               await api.reorderChannels(newOrder)
             }
 
-            // 2. 设置5分钟促销期（300秒）
-            if (isResponses) {
-              await api.setResponsesChannelPromotion(newChannel.index, 300)
-            } else {
-              await api.setChannelPromotion(newChannel.index, 300)
+            // 2. 设置5分钟促销期（300秒）- Gemini不支持促销期
+            if (!isGemini) {
+              if (isResponses) {
+                await api.setResponsesChannelPromotion(newChannel.index, 300)
+              } else {
+                await api.setChannelPromotion(newChannel.index, 300)
+              }
             }
 
             showToast(t('channel.prioritySet', { name: channel.name }), 'info')
@@ -887,7 +908,9 @@ const confirmDeleteChannel = async () => {
 
   isDeleting.value = true
   try {
-    if (activeTab.value === 'responses') {
+    if (activeTab.value === 'gemini') {
+      await api.deleteGeminiChannel(pendingDeleteChannelId.value)
+    } else if (activeTab.value === 'responses') {
       await api.deleteResponsesChannel(pendingDeleteChannelId.value)
     } else {
       await api.deleteChannel(pendingDeleteChannelId.value)
@@ -918,7 +941,9 @@ const addApiKey = async () => {
   if (!newApiKey.value.trim()) return
 
   try {
-    if (activeTab.value === 'responses') {
+    if (activeTab.value === 'gemini') {
+      await api.addGeminiApiKey(selectedChannelForKey.value, newApiKey.value.trim())
+    } else if (activeTab.value === 'responses') {
       await api.addResponsesApiKey(selectedChannelForKey.value, newApiKey.value.trim())
     } else {
       await api.addApiKey(selectedChannelForKey.value, newApiKey.value.trim())
@@ -943,7 +968,14 @@ const confirmDeleteApiKey = async () => {
   isDeleting.value = true
   try {
     const { channelId, apiKey } = pendingDeleteApiKey.value
-    if (activeTab.value === 'responses') {
+    // Gemini uses index-based deletion - find the key index from channel data
+    if (activeTab.value === 'gemini') {
+      const channel = geminiChannelsData.value.channels.find(ch => ch.index === channelId)
+      const keyIndex = channel?.maskedKeys?.findIndex(mk => mk.masked === apiKey)
+      if (keyIndex !== undefined && keyIndex >= 0) {
+        await api.removeGeminiApiKeyByIndex(channelId, keyIndex)
+      }
+    } else if (activeTab.value === 'responses') {
       await api.removeResponsesApiKey(channelId, apiKey)
     } else {
       await api.removeApiKey(channelId, apiKey)
@@ -965,9 +997,12 @@ const updateLoadBalance = async (strategy: string) => {
     if (activeTab.value === 'messages') {
       await api.updateLoadBalance(strategy)
       channelsData.value.loadBalance = strategy
-    } else {
+    } else if (activeTab.value === 'responses') {
       await api.updateResponsesLoadBalance(strategy)
       responsesChannelsData.value.loadBalance = strategy
+    } else if (activeTab.value === 'gemini') {
+      await api.updateGeminiLoadBalance(strategy)
+      geminiChannelsData.value.loadBalance = strategy
     }
     showToast(t('loadBalance.updated', { strategy }), 'success')
   } catch (error) {
@@ -1349,8 +1384,10 @@ const startAutoRefresh = () => {
         // 静默刷新渠道数据
         if (activeTab.value === 'messages') {
           channelsData.value = await api.getChannels()
-        } else {
+        } else if (activeTab.value === 'responses') {
           responsesChannelsData.value = await api.getResponsesChannels()
+        } else if (activeTab.value === 'gemini') {
+          geminiChannelsData.value = await api.getGeminiChannels()
         }
         // 同时刷新渠道指标
         channelOrchestrationRef.value?.refreshMetrics()

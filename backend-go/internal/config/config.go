@@ -414,6 +414,10 @@ type Config struct {
 	CurrentResponsesUpstream int              `json:"currentResponsesUpstream,omitempty"` // 已废弃：旧格式兼容用
 	ResponsesLoadBalance     string           `json:"responsesLoadBalance"`
 
+	// Gemini 接口专用配置（独立于 /v1/messages，用于 /v1/gemini/models/*）
+	GeminiUpstream    []UpstreamConfig `json:"geminiUpstream"`
+	GeminiLoadBalance string           `json:"geminiLoadBalance"`
+
 	// 调试日志配置
 	DebugLog DebugLogConfig `json:"debugLog,omitempty"`
 
@@ -491,6 +495,8 @@ func (cm *ConfigManager) loadConfig() error {
 			ResponsesUpstream:        []UpstreamConfig{},
 			CurrentResponsesUpstream: 0,
 			ResponsesLoadBalance:     "failover",
+			GeminiUpstream:           []UpstreamConfig{},
+			GeminiLoadBalance:        "failover",
 		}
 
 		// 确保目录存在
@@ -643,6 +649,14 @@ func (cm *ConfigManager) loadConfig() error {
 			log.Printf("Generated ID for Responses channel [%d] %s: %s", i, cm.config.ResponsesUpstream[i].Name, cm.config.ResponsesUpstream[i].ID)
 		}
 	}
+	for i := range cm.config.GeminiUpstream {
+		cm.config.GeminiUpstream[i].Index = i
+		if cm.config.GeminiUpstream[i].ID == "" {
+			cm.config.GeminiUpstream[i].ID = generateChannelID()
+			idMigrationNeeded = true
+			log.Printf("Generated ID for Gemini channel [%d] %s: %s", i, cm.config.GeminiUpstream[i].Name, cm.config.GeminiUpstream[i].ID)
+		}
+	}
 	if idMigrationNeeded {
 		if err := cm.saveConfigLocked(cm.config); err != nil {
 			log.Printf("Failed to save ID migration: %v", err)
@@ -710,6 +724,22 @@ func (cm *ConfigManager) validateChannelKeys() bool {
 		}
 	}
 
+	// 检查 Gemini 渠道
+	for i := range cm.config.GeminiUpstream {
+		upstream := &cm.config.GeminiUpstream[i]
+		status := upstream.Status
+		if status == "" {
+			status = "active"
+		}
+
+		// 如果是 active 状态但没有配置 key，自动设为 suspended
+		if status == "active" && len(upstream.APIKeys) == 0 {
+			upstream.Status = "suspended"
+			modified = true
+			log.Printf("⚠️ [自检] Gemini 渠道 [%d] %s 没有配置 API key，已自动暂停", i, upstream.Name)
+		}
+	}
+
 	return modified
 }
 
@@ -727,6 +757,14 @@ func (cm *ConfigManager) warnInsecureChannels() {
 	for i, upstream := range cm.config.ResponsesUpstream {
 		if upstream.InsecureSkipVerify {
 			log.Printf("⚠️ [安全警告] Responses 渠道 [%d] %s 已启用 insecureSkipVerify - TLS 证书验证已禁用，存在中间人攻击风险",
+				i, upstream.Name)
+		}
+	}
+
+	// 检查 Gemini 渠道
+	for i, upstream := range cm.config.GeminiUpstream {
+		if upstream.InsecureSkipVerify {
+			log.Printf("⚠️ [安全警告] Gemini 渠道 [%d] %s 已启用 insecureSkipVerify - TLS 证书验证已禁用，存在中间人攻击风险",
 				i, upstream.Name)
 		}
 	}
@@ -1547,6 +1585,25 @@ func (cm *ConfigManager) SetResponsesLoadBalance(strategy string) error {
 	}
 
 	log.Printf("已设置 Responses 负载均衡策略: %s", strategy)
+	return nil
+}
+
+// SetGeminiLoadBalance 设置 Gemini 负载均衡策略
+func (cm *ConfigManager) SetGeminiLoadBalance(strategy string) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if err := validateLoadBalanceStrategy(strategy); err != nil {
+		return err
+	}
+
+	cm.config.GeminiLoadBalance = strategy
+
+	if err := cm.saveConfigLocked(cm.config); err != nil {
+		return err
+	}
+
+	log.Printf("已设置 Gemini 负载均衡策略: %s", strategy)
 	return nil
 }
 
@@ -2632,4 +2689,298 @@ func (cm *ConfigManager) UpdateFailoverConfig(config FailoverConfig) error {
 
 	cm.config.Failover = config
 	return cm.saveConfigLocked(cm.config)
+}
+
+// ==================== Gemini Upstream Methods ====================
+
+// GetCurrentGeminiUpstream 获取当前 Gemini 上游配置
+// 优先选择第一个 active 状态的渠道，若无则回退到第一个渠道
+func (cm *ConfigManager) GetCurrentGeminiUpstream() (*UpstreamConfig, error) {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	if len(cm.config.GeminiUpstream) == 0 {
+		return nil, fmt.Errorf("未配置任何 Gemini 渠道")
+	}
+
+	// 优先选择第一个 active 状态的渠道
+	for i := range cm.config.GeminiUpstream {
+		status := cm.config.GeminiUpstream[i].Status
+		if status == "" || status == "active" {
+			upstream := cm.config.GeminiUpstream[i]
+			return &upstream, nil
+		}
+	}
+
+	// 没有 active 渠道，回退到第一个渠道
+	upstream := cm.config.GeminiUpstream[0]
+	return &upstream, nil
+}
+
+// GetGeminiUpstreams 获取所有 Gemini 渠道配置
+func (cm *ConfigManager) GetGeminiUpstreams() []UpstreamConfig {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	// Return a copy to prevent concurrent modification
+	result := make([]UpstreamConfig, len(cm.config.GeminiUpstream))
+	copy(result, cm.config.GeminiUpstream)
+	return result
+}
+
+// AddGeminiUpstream 添加 Gemini 上游
+func (cm *ConfigManager) AddGeminiUpstream(upstream UpstreamConfig) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	// Generate unique ID if not provided
+	if upstream.ID == "" {
+		upstream.ID = generateChannelID()
+	}
+
+	// 新建渠道默认设为 active
+	if upstream.Status == "" {
+		upstream.Status = "active"
+	}
+
+	// Set the Index to the new position
+	upstream.Index = len(cm.config.GeminiUpstream)
+
+	cm.config.GeminiUpstream = append(cm.config.GeminiUpstream, upstream)
+
+	if err := cm.saveConfigLocked(cm.config); err != nil {
+		return err
+	}
+
+	log.Printf("已添加 Gemini 上游: %s (ID: %s)", upstream.Name, upstream.ID)
+	return nil
+}
+
+// UpdateGeminiUpstream 更新 Gemini 上游
+// 返回值：shouldResetMetrics 表示是否需要重置渠道指标（熔断状态）
+func (cm *ConfigManager) UpdateGeminiUpstream(index int, updates UpstreamUpdate) (shouldResetMetrics bool, err error) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if index < 0 || index >= len(cm.config.GeminiUpstream) {
+		return false, fmt.Errorf("无效的 Gemini 上游索引: %d", index)
+	}
+
+	upstream := &cm.config.GeminiUpstream[index]
+
+	if updates.Name != nil {
+		upstream.Name = *updates.Name
+	}
+	if updates.BaseURL != nil {
+		upstream.BaseURL = *updates.BaseURL
+	}
+	if updates.ServiceType != nil {
+		upstream.ServiceType = *updates.ServiceType
+	}
+	if updates.Description != nil {
+		upstream.Description = *updates.Description
+	}
+	if updates.Website != nil {
+		upstream.Website = *updates.Website
+	}
+	if updates.APIKeys != nil {
+		// 只有单 key 场景且 key 被更换时，才自动激活并重置熔断
+		if len(upstream.APIKeys) == 1 && len(updates.APIKeys) == 1 &&
+			upstream.APIKeys[0] != updates.APIKeys[0] {
+			shouldResetMetrics = true
+			if upstream.Status == "suspended" {
+				upstream.Status = "active"
+				log.Printf("Gemini 渠道 [%d] %s 已从暂停状态自动激活（单 key 更换）", index, upstream.Name)
+			}
+		}
+		upstream.APIKeys = updates.APIKeys
+	}
+	if updates.ModelMapping != nil {
+		upstream.ModelMapping = updates.ModelMapping
+	}
+	if updates.InsecureSkipVerify != nil {
+		upstream.InsecureSkipVerify = *updates.InsecureSkipVerify
+	}
+	if updates.Priority != nil {
+		upstream.Priority = *updates.Priority
+	}
+	if updates.Status != nil {
+		upstream.Status = *updates.Status
+	}
+	if updates.PromotionUntil != nil {
+		upstream.PromotionUntil = updates.PromotionUntil
+	}
+	if updates.ResponseHeaderTimeoutSecs != nil {
+		upstream.ResponseHeaderTimeoutSecs = *updates.ResponseHeaderTimeoutSecs
+	}
+	if updates.PriceMultipliers != nil {
+		upstream.PriceMultipliers = updates.PriceMultipliers
+	}
+	// Per-channel rate limiting
+	if updates.RateLimitRpm != nil {
+		upstream.RateLimitRpm = *updates.RateLimitRpm
+	}
+	if updates.QueueEnabled != nil {
+		upstream.QueueEnabled = *updates.QueueEnabled
+	}
+	if updates.QueueTimeout != nil {
+		upstream.QueueTimeout = *updates.QueueTimeout
+	}
+
+	if err := cm.saveConfigLocked(cm.config); err != nil {
+		return false, err
+	}
+
+	log.Printf("已更新 Gemini 上游: [%d] %s", index, cm.config.GeminiUpstream[index].Name)
+	return shouldResetMetrics, nil
+}
+
+// RemoveGeminiUpstream 删除 Gemini 上游
+func (cm *ConfigManager) RemoveGeminiUpstream(index int) (*UpstreamConfig, error) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if index < 0 || index >= len(cm.config.GeminiUpstream) {
+		return nil, fmt.Errorf("无效的 Gemini 上游索引: %d", index)
+	}
+
+	removed := cm.config.GeminiUpstream[index]
+	cm.config.GeminiUpstream = append(cm.config.GeminiUpstream[:index], cm.config.GeminiUpstream[index+1:]...)
+
+	// Reindex remaining upstreams
+	for i := range cm.config.GeminiUpstream {
+		cm.config.GeminiUpstream[i].Index = i
+	}
+
+	// 清理被删除渠道的失败 key 冷却记录
+	cm.clearFailedKeysForUpstream(&removed)
+
+	if err := cm.saveConfigLocked(cm.config); err != nil {
+		return nil, err
+	}
+
+	log.Printf("已删除 Gemini 上游: %s", removed.Name)
+	return &removed, nil
+}
+
+// AddGeminiAPIKey 添加 Gemini 上游的 API 密钥
+func (cm *ConfigManager) AddGeminiAPIKey(index int, apiKey string) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if index < 0 || index >= len(cm.config.GeminiUpstream) {
+		return fmt.Errorf("无效的上游索引: %d", index)
+	}
+
+	// 检查密钥是否已存在
+	for _, key := range cm.config.GeminiUpstream[index].APIKeys {
+		if key == apiKey {
+			return fmt.Errorf("API密钥已存在")
+		}
+	}
+
+	cm.config.GeminiUpstream[index].APIKeys = append(cm.config.GeminiUpstream[index].APIKeys, apiKey)
+
+	if err := cm.saveConfigLocked(cm.config); err != nil {
+		return err
+	}
+
+	log.Printf("已添加API密钥到 Gemini 上游 [%d] %s", index, cm.config.GeminiUpstream[index].Name)
+	return nil
+}
+
+// RemoveGeminiAPIKey 删除 Gemini 上游的 API 密钥
+func (cm *ConfigManager) RemoveGeminiAPIKey(index int, apiKey string) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if index < 0 || index >= len(cm.config.GeminiUpstream) {
+		return fmt.Errorf("无效的上游索引: %d", index)
+	}
+
+	// 查找并删除密钥
+	keys := cm.config.GeminiUpstream[index].APIKeys
+	found := false
+	for i, key := range keys {
+		if key == apiKey {
+			cm.config.GeminiUpstream[index].APIKeys = append(keys[:i], keys[i+1:]...)
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("API密钥不存在")
+	}
+
+	if err := cm.saveConfigLocked(cm.config); err != nil {
+		return err
+	}
+
+	log.Printf("已从 Gemini 上游 [%d] %s 删除API密钥", index, cm.config.GeminiUpstream[index].Name)
+	return nil
+}
+
+// SetGeminiChannelStatus 设置 Gemini 渠道状态
+func (cm *ConfigManager) SetGeminiChannelStatus(index int, status string) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if index < 0 || index >= len(cm.config.GeminiUpstream) {
+		return fmt.Errorf("无效的 Gemini 渠道索引: %d", index)
+	}
+
+	cm.config.GeminiUpstream[index].Status = status
+
+	if err := cm.saveConfigLocked(cm.config); err != nil {
+		return err
+	}
+
+	log.Printf("已设置 Gemini 渠道 [%d] %s 状态为: %s", index, cm.config.GeminiUpstream[index].Name, status)
+	return nil
+}
+
+// ReorderGeminiUpstreams 重新排序 Gemini 上游
+func (cm *ConfigManager) ReorderGeminiUpstreams(order []int) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if len(order) != len(cm.config.GeminiUpstream) {
+		return fmt.Errorf("排序列表长度不匹配: 期望 %d, 实际 %d", len(cm.config.GeminiUpstream), len(order))
+	}
+
+	// Validate order indices
+	seen := make(map[int]bool)
+	for _, idx := range order {
+		if idx < 0 || idx >= len(cm.config.GeminiUpstream) {
+			return fmt.Errorf("无效的渠道索引: %d", idx)
+		}
+		if seen[idx] {
+			return fmt.Errorf("重复的渠道索引: %d", idx)
+		}
+		seen[idx] = true
+	}
+
+	// Reorder
+	newUpstreams := make([]UpstreamConfig, len(order))
+	for newIndex, oldIndex := range order {
+		newUpstreams[newIndex] = cm.config.GeminiUpstream[oldIndex]
+		newUpstreams[newIndex].Index = newIndex
+	}
+	cm.config.GeminiUpstream = newUpstreams
+
+	return cm.saveConfigLocked(cm.config)
+}
+
+// GetNextGeminiAPIKey 获取下一个 Gemini API 密钥（负载均衡）
+func (cm *ConfigManager) GetNextGeminiAPIKey(upstream *UpstreamConfig, failedKeys map[string]bool) (string, error) {
+	// Use per-channel key load balance setting if set, otherwise fall back to global Gemini setting
+	strategy := upstream.KeyLoadBalance
+	if strategy == "" {
+		strategy = cm.config.GeminiLoadBalance
+	}
+	if strategy == "" {
+		strategy = "failover" // Default
+	}
+	return cm.getNextAPIKeyWithStrategy(upstream, failedKeys, strategy, &cm.requestCount)
 }

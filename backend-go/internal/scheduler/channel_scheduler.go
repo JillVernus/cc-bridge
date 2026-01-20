@@ -26,11 +26,13 @@ type ChannelScheduler struct {
 	configManager           *config.ConfigManager
 	messagesMetricsManager  *metrics.MetricsManager // Messages 渠道指标
 	responsesMetricsManager *metrics.MetricsManager // Responses 渠道指标
+	geminiMetricsManager    *metrics.MetricsManager // Gemini 渠道指标
 	traceAffinity           *session.TraceAffinityManager
 	suspensionChecker       SuspensionChecker // For checking quota channel suspension
 	// Round-robin counters for channel-level load balancing
 	messagesRoundRobinCounter  int
 	responsesRoundRobinCounter int
+	geminiRoundRobinCounter    int
 }
 
 // NewChannelScheduler 创建多渠道调度器
@@ -44,6 +46,7 @@ func NewChannelScheduler(
 		configManager:           cfgManager,
 		messagesMetricsManager:  messagesMetrics,
 		responsesMetricsManager: responsesMetrics,
+		geminiMetricsManager:    metrics.NewMetricsManager(), // Create dedicated Gemini metrics
 		traceAffinity:           traceAffinity,
 	}
 }
@@ -773,4 +776,199 @@ func maskUserID(userID string) string {
 		return "***"
 	}
 	return userID[:8] + "***" + userID[len(userID)-4:]
+}
+
+// ==================== Gemini Channel Methods ====================
+
+// ChannelInfo for Gemini channels
+type GeminiChannelInfo struct {
+	Index    int
+	Name     string
+	Status   string
+	Priority int
+}
+
+// SelectGeminiChannel 选择 Gemini 渠道
+func (s *ChannelScheduler) SelectGeminiChannel(
+	ctx context.Context,
+	failedChannels map[int]bool,
+	allowedChannels []int,
+) (*SelectionResult, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Get active Gemini channels
+	activeChannels := s.getActiveGeminiChannels()
+	if len(activeChannels) == 0 {
+		return nil, fmt.Errorf("没有可用的活跃 Gemini 渠道")
+	}
+
+	// Filter by allowed channels if specified
+	if len(allowedChannels) > 0 {
+		var filtered []ChannelInfo
+		for _, ch := range activeChannels {
+			for _, allowed := range allowedChannels {
+				if ch.Index == allowed {
+					filtered = append(filtered, ch)
+					break
+				}
+			}
+		}
+		if len(filtered) == 0 {
+			return nil, fmt.Errorf("no available Gemini channel (allowed channels: %v)", allowedChannels)
+		}
+		activeChannels = filtered
+	}
+
+	// Remove failed channels
+	var availableChannels []ChannelInfo
+	for _, ch := range activeChannels {
+		if !failedChannels[ch.Index] {
+			availableChannels = append(availableChannels, ch)
+		}
+	}
+	if len(availableChannels) == 0 {
+		return nil, fmt.Errorf("all Gemini channels have failed")
+	}
+
+	// Use priority-based selection
+	cfg := s.configManager.GetConfig()
+	strategy := cfg.GeminiLoadBalance
+	if strategy == "" {
+		strategy = "failover"
+	}
+	orderedChannels := s.orderGeminiChannelsByStrategy(availableChannels, strategy)
+
+	// Select first available healthy channel
+	for _, ch := range orderedChannels {
+		// Check if suspended
+		if suspended, _, _ := s.isGeminiChannelSuspended(ch.Index); suspended {
+			continue
+		}
+		// Check if healthy (circuit breaker)
+		if !s.geminiMetricsManager.IsChannelHealthy(ch.Index) {
+			continue
+		}
+		upstream := s.getGeminiUpstreamByIndex(ch.Index)
+		if upstream != nil && len(upstream.APIKeys) > 0 {
+			return &SelectionResult{
+				Upstream:     upstream,
+				ChannelIndex: ch.Index,
+				Reason:       "gemini_priority",
+			}, nil
+		}
+	}
+
+	// Fallback: return first available even if unhealthy
+	for _, ch := range orderedChannels {
+		upstream := s.getGeminiUpstreamByIndex(ch.Index)
+		if upstream != nil && len(upstream.APIKeys) > 0 {
+			return &SelectionResult{
+				Upstream:     upstream,
+				ChannelIndex: ch.Index,
+				Reason:       "gemini_fallback",
+			}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no usable Gemini channel found")
+}
+
+// getActiveGeminiChannels returns active Gemini channels
+func (s *ChannelScheduler) getActiveGeminiChannels() []ChannelInfo {
+	cfg := s.configManager.GetConfig()
+	var channels []ChannelInfo
+
+	for i, upstream := range cfg.GeminiUpstream {
+		status := config.GetChannelStatus(&upstream)
+		if status == "active" || status == "" {
+			channels = append(channels, ChannelInfo{
+				Index:    i,
+				Name:     upstream.Name,
+				Status:   status,
+				Priority: config.GetChannelPriority(&upstream, i),
+			})
+		}
+	}
+
+	return channels
+}
+
+// getGeminiUpstreamByIndex gets Gemini upstream by index
+func (s *ChannelScheduler) getGeminiUpstreamByIndex(index int) *config.UpstreamConfig {
+	cfg := s.configManager.GetConfig()
+	if index < 0 || index >= len(cfg.GeminiUpstream) {
+		return nil
+	}
+	upstream := cfg.GeminiUpstream[index]
+	return &upstream
+}
+
+// orderGeminiChannelsByStrategy orders Gemini channels by strategy
+func (s *ChannelScheduler) orderGeminiChannelsByStrategy(channels []ChannelInfo, strategy string) []ChannelInfo {
+	result := make([]ChannelInfo, len(channels))
+	copy(result, channels)
+
+	switch strategy {
+	case "round-robin":
+		// Rotate based on counter
+		if len(result) > 0 {
+			s.geminiRoundRobinCounter = (s.geminiRoundRobinCounter + 1) % len(result)
+			rotated := make([]ChannelInfo, len(result))
+			for i := range result {
+				rotated[i] = result[(i+s.geminiRoundRobinCounter)%len(result)]
+			}
+			result = rotated
+		}
+	case "random":
+		// Shuffle
+		rand.Shuffle(len(result), func(i, j int) {
+			result[i], result[j] = result[j], result[i]
+		})
+	default: // "failover" or priority-based
+		// Sort by priority (lower = higher priority)
+		sort.Slice(result, func(i, j int) bool {
+			return result[i].Priority < result[j].Priority
+		})
+	}
+
+	return result
+}
+
+// isGeminiChannelSuspended checks if a Gemini channel is suspended
+func (s *ChannelScheduler) isGeminiChannelSuspended(channelIndex int) (bool, time.Time, string) {
+	if s.suspensionChecker == nil {
+		return false, time.Time{}, ""
+	}
+	return s.suspensionChecker.IsChannelSuspended(channelIndex, "gemini")
+}
+
+// RecordGeminiSuccess records success for Gemini channel
+func (s *ChannelScheduler) RecordGeminiSuccess(channelIndex int) {
+	s.geminiMetricsManager.RecordSuccess(channelIndex)
+}
+
+// RecordGeminiFailure records failure for Gemini channel
+func (s *ChannelScheduler) RecordGeminiFailure(channelIndex int) {
+	s.geminiMetricsManager.RecordFailure(channelIndex)
+}
+
+// ResetGeminiChannelMetrics resets metrics for a Gemini channel
+func (s *ChannelScheduler) ResetGeminiChannelMetrics(channelIndex int) {
+	s.geminiMetricsManager.Reset(channelIndex)
+}
+
+// GetGeminiMetricsManager returns the Gemini metrics manager
+func (s *ChannelScheduler) GetGeminiMetricsManager() *metrics.MetricsManager {
+	return s.geminiMetricsManager
+}
+
+// GetActiveGeminiChannelCount returns the number of active Gemini channels
+func (s *ChannelScheduler) GetActiveGeminiChannelCount() int {
+	return len(s.getActiveGeminiChannels())
+}
+
+// IsGeminiMultiChannelMode returns true if there are multiple active Gemini channels
+func (s *ChannelScheduler) IsGeminiMultiChannelMode() bool {
+	return s.GetActiveGeminiChannelCount() > 1
 }

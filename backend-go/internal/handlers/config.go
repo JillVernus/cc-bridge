@@ -496,6 +496,33 @@ func UpdateResponsesLoadBalance(cfgManager *config.ConfigManager) gin.HandlerFun
 	}
 }
 
+// UpdateGeminiLoadBalance 更新 Gemini 负载均衡策略
+func UpdateGeminiLoadBalance(cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Strategy string `json:"strategy"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Invalid request body"})
+			return
+		}
+
+		if err := cfgManager.SetGeminiLoadBalance(req.Strategy); err != nil {
+			if strings.Contains(err.Error(), "无效的负载均衡策略") {
+				c.JSON(400, gin.H{"error": err.Error()})
+			} else {
+				c.JSON(500, gin.H{"error": "Failed to save config"})
+			}
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"message":  "Gemini 负载均衡策略已更新",
+			"strategy": req.Strategy,
+		})
+	}
+}
+
 // PingChannel Ping单个渠道
 func PingChannel(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {

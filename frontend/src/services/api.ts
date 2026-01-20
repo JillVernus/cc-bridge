@@ -362,6 +362,13 @@ class ApiService {
     })
   }
 
+  async updateGeminiLoadBalance(strategy: string): Promise<void> {
+    await this.request('/gemini/loadbalance', {
+      method: 'PUT',
+      body: JSON.stringify({ strategy })
+    })
+  }
+
   // ============== Responses 渠道管理 API ==============
 
   async getResponsesChannels(): Promise<ChannelsResponse> {
@@ -491,7 +498,7 @@ class ApiService {
   }
 
   // 获取调度器统计信息
-  async getSchedulerStats(type?: 'messages' | 'responses'): Promise<{
+  async getSchedulerStats(type?: 'messages' | 'responses' | 'gemini'): Promise<{
     multiChannelMode: boolean
     activeChannelCount: number
     traceAffinityCount: number
@@ -499,7 +506,9 @@ class ApiService {
     failureThreshold: number
     windowSize: number
   }> {
-    const query = type === 'responses' ? '?type=responses' : ''
+    let query = ''
+    if (type === 'responses') query = '?type=responses'
+    else if (type === 'gemini') query = '?type=gemini'
     return this.request(`/channels/scheduler/stats${query}`)
   }
 
@@ -554,6 +563,66 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify({ duration: durationSeconds })
     })
+  }
+
+  // ============== Gemini 渠道管理 API ==============
+
+  async getGeminiChannels(): Promise<ChannelsResponse> {
+    return this.request('/gemini/channels')
+  }
+
+  async addGeminiChannel(channel: Omit<Channel, 'index' | 'latency' | 'status'>): Promise<void> {
+    await this.request('/gemini/channels', {
+      method: 'POST',
+      body: JSON.stringify(channel)
+    })
+  }
+
+  async updateGeminiChannel(id: number, channel: Partial<Channel>): Promise<void> {
+    await this.request(`/gemini/channels/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(channel)
+    })
+  }
+
+  async deleteGeminiChannel(id: number): Promise<void> {
+    await this.request(`/gemini/channels/${id}`, {
+      method: 'DELETE'
+    })
+  }
+
+  async addGeminiApiKey(channelId: number, apiKey: string): Promise<void> {
+    await this.request(`/gemini/channels/${channelId}/keys`, {
+      method: 'POST',
+      body: JSON.stringify({ apiKey })
+    })
+  }
+
+  async removeGeminiApiKeyByIndex(channelId: number, keyIndex: number): Promise<void> {
+    await this.request(`/gemini/channels/${channelId}/keys/index/${keyIndex}`, {
+      method: 'DELETE'
+    })
+  }
+
+  // 重新排序 Gemini 渠道优先级
+  async reorderGeminiChannels(order: number[]): Promise<void> {
+    await this.request('/gemini/channels/reorder', {
+      method: 'POST',
+      body: JSON.stringify({ order })
+    })
+  }
+
+  // 设置 Gemini 渠道状态
+  async setGeminiChannelStatus(channelId: number, status: ChannelStatus): Promise<void> {
+    await this.request(`/gemini/channels/${channelId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status })
+    })
+  }
+
+  // 获取 Gemini 渠道指标
+  async getGeminiChannelMetrics(): Promise<ChannelMetrics[]> {
+    return this.request('/gemini/channels/metrics')
   }
 
   // ============== 请求日志 API ==============

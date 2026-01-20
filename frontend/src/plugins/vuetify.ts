@@ -12,11 +12,13 @@ import '@mdi/font/css/materialdesignicons.css'
 // 引入自定义 SVG 图标
 import claudeSvg from '@/assets/claude.svg?raw'
 import codexSvg from '@/assets/codex.svg?raw'
+import geminiSvg from '@/assets/gemini.svg?raw'
 
 // 自定义图标集
 const customSvgIcons: Record<string, string> = {
   claude: claudeSvg,
-  codex: codexSvg
+  codex: codexSvg,
+  gemini: geminiSvg
 }
 
 const custom: IconSet = {

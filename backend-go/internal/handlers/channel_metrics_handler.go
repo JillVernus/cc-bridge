@@ -86,20 +86,32 @@ func ResumeChannel(sch *scheduler.ChannelScheduler, isResponses bool) gin.Handle
 // GetSchedulerStats 获取调度器统计信息
 func GetSchedulerStats(sch *scheduler.ChannelScheduler) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 获取 isResponses 参数
-		isResponses := strings.ToLower(c.Query("type")) == "responses"
+		// 获取 type 参数: messages (default), responses, gemini
+		channelType := strings.ToLower(c.Query("type"))
 
 		// 根据类型选择对应的指标管理器
 		var metricsManager *metrics.MetricsManager
-		if isResponses {
+		var isMultiChannel bool
+		var activeCount int
+
+		switch channelType {
+		case "responses":
 			metricsManager = sch.GetResponsesMetricsManager()
-		} else {
+			isMultiChannel = sch.IsMultiChannelMode(true)
+			activeCount = sch.GetActiveChannelCount(true)
+		case "gemini":
+			metricsManager = sch.GetGeminiMetricsManager()
+			isMultiChannel = sch.IsGeminiMultiChannelMode()
+			activeCount = sch.GetActiveGeminiChannelCount()
+		default:
 			metricsManager = sch.GetMessagesMetricsManager()
+			isMultiChannel = sch.IsMultiChannelMode(false)
+			activeCount = sch.GetActiveChannelCount(false)
 		}
 
 		stats := gin.H{
-			"multiChannelMode":    sch.IsMultiChannelMode(isResponses),
-			"activeChannelCount":  sch.GetActiveChannelCount(isResponses),
+			"multiChannelMode":    isMultiChannel,
+			"activeChannelCount":  activeCount,
 			"traceAffinityCount":  sch.GetTraceAffinityManager().Size(),
 			"traceAffinityTTL":    sch.GetTraceAffinityManager().GetTTL().String(),
 			"failureThreshold":    metricsManager.GetFailureThreshold() * 100,

@@ -362,6 +362,18 @@ func main() {
 		apiGroup.GET("/responses/channels/:id/oauth/status", handlers.GetResponsesChannelOAuthStatus(cfgManager))
 		apiGroup.GET("/responses/channels/:id/models", handlers.FetchResponsesUpstreamModels(cfgManager))
 
+		// Gemini 渠道管理
+		apiGroup.GET("/gemini/channels", handlers.GetGeminiUpstreams(cfgManager))
+		apiGroup.POST("/gemini/channels", handlers.AddGeminiUpstream(cfgManager))
+		apiGroup.PUT("/gemini/channels/:id", handlers.UpdateGeminiUpstream(cfgManager, channelScheduler))
+		apiGroup.DELETE("/gemini/channels/:id", handlers.DeleteGeminiUpstream(cfgManager, channelRateLimiter))
+		apiGroup.POST("/gemini/channels/:id/keys", handlers.AddGeminiApiKey(cfgManager))
+		apiGroup.DELETE("/gemini/channels/:id/keys/index/:keyIndex", handlers.DeleteGeminiApiKeyByIndex(cfgManager))
+		apiGroup.POST("/gemini/channels/reorder", handlers.ReorderGeminiChannels(cfgManager))
+		apiGroup.PATCH("/gemini/channels/:id/status", handlers.SetGeminiChannelStatus(cfgManager))
+		apiGroup.GET("/gemini/channels/metrics", handlers.GetGeminiChannelMetrics(channelScheduler.GetGeminiMetricsManager()))
+		apiGroup.PUT("/gemini/loadbalance", handlers.UpdateGeminiLoadBalance(cfgManager))
+
 		// 负载均衡
 		apiGroup.PUT("/loadbalance", handlers.UpdateLoadBalance(cfgManager))
 
@@ -463,6 +475,16 @@ func main() {
 		v1Group.GET("/models", handlers.GetModels())
 		v1Group.POST("/messages", handlers.ProxyHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker, channelRateLimiter))
 		v1Group.POST("/responses", handlers.ResponsesHandlerWithAPIKey(envCfg, cfgManager, sessionManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker, channelRateLimiter))
+
+		// Gemini incoming endpoint (passthrough mode)
+		// Route: POST /v1/gemini/models/{model}:{action}
+		// Examples:
+		//   POST /v1/gemini/models/gemini-2.0-flash:generateContent
+		//   POST /v1/gemini/models/gemini-2.0-flash:streamGenerateContent?alt=sse
+		geminiGroup := v1Group.Group("/gemini")
+		{
+			geminiGroup.POST("/models/*action", handlers.GeminiHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker, channelRateLimiter))
+		}
 	}
 
 	// 静态文件服务 (嵌入的前端)

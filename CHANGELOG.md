@@ -4,6 +4,36 @@
 
 ---
 
+## [v1.3.177] - 2026-01-20
+
+### ✨ 新功能
+
+- **Gemini 入口端点**: 新增 `/v1/gemini/models/*` 端点，支持 Gemini 原生格式请求直通
+  - 支持 `generateContent` 和 `streamGenerateContent` 操作
+  - 专用 `GeminiUpstream` 渠道池，独立于 Claude/Codex 渠道
+  - 独立的负载均衡策略 (`GeminiLoadBalance`)
+  - 独立的熔断器和指标管理
+
+- **Gemini 标签页**: 前端新增 Gemini 渠道管理标签页
+  - 完整的渠道 CRUD 功能
+  - API 密钥管理
+  - 渠道排序和状态控制
+  - 负载均衡策略切换
+
+### 🔒 安全修复
+
+- **查询字符串清理**: 修复 `sanitizeQueryString` 在解析失败时返回原始查询的问题，改为返回空字符串以防止密钥泄露
+
+### 🔧 修复
+
+- **配置迁移**: GeminiUpstream 渠道现在正确进行 Index/ID 迁移
+- **密钥轮换**: Gemini 处理器使用 `GetNextGeminiAPIKey` 而非 `GetNextAPIKey`
+- **调度器统计**: `/api/scheduler/stats?type=gemini` 正确返回 Gemini 渠道统计
+- **前端负载均衡**: Gemini 标签页负载均衡菜单正确更新 GeminiLoadBalance
+- **添加渠道默认值**: Gemini 标签页添加渠道时默认使用正确的服务类型和 Base URL
+
+---
+
 ## [v1.3.176] - 2026-01-19
 
 ### 🔧 修复

@@ -631,7 +631,7 @@ const { t } = useI18n()
 const props = defineProps<{
   channels: Channel[]
   currentChannelIndex: number
-  channelType: 'messages' | 'responses'
+  channelType: 'messages' | 'responses' | 'gemini'
 }>()
 
 const emit = defineEmits<{
@@ -870,8 +870,16 @@ const getWebsiteUrl = (channel: Channel): string => {
 const refreshMetrics = async () => {
   isLoadingMetrics.value = true
   try {
+    let metricsPromise
+    if (props.channelType === 'messages') {
+      metricsPromise = api.getChannelMetrics()
+    } else if (props.channelType === 'responses') {
+      metricsPromise = api.getResponsesChannelMetrics()
+    } else {
+      metricsPromise = api.getGeminiChannelMetrics()
+    }
     const [metricsData, statsData] = await Promise.all([
-      props.channelType === 'messages' ? api.getChannelMetrics() : api.getResponsesChannelMetrics(),
+      metricsPromise,
       api.getSchedulerStats(props.channelType)
     ])
     metrics.value = metricsData
@@ -896,8 +904,10 @@ const saveOrder = async () => {
     const order = activeChannels.value.map(ch => ch.index)
     if (props.channelType === 'messages') {
       await api.reorderChannels(order)
-    } else {
+    } else if (props.channelType === 'responses') {
       await api.reorderResponsesChannels(order)
+    } else {
+      await api.reorderGeminiChannels(order)
     }
     // 不调用 emit('refresh')，避免触发父组件刷新导致列表闪烁
   } catch (error) {
@@ -916,8 +926,10 @@ const setChannelStatus = async (channelId: number, status: ChannelStatus) => {
   try {
     if (props.channelType === 'messages') {
       await api.setChannelStatus(channelId, status)
-    } else {
+    } else if (props.channelType === 'responses') {
       await api.setResponsesChannelStatus(channelId, status)
+    } else {
+      await api.setGeminiChannelStatus(channelId, status)
     }
     emit('refresh')
   } catch (error) {
@@ -937,17 +949,23 @@ const resumeChannel = async (channelId: number) => {
   try {
     if (props.channelType === 'messages') {
       await api.resumeChannel(channelId)
-    } else {
+    } else if (props.channelType === 'responses') {
       await api.resumeResponsesChannel(channelId)
     }
+    // Gemini doesn't have resumeChannel, just set status directly
     await setChannelStatus(channelId, 'active')
   } catch (error) {
     console.error('Failed to resume channel:', error)
   }
 }
 
-// 设置渠道促销期（抢优先级）
+// 设置渠道促销期（抢优先级）- Gemini不支持促销期
 const setPromotion = async (channel: Channel) => {
+  if (props.channelType === 'gemini') {
+    // Gemini doesn't support promotion period
+    emit('error', 'Promotion not supported for Gemini channels')
+    return
+  }
   try {
     const PROMOTION_DURATION = 300 // 5分钟
     if (props.channelType === 'messages') {
