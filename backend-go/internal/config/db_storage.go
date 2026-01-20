@@ -236,6 +236,8 @@ func (s *DBConfigStorage) LoadConfigFromDB() (*Config, error) {
 			config.LoadBalance = value
 		case "responses_load_balance":
 			config.ResponsesLoadBalance = value
+		case "gemini_load_balance":
+			config.GeminiLoadBalance = value
 		case "debug_log":
 			json.Unmarshal([]byte(value), &config.DebugLog)
 		case "failover":
@@ -253,6 +255,12 @@ func (s *DBConfigStorage) LoadConfigFromDB() (*Config, error) {
 	config.ResponsesUpstream, err = s.loadChannels("responses")
 	if err != nil {
 		return nil, fmt.Errorf("failed to load responses channels: %w", err)
+	}
+
+	// Load Gemini channels
+	config.GeminiUpstream, err = s.loadChannels("gemini")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load gemini channels: %w", err)
 	}
 
 	return config, nil
@@ -418,10 +426,16 @@ func (s *DBConfigStorage) SaveConfigToDB(config *Config) error {
 		return fmt.Errorf("failed to sync responses channels: %w", err)
 	}
 
+	// Sync Gemini channels
+	if err := s.syncChannelsTx(tx, "gemini", config.GeminiUpstream); err != nil {
+		return fmt.Errorf("failed to sync gemini channels: %w", err)
+	}
+
 	// Update settings
 	settings := map[string]string{
 		"messages_load_balance":  config.LoadBalance,
 		"responses_load_balance": config.ResponsesLoadBalance,
+		"gemini_load_balance":    config.GeminiLoadBalance,
 	}
 
 	debugConfig, _ := json.Marshal(config.DebugLog)
