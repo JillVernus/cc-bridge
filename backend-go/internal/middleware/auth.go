@@ -71,7 +71,7 @@ func WebAuthMiddlewareWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.Co
 		}
 
 		// API 代理端点后续处理
-		if strings.HasPrefix(path, "/v1/") {
+		if isProxyAPIPath(path) {
 			c.Next()
 			return
 		}
@@ -197,6 +197,11 @@ func getAPIKey(c *gin.Context) string {
 		return key
 	}
 
+	// Gemini CLI / GenAI SDK API key header
+	if key := c.GetHeader("x-goog-api-key"); key != "" {
+		return key
+	}
+
 	if auth := c.GetHeader("Authorization"); auth != "" {
 		// 移除 Bearer 前缀
 		return strings.TrimPrefix(auth, "Bearer ")
@@ -208,6 +213,10 @@ func getAPIKey(c *gin.Context) string {
 	}
 
 	return ""
+}
+
+func isProxyAPIPath(path string) bool {
+	return strings.HasPrefix(path, "/v1/") || strings.HasPrefix(path, "/v1beta/") || strings.HasPrefix(path, "/v1alpha/")
 }
 
 // ProxyAuthMiddleware 代理访问控制中间件
@@ -241,7 +250,7 @@ func ProxyAuthMiddlewareWithAPIKey(envCfg *config.EnvConfig, apiKeyManager *apik
 			c.Set(ContextKeyAPIKeyName, "master")
 			c.Set(ContextKeyAPIKeyIsAdmin, true)
 			c.Set(ContextKeyIsBootstrap, true)
-			c.Set(ContextKeyRateLimitRPM, 0) // Master key uses global limit
+			c.Set(ContextKeyRateLimitRPM, 0)                           // Master key uses global limit
 			c.Set(ContextKeyValidatedKey, (*apikey.ValidatedKey)(nil)) // Bootstrap key has no restrictions
 			c.Next()
 			return
@@ -304,7 +313,7 @@ func WebAuthMiddlewareWithAPIKeyAndFailureLimiter(envCfg *config.EnvConfig, cfgM
 		}
 
 		// API 代理端点后续处理
-		if strings.HasPrefix(path, "/v1/") {
+		if isProxyAPIPath(path) {
 			c.Next()
 			return
 		}

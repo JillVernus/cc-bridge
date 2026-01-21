@@ -323,7 +323,7 @@ func main() {
 			apiGroup.POST("/channels/:id/keys/:apiKey/top", handlers.MoveApiKeyToTop(cfgManager))       // Deprecated: use index-based endpoint
 			apiGroup.POST("/channels/:id/keys/:apiKey/bottom", handlers.MoveApiKeyToBottom(cfgManager)) // Deprecated: use index-based endpoint
 		}
-		apiGroup.DELETE("/channels/:id/keys/index/:keyIndex", handlers.DeleteApiKeyByIndex(cfgManager))  // Secure: uses key index
+		apiGroup.DELETE("/channels/:id/keys/index/:keyIndex", handlers.DeleteApiKeyByIndex(cfgManager)) // Secure: uses key index
 		apiGroup.POST("/channels/:id/keys/index/:keyIndex/top", handlers.MoveApiKeyToTopByIndex(cfgManager))
 		apiGroup.POST("/channels/:id/keys/index/:keyIndex/bottom", handlers.MoveApiKeyToBottomByIndex(cfgManager))
 
@@ -348,7 +348,7 @@ func main() {
 			apiGroup.POST("/responses/channels/:id/keys/:apiKey/top", handlers.MoveResponsesApiKeyToTop(cfgManager))       // Deprecated: use index-based endpoint
 			apiGroup.POST("/responses/channels/:id/keys/:apiKey/bottom", handlers.MoveResponsesApiKeyToBottom(cfgManager)) // Deprecated: use index-based endpoint
 		}
-		apiGroup.DELETE("/responses/channels/:id/keys/index/:keyIndex", handlers.DeleteResponsesApiKeyByIndex(cfgManager))  // Secure: uses key index
+		apiGroup.DELETE("/responses/channels/:id/keys/index/:keyIndex", handlers.DeleteResponsesApiKeyByIndex(cfgManager)) // Secure: uses key index
 		apiGroup.POST("/responses/channels/:id/keys/index/:keyIndex/top", handlers.MoveResponsesApiKeyToTopByIndex(cfgManager))
 		apiGroup.POST("/responses/channels/:id/keys/index/:keyIndex/bottom", handlers.MoveResponsesApiKeyToBottomByIndex(cfgManager))
 		apiGroup.PUT("/responses/loadbalance", handlers.UpdateResponsesLoadBalance(cfgManager))
@@ -372,6 +372,7 @@ func main() {
 		apiGroup.POST("/gemini/channels/reorder", handlers.ReorderGeminiChannels(cfgManager))
 		apiGroup.PATCH("/gemini/channels/:id/status", handlers.SetGeminiChannelStatus(cfgManager))
 		apiGroup.GET("/gemini/channels/metrics", handlers.GetGeminiChannelMetrics(channelScheduler.GetGeminiMetricsManager()))
+		apiGroup.GET("/gemini/channels/:id/models", handlers.FetchGeminiUpstreamModels(cfgManager))
 		apiGroup.PUT("/gemini/loadbalance", handlers.UpdateGeminiLoadBalance(cfgManager))
 
 		// 负载均衡
@@ -473,6 +474,11 @@ func main() {
 	v1Group.Use(middleware.APIRateLimitMiddleware(apiRateLimiter))
 	{
 		v1Group.GET("/models", handlers.GetModels())
+		// Gemini-compatible base path (for clients expecting /v1/models/{model}:{action})
+		// Examples:
+		//   POST /v1/models/gemini-2.0-flash:generateContent
+		//   POST /v1/models/gemini-2.0-flash:streamGenerateContent?alt=sse
+		v1Group.POST("/models/*action", handlers.GeminiHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker, channelRateLimiter))
 		v1Group.POST("/messages", handlers.ProxyHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker, channelRateLimiter))
 		v1Group.POST("/responses", handlers.ResponsesHandlerWithAPIKey(envCfg, cfgManager, sessionManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker, channelRateLimiter))
 
@@ -485,6 +491,14 @@ func main() {
 		{
 			geminiGroup.POST("/models/*action", handlers.GeminiHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker, channelRateLimiter))
 		}
+	}
+
+	// Gemini-compatible base path (for clients expecting /v1beta/models/{model}:{action})
+	v1betaGroup := r.Group("/v1beta")
+	v1betaGroup.Use(middleware.ProxyAuthMiddlewareWithAPIKey(envCfg, apiKeyManager))
+	v1betaGroup.Use(middleware.APIRateLimitMiddleware(apiRateLimiter))
+	{
+		v1betaGroup.POST("/models/*action", handlers.GeminiHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker, channelRateLimiter))
 	}
 
 	// 静态文件服务 (嵌入的前端)

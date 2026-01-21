@@ -348,6 +348,11 @@ class ApiService {
     return this.request(`/responses/channels/${channelId}/models`)
   }
 
+  // Fetch models from Gemini upstream provider
+  async fetchGeminiUpstreamModels(channelId: number): Promise<{ success: boolean; models?: Array<{ id: string; object?: string; owned_by?: string }>; error?: string }> {
+    return this.request(`/gemini/channels/${channelId}/models`)
+  }
+
   async updateLoadBalance(strategy: string): Promise<void> {
     await this.request('/loadbalance', {
       method: 'PUT',
@@ -1122,6 +1127,7 @@ export interface ModelAlias {
 export interface AliasesConfig {
   messagesModels: ModelAlias[]
   responsesModels: ModelAlias[]
+  geminiModels: ModelAlias[]
 }
 
 // 渠道价格乘数配置（用于渠道级别的折扣）

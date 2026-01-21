@@ -127,6 +127,46 @@ func FetchResponsesUpstreamModels(cfgManager *config.ConfigManager) gin.HandlerF
 	}
 }
 
+// FetchGeminiUpstreamModels fetches the model list from a Gemini upstream channel
+// GET /api/gemini/channels/:id/models
+func FetchGeminiUpstreamModels(cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		idStr := c.Param("id")
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, UpstreamModelsResponse{
+				Success: false,
+				Error:   "Invalid channel ID",
+			})
+			return
+		}
+
+		cfg := cfgManager.GetConfig()
+		if id < 0 || id >= len(cfg.GeminiUpstream) {
+			c.JSON(http.StatusNotFound, UpstreamModelsResponse{
+				Success: false,
+				Error:   "Channel not found",
+			})
+			return
+		}
+
+		channel := cfg.GeminiUpstream[id]
+		models, err := fetchModelsFromUpstream(&channel)
+		if err != nil {
+			c.JSON(http.StatusOK, UpstreamModelsResponse{
+				Success: false,
+				Error:   err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, UpstreamModelsResponse{
+			Success: true,
+			Models:  models,
+		})
+	}
+}
+
 // fetchModelsFromUpstream fetches models from an upstream provider
 func fetchModelsFromUpstream(channel *config.UpstreamConfig) ([]UpstreamModel, error) {
 	// Check if channel has API keys
@@ -150,10 +190,20 @@ func fetchModelsFromUpstream(channel *config.UpstreamConfig) ([]UpstreamModel, e
 
 	switch serviceType {
 	case "gemini":
-		// Gemini uses query param for API key
-		// Format: https://generativelanguage.googleapis.com/v1beta/models?key=API_KEY
-		modelsURL = baseURL + "/models?key=" + apiKey
-		authHeader = "" // No auth header needed
+		// Gemini (Generative Language API) model list endpoint:
+		// https://generativelanguage.googleapis.com/v1beta/models
+		// Prefer x-goog-api-key header (avoid putting secrets in URL).
+		// If baseURL doesn't include a version segment, default to /v1beta.
+		versioned := baseURL
+		if !strings.HasSuffix(versioned, "/v1beta") && !strings.HasSuffix(versioned, "/v1alpha") && !strings.HasSuffix(versioned, "/v1") {
+			// Also handle ".../v1beta/..." cases by checking for any "/v1*/" occurrence.
+			if !strings.Contains(versioned, "/v1beta/") && !strings.Contains(versioned, "/v1alpha/") && !strings.Contains(versioned, "/v1/") {
+				versioned = versioned + "/v1beta"
+			}
+		}
+		modelsURL = strings.TrimSuffix(versioned, "/") + "/models"
+		authHeader = "x-goog-api-key"
+		authValue = apiKey
 	case "openai", "openai_chat", "openaiold", "responses", "openai-oauth", "claude":
 		// OpenAI-compatible APIs use Bearer token
 		// Note: "claude" type channels may actually be OpenAI-compatible proxies

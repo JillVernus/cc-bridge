@@ -272,6 +272,7 @@
                   <td :style="{ width: activeSessionColumnWidths.session + 'px', maxWidth: activeSessionColumnWidths.session + 'px' }">
                     <div class="d-flex align-center">
                       <v-icon v-if="session.type === 'claude'" size="14" icon="custom:claude" class="mr-1" />
+                      <v-icon v-else-if="session.type === 'gemini'" size="14" icon="custom:gemini" class="mr-1" />
                       <v-icon v-else size="14" icon="custom:codex" class="mr-1" />
                       <v-tooltip location="top" max-width="400">
                         <template v-slot:activator="{ props }">
@@ -792,7 +793,7 @@
           <v-chip v-else size="x-small" variant="text" class="provider-chip">
             <v-icon v-if="item.type === 'claude'" start size="14" icon="custom:claude" class="provider-icon mr-1" />
             <v-icon v-else-if="item.type === 'openai' || item.type === 'codex' || item.type === 'responses'" start size="14" icon="custom:codex" class="provider-icon mr-1" />
-            <v-icon v-else-if="item.type === 'gemini'" start size="14" class="mr-1">mdi-google</v-icon>
+            <v-icon v-else-if="item.type === 'gemini'" start size="14" icon="custom:gemini" class="provider-icon mr-1" />
             {{ item.providerName || item.type }}
           </v-chip>
         </template>

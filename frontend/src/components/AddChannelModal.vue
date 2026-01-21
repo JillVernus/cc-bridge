@@ -143,7 +143,7 @@
           <v-tabs-window v-model="activeTab">
             <!-- Configuration Tab -->
             <v-tabs-window-item value="config">
-          <v-row>
+          <v-row class="mt-2">
             <!-- 基本信息 -->
             <v-col cols="12" md="6">
               <v-text-field
@@ -1421,6 +1421,21 @@ const allSourceModelOptions = computed(() => {
       { title: 'gpt-5.1-codex-mini', value: 'gpt-5.1-codex-mini' },
       { title: 'gpt-5.1', value: 'gpt-5.1' }
     ]
+  } else if (props.channelType === 'gemini') {
+    // Gemini API models from config
+    if (aliasesConfig.value?.geminiModels?.length) {
+      return aliasesConfig.value.geminiModels.map(m => ({
+        title: m.description ? `${m.value} (${m.description})` : m.value,
+        value: m.value
+      }))
+    }
+    // Fallback defaults
+    return [
+      { title: 'gemini-3-flash-preview', value: 'gemini-3-flash-preview' },
+      { title: 'gemini-3-flash', value: 'gemini-3-flash' },
+      { title: 'gemini-3-pro-preview', value: 'gemini-3-pro-preview' },
+      { title: 'gemini-3-pro', value: 'gemini-3-pro' }
+    ]
   } else {
     // Messages API models from config
     if (aliasesConfig.value?.messagesModels?.length) {
@@ -1448,6 +1463,8 @@ const sourceModelOptions = computed(() => {
 const modelMappingHint = computed(() => {
   if (props.channelType === 'responses') {
     return t('addChannel.modelMappingHintResponses')
+  } else if (props.channelType === 'gemini') {
+    return t('addChannel.modelMappingHintGemini')
   } else {
     return t('addChannel.modelMappingHintMessages')
   }
@@ -1456,6 +1473,8 @@ const modelMappingHint = computed(() => {
 const targetModelPlaceholder = computed(() => {
   if (props.channelType === 'responses') {
     return t('addChannel.targetModelPlaceholderResponses')
+  } else if (props.channelType === 'gemini') {
+    return t('addChannel.targetModelPlaceholderGemini')
   } else {
     return t('addChannel.targetModelPlaceholderMessages')
   }
@@ -1707,7 +1726,9 @@ const fetchUpstreamModels = async () => {
   try {
     const result = props.channelType === 'responses'
       ? await api.fetchResponsesUpstreamModels(props.channel.index)
-      : await api.fetchUpstreamModels(props.channel.index)
+      : props.channelType === 'gemini'
+        ? await api.fetchGeminiUpstreamModels(props.channel.index)
+        : await api.fetchUpstreamModels(props.channel.index)
 
     if (result.success && result.models) {
       upstreamModels.value = result.models

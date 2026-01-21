@@ -74,6 +74,7 @@
                 <v-icon size="14">mdi-open-in-new</v-icon>
               </v-btn>
               <v-icon v-if="element.serviceType === 'claude' || element.serviceType === 'composite'" size="14" icon="custom:claude" class="ml-2" />
+              <v-icon v-else-if="element.serviceType === 'gemini'" size="14" icon="custom:gemini" class="ml-2" />
               <v-icon v-else size="14" icon="custom:codex" class="ml-2" />
               <span class="text-caption text-medium-emphasis ml-1">{{ element.serviceType }}</span>
               <span v-if="element.description" class="text-caption text-disabled ml-3">{{ element.description }}</span>

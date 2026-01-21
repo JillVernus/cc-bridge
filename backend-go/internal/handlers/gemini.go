@@ -16,6 +16,7 @@ import (
 	"github.com/JillVernus/cc-bridge/internal/config"
 	"github.com/JillVernus/cc-bridge/internal/httpclient"
 	"github.com/JillVernus/cc-bridge/internal/middleware"
+	"github.com/JillVernus/cc-bridge/internal/pricing"
 	"github.com/JillVernus/cc-bridge/internal/providers"
 	"github.com/JillVernus/cc-bridge/internal/quota"
 	"github.com/JillVernus/cc-bridge/internal/requestlog"
@@ -38,6 +39,10 @@ func GeminiHandlerWithAPIKey(
 	channelRateLimiter *middleware.ChannelRateLimiter,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if envCfg.ShouldLog("debug") {
+			log.Printf("🧭 [Gemini Incoming] %s %s", c.Request.Method, c.Request.URL.String())
+		}
+
 		// Authentication check (if not already done by upstream middleware)
 		if _, exists := c.Get(middleware.ContextKeyAPIKeyID); !exists {
 			middleware.ProxyAuthMiddlewareWithAPIKey(envCfg, apiKeyManager)(c)
@@ -262,16 +267,16 @@ func handleMultiChannelGemini(
 				}
 
 				failoverRecord := &requestlog.RequestLog{
-					Status:       requestlog.StatusFailover,
-					CompleteTime: completeTime,
-					DurationMs:   completeTime.Sub(startTime).Milliseconds(),
-					Type:         upstream.ServiceType,
-					ProviderName: upstream.Name,
-					Model:        model,
-					ChannelID:    channelIndex,
-					ChannelName:  upstream.Name,
-					HTTPStatus:   httpStatus,
-					Error:        fmt.Sprintf("failover to next channel (%d/%d)", channelAttempt+1, maxChannelAttempts),
+					Status:        requestlog.StatusFailover,
+					CompleteTime:  completeTime,
+					DurationMs:    completeTime.Sub(startTime).Milliseconds(),
+					Type:          upstream.ServiceType,
+					ProviderName:  upstream.Name,
+					Model:         model,
+					ChannelID:     channelIndex,
+					ChannelName:   upstream.Name,
+					HTTPStatus:    httpStatus,
+					Error:         fmt.Sprintf("failover to next channel (%d/%d)", channelAttempt+1, maxChannelAttempts),
 					UpstreamError: upstreamErr,
 					FailoverInfo:  failoverInfo,
 				}
@@ -632,7 +637,7 @@ func handleGeminiSuccess(
 	defer resp.Body.Close()
 
 	if isStreaming {
-		// Streaming response - forward SSE directly
+		// Streaming response - passthrough upstream bytes directly
 		if envCfg.EnableResponseLogs {
 			responseTime := time.Since(startTime).Milliseconds()
 			log.Printf("⏱️ Gemini 流式响应开始: %dms, 状态: %d", responseTime, resp.StatusCode)
@@ -641,53 +646,49 @@ func handleGeminiSuccess(
 		// Forward upstream response headers
 		utils.ForwardResponseHeaders(resp.Header, c.Writer)
 
-		// Set SSE response headers
-		c.Header("Content-Type", "text/event-stream")
+		// Streaming-friendly headers (do not override upstream Content-Type)
 		c.Header("Cache-Control", "no-cache")
-		c.Header("Connection", "keep-alive")
 		c.Header("X-Accel-Buffering", "no")
 
 		c.Status(resp.StatusCode)
+		c.Writer.WriteHeaderNow()
+
 		flusher, _ := c.Writer.(http.Flusher)
+		fw := &flushWriter{w: c.Writer, flusher: flusher}
 
-		// Use io.Copy for efficient streaming (avoid bufio.Scanner 64KB limit)
-		var logBuffer bytes.Buffer
-		debugLogEnabled := cfgManager.GetDebugLogConfig().Enabled
+		debugCfg := cfgManager.GetDebugLogConfig()
+		debugLogEnabled := debugCfg.Enabled
 
-		scanner := bufio.NewScanner(resp.Body)
-		const maxCapacity = 4 * 1024 * 1024 // 4MB
-		buf := make([]byte, 0, 64*1024)
-		scanner.Buffer(buf, maxCapacity)
+		// Capture only the tail for usage extraction; optionally capture a bounded prefix for debug logs.
+		tail := &tailBuffer{max: 512 * 1024} // 512KB tail is enough to catch usage metadata near the end
 
-		var usage *GeminiUsage
-
-		for scanner.Scan() {
-			line := scanner.Text()
-
-			if debugLogEnabled {
-				logBuffer.WriteString(line + "\n")
+		var debugCapture *cappedBuffer
+		if debugLogEnabled {
+			// Keep capture bounded even if debug config has no max, to avoid unbounded memory for long streams.
+			maxCapture := debugCfg.GetMaxBodySize()
+			if maxCapture <= 0 {
+				maxCapture = 4 * 1024 * 1024 // 4MB safety cap
 			}
-
-			// Try to extract usage from streaming response
-			if u := extractGeminiUsageFromSSE(line); u != nil {
-				usage = u
-			}
-
-			// Forward line directly (passthrough)
-			_, err := c.Writer.Write([]byte(line + "\n"))
-			if err != nil {
-				log.Printf("⚠️ Gemini 流式响应传输错误: %v", err)
-				break
-			}
-
-			if flusher != nil {
-				flusher.Flush()
-			}
+			debugCapture = &cappedBuffer{max: maxCapture}
 		}
 
-		if err := scanner.Err(); err != nil {
-			log.Printf("⚠️ Gemini 流式响应读取错误: %v", err)
+		var streamReader io.Reader = resp.Body
+		if debugCapture != nil {
+			streamReader = io.TeeReader(resp.Body, io.MultiWriter(tail, debugCapture))
+		} else {
+			streamReader = io.TeeReader(resp.Body, tail)
 		}
+
+		copyBuf := make([]byte, 32*1024)
+		if _, err := io.CopyBuffer(fw, streamReader, copyBuf); err != nil {
+			log.Printf("⚠️ Gemini 流式响应传输错误: %v", err)
+		}
+
+		if flusher != nil {
+			flusher.Flush()
+		}
+
+		usage := extractGeminiUsageFromStreamBytes(tail.Bytes())
 
 		completeTime := time.Now()
 		durationMs := completeTime.Sub(startTime).Milliseconds()
@@ -711,14 +712,54 @@ func handleGeminiSuccess(
 
 			if usage != nil {
 				record.InputTokens = usage.PromptTokenCount
-				record.OutputTokens = usage.CandidatesTokenCount
+				record.OutputTokens = usage.CandidatesTokenCount + usage.ThoughtsTokenCount
+				if usage.ModelVersion != "" {
+					record.ResponseModel = usage.ModelVersion
+				}
+			}
+
+			// Pricing (prefer response model if priced, otherwise fall back to request model)
+			pricingModel := record.ResponseModel
+			if pricingModel == "" {
+				pricingModel = model
+			} else if pm := pricing.GetManager(); pm != nil && !pm.HasPricing(pricingModel) && model != "" {
+				pricingModel = model
+			}
+
+			if pm := pricing.GetManager(); pm != nil && pricingModel != "" {
+				var multipliers *pricing.PriceMultipliers
+				if channelMult := upstream.GetPriceMultipliers(pricingModel); channelMult != nil {
+					multipliers = &pricing.PriceMultipliers{
+						InputMultiplier:         channelMult.GetEffectiveMultiplier("input"),
+						OutputMultiplier:        channelMult.GetEffectiveMultiplier("output"),
+						CacheCreationMultiplier: channelMult.GetEffectiveMultiplier("cacheCreation"),
+						CacheReadMultiplier:     channelMult.GetEffectiveMultiplier("cacheRead"),
+					}
+				}
+				breakdown := pm.CalculateCostWithBreakdown(
+					pricingModel,
+					record.InputTokens,
+					record.OutputTokens,
+					0,
+					0,
+					multipliers,
+				)
+				record.Price = breakdown.TotalCost
+				record.InputCost = breakdown.InputCost
+				record.OutputCost = breakdown.OutputCost
+				record.CacheCreationCost = breakdown.CacheCreationCost
+				record.CacheReadCost = breakdown.CacheReadCost
 			}
 
 			if err := reqLogManager.Update(requestLogID, record); err != nil {
 				log.Printf("⚠️ 请求日志更新失败: %v", err)
 			}
 
-			SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, logBuffer.Bytes())
+			var debugBody []byte
+			if debugCapture != nil {
+				debugBody = debugCapture.Bytes()
+			}
+			SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, debugBody)
 		}
 		return
 	}
@@ -770,7 +811,43 @@ func handleGeminiSuccess(
 
 		if usage != nil {
 			record.InputTokens = usage.PromptTokenCount
-			record.OutputTokens = usage.CandidatesTokenCount
+			record.OutputTokens = usage.CandidatesTokenCount + usage.ThoughtsTokenCount
+			if usage.ModelVersion != "" {
+				record.ResponseModel = usage.ModelVersion
+			}
+		}
+
+		// Pricing (prefer response model if priced, otherwise fall back to request model)
+		pricingModel := record.ResponseModel
+		if pricingModel == "" {
+			pricingModel = model
+		} else if pm := pricing.GetManager(); pm != nil && !pm.HasPricing(pricingModel) && model != "" {
+			pricingModel = model
+		}
+
+		if pm := pricing.GetManager(); pm != nil && pricingModel != "" {
+			var multipliers *pricing.PriceMultipliers
+			if channelMult := upstream.GetPriceMultipliers(pricingModel); channelMult != nil {
+				multipliers = &pricing.PriceMultipliers{
+					InputMultiplier:         channelMult.GetEffectiveMultiplier("input"),
+					OutputMultiplier:        channelMult.GetEffectiveMultiplier("output"),
+					CacheCreationMultiplier: channelMult.GetEffectiveMultiplier("cacheCreation"),
+					CacheReadMultiplier:     channelMult.GetEffectiveMultiplier("cacheRead"),
+				}
+			}
+			breakdown := pm.CalculateCostWithBreakdown(
+				pricingModel,
+				record.InputTokens,
+				record.OutputTokens,
+				0,
+				0,
+				multipliers,
+			)
+			record.Price = breakdown.TotalCost
+			record.InputCost = breakdown.InputCost
+			record.OutputCost = breakdown.OutputCost
+			record.CacheCreationCost = breakdown.CacheCreationCost
+			record.CacheReadCost = breakdown.CacheReadCost
 		}
 
 		if err := reqLogManager.Update(requestLogID, record); err != nil {
@@ -791,7 +868,9 @@ func handleGeminiSuccess(
 type GeminiUsage struct {
 	PromptTokenCount     int
 	CandidatesTokenCount int
+	ThoughtsTokenCount   int
 	TotalTokenCount      int
+	ModelVersion         string
 }
 
 // extractGeminiUsageFromSSE extracts usage from Gemini SSE event
@@ -806,16 +885,34 @@ func extractGeminiUsageFromSSE(line string) *GeminiUsage {
 		return nil
 	}
 
-	// Parse usageMetadata from response
+	// Parse usage metadata from response
+	// Gemini may emit either usageMetadata or cpaUsageMetadata in SSE segments.
+	modelVersion := gjson.Get(jsonStr, "modelVersion").String()
 	promptTokens := gjson.Get(jsonStr, "usageMetadata.promptTokenCount").Int()
 	candidatesTokens := gjson.Get(jsonStr, "usageMetadata.candidatesTokenCount").Int()
+	thoughtsTokens := gjson.Get(jsonStr, "usageMetadata.thoughtsTokenCount").Int()
 	totalTokens := gjson.Get(jsonStr, "usageMetadata.totalTokenCount").Int()
 
-	if promptTokens > 0 || candidatesTokens > 0 {
+	if promptTokens == 0 {
+		promptTokens = gjson.Get(jsonStr, "cpaUsageMetadata.promptTokenCount").Int()
+	}
+	if candidatesTokens == 0 {
+		candidatesTokens = gjson.Get(jsonStr, "cpaUsageMetadata.candidatesTokenCount").Int()
+	}
+	if thoughtsTokens == 0 {
+		thoughtsTokens = gjson.Get(jsonStr, "cpaUsageMetadata.thoughtsTokenCount").Int()
+	}
+	if totalTokens == 0 {
+		totalTokens = gjson.Get(jsonStr, "cpaUsageMetadata.totalTokenCount").Int()
+	}
+
+	if promptTokens > 0 || candidatesTokens > 0 || thoughtsTokens > 0 || modelVersion != "" {
 		return &GeminiUsage{
 			PromptTokenCount:     int(promptTokens),
 			CandidatesTokenCount: int(candidatesTokens),
+			ThoughtsTokenCount:   int(thoughtsTokens),
 			TotalTokenCount:      int(totalTokens),
+			ModelVersion:         modelVersion,
 		}
 	}
 
@@ -824,17 +921,119 @@ func extractGeminiUsageFromSSE(line string) *GeminiUsage {
 
 // extractGeminiUsageFromJSON extracts usage from non-streaming Gemini response
 func extractGeminiUsageFromJSON(body []byte) *GeminiUsage {
+	modelVersion := gjson.GetBytes(body, "modelVersion").String()
 	promptTokens := gjson.GetBytes(body, "usageMetadata.promptTokenCount").Int()
 	candidatesTokens := gjson.GetBytes(body, "usageMetadata.candidatesTokenCount").Int()
+	thoughtsTokens := gjson.GetBytes(body, "usageMetadata.thoughtsTokenCount").Int()
 	totalTokens := gjson.GetBytes(body, "usageMetadata.totalTokenCount").Int()
 
-	if promptTokens > 0 || candidatesTokens > 0 {
+	if promptTokens == 0 {
+		promptTokens = gjson.GetBytes(body, "cpaUsageMetadata.promptTokenCount").Int()
+	}
+	if candidatesTokens == 0 {
+		candidatesTokens = gjson.GetBytes(body, "cpaUsageMetadata.candidatesTokenCount").Int()
+	}
+	if thoughtsTokens == 0 {
+		thoughtsTokens = gjson.GetBytes(body, "cpaUsageMetadata.thoughtsTokenCount").Int()
+	}
+	if totalTokens == 0 {
+		totalTokens = gjson.GetBytes(body, "cpaUsageMetadata.totalTokenCount").Int()
+	}
+
+	if promptTokens > 0 || candidatesTokens > 0 || thoughtsTokens > 0 || modelVersion != "" {
 		return &GeminiUsage{
 			PromptTokenCount:     int(promptTokens),
 			CandidatesTokenCount: int(candidatesTokens),
+			ThoughtsTokenCount:   int(thoughtsTokens),
 			TotalTokenCount:      int(totalTokens),
+			ModelVersion:         modelVersion,
 		}
 	}
 
 	return nil
+}
+
+type flushWriter struct {
+	w       io.Writer
+	flusher http.Flusher
+}
+
+func (fw *flushWriter) Write(p []byte) (int, error) {
+	n, err := fw.w.Write(p)
+	if fw.flusher != nil {
+		fw.flusher.Flush()
+	}
+	return n, err
+}
+
+type tailBuffer struct {
+	buf []byte
+	max int
+}
+
+func (t *tailBuffer) Write(p []byte) (int, error) {
+	if t.max <= 0 {
+		return len(p), nil
+	}
+	if len(p) >= t.max {
+		t.buf = append([]byte(nil), p[len(p)-t.max:]...)
+		return len(p), nil
+	}
+	need := len(t.buf) + len(p) - t.max
+	if need > 0 {
+		t.buf = t.buf[need:]
+	}
+	t.buf = append(t.buf, p...)
+	return len(p), nil
+}
+
+func (t *tailBuffer) Bytes() []byte {
+	return t.buf
+}
+
+type cappedBuffer struct {
+	buf bytes.Buffer
+	max int
+}
+
+func (c *cappedBuffer) Write(p []byte) (int, error) {
+	if c.max <= 0 {
+		return len(p), nil
+	}
+	if c.buf.Len() >= c.max {
+		return len(p), nil
+	}
+	remaining := c.max - c.buf.Len()
+	if remaining <= 0 {
+		return len(p), nil
+	}
+	if len(p) > remaining {
+		_, _ = c.buf.Write(p[:remaining])
+		return len(p), nil
+	}
+	_, _ = c.buf.Write(p)
+	return len(p), nil
+}
+
+func (c *cappedBuffer) Bytes() []byte {
+	return c.buf.Bytes()
+}
+
+func extractGeminiUsageFromStreamBytes(streamTail []byte) *GeminiUsage {
+	if len(streamTail) == 0 {
+		return nil
+	}
+
+	scanner := bufio.NewScanner(bytes.NewReader(streamTail))
+	// Tail buffer is bounded; allow scanning large-ish lines safely within that bound.
+	scanner.Buffer(make([]byte, 0, 64*1024), len(streamTail))
+
+	var usage *GeminiUsage
+	for scanner.Scan() {
+		line := scanner.Text()
+		if u := extractGeminiUsageFromSSE(line); u != nil {
+			usage = u
+		}
+	}
+	return usage
 }

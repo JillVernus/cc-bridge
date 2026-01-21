@@ -20,6 +20,7 @@ type ModelAlias struct {
 type AliasesConfig struct {
 	MessagesModels  []ModelAlias `json:"messagesModels"`
 	ResponsesModels []ModelAlias `json:"responsesModels"`
+	GeminiModels    []ModelAlias `json:"geminiModels"`
 }
 
 // AliasesManager manages model aliases configuration
@@ -99,9 +100,20 @@ func (am *AliasesManager) loadConfig() error {
 		return err
 	}
 
+	// Backwards compatibility: older configs won't have geminiModels
+	if config.MessagesModels == nil {
+		config.MessagesModels = []ModelAlias{}
+	}
+	if config.ResponsesModels == nil {
+		config.ResponsesModels = []ModelAlias{}
+	}
+	if config.GeminiModels == nil {
+		config.GeminiModels = []ModelAlias{}
+	}
+
 	am.config = config
-	log.Printf("✅ Model aliases config loaded: %d messages models, %d responses models",
-		len(config.MessagesModels), len(config.ResponsesModels))
+	log.Printf("✅ Model aliases config loaded: %d messages models, %d responses models, %d gemini models",
+		len(config.MessagesModels), len(config.ResponsesModels), len(config.GeminiModels))
 	return nil
 }
 
@@ -186,6 +198,12 @@ func GetDefaultAliasesConfig() AliasesConfig {
 			{Value: "gpt-5.1-codex", Description: "GPT-5.1 Codex"},
 			{Value: "gpt-5.1-codex-mini", Description: "GPT-5.1 Codex Mini"},
 			{Value: "gpt-5.1", Description: "GPT-5.1"},
+		},
+		GeminiModels: []ModelAlias{
+			{Value: "gemini-3-flash-preview", Description: "Gemini 3 Flash Preview"},
+			{Value: "gemini-3-flash", Description: "Gemini 3 Flash"},
+			{Value: "gemini-3-pro-preview", Description: "Gemini 3 Pro Preview"},
+			{Value: "gemini-3-pro", Description: "Gemini 3 Pro"},
 		},
 	}
 }

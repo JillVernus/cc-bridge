@@ -98,7 +98,7 @@ func (cm *ClientManager) GetStreamClient(insecure bool, responseHeaderTimeout in
 		MaxIdleConns:          200, // 流式连接池更大
 		MaxIdleConnsPerHost:   20,
 		IdleConnTimeout:       120 * time.Second,
-		DisableCompression:    true, // 流式响应禁用压缩
+		DisableCompression:    false, // 允许 gzip 自动解压，避免代理转发压缩流但缺少 Content-Encoding
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: time.Duration(responseHeaderTimeout) * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,

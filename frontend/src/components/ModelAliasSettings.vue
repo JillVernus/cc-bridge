@@ -62,6 +62,43 @@
             </v-table>
           </div>
 
+          <!-- Gemini API Models -->
+          <div class="mb-4">
+            <div class="d-flex align-center justify-space-between mb-2">
+              <div class="text-subtitle-2 font-weight-bold">{{ t('modelAliases.geminiModels') }}</div>
+              <v-btn size="x-small" variant="tonal" color="primary" @click="openAddDialog('gemini')">
+                <v-icon size="16" class="mr-1">mdi-plus</v-icon>
+                {{ t('modelAliases.addModel') }}
+              </v-btn>
+            </div>
+            <v-table density="compact" class="aliases-table">
+              <thead>
+                <tr>
+                  <th>{{ t('modelAliases.modelValue') }}</th>
+                  <th>{{ t('modelAliases.modelDescription') }}</th>
+                  <th class="text-center" style="width: 100px;">{{ t('common.actions') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(alias, index) in aliasesConfig.geminiModels" :key="'gem-' + index">
+                  <td class="text-caption font-weight-medium">{{ alias.value }}</td>
+                  <td class="text-caption text-grey">{{ alias.description || '-' }}</td>
+                  <td class="text-center">
+                    <v-btn icon size="x-small" variant="text" @click="editAlias('gemini', index)" :title="t('common.edit')">
+                      <v-icon size="16">mdi-pencil</v-icon>
+                    </v-btn>
+                    <v-btn icon size="x-small" variant="text" color="error" @click="confirmDeleteAlias('gemini', index)" :title="t('common.delete')">
+                      <v-icon size="16">mdi-delete</v-icon>
+                    </v-btn>
+                  </td>
+                </tr>
+                <tr v-if="aliasesConfig.geminiModels.length === 0">
+                  <td colspan="3" class="text-center text-caption text-grey">{{ t('modelAliases.noModels') }}</td>
+                </tr>
+              </tbody>
+            </v-table>
+          </div>
+
           <!-- Responses API Models -->
           <div>
             <div class="d-flex align-center justify-space-between mb-2">
@@ -199,9 +236,9 @@ const deletingAlias = ref(false)
 const resettingAliases = ref(false)
 
 // Edit state
-const editingType = ref<'messages' | 'responses'>('messages')
+const editingType = ref<'messages' | 'responses' | 'gemini'>('messages')
 const editingIndex = ref<number | null>(null)
-const deletingType = ref<'messages' | 'responses'>('messages')
+const deletingType = ref<'messages' | 'responses' | 'gemini'>('messages')
 const deletingIndex = ref<number | null>(null)
 const deletingValue = ref('')
 
@@ -228,17 +265,22 @@ const loadAliases = async () => {
   }
 }
 
-const openAddDialog = (type: 'messages' | 'responses') => {
+const openAddDialog = (type: 'messages' | 'responses' | 'gemini') => {
   editingType.value = type
   editingIndex.value = null
   aliasForm.value = { value: '', description: '' }
   showAddDialog.value = true
 }
 
-const editAlias = (type: 'messages' | 'responses', index: number) => {
+const editAlias = (type: 'messages' | 'responses' | 'gemini', index: number) => {
   editingType.value = type
   editingIndex.value = index
-  const models = type === 'messages' ? aliasesConfig.value?.messagesModels : aliasesConfig.value?.responsesModels
+  const models =
+    type === 'messages'
+      ? aliasesConfig.value?.messagesModels
+      : type === 'responses'
+        ? aliasesConfig.value?.responsesModels
+        : aliasesConfig.value?.geminiModels
   const alias = models?.[index]
   if (alias) {
     aliasForm.value = {
@@ -266,7 +308,12 @@ const saveAlias = async () => {
     }
 
     const config = { ...aliasesConfig.value }
-    const models = editingType.value === 'messages' ? [...config.messagesModels] : [...config.responsesModels]
+    const models =
+      editingType.value === 'messages'
+        ? [...config.messagesModels]
+        : editingType.value === 'responses'
+          ? [...config.responsesModels]
+          : [...config.geminiModels]
 
     if (editingIndex.value !== null) {
       models[editingIndex.value] = newAlias
@@ -276,8 +323,10 @@ const saveAlias = async () => {
 
     if (editingType.value === 'messages') {
       config.messagesModels = models
-    } else {
+    } else if (editingType.value === 'responses') {
       config.responsesModels = models
+    } else {
+      config.geminiModels = models
     }
 
     await api.updateModelAliases(config)
@@ -290,10 +339,15 @@ const saveAlias = async () => {
   }
 }
 
-const confirmDeleteAlias = (type: 'messages' | 'responses', index: number) => {
+const confirmDeleteAlias = (type: 'messages' | 'responses' | 'gemini', index: number) => {
   deletingType.value = type
   deletingIndex.value = index
-  const models = type === 'messages' ? aliasesConfig.value?.messagesModels : aliasesConfig.value?.responsesModels
+  const models =
+    type === 'messages'
+      ? aliasesConfig.value?.messagesModels
+      : type === 'responses'
+        ? aliasesConfig.value?.responsesModels
+        : aliasesConfig.value?.geminiModels
   deletingValue.value = models?.[index]?.value || ''
   showDeleteDialog.value = true
 }
@@ -306,8 +360,10 @@ const deleteAlias = async () => {
     const config = { ...aliasesConfig.value }
     if (deletingType.value === 'messages') {
       config.messagesModels = config.messagesModels.filter((_, i) => i !== deletingIndex.value)
-    } else {
+    } else if (deletingType.value === 'responses') {
       config.responsesModels = config.responsesModels.filter((_, i) => i !== deletingIndex.value)
+    } else {
+      config.geminiModels = config.geminiModels.filter((_, i) => i !== deletingIndex.value)
     }
 
     await api.updateModelAliases(config)
