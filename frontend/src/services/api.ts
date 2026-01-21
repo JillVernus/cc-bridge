@@ -1016,6 +1016,23 @@ class ApiService {
       method: 'POST'
     })
   }
+
+  // 获取所有 Gemini 渠道的用量配额状态
+  async getAllGeminiChannelUsageQuotas(): Promise<Record<number, ChannelUsageStatus>> {
+    return this.request('/gemini/channels/usage')
+  }
+
+  // 获取单个 Gemini 渠道的用量配额状态
+  async getGeminiChannelUsageQuota(channelId: number): Promise<ChannelUsageStatus> {
+    return this.request(`/gemini/channels/${channelId}/usage`)
+  }
+
+  // 重置 Gemini 渠道的用量配额
+  async resetGeminiChannelUsageQuota(channelId: number): Promise<{ success: boolean; usage: ChannelUsageStatus }> {
+    return this.request(`/gemini/channels/${channelId}/usage/reset`, {
+      method: 'POST'
+    })
+  }
 }
 
 // 请求日志类型
@@ -1230,10 +1247,11 @@ export interface APIKey {
   updatedAt: string
   lastUsedAt?: string
   // Permission fields (nil/empty = unrestricted)
-  allowedEndpoints?: string[]    // ["messages"], ["responses"], or both
-  allowedChannelsMsg?: number[]  // channel indices for /v1/messages
-  allowedChannelsResp?: number[] // channel indices for /v1/responses
-  allowedModels?: string[]       // glob patterns: ["claude-sonnet-*"]
+  allowedEndpoints?: string[]      // ["messages"], ["responses"], ["gemini"], or any combination
+  allowedChannelsMsg?: number[]    // channel indices for /v1/messages
+  allowedChannelsResp?: number[]   // channel indices for /v1/responses
+  allowedChannelsGemini?: number[] // channel indices for /v1/gemini (GeminiUpstream)
+  allowedModels?: string[]         // glob patterns: ["claude-sonnet-*"]
 }
 
 export interface CreateAPIKeyRequest {
@@ -1245,6 +1263,7 @@ export interface CreateAPIKeyRequest {
   allowedEndpoints?: string[]
   allowedChannelsMsg?: number[]
   allowedChannelsResp?: number[]
+  allowedChannelsGemini?: number[]
   allowedModels?: string[]
 }
 
@@ -1260,6 +1279,7 @@ export interface UpdateAPIKeyRequest {
   allowedEndpoints?: string[]
   allowedChannelsMsg?: number[]
   allowedChannelsResp?: number[]
+  allowedChannelsGemini?: number[]
   allowedModels?: string[]
 }
 

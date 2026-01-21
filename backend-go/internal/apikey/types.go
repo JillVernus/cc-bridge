@@ -15,9 +15,9 @@ const (
 type APIKey struct {
 	ID           int64      `json:"id"`
 	Name         string     `json:"name"`
-	KeyPrefix    string     `json:"keyPrefix"`    // First 8 chars for display "sk-abc1..."
-	Description  string     `json:"description"`  // Optional description
-	Status       string     `json:"status"`       // active, disabled, revoked
+	KeyPrefix    string     `json:"keyPrefix"`   // First 8 chars for display "sk-abc1..."
+	Description  string     `json:"description"` // Optional description
+	Status       string     `json:"status"`      // active, disabled, revoked
 	IsAdmin      bool       `json:"isAdmin"`
 	RateLimitRPM int        `json:"rateLimitRpm"` // Requests per minute (0 = use global)
 	CreatedAt    time.Time  `json:"createdAt"`
@@ -25,10 +25,11 @@ type APIKey struct {
 	LastUsedAt   *time.Time `json:"lastUsedAt,omitempty"`
 
 	// Permission fields (nil/empty = unrestricted)
-	AllowedEndpoints    []string `json:"allowedEndpoints,omitempty"`    // ["messages"], ["responses"], or both
-	AllowedChannelsMsg  []int    `json:"allowedChannelsMsg,omitempty"`  // channel indices for /v1/messages
-	AllowedChannelsResp []int    `json:"allowedChannelsResp,omitempty"` // channel indices for /v1/responses
-	AllowedModels       []string `json:"allowedModels,omitempty"`       // glob patterns: ["claude-sonnet-*"]
+	AllowedEndpoints      []string `json:"allowedEndpoints,omitempty"`      // ["messages"], ["responses"], ["gemini"], or any combination
+	AllowedChannelsMsg    []int    `json:"allowedChannelsMsg,omitempty"`    // channel indices for /v1/messages
+	AllowedChannelsResp   []int    `json:"allowedChannelsResp,omitempty"`   // channel indices for /v1/responses
+	AllowedChannelsGemini []int    `json:"allowedChannelsGemini,omitempty"` // channel indices for /v1/gemini (GeminiUpstream)
+	AllowedModels         []string `json:"allowedModels,omitempty"`         // glob patterns: ["claude-sonnet-*"]
 }
 
 // CreateAPIKeyRequest represents a request to create a new API key
@@ -39,10 +40,11 @@ type CreateAPIKeyRequest struct {
 	RateLimitRPM int    `json:"rateLimitRpm"`
 
 	// Permission fields (nil/empty = unrestricted)
-	AllowedEndpoints    []string `json:"allowedEndpoints,omitempty"`
-	AllowedChannelsMsg  []int    `json:"allowedChannelsMsg,omitempty"`
-	AllowedChannelsResp []int    `json:"allowedChannelsResp,omitempty"`
-	AllowedModels       []string `json:"allowedModels,omitempty"`
+	AllowedEndpoints      []string `json:"allowedEndpoints,omitempty"`
+	AllowedChannelsMsg    []int    `json:"allowedChannelsMsg,omitempty"`
+	AllowedChannelsResp   []int    `json:"allowedChannelsResp,omitempty"`
+	AllowedChannelsGemini []int    `json:"allowedChannelsGemini,omitempty"`
+	AllowedModels         []string `json:"allowedModels,omitempty"`
 }
 
 // CreateAPIKeyResponse represents the response after creating a new API key
@@ -59,10 +61,11 @@ type UpdateAPIKeyRequest struct {
 	RateLimitRPM *int    `json:"rateLimitRpm"`
 
 	// Permission fields (nil = no change, empty slice = clear/unrestrict)
-	AllowedEndpoints    *[]string `json:"allowedEndpoints,omitempty"`
-	AllowedChannelsMsg  *[]int    `json:"allowedChannelsMsg,omitempty"`
-	AllowedChannelsResp *[]int    `json:"allowedChannelsResp,omitempty"`
-	AllowedModels       *[]string `json:"allowedModels,omitempty"`
+	AllowedEndpoints      *[]string `json:"allowedEndpoints,omitempty"`
+	AllowedChannelsMsg    *[]int    `json:"allowedChannelsMsg,omitempty"`
+	AllowedChannelsResp   *[]int    `json:"allowedChannelsResp,omitempty"`
+	AllowedChannelsGemini *[]int    `json:"allowedChannelsGemini,omitempty"`
+	AllowedModels         *[]string `json:"allowedModels,omitempty"`
 }
 
 // APIKeyListResponse represents the response for listing API keys
@@ -88,8 +91,9 @@ type ValidatedKey struct {
 	RateLimitRPM int
 
 	// Permission fields
-	AllowedEndpoints    []string
-	AllowedChannelsMsg  []int
-	AllowedChannelsResp []int
-	AllowedModels       []string
+	AllowedEndpoints      []string
+	AllowedChannelsMsg    []int
+	AllowedChannelsResp   []int
+	AllowedChannelsGemini []int
+	AllowedModels         []string
 }

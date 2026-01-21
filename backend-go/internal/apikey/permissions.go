@@ -81,6 +81,24 @@ func (vk *ValidatedKey) CheckModelPermission(model string) bool {
 	return false
 }
 
+// GetAllowedChannelsByType returns allowed channel indices for a given endpoint type.
+// Valid channelType values: "messages", "responses", "gemini".
+// Returns nil if all channels are allowed.
+func (vk *ValidatedKey) GetAllowedChannelsByType(channelType string) []int {
+	if vk == nil {
+		return nil
+	}
+
+	switch strings.ToLower(channelType) {
+	case "responses":
+		return vk.AllowedChannelsResp
+	case "gemini":
+		return vk.AllowedChannelsGemini
+	default: // "messages"
+		return vk.AllowedChannelsMsg
+	}
+}
+
 // GetAllowedChannels returns the allowed channel indices for the given endpoint type
 // Returns nil if all channels are allowed
 func (vk *ValidatedKey) GetAllowedChannels(isResponses bool) []int {
@@ -88,9 +106,9 @@ func (vk *ValidatedKey) GetAllowedChannels(isResponses bool) []int {
 		return nil
 	}
 	if isResponses {
-		return vk.AllowedChannelsResp
+		return vk.GetAllowedChannelsByType("responses")
 	}
-	return vk.AllowedChannelsMsg
+	return vk.GetAllowedChannelsByType("messages")
 }
 
 // HasChannelRestriction returns true if the key has channel restrictions for the given endpoint type

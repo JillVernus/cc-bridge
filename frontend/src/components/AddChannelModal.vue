@@ -143,7 +143,7 @@
           <v-tabs-window v-model="activeTab">
             <!-- Configuration Tab -->
             <v-tabs-window-item value="config">
-          <v-row class="mt-2">
+          <v-row class="mt-4">
             <!-- 基本信息 -->
             <v-col cols="12" md="6">
               <v-text-field

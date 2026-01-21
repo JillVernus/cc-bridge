@@ -122,6 +122,56 @@ func (h *UsageQuotaHandler) ResetResponsesChannelUsageQuota(c *gin.Context) {
 	})
 }
 
+// GetGeminiChannelUsageQuota returns usage quota status for a Gemini channel
+// GET /api/gemini/channels/:id/usage
+func (h *UsageQuotaHandler) GetGeminiChannelUsageQuota(c *gin.Context) {
+	indexStr := c.Param("id")
+	index, err := strconv.Atoi(indexStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid channel index"})
+		return
+	}
+
+	status := h.usageManager.GetGeminiChannelUsageStatus(index)
+	if status == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Channel not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, status)
+}
+
+// ResetGeminiChannelUsageQuota resets usage quota for a Gemini channel
+// POST /api/gemini/channels/:id/usage/reset
+func (h *UsageQuotaHandler) ResetGeminiChannelUsageQuota(c *gin.Context) {
+	indexStr := c.Param("id")
+	index, err := strconv.Atoi(indexStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid channel index"})
+		return
+	}
+
+	if err := h.usageManager.ResetGeminiUsage(index); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Also clear any channel suspension (quota channel was suspended due to 429 quota_exhausted)
+	if h.reqLogManager != nil {
+		if cleared, err := h.reqLogManager.ClearChannelSuspension(index, "gemini"); err != nil {
+			log.Printf("⚠️ Failed to clear channel suspension: %v", err)
+		} else if cleared {
+			log.Printf("✅ Cleared suspension for Gemini channel [%d] (quota reset)", index)
+		}
+	}
+
+	status := h.usageManager.GetGeminiChannelUsageStatus(index)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"usage":   status,
+	})
+}
+
 // GetAllChannelUsageQuotas returns usage quota statuses for all Messages channels
 // GET /api/channels/usage
 func (h *UsageQuotaHandler) GetAllChannelUsageQuotas(c *gin.Context) {
@@ -133,5 +183,12 @@ func (h *UsageQuotaHandler) GetAllChannelUsageQuotas(c *gin.Context) {
 // GET /api/responses/channels/usage
 func (h *UsageQuotaHandler) GetAllResponsesChannelUsageQuotas(c *gin.Context) {
 	statuses := h.usageManager.GetAllResponsesChannelUsageStatuses()
+	c.JSON(http.StatusOK, statuses)
+}
+
+// GetAllGeminiChannelUsageQuotas returns usage quota statuses for all Gemini channels
+// GET /api/gemini/channels/usage
+func (h *UsageQuotaHandler) GetAllGeminiChannelUsageQuotas(c *gin.Context) {
+	statuses := h.usageManager.GetAllGeminiChannelUsageStatuses()
 	c.JSON(http.StatusOK, statuses)
 }

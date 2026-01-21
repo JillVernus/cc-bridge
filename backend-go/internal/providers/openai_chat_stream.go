@@ -11,7 +11,7 @@ type openAIChatClaudeStreamEmitter struct {
 
 	nextBlockIndex int
 
-	textBlockOpen    bool
+	textBlockOpen     bool
 	thinkingBlockOpen bool
 
 	messageID string

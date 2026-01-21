@@ -69,10 +69,10 @@ type RequestLog struct {
 	Stream        bool      `json:"stream"`
 	ChannelID     int       `json:"channelId"`
 	ChannelName   string    `json:"channelName"`
-	Endpoint      string    `json:"endpoint"`           // /v1/messages or /v1/responses
-	ClientID      string    `json:"clientId,omitempty"` // Client/machine identifier
+	Endpoint      string    `json:"endpoint"`            // /v1/messages or /v1/responses
+	ClientID      string    `json:"clientId,omitempty"`  // Client/machine identifier
 	SessionID     string    `json:"sessionId,omitempty"` // Claude Code conversation session ID
-	APIKeyID      *int64    `json:"apiKeyId"`           // API key ID for tracking (nil = not set, 0 = master key)
+	APIKeyID      *int64    `json:"apiKeyId"`            // API key ID for tracking (nil = not set, 0 = master key)
 	Error         string    `json:"error,omitempty"`
 	UpstreamError string    `json:"upstreamError,omitempty"` // 上游服务原始错误信息
 	FailoverInfo  string    `json:"failoverInfo,omitempty"`  // Failover handling info: "429:QUOTA_EXHAUSTED > suspended > Failover to channel 2"
@@ -222,10 +222,10 @@ type ChannelStatsHistoryResponse struct {
 
 // ProviderStatsHistorySeries represents time-series statistics for a provider/channel name.
 type ProviderStatsHistorySeries struct {
-	Provider      string               `json:"provider"`
-	BaselineCost  float64              `json:"baselineCost"`
-	DataPoints    []StatsHistoryDataPoint `json:"dataPoints"`
-	Summary       StatsHistorySummary  `json:"summary"`
+	Provider     string                  `json:"provider"`
+	BaselineCost float64                 `json:"baselineCost"`
+	DataPoints   []StatsHistoryDataPoint `json:"dataPoints"`
+	Summary      StatsHistorySummary     `json:"summary"`
 }
 
 // ProviderStatsHistoryResponse represents time-series statistics grouped by provider/channel name.

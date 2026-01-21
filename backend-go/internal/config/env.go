@@ -85,10 +85,10 @@ func NewEnvConfig() *EnvConfig {
 		// 安全配置
 		TrustedProxies: trustedProxies,
 		// 存储后端配置
-		StorageBackend:     getEnv("STORAGE_BACKEND", "json"),      // "json" or "database"
-		DatabaseType:       getEnv("DATABASE_TYPE", "sqlite"),      // "sqlite" or "postgresql"
-		DatabaseURL:        getEnv("DATABASE_URL", ""),             // Connection string
-		ConfigPollInterval: getEnvAsInt("CONFIG_POLL_INTERVAL", 5), // seconds
+		StorageBackend:     getEnv("STORAGE_BACKEND", "json"),           // "json" or "database"
+		DatabaseType:       getEnv("DATABASE_TYPE", "sqlite"),           // "sqlite" or "postgresql"
+		DatabaseURL:        getEnv("DATABASE_URL", ""),                  // Connection string
+		ConfigPollInterval: getEnvAsInt("CONFIG_POLL_INTERVAL", 5),      // seconds
 		SkipMigration:      getEnv("SKIP_MIGRATION", "false") == "true", // Skip migration checks
 	}
 }

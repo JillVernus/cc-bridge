@@ -11,10 +11,10 @@ import (
 type RetryAction int
 
 const (
-	ActionNone           RetryAction = iota // Return error to client (no retry)
-	ActionFailoverKey                       // Switch to next key/channel
-	ActionRetrySameKey                      // Wait and retry with same key
-	ActionSuspendChan                       // Suspend channel until quota reset
+	ActionNone         RetryAction = iota // Return error to client (no retry)
+	ActionFailoverKey                     // Switch to next key/channel
+	ActionRetrySameKey                    // Wait and retry with same key
+	ActionSuspendChan                     // Suspend channel until quota reset
 )
 
 // String returns a human-readable name for the action

@@ -35,7 +35,7 @@ func UpdateRateLimitConfig() gin.HandlerFunc {
 		}
 
 		// Validate configuration with reasonable bounds
-		const maxRPM = 10000       // Max 10,000 requests per minute
+		const maxRPM = 10000         // Max 10,000 requests per minute
 		const maxBlockMinutes = 1440 // Max 24 hours (1440 minutes)
 
 		if config.API.RequestsPerMinute < 0 {

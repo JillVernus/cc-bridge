@@ -22,10 +22,10 @@ import (
 // OpenAIChatProvider bridges Claude Messages requests to upstreams that only support basic
 // OpenAI Chat Completions (no native tool calling).
 type OpenAIChatProvider struct {
-	triggerSignal   string
-	thinkingEnabled bool
-	hasTools        bool
-	stream          bool
+	triggerSignal        string
+	thinkingEnabled      bool
+	hasTools             bool
+	stream               bool
 	estimatedInputTokens int
 	requestedModel       string
 }
@@ -36,13 +36,13 @@ type openAIChatThinkingConfig struct {
 }
 
 type openAIChatClaudeRequest struct {
-	Model       string                `json:"model"`
-	Messages    []types.ClaudeMessage `json:"messages"`
-	System      interface{}           `json:"system,omitempty"`
-	MaxTokens   int                   `json:"max_tokens,omitempty"`
-	Temperature float64               `json:"temperature,omitempty"`
-	Stream      bool                  `json:"stream,omitempty"`
-	Tools       []types.ClaudeTool    `json:"tools,omitempty"`
+	Model       string                    `json:"model"`
+	Messages    []types.ClaudeMessage     `json:"messages"`
+	System      interface{}               `json:"system,omitempty"`
+	MaxTokens   int                       `json:"max_tokens,omitempty"`
+	Temperature float64                   `json:"temperature,omitempty"`
+	Stream      bool                      `json:"stream,omitempty"`
+	Tools       []types.ClaudeTool        `json:"tools,omitempty"`
 	Thinking    *openAIChatThinkingConfig `json:"thinking,omitempty"`
 }
 

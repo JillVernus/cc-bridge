@@ -432,6 +432,10 @@ func main() {
 			apiGroup.GET("/responses/channels/usage", usageQuotaHandler.GetAllResponsesChannelUsageQuotas)
 			apiGroup.GET("/responses/channels/:id/usage", usageQuotaHandler.GetResponsesChannelUsageQuota)
 			apiGroup.POST("/responses/channels/:id/usage/reset", usageQuotaHandler.ResetResponsesChannelUsageQuota)
+			// Gemini 渠道配额
+			apiGroup.GET("/gemini/channels/usage", usageQuotaHandler.GetAllGeminiChannelUsageQuotas)
+			apiGroup.GET("/gemini/channels/:id/usage", usageQuotaHandler.GetGeminiChannelUsageQuota)
+			apiGroup.POST("/gemini/channels/:id/usage/reset", usageQuotaHandler.ResetGeminiChannelUsageQuota)
 		}
 
 		// 定价配置 API

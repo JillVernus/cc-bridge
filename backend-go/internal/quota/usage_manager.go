@@ -50,6 +50,7 @@ func (m *UsageManager) load() error {
 		m.usage = UsageFile{
 			Messages:  make(map[string]ChannelUsage),
 			Responses: make(map[string]ChannelUsage),
+			Gemini:    make(map[string]ChannelUsage),
 		}
 		return nil
 	}
@@ -69,6 +70,9 @@ func (m *UsageManager) load() error {
 	}
 	if m.usage.Responses == nil {
 		m.usage.Responses = make(map[string]ChannelUsage)
+	}
+	if m.usage.Gemini == nil {
+		m.usage.Gemini = make(map[string]ChannelUsage)
 	}
 
 	return nil
@@ -107,6 +111,18 @@ func (m *UsageManager) GetResponsesUsage(channelIndex int) *ChannelUsage {
 
 	key := strconv.Itoa(channelIndex)
 	if usage, ok := m.usage.Responses[key]; ok {
+		return &usage
+	}
+	return nil
+}
+
+// GetGeminiUsage returns the current usage for a Gemini channel
+func (m *UsageManager) GetGeminiUsage(channelIndex int) *ChannelUsage {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	key := strconv.Itoa(channelIndex)
+	if usage, ok := m.usage.Gemini[key]; ok {
 		return &usage
 	}
 	return nil
@@ -174,6 +190,37 @@ func (m *UsageManager) IncrementResponsesUsage(channelIndex int, amount float64)
 	return m.save()
 }
 
+// IncrementGeminiUsage adds to the usage counter for a Gemini channel
+func (m *UsageManager) IncrementGeminiUsage(channelIndex int, amount float64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	key := strconv.Itoa(channelIndex)
+	usage := m.usage.Gemini[key]
+	usage.Used += amount
+	if usage.LastResetAt.IsZero() {
+		usage.LastResetAt = time.Now()
+	}
+	m.usage.Gemini[key] = usage
+
+	// For rolling mode: update quotaResetAt if it's in the past
+	cfg := m.configMgr.GetConfig()
+	if channelIndex >= 0 && channelIndex < len(cfg.GeminiUpstream) {
+		upstream := cfg.GeminiUpstream[channelIndex]
+		if upstream.QuotaResetMode == "rolling" &&
+			upstream.QuotaResetAt != nil &&
+			upstream.QuotaResetAt.Before(time.Now()) &&
+			upstream.QuotaResetInterval > 0 {
+			newResetAt := m.calculateNextResetFromNow(upstream.QuotaResetInterval, upstream.QuotaResetUnit)
+			if err := m.configMgr.UpdateGeminiChannelQuotaResetAt(channelIndex, newResetAt); err != nil {
+				log.Printf("⚠️ Failed to update quotaResetAt for Gemini rolling mode: %v", err)
+			}
+		}
+	}
+
+	return m.save()
+}
+
 // ResetUsage resets the usage counter for a Messages channel
 func (m *UsageManager) ResetUsage(channelIndex int) error {
 	m.mu.Lock()
@@ -201,6 +248,21 @@ func (m *UsageManager) ResetResponsesUsage(channelIndex int) error {
 	}
 
 	log.Printf("🔄 Responses 渠道 [%d] 配额已重置", channelIndex)
+	return m.save()
+}
+
+// ResetGeminiUsage resets the usage counter for a Gemini channel
+func (m *UsageManager) ResetGeminiUsage(channelIndex int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	key := strconv.Itoa(channelIndex)
+	m.usage.Gemini[key] = ChannelUsage{
+		Used:        0,
+		LastResetAt: time.Now(),
+	}
+
+	log.Printf("🔄 Gemini 渠道 [%d] 配额已重置", channelIndex)
 	return m.save()
 }
 
@@ -271,6 +333,59 @@ func (m *UsageManager) GetResponsesChannelUsageStatus(channelIndex int) *Channel
 	}
 
 	usage := m.GetResponsesUsage(channelIndex)
+	var used float64
+	var lastResetAt *string
+	if usage != nil {
+		used = usage.Used
+		if !usage.LastResetAt.IsZero() {
+			t := usage.LastResetAt.Format(time.RFC3339)
+			lastResetAt = &t
+		}
+	}
+
+	remaining := upstream.QuotaLimit - used
+	if remaining < 0 {
+		remaining = 0
+	}
+
+	var remainingPct float64
+	if upstream.QuotaLimit > 0 {
+		remainingPct = (remaining / upstream.QuotaLimit) * 100
+	}
+
+	status := &ChannelUsageStatus{
+		QuotaType:    upstream.QuotaType,
+		Limit:        upstream.QuotaLimit,
+		Used:         used,
+		Remaining:    remaining,
+		RemainingPct: remainingPct,
+		LastResetAt:  lastResetAt,
+	}
+
+	if upstream.QuotaResetAt != nil && upstream.QuotaResetInterval > 0 {
+		nextReset := m.calculateNextReset(upstream.QuotaResetAt, upstream.QuotaResetInterval, upstream.QuotaResetUnit)
+		if nextReset != nil {
+			t := nextReset.Format(time.RFC3339)
+			status.NextResetAt = &t
+		}
+	}
+
+	return status
+}
+
+// GetGeminiChannelUsageStatus returns the full usage status for a Gemini channel
+func (m *UsageManager) GetGeminiChannelUsageStatus(channelIndex int) *ChannelUsageStatus {
+	cfg := m.configMgr.GetConfig()
+	if channelIndex < 0 || channelIndex >= len(cfg.GeminiUpstream) {
+		return nil
+	}
+
+	upstream := cfg.GeminiUpstream[channelIndex]
+	if upstream.QuotaType == "" {
+		return &ChannelUsageStatus{QuotaType: ""}
+	}
+
+	usage := m.GetGeminiUsage(channelIndex)
 	var used float64
 	var lastResetAt *string
 	if usage != nil {
@@ -493,6 +608,37 @@ func (m *UsageManager) checkAndAutoReset() {
 			}
 		}
 	}
+
+	// Check Gemini channels
+	for i, upstream := range cfg.GeminiUpstream {
+		if upstream.QuotaType == "" || upstream.QuotaResetAt == nil || upstream.QuotaResetInterval <= 0 {
+			continue
+		}
+
+		usage := m.GetGeminiUsage(i)
+		if usage == nil {
+			continue
+		}
+
+		var shouldReset bool
+
+		if upstream.QuotaResetMode == "rolling" {
+			shouldReset = upstream.QuotaResetAt.Before(now) && usage.LastResetAt.Before(*upstream.QuotaResetAt)
+		} else {
+			previousReset := m.calculatePreviousReset(upstream.QuotaResetAt, upstream.QuotaResetInterval, upstream.QuotaResetUnit)
+			if previousReset != nil {
+				shouldReset = usage.LastResetAt.Before(*previousReset)
+			}
+		}
+
+		if shouldReset {
+			if err := m.ResetGeminiUsage(i); err != nil {
+				log.Printf("⚠️ 自动重置 Gemini 渠道 [%d] 配额失败: %v", i, err)
+			} else {
+				log.Printf("⏰ Gemini 渠道 [%d] %s 配额已自动重置 (模式: %s)", i, upstream.Name, upstream.QuotaResetMode)
+			}
+		}
+	}
 }
 
 // Close stops the auto-reset loop
@@ -522,6 +668,21 @@ func (m *UsageManager) GetAllResponsesChannelUsageStatuses() map[int]*ChannelUsa
 
 	for i := range cfg.ResponsesUpstream {
 		status := m.GetResponsesChannelUsageStatus(i)
+		if status != nil && status.QuotaType != "" {
+			result[i] = status
+		}
+	}
+
+	return result
+}
+
+// GetAllGeminiChannelUsageStatuses returns usage statuses for all Gemini channels
+func (m *UsageManager) GetAllGeminiChannelUsageStatuses() map[int]*ChannelUsageStatus {
+	cfg := m.configMgr.GetConfig()
+	result := make(map[int]*ChannelUsageStatus)
+
+	for i := range cfg.GeminiUpstream {
+		status := m.GetGeminiChannelUsageStatus(i)
 		if status != nil && status.QuotaType != "" {
 			result[i] = status
 		}

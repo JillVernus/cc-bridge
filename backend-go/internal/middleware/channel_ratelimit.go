@@ -29,10 +29,10 @@ type channelLimitState struct {
 
 // queuedRequest represents a request waiting in the queue
 type queuedRequest struct {
-	done      chan struct{}
-	err       error
-	queuedAt  time.Time
-	timeout   time.Duration
+	done       chan struct{}
+	err        error
+	queuedAt   time.Time
+	timeout    time.Duration
 	channelKey string
 }
 
@@ -340,9 +340,10 @@ func (crl *ChannelRateLimiter) ClearChannel(channelIndex int) {
 	crl.mu.Lock()
 	defer crl.mu.Unlock()
 
-	// Clear both messages and responses channel states
+	// Clear messages/responses/gemini channel states
 	messagesKey := fmt.Sprintf("messages:%d", channelIndex)
 	responsesKey := fmt.Sprintf("responses:%d", channelIndex)
+	geminiKey := fmt.Sprintf("gemini:%d", channelIndex)
 
 	if state, exists := crl.channels[messagesKey]; exists {
 		state.mu.Lock()
@@ -366,5 +367,17 @@ func (crl *ChannelRateLimiter) ClearChannel(channelIndex int) {
 		state.queue = nil
 		state.mu.Unlock()
 		delete(crl.channels, responsesKey)
+	}
+
+	if state, exists := crl.channels[geminiKey]; exists {
+		state.mu.Lock()
+		// Signal any queued requests to fail
+		for _, req := range state.queue {
+			req.err = fmt.Errorf("channel deleted")
+			close(req.done)
+		}
+		state.queue = nil
+		state.mu.Unlock()
+		delete(crl.channels, geminiKey)
 	}
 }

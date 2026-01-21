@@ -1910,8 +1910,8 @@ func (m *Manager) GetProviderStatsHistory(duration string, endpoint string) (*Pr
 	}
 	baselineRows.Close()
 
-		// Build query with optional endpoint filter
-		query := `
+	// Build query with optional endpoint filter
+	query := `
 			SELECT
 				initial_time,
 				status,
@@ -1925,7 +1925,7 @@ func (m *Manager) GetProviderStatsHistory(duration string, endpoint string) (*Pr
 			FROM request_logs
 			WHERE initial_time >= ? AND initial_time <= ?
 		`
-		args := []interface{}{since, now}
+	args := []interface{}{since, now}
 
 	if endpoint != "" {
 		query += ` AND endpoint = ?`
@@ -1977,61 +1977,61 @@ func (m *Manager) GetProviderStatsHistory(duration string, endpoint string) (*Pr
 			providerSummary[provider] = &StatsHistorySummary{Duration: durationLabel}
 		}
 
-			// Create bucket if needed
-			if _, ok := providerBuckets[provider][bucketKey]; !ok {
-				providerBuckets[provider][bucketKey] = &statsHistoryBucket{
-					dp: &StatsHistoryDataPoint{
-						Timestamp: bucketTime,
-					},
-				}
-			}
-
-			bucket := providerBuckets[provider][bucketKey]
-			isCostEligible := status != StatusPending && status != StatusTimeout && status != StatusFailover
-			if isCostEligible {
-				bucket.dp.Requests++
-				bucket.dp.InputTokens += inputTokens
-				bucket.dp.OutputTokens += outputTokens
-				bucket.dp.CacheCreationInputTokens += cacheCreation
-				bucket.dp.CacheReadInputTokens += cacheRead
-				bucket.dp.Cost += price
-
-				if status == StatusCompleted {
-					bucket.dp.Success++
-					providerSummary[provider].TotalSuccess++
-					summary.TotalSuccess++
-				} else if status == StatusError {
-					bucket.dp.Failure++
-					providerSummary[provider].TotalFailure++
-					summary.TotalFailure++
-				}
-
-				if durationMs > 0 {
-					bucket.durationsMs = append(bucket.durationsMs, durationMs)
-					bucket.durationSumMs += durationMs
-
-					providerLatency[provider] = append(providerLatency[provider], durationMs)
-					providerLatencySum[provider] += durationMs
-
-					latencyDurations = append(latencyDurations, durationMs)
-					latencySumMs += durationMs
-				}
-
-				providerSummary[provider].TotalRequests++
-				providerSummary[provider].TotalInputTokens += inputTokens
-				providerSummary[provider].TotalOutputTokens += outputTokens
-				providerSummary[provider].TotalCacheCreationTokens += cacheCreation
-				providerSummary[provider].TotalCacheReadTokens += cacheRead
-				providerSummary[provider].TotalCost += price
-
-				summary.TotalRequests++
-				summary.TotalInputTokens += inputTokens
-				summary.TotalOutputTokens += outputTokens
-				summary.TotalCacheCreationTokens += cacheCreation
-				summary.TotalCacheReadTokens += cacheRead
-				summary.TotalCost += price
+		// Create bucket if needed
+		if _, ok := providerBuckets[provider][bucketKey]; !ok {
+			providerBuckets[provider][bucketKey] = &statsHistoryBucket{
+				dp: &StatsHistoryDataPoint{
+					Timestamp: bucketTime,
+				},
 			}
 		}
+
+		bucket := providerBuckets[provider][bucketKey]
+		isCostEligible := status != StatusPending && status != StatusTimeout && status != StatusFailover
+		if isCostEligible {
+			bucket.dp.Requests++
+			bucket.dp.InputTokens += inputTokens
+			bucket.dp.OutputTokens += outputTokens
+			bucket.dp.CacheCreationInputTokens += cacheCreation
+			bucket.dp.CacheReadInputTokens += cacheRead
+			bucket.dp.Cost += price
+
+			if status == StatusCompleted {
+				bucket.dp.Success++
+				providerSummary[provider].TotalSuccess++
+				summary.TotalSuccess++
+			} else if status == StatusError {
+				bucket.dp.Failure++
+				providerSummary[provider].TotalFailure++
+				summary.TotalFailure++
+			}
+
+			if durationMs > 0 {
+				bucket.durationsMs = append(bucket.durationsMs, durationMs)
+				bucket.durationSumMs += durationMs
+
+				providerLatency[provider] = append(providerLatency[provider], durationMs)
+				providerLatencySum[provider] += durationMs
+
+				latencyDurations = append(latencyDurations, durationMs)
+				latencySumMs += durationMs
+			}
+
+			providerSummary[provider].TotalRequests++
+			providerSummary[provider].TotalInputTokens += inputTokens
+			providerSummary[provider].TotalOutputTokens += outputTokens
+			providerSummary[provider].TotalCacheCreationTokens += cacheCreation
+			providerSummary[provider].TotalCacheReadTokens += cacheRead
+			providerSummary[provider].TotalCost += price
+
+			summary.TotalRequests++
+			summary.TotalInputTokens += inputTokens
+			summary.TotalOutputTokens += outputTokens
+			summary.TotalCacheCreationTokens += cacheCreation
+			summary.TotalCacheReadTokens += cacheRead
+			summary.TotalCost += price
+		}
+	}
 
 	// Finalize summaries
 	if summary.TotalRequests > 0 {
@@ -2208,7 +2208,7 @@ func (m *Manager) GetProviderStatsHistoryRange(duration string, from, to time.Ti
 		baselineRows.Close()
 	}
 
-		query := `
+	query := `
 			SELECT
 				initial_time,
 				status,
@@ -2222,7 +2222,7 @@ func (m *Manager) GetProviderStatsHistoryRange(duration string, from, to time.Ti
 			FROM request_logs
 			WHERE initial_time >= ? AND initial_time <= ?
 		`
-		args := []interface{}{windowStart, windowEnd}
+	args := []interface{}{windowStart, windowEnd}
 	if endpoint != "" {
 		query += ` AND endpoint = ?`
 		args = append(args, endpoint)
@@ -2280,52 +2280,52 @@ func (m *Manager) GetProviderStatsHistoryRange(duration string, from, to time.Ti
 			}
 		}
 
-			bucket := providerBuckets[provider][bucketKey]
-			isCostEligible := status != StatusPending && status != StatusTimeout && status != StatusFailover
-			if isCostEligible {
-				bucket.dp.Requests++
-				bucket.dp.InputTokens += inputTokens
-				bucket.dp.OutputTokens += outputTokens
-				bucket.dp.CacheCreationInputTokens += cacheCreation
-				bucket.dp.CacheReadInputTokens += cacheRead
-				bucket.dp.Cost += price
+		bucket := providerBuckets[provider][bucketKey]
+		isCostEligible := status != StatusPending && status != StatusTimeout && status != StatusFailover
+		if isCostEligible {
+			bucket.dp.Requests++
+			bucket.dp.InputTokens += inputTokens
+			bucket.dp.OutputTokens += outputTokens
+			bucket.dp.CacheCreationInputTokens += cacheCreation
+			bucket.dp.CacheReadInputTokens += cacheRead
+			bucket.dp.Cost += price
 
-				if status == StatusCompleted {
-					bucket.dp.Success++
-					providerSummary[provider].TotalSuccess++
-					summary.TotalSuccess++
-				} else if status == StatusError {
-					bucket.dp.Failure++
-					providerSummary[provider].TotalFailure++
-					summary.TotalFailure++
-				}
-
-				if durationMs > 0 {
-					bucket.durationsMs = append(bucket.durationsMs, durationMs)
-					bucket.durationSumMs += durationMs
-
-					providerLatency[provider] = append(providerLatency[provider], durationMs)
-					providerLatencySum[provider] += durationMs
-
-					latencyDurations = append(latencyDurations, durationMs)
-					latencySumMs += durationMs
-				}
-
-				providerSummary[provider].TotalRequests++
-				providerSummary[provider].TotalInputTokens += inputTokens
-				providerSummary[provider].TotalOutputTokens += outputTokens
-				providerSummary[provider].TotalCacheCreationTokens += cacheCreation
-				providerSummary[provider].TotalCacheReadTokens += cacheRead
-				providerSummary[provider].TotalCost += price
-
-				summary.TotalRequests++
-				summary.TotalInputTokens += inputTokens
-				summary.TotalOutputTokens += outputTokens
-				summary.TotalCacheCreationTokens += cacheCreation
-				summary.TotalCacheReadTokens += cacheRead
-				summary.TotalCost += price
+			if status == StatusCompleted {
+				bucket.dp.Success++
+				providerSummary[provider].TotalSuccess++
+				summary.TotalSuccess++
+			} else if status == StatusError {
+				bucket.dp.Failure++
+				providerSummary[provider].TotalFailure++
+				summary.TotalFailure++
 			}
+
+			if durationMs > 0 {
+				bucket.durationsMs = append(bucket.durationsMs, durationMs)
+				bucket.durationSumMs += durationMs
+
+				providerLatency[provider] = append(providerLatency[provider], durationMs)
+				providerLatencySum[provider] += durationMs
+
+				latencyDurations = append(latencyDurations, durationMs)
+				latencySumMs += durationMs
+			}
+
+			providerSummary[provider].TotalRequests++
+			providerSummary[provider].TotalInputTokens += inputTokens
+			providerSummary[provider].TotalOutputTokens += outputTokens
+			providerSummary[provider].TotalCacheCreationTokens += cacheCreation
+			providerSummary[provider].TotalCacheReadTokens += cacheRead
+			providerSummary[provider].TotalCost += price
+
+			summary.TotalRequests++
+			summary.TotalInputTokens += inputTokens
+			summary.TotalOutputTokens += outputTokens
+			summary.TotalCacheCreationTokens += cacheCreation
+			summary.TotalCacheReadTokens += cacheRead
+			summary.TotalCost += price
 		}
+	}
 
 	if summary.TotalRequests > 0 {
 		summary.AvgSuccessRate = float64(summary.TotalSuccess) / float64(summary.TotalRequests) * 100

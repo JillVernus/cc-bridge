@@ -32,8 +32,8 @@ type openAIChatToolifyParser struct {
 	captureBuffer []rune
 	capturing     bool
 
-	thinkingMode   bool
-	thinkingBuffer []rune
+	thinkingMode     bool
+	thinkingBuffer   []rune
 	thinkingEndRunes []rune
 
 	events []openAIChatParserEvent
@@ -53,14 +53,14 @@ var openAIChatThinkingTags = []openAIChatThinkingTag{
 
 func newOpenAIChatToolifyParser(triggerSignal string, thinkingEnabled bool) *openAIChatToolifyParser {
 	return &openAIChatToolifyParser{
-		triggerSignal:   triggerSignal,
-		thinkingEnabled: thinkingEnabled,
-		triggerRunes:    []rune(triggerSignal),
-		buffer:          make([]rune, 0, 1024),
-		captureBuffer:   make([]rune, 0, 1024),
-		thinkingBuffer:  make([]rune, 0, 1024),
+		triggerSignal:    triggerSignal,
+		thinkingEnabled:  thinkingEnabled,
+		triggerRunes:     []rune(triggerSignal),
+		buffer:           make([]rune, 0, 1024),
+		captureBuffer:    make([]rune, 0, 1024),
+		thinkingBuffer:   make([]rune, 0, 1024),
 		thinkingEndRunes: nil,
-		events:          make([]openAIChatParserEvent, 0, 32),
+		events:           make([]openAIChatParserEvent, 0, 32),
 	}
 }
 

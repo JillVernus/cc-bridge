@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"strconv"
+	"time"
 
 	"github.com/JillVernus/cc-bridge/internal/config"
 	"github.com/JillVernus/cc-bridge/internal/metrics"
@@ -37,9 +38,17 @@ func GetGeminiUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				"latency":               nil,
 				"status":                status,
 				"priority":              priority,
+				"quotaType":             up.QuotaType,
+				"quotaLimit":            up.QuotaLimit,
+				"quotaResetAt":          up.QuotaResetAt,
+				"quotaResetInterval":    up.QuotaResetInterval,
+				"quotaResetUnit":        up.QuotaResetUnit,
+				"quotaModels":           up.QuotaModels,
+				"quotaResetMode":        up.QuotaResetMode,
 				"rateLimitRpm":          up.RateLimitRpm,
 				"queueEnabled":          up.QueueEnabled,
 				"queueTimeout":          up.QueueTimeout,
+				"keyLoadBalance":        up.KeyLoadBalance,
 			}
 		}
 
@@ -68,6 +77,16 @@ func AddGeminiUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			RateLimitRpm              int               `json:"rateLimitRpm"`
 			QueueEnabled              bool              `json:"queueEnabled"`
 			QueueTimeout              int               `json:"queueTimeout"`
+			// Usage quota settings
+			QuotaType          string     `json:"quotaType"`
+			QuotaLimit         float64    `json:"quotaLimit"`
+			QuotaResetAt       *time.Time `json:"quotaResetAt"`
+			QuotaResetInterval int        `json:"quotaResetInterval"`
+			QuotaResetUnit     string     `json:"quotaResetUnit"`
+			QuotaModels        []string   `json:"quotaModels"`
+			QuotaResetMode     string     `json:"quotaResetMode"`
+			// Per-channel API key load balancing
+			KeyLoadBalance string `json:"keyLoadBalance"`
 		}
 
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -101,9 +120,17 @@ func AddGeminiUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			ResponseHeaderTimeoutSecs: req.ResponseHeaderTimeoutSecs,
 			ModelMapping:              req.ModelMapping,
 			Priority:                  req.Priority,
+			QuotaType:                 req.QuotaType,
+			QuotaLimit:                req.QuotaLimit,
+			QuotaResetAt:              req.QuotaResetAt,
+			QuotaResetInterval:        req.QuotaResetInterval,
+			QuotaResetUnit:            req.QuotaResetUnit,
+			QuotaModels:               req.QuotaModels,
+			QuotaResetMode:            req.QuotaResetMode,
 			RateLimitRpm:              req.RateLimitRpm,
 			QueueEnabled:              req.QueueEnabled,
 			QueueTimeout:              req.QueueTimeout,
+			KeyLoadBalance:            req.KeyLoadBalance,
 		}
 
 		if err := cfgManager.AddGeminiUpstream(upstream); err != nil {

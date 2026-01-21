@@ -83,6 +83,8 @@ func GetUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				"rateLimitRpm": up.RateLimitRpm,
 				"queueEnabled": up.QueueEnabled,
 				"queueTimeout": up.QueueTimeout,
+				// Per-channel API key load balancing
+				"keyLoadBalance": up.KeyLoadBalance,
 				// Composite channel mappings
 				"compositeMappings": up.CompositeMappings,
 			}
@@ -744,6 +746,8 @@ func GetResponsesUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				"rateLimitRpm": up.RateLimitRpm,
 				"queueEnabled": up.QueueEnabled,
 				"queueTimeout": up.QueueTimeout,
+				// Per-channel API key load balancing
+				"keyLoadBalance": up.KeyLoadBalance,
 			}
 		}
 

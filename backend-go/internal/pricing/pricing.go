@@ -13,12 +13,12 @@ import (
 // ModelPricing 单个模型的定价配置
 // 价格单位：美元/百万tokens
 type ModelPricing struct {
-	InputPrice              float64  `json:"inputPrice"`              // 输入 token 价格 ($/1M tokens)
-	OutputPrice             float64  `json:"outputPrice"`             // 输出 token 价格 ($/1M tokens)
-	CacheCreationPrice      *float64 `json:"cacheCreationPrice"`      // 缓存创建价格 ($/1M tokens)，nil 时使用 inputPrice * 1.25
-	CacheReadPrice          *float64 `json:"cacheReadPrice"`          // 缓存读取价格 ($/1M tokens)，nil 时使用 inputPrice * 0.1
-	Description             string   `json:"description,omitempty"`   // 模型描述
-	ExportToModels          *bool    `json:"exportToModels,omitempty"` // 是否导出到 /v1/models API，nil 或 true 时导出
+	InputPrice         float64  `json:"inputPrice"`               // 输入 token 价格 ($/1M tokens)
+	OutputPrice        float64  `json:"outputPrice"`              // 输出 token 价格 ($/1M tokens)
+	CacheCreationPrice *float64 `json:"cacheCreationPrice"`       // 缓存创建价格 ($/1M tokens)，nil 时使用 inputPrice * 1.25
+	CacheReadPrice     *float64 `json:"cacheReadPrice"`           // 缓存读取价格 ($/1M tokens)，nil 时使用 inputPrice * 0.1
+	Description        string   `json:"description,omitempty"`    // 模型描述
+	ExportToModels     *bool    `json:"exportToModels,omitempty"` // 是否导出到 /v1/models API，nil 或 true 时导出
 }
 
 // PricingConfig 定价配置

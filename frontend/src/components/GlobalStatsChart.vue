@@ -22,6 +22,10 @@
             <v-icon start size="16" icon="custom:codex" />
             {{ t('chart.endpoint.responses') }}
           </v-btn>
+          <v-btn value="gemini" size="x-small">
+            <v-icon start size="16" icon="custom:gemini" />
+            {{ t('chart.endpoint.gemini') }}
+          </v-btn>
         </v-btn-toggle>
 
         <!-- Duration selector -->
@@ -158,7 +162,7 @@ const { t } = useI18n()
 
 // Types
 type ViewMode = 'traffic' | 'tokens' | 'latency' | 'cost'
-type EndpointFilter = 'all' | 'messages' | 'responses'
+type EndpointFilter = 'all' | 'messages' | 'responses' | 'gemini'
 
 const props = defineProps<{
   from?: string
@@ -175,7 +179,7 @@ const loadSavedPreferences = () => {
   const savedDuration = localStorage.getItem(getStorageKey('duration')) as Duration | null
 
   return {
-    endpoint: savedEndpoint && ['all', 'messages', 'responses'].includes(savedEndpoint) ? savedEndpoint : 'all',
+    endpoint: savedEndpoint && ['all', 'messages', 'responses', 'gemini'].includes(savedEndpoint) ? savedEndpoint : 'all',
     view: savedView && ['traffic', 'tokens', 'latency', 'cost'].includes(savedView) ? savedView : 'traffic',
     duration: savedDuration && ['1h', '6h', '24h', 'today', 'period'].includes(savedDuration) ? savedDuration : '6h'
   }
@@ -565,6 +569,8 @@ const refreshData = async (isAutoRefresh = false) => {
         ? '/v1/messages'
         : selectedEndpoint.value === 'responses'
           ? '/v1/responses'
+          : selectedEndpoint.value === 'gemini'
+            ? '/v1/gemini'
           : undefined
 
     if (selectedView.value === 'cost') {

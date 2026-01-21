@@ -18,10 +18,10 @@ const (
 type Error429Type int
 
 const (
-	Error429Unknown          Error429Type = iota // Unknown or unparseable 429
-	Error429QuotaExhausted                       // Type 1: QUOTA_EXHAUSTED in details
-	Error429ModelCooldown                        // Type 2: code="model_cooldown" with reset_seconds
-	Error429ResourceExhausted                    // Type 3: generic RESOURCE_EXHAUSTED without quota reason
+	Error429Unknown           Error429Type = iota // Unknown or unparseable 429
+	Error429QuotaExhausted                        // Type 1: QUOTA_EXHAUSTED in details
+	Error429ModelCooldown                         // Type 2: code="model_cooldown" with reset_seconds
+	Error429ResourceExhausted                     // Type 3: generic RESOURCE_EXHAUSTED without quota reason
 )
 
 // String returns a human-readable name for the error type

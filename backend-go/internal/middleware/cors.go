@@ -59,7 +59,7 @@ func CORSMiddleware(envCfg *config.EnvConfig) gin.HandlerFunc {
 		}
 
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, x-api-key")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, x-api-key, x-goog-api-key")
 
 		// 处理预检请求
 		if c.Request.Method == "OPTIONS" {

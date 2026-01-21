@@ -235,6 +235,8 @@ type UpstreamUpdate struct {
 	QueueTimeout *int  `json:"queueTimeout"`
 	// Composite channel mappings
 	CompositeMappings []CompositeMapping `json:"compositeMappings"`
+	// Per-channel API key load balancing strategy (overrides global setting)
+	KeyLoadBalance *string `json:"keyLoadBalance"`
 }
 
 // Config 配置结构
@@ -1396,6 +1398,10 @@ func (cm *ConfigManager) UpdateUpstream(index int, updates UpstreamUpdate) (shou
 	if updates.QueueTimeout != nil {
 		upstream.QueueTimeout = *updates.QueueTimeout
 	}
+	// Per-channel API key load balancing strategy
+	if updates.KeyLoadBalance != nil {
+		upstream.KeyLoadBalance = *updates.KeyLoadBalance
+	}
 	// Composite channel mappings
 	if updates.CompositeMappings != nil {
 		upstream.CompositeMappings = updates.CompositeMappings
@@ -2179,6 +2185,10 @@ func (cm *ConfigManager) UpdateResponsesUpstream(index int, updates UpstreamUpda
 	if updates.QueueTimeout != nil {
 		upstream.QueueTimeout = *updates.QueueTimeout
 	}
+	// Per-channel API key load balancing strategy
+	if updates.KeyLoadBalance != nil {
+		upstream.KeyLoadBalance = *updates.KeyLoadBalance
+	}
 
 	if err := cm.saveConfigLocked(cm.config); err != nil {
 		return false, err
@@ -2206,6 +2216,20 @@ func (cm *ConfigManager) UpdateChannelQuotaResetAt(index int, isResponses bool, 
 		cm.config.Upstream[index].QuotaResetAt = &newTime
 		log.Printf("🔄 Rolling mode: Updated quotaResetAt for Messages channel [%d] to %s", index, newTime.Format(time.RFC3339))
 	}
+
+	return cm.saveConfigLocked(cm.config)
+}
+
+// UpdateGeminiChannelQuotaResetAt updates the quotaResetAt for a Gemini channel (internal use for rolling mode)
+func (cm *ConfigManager) UpdateGeminiChannelQuotaResetAt(index int, newTime time.Time) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if index < 0 || index >= len(cm.config.GeminiUpstream) {
+		return fmt.Errorf("invalid gemini channel index: %d", index)
+	}
+	cm.config.GeminiUpstream[index].QuotaResetAt = &newTime
+	log.Printf("🔄 Rolling mode: Updated quotaResetAt for Gemini channel [%d] to %s", index, newTime.Format(time.RFC3339))
 
 	return cm.saveConfigLocked(cm.config)
 }
@@ -2816,6 +2840,37 @@ func (cm *ConfigManager) UpdateGeminiUpstream(index int, updates UpstreamUpdate)
 	if updates.PriceMultipliers != nil {
 		upstream.PriceMultipliers = updates.PriceMultipliers
 	}
+	// 配额设置
+	if updates.QuotaType != nil {
+		upstream.QuotaType = *updates.QuotaType
+		// 当 quotaType 设置为空时，清除所有其他配额字段
+		if *updates.QuotaType == "" {
+			upstream.QuotaLimit = 0
+			upstream.QuotaResetAt = nil
+			upstream.QuotaResetInterval = 0
+			upstream.QuotaResetUnit = ""
+			upstream.QuotaModels = nil
+			upstream.QuotaResetMode = ""
+		}
+	}
+	if updates.QuotaLimit != nil {
+		upstream.QuotaLimit = *updates.QuotaLimit
+	}
+	if updates.QuotaResetAt != nil {
+		upstream.QuotaResetAt = updates.QuotaResetAt
+	}
+	if updates.QuotaResetInterval != nil {
+		upstream.QuotaResetInterval = *updates.QuotaResetInterval
+	}
+	if updates.QuotaResetUnit != nil {
+		upstream.QuotaResetUnit = *updates.QuotaResetUnit
+	}
+	if updates.QuotaModels != nil {
+		upstream.QuotaModels = updates.QuotaModels
+	}
+	if updates.QuotaResetMode != nil {
+		upstream.QuotaResetMode = *updates.QuotaResetMode
+	}
 	// Per-channel rate limiting
 	if updates.RateLimitRpm != nil {
 		upstream.RateLimitRpm = *updates.RateLimitRpm
@@ -2825,6 +2880,10 @@ func (cm *ConfigManager) UpdateGeminiUpstream(index int, updates UpstreamUpdate)
 	}
 	if updates.QueueTimeout != nil {
 		upstream.QueueTimeout = *updates.QueueTimeout
+	}
+	// Per-channel API key load balancing strategy
+	if updates.KeyLoadBalance != nil {
+		upstream.KeyLoadBalance = *updates.KeyLoadBalance
 	}
 
 	if err := cm.saveConfigLocked(cm.config); err != nil {

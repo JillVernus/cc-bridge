@@ -100,6 +100,26 @@ func (s *DBUsageStorage) MigrateFromJSONIfNeeded(jsonPath string) error {
 		}
 	}
 
+	// Migrate Gemini usage
+	for key, u := range usage.Gemini {
+		channelID, err := strconv.Atoi(key)
+		if err != nil {
+			continue
+		}
+		var lastResetAt *string
+		if !u.LastResetAt.IsZero() {
+			t := u.LastResetAt.Format(time.RFC3339)
+			lastResetAt = &t
+		}
+		_, err = tx.Exec(`
+			INSERT INTO channel_usage (channel_id, channel_type, used, last_reset_at)
+			VALUES (?, 'gemini', ?, ?)
+		`, channelID, u.Used, lastResetAt)
+		if err != nil {
+			log.Printf("⚠️ Failed to migrate gemini usage %d: %v", channelID, err)
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit migration: %w", err)
 	}
@@ -188,6 +208,7 @@ func (s *DBUsageStorage) LoadAll() (UsageFile, error) {
 	usage := UsageFile{
 		Messages:  make(map[string]ChannelUsage),
 		Responses: make(map[string]ChannelUsage),
+		Gemini:    make(map[string]ChannelUsage),
 	}
 
 	rows, err := s.db.Query(`
@@ -226,6 +247,8 @@ func (s *DBUsageStorage) LoadAll() (UsageFile, error) {
 			usage.Messages[key] = u
 		case "responses":
 			usage.Responses[key] = u
+		case "gemini":
+			usage.Gemini[key] = u
 		}
 	}
 

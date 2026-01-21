@@ -14,9 +14,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Package-level compiled regex for version pattern matching
-var geminiVersionPattern = regexp.MustCompile(`/v\d+[a-z]*$`)
-
 // Allowed characters for model names and actions (alphanumeric, dash, underscore, dot)
 var validModelActionPattern = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 
@@ -52,17 +49,7 @@ func (p *GeminiPassthroughProvider) ConvertToProviderRequest(c *gin.Context, ups
 
 	// Build target URL: {baseURL}/models/{model}:{action}
 	baseURL := strings.TrimSuffix(upstream.BaseURL, "/")
-
-	// Gemini API URLs don't have version suffixes in the typical sense
-	// They use formats like: https://generativelanguage.googleapis.com/v1beta/models/...
-	// Check if baseURL already ends with a version pattern
-	var targetURL string
-	if geminiVersionPattern.MatchString(baseURL) {
-		targetURL = baseURL + "/models/" + model + ":" + action
-	} else {
-		// Default: append /v1beta for Gemini
-		targetURL = baseURL + "/v1beta/models/" + model + ":" + action
-	}
+	targetURL := buildGeminiTargetURL(baseURL, model, action)
 
 	// Preserve query string but strip sensitive parameters
 	queryString := sanitizeQueryString(c.Request.URL.RawQuery)
@@ -81,6 +68,35 @@ func (p *GeminiPassthroughProvider) ConvertToProviderRequest(c *gin.Context, ups
 	utils.SetGeminiAuthenticationHeader(req.Header, apiKey)
 
 	return req, bodyBytes, nil
+}
+
+// buildGeminiTargetURL builds a Gemini upstream URL for model actions.
+// Accepts base URL in several common forms:
+// - https://... (no version) -> defaults to /v1beta/models/...
+// - https://.../v1beta -> /v1beta/models/...
+// - https://.../v1beta/models -> /v1beta/models/{model}:{action}
+// - https://.../v1beta/models/{something} -> trims to /v1beta/models then appends
+func buildGeminiTargetURL(baseURL, model, action string) string {
+	base := strings.TrimSuffix(baseURL, "/")
+
+	// If user provided a model-specific endpoint, trim to the models collection root.
+	if idx := strings.Index(base, "/models/"); idx != -1 {
+		base = base[:idx+len("/models")]
+	}
+
+	// If user already provided the models collection root, append model:action directly.
+	if strings.HasSuffix(base, "/models") {
+		return base + "/" + model + ":" + action
+	}
+
+	// If base already includes a version segment, append /models/{model}:{action}.
+	if strings.HasSuffix(base, "/v1beta") || strings.HasSuffix(base, "/v1alpha") || strings.HasSuffix(base, "/v1") ||
+		strings.Contains(base, "/v1beta/") || strings.Contains(base, "/v1alpha/") || strings.Contains(base, "/v1/") {
+		return base + "/models/" + model + ":" + action
+	}
+
+	// Default: append /v1beta/models.
+	return base + "/v1beta/models/" + model + ":" + action
 }
 
 // parseAndValidateModelAction parses "model:action" from the URL path segment

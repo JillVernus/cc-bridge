@@ -123,11 +123,11 @@ func (s *DBPricingStorage) LoadConfigFromDB() (PricingConfig, error) {
 
 	for rows.Next() {
 		var (
-			modelID                             string
-			inputPrice, outputPrice             float64
-			cacheCreationPrice, cacheReadPrice  *float64
-			description                         *string
-			exportToModels                      *bool
+			modelID                            string
+			inputPrice, outputPrice            float64
+			cacheCreationPrice, cacheReadPrice *float64
+			description                        *string
+			exportToModels                     *bool
 		)
 
 		err := rows.Scan(&modelID, &inputPrice, &outputPrice,

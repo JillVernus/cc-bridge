@@ -194,14 +194,27 @@ func fetchModelsFromUpstream(channel *config.UpstreamConfig) ([]UpstreamModel, e
 		// https://generativelanguage.googleapis.com/v1beta/models
 		// Prefer x-goog-api-key header (avoid putting secrets in URL).
 		// If baseURL doesn't include a version segment, default to /v1beta.
+		// Also tolerate users pasting a models URL or model action URL by trimming to the models collection root.
 		versioned := baseURL
-		if !strings.HasSuffix(versioned, "/v1beta") && !strings.HasSuffix(versioned, "/v1alpha") && !strings.HasSuffix(versioned, "/v1") {
+		if idx := strings.Index(versioned, "/models/"); idx != -1 {
+			versioned = versioned[:idx+len("/models")]
+		}
+
+		// Normalize to base URL without trailing "/models"
+		baseNoModels := strings.TrimSuffix(versioned, "/")
+		if strings.HasSuffix(baseNoModels, "/models") {
+			baseNoModels = strings.TrimSuffix(baseNoModels, "/models")
+			baseNoModels = strings.TrimSuffix(baseNoModels, "/")
+		}
+
+		if !strings.HasSuffix(baseNoModels, "/v1beta") && !strings.HasSuffix(baseNoModels, "/v1alpha") && !strings.HasSuffix(baseNoModels, "/v1") {
 			// Also handle ".../v1beta/..." cases by checking for any "/v1*/" occurrence.
-			if !strings.Contains(versioned, "/v1beta/") && !strings.Contains(versioned, "/v1alpha/") && !strings.Contains(versioned, "/v1/") {
-				versioned = versioned + "/v1beta"
+			if !strings.Contains(baseNoModels, "/v1beta/") && !strings.Contains(baseNoModels, "/v1alpha/") && !strings.Contains(baseNoModels, "/v1/") {
+				baseNoModels = strings.TrimSuffix(baseNoModels, "/") + "/v1beta"
 			}
 		}
-		modelsURL = strings.TrimSuffix(versioned, "/") + "/models"
+
+		modelsURL = strings.TrimSuffix(baseNoModels, "/") + "/models"
 		authHeader = "x-goog-api-key"
 		authValue = apiKey
 	case "openai", "openai_chat", "openaiold", "responses", "openai-oauth", "claude":

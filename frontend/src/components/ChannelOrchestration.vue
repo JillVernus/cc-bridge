@@ -456,7 +456,7 @@
           <ChannelStatsChart
             v-if="expandedChartChannelId === element.index"
             :channel-id="element.index"
-            :is-responses="channelType === 'responses'"
+            :channel-type="channelType"
             @close="expandedChartChannelId = null"
           />
           </div>
@@ -735,8 +735,10 @@ const fetchUsageQuotas = async () => {
   try {
     if (props.channelType === 'messages') {
       usageQuotas.value = await api.getAllChannelUsageQuotas()
-    } else {
+    } else if (props.channelType === 'responses') {
       usageQuotas.value = await api.getAllResponsesChannelUsageQuotas()
+    } else {
+      usageQuotas.value = await api.getAllGeminiChannelUsageQuotas()
     }
   } catch (error) {
     console.warn('Failed to fetch usage quotas:', error)
@@ -748,8 +750,10 @@ const resetUsageQuota = async (channelIndex: number) => {
   try {
     if (props.channelType === 'messages') {
       await api.resetChannelUsageQuota(channelIndex)
-    } else {
+    } else if (props.channelType === 'responses') {
       await api.resetResponsesChannelUsageQuota(channelIndex)
+    } else {
+      await api.resetGeminiChannelUsageQuota(channelIndex)
     }
     await fetchUsageQuotas()
   } catch (error) {

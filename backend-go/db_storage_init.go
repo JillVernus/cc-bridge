@@ -215,6 +215,7 @@ func ensureAPIKeysColumns(db database.DB) {
 		{"allowed_endpoints", "TEXT"},
 		{"allowed_channels_msg", "TEXT"},
 		{"allowed_channels_resp", "TEXT"},
+		{"allowed_channels_gemini", "TEXT"},
 		{"allowed_models", "TEXT"},
 	}
 

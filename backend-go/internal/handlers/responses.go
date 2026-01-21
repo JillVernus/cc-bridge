@@ -825,7 +825,7 @@ func tryResponsesChannelWithAllKeys(
 						Status:       resp.StatusCode,
 						Body:         respBodyBytes,
 						FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionSuspended, "next channel"),
-				}, currentRequestLogID
+					}, currentRequestLogID
 
 				default:
 					// ActionNone - return error to client

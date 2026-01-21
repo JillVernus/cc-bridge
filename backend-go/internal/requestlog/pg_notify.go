@@ -17,9 +17,9 @@ const (
 
 // NotificationPayload represents the data sent via PostgreSQL NOTIFY
 type NotificationPayload struct {
-	EventType string `json:"type"`    // "created" or "updated"
-	LogID     string `json:"log_id"`  // Request log ID
-	Timestamp int64  `json:"ts"`      // Unix timestamp
+	EventType string `json:"type"`   // "created" or "updated"
+	LogID     string `json:"log_id"` // Request log ID
+	Timestamp int64  `json:"ts"`     // Unix timestamp
 }
 
 // startPGListener starts listening for PostgreSQL NOTIFY events

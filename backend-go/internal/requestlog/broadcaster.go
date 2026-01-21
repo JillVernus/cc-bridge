@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	maxClients     = 100
-	channelBuffer  = 100
+	maxClients    = 100
+	channelBuffer = 100
 )
 
 // Broadcaster manages SSE client connections and event broadcasting

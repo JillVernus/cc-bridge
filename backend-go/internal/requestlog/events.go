@@ -38,20 +38,20 @@ type LogCreatedPayload struct {
 
 // LogUpdatedPayload contains data for log:updated events
 type LogUpdatedPayload struct {
-	ID                       string    `json:"id"`
-	Status                   string    `json:"status"`
-	DurationMs               int64     `json:"durationMs"`
-	HTTPStatus               int       `json:"httpStatus"`
-	Type                     string    `json:"type"`                   // claude, openai, gemini
-	ProviderName             string    `json:"providerName"`           // channel name
-	ChannelID                int       `json:"channelId"`
-	ChannelName              string    `json:"channelName"`
-	InputTokens              int       `json:"inputTokens"`
-	OutputTokens             int       `json:"outputTokens"`
-	CacheCreationInputTokens int       `json:"cacheCreationInputTokens"`
-	CacheReadInputTokens     int       `json:"cacheReadInputTokens"`
-	TotalTokens              int       `json:"totalTokens"`
-	Price                    float64   `json:"price"`
+	ID                       string  `json:"id"`
+	Status                   string  `json:"status"`
+	DurationMs               int64   `json:"durationMs"`
+	HTTPStatus               int     `json:"httpStatus"`
+	Type                     string  `json:"type"`         // claude, openai, gemini
+	ProviderName             string  `json:"providerName"` // channel name
+	ChannelID                int     `json:"channelId"`
+	ChannelName              string  `json:"channelName"`
+	InputTokens              int     `json:"inputTokens"`
+	OutputTokens             int     `json:"outputTokens"`
+	CacheCreationInputTokens int     `json:"cacheCreationInputTokens"`
+	CacheReadInputTokens     int     `json:"cacheReadInputTokens"`
+	TotalTokens              int     `json:"totalTokens"`
+	Price                    float64 `json:"price"`
 	// Cost breakdown
 	InputCost         float64 `json:"inputCost"`
 	OutputCost        float64 `json:"outputCost"`

@@ -174,7 +174,7 @@ func migrateTable(source *sql.DB, target database.DB, tableName string) error {
 	migrated := 0
 
 	for {
-		dataRows, err := source.Query("SELECT " + columnList + " FROM " + tableName + " LIMIT ? OFFSET ?", batchSize, offset)
+		dataRows, err := source.Query("SELECT "+columnList+" FROM "+tableName+" LIMIT ? OFFSET ?", batchSize, offset)
 		if err != nil {
 			return err
 		}
