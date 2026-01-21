@@ -1,7 +1,7 @@
 # Gemini Incoming Parity Fixes (Permissions, Quota, Charts, Failover)
 
 **Date:** 2026-01-21  
-**Status:** In Progress
+**Status:** Completed
 
 ## Background
 
@@ -95,7 +95,7 @@ We added a Gemini-native incoming passthrough endpoint (Gemini CLI compatible) a
 - [x] Run formatters (`gofmt`, frontend formatting if needed).
 - [x] Run tests (`backend-go` unit tests).
 - [x] Bump `VERSION`.
-- [ ] Commit changes.
+- [x] Commit changes.
 
 ## Progress Log
 
@@ -106,3 +106,4 @@ We added a Gemini-native incoming passthrough endpoint (Gemini CLI compatible) a
 - 2026-01-21: Phase 3 completed (Gemini quota tracking + reset APIs + handler integration).
 - 2026-01-21: Phase 4 completed (Charts + Gemini quota UI wiring).
 - 2026-01-21: Phase 5 completed (Failover rules parity for Gemini).
+- 2026-01-21: Changes committed + version bumped.
