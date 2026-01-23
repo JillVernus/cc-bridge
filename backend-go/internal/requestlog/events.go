@@ -23,17 +23,18 @@ type LogEvent struct {
 
 // LogCreatedPayload contains data for log:created events
 type LogCreatedPayload struct {
-	ID           string    `json:"id"`
-	Status       string    `json:"status"`
-	ProviderName string    `json:"providerName"`
-	Model        string    `json:"model"`
-	ChannelID    int       `json:"channelId"`
-	ChannelName  string    `json:"channelName"`
-	Endpoint     string    `json:"endpoint"`
-	Stream       bool      `json:"stream"`
-	ClientID     string    `json:"clientId,omitempty"`
-	SessionID    string    `json:"sessionId,omitempty"`
-	InitialTime  time.Time `json:"initialTime"`
+	ID              string    `json:"id"`
+	Status          string    `json:"status"`
+	ProviderName    string    `json:"providerName"`
+	Model           string    `json:"model"`
+	ChannelID       int       `json:"channelId"`
+	ChannelName     string    `json:"channelName"`
+	Endpoint        string    `json:"endpoint"`
+	Stream          bool      `json:"stream"`
+	ClientID        string    `json:"clientId,omitempty"`
+	SessionID       string    `json:"sessionId,omitempty"`
+	ReasoningEffort string    `json:"reasoningEffort,omitempty"`
+	InitialTime     time.Time `json:"initialTime"`
 }
 
 // LogUpdatedPayload contains data for log:updated events
@@ -58,13 +59,14 @@ type LogUpdatedPayload struct {
 	CacheCreationCost float64 `json:"cacheCreationCost"`
 	CacheReadCost     float64 `json:"cacheReadCost"`
 	// Other fields
-	APIKeyID      *int64    `json:"apiKeyId"`
-	HasDebugData  bool      `json:"hasDebugData"`
-	Error         string    `json:"error,omitempty"`
-	UpstreamError string    `json:"upstreamError,omitempty"`
-	FailoverInfo  string    `json:"failoverInfo,omitempty"`
-	ResponseModel string    `json:"responseModel,omitempty"`
-	CompleteTime  time.Time `json:"completeTime"`
+	APIKeyID        *int64    `json:"apiKeyId"`
+	HasDebugData    bool      `json:"hasDebugData"`
+	Error           string    `json:"error,omitempty"`
+	UpstreamError   string    `json:"upstreamError,omitempty"`
+	FailoverInfo    string    `json:"failoverInfo,omitempty"`
+	ResponseModel   string    `json:"responseModel,omitempty"`
+	ReasoningEffort string    `json:"reasoningEffort,omitempty"`
+	CompleteTime    time.Time `json:"completeTime"`
 }
 
 // StatsPayload contains data for log:stats events
@@ -80,17 +82,18 @@ func NewLogCreatedEvent(record *RequestLog) *LogEvent {
 	return &LogEvent{
 		Type: EventLogCreated,
 		Data: LogCreatedPayload{
-			ID:           record.ID,
-			Status:       record.Status,
-			ProviderName: record.ProviderName,
-			Model:        record.Model,
-			ChannelID:    record.ChannelID,
-			ChannelName:  record.ChannelName,
-			Endpoint:     record.Endpoint,
-			Stream:       record.Stream,
-			ClientID:     record.ClientID,
-			SessionID:    record.SessionID,
-			InitialTime:  record.InitialTime,
+			ID:              record.ID,
+			Status:          record.Status,
+			ProviderName:    record.ProviderName,
+			Model:           record.Model,
+			ChannelID:       record.ChannelID,
+			ChannelName:     record.ChannelName,
+			Endpoint:        record.Endpoint,
+			Stream:          record.Stream,
+			ClientID:        record.ClientID,
+			SessionID:       record.SessionID,
+			ReasoningEffort: record.ReasoningEffort,
+			InitialTime:     record.InitialTime,
 		},
 		Timestamp: time.Now(),
 	}
@@ -125,6 +128,7 @@ func NewLogUpdatedEvent(id string, record *RequestLog) *LogEvent {
 			UpstreamError:            record.UpstreamError,
 			FailoverInfo:             record.FailoverInfo,
 			ResponseModel:            record.ResponseModel,
+			ReasoningEffort:          record.ReasoningEffort,
 			CompleteTime:             record.CompleteTime,
 		},
 		Timestamp: time.Now(),

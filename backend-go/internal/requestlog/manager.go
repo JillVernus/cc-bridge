@@ -575,7 +575,8 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 	query := m.convertQuery(`
 		SELECT r.id, r.status, r.initial_time, r.complete_time, r.duration_ms,
-			   r.provider, r.provider_name, r.model, r.response_model, r.input_tokens, r.output_tokens,
+			   r.provider, r.provider_name, r.model, r.response_model, r.reasoning_effort,
+			   r.input_tokens, r.output_tokens,
 			   r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
 			   r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
 			   r.http_status, r.stream, r.channel_id, r.channel_name,
@@ -588,13 +589,14 @@ func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 
 	var r RequestLog
 	var channelID, apiKeyID sql.NullInt64
-	var channelName, endpoint, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr, status, providerName, responseModel sql.NullString
+	var channelName, endpoint, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr, status, providerName, responseModel, reasoningEffort sql.NullString
 	var initialTime, completeTime sql.NullString
 	var hasDebugData int
 
 	err := m.db.QueryRow(query, id).Scan(
 		&r.ID, &status, &initialTime, &completeTime, &r.DurationMs,
-		&r.Type, &providerName, &r.Model, &responseModel, &r.InputTokens, &r.OutputTokens,
+		&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort,
+		&r.InputTokens, &r.OutputTokens,
 		&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 		&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
 		&r.HTTPStatus, &r.Stream, &channelID, &channelName,
@@ -615,6 +617,9 @@ func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 	}
 	if responseModel.Valid {
 		r.ResponseModel = responseModel.String
+	}
+	if reasoningEffort.Valid {
+		r.ReasoningEffort = reasoningEffort.String
 	}
 	if initialTime.Valid && initialTime.String != "" {
 		r.InitialTime = parseTimeString(initialTime.String)

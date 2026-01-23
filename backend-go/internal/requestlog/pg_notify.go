@@ -161,18 +161,18 @@ func (m *Manager) StopListener() {
 func (m *Manager) getPartialRecordForSSE(id string) (*RequestLog, error) {
 	query := m.convertQuery(`
 		SELECT id, status, provider, model, channel_id, channel_name,
-		       endpoint, stream, client_id, session_id, initial_time
+		       endpoint, stream, client_id, session_id, reasoning_effort, initial_time
 		FROM request_logs
 		WHERE id = ?
 	`)
 
 	var r RequestLog
 	var channelID sql.NullInt64
-	var channelName, endpoint, clientID, sessionID sql.NullString
+	var channelName, endpoint, clientID, sessionID, reasoningEffort sql.NullString
 
 	err := m.db.QueryRow(query, id).Scan(
 		&r.ID, &r.Status, &r.ProviderName, &r.Model, &channelID, &channelName,
-		&endpoint, &r.Stream, &clientID, &sessionID, &r.InitialTime,
+		&endpoint, &r.Stream, &clientID, &sessionID, &reasoningEffort, &r.InitialTime,
 	)
 
 	if err != nil {
@@ -193,6 +193,9 @@ func (m *Manager) getPartialRecordForSSE(id string) (*RequestLog, error) {
 	}
 	if sessionID.Valid {
 		r.SessionID = sessionID.String
+	}
+	if reasoningEffort.Valid {
+		r.ReasoningEffort = reasoningEffort.String
 	}
 
 	return &r, nil

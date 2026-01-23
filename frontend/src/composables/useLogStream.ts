@@ -15,6 +15,7 @@ export interface LogCreatedPayload {
   stream: boolean
   clientId?: string
   sessionId?: string
+  reasoningEffort?: string
   initialTime: string
 }
 
@@ -43,6 +44,7 @@ export interface LogUpdatedPayload {
   upstreamError?: string
   failoverInfo?: string
   responseModel?: string
+  reasoningEffort?: string
   completeTime: string
 }
 

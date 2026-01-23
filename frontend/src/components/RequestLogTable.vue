@@ -1903,6 +1903,10 @@ const autoRefreshEnabled = ref(true)
 const autoRefreshInterval = ref(3) // seconds, persisted to localStorage
 let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
 
+// Stats refresh timer for SSE mode (low-frequency poll for summary tables)
+const SSE_STATS_REFRESH_INTERVAL = 15000 // 15 seconds
+let sseStatsRefreshTimer: ReturnType<typeof setInterval> | null = null
+
 const loadAutoRefreshInterval = () => {
   const saved = localStorage.getItem('requestlog-auto-refresh-interval')
   if (saved !== null) {
@@ -1942,6 +1946,7 @@ const toggleSSEEnabled = () => {
     // Disable SSE, fall back to polling
     disconnectSSE()
     sseConnectionState.value = 'disconnected'
+    stopSSEStatsRefresh()
     autoRefreshEnabled.value = true
     startAutoRefresh()
   }
@@ -1963,6 +1968,7 @@ const handleLogCreated = (payload: LogCreatedPayload) => {
     type: '',
     providerName: payload.providerName,
     model: payload.model,
+    reasoningEffort: payload.reasoningEffort,
     inputTokens: 0,
     outputTokens: 0,
     cacheCreationInputTokens: 0,
@@ -2023,6 +2029,7 @@ const handleLogUpdated = (payload: LogUpdatedPayload) => {
     updated.upstreamError = payload.upstreamError
     updated.failoverInfo = payload.failoverInfo
     updated.responseModel = payload.responseModel
+    updated.reasoningEffort = payload.reasoningEffort
     updated.completeTime = payload.completeTime
     logs.value = [...logs.value.slice(0, index), updated, ...logs.value.slice(index + 1)]
 
@@ -2106,9 +2113,12 @@ const handleSSEConnectionChange = (state: ConnectionState) => {
     // SSE connected - disable polling (SSE handles real-time updates)
     autoRefreshEnabled.value = false
     stopAutoRefresh()
+    // Start low-frequency stats refresh for summary tables
+    startSSEStatsRefresh()
     silentRefresh()
   } else if (state === 'disconnected' || state === 'error') {
-    // SSE disconnected - enable polling as fallback
+    // SSE disconnected - stop stats refresh and enable polling as fallback
+    stopSSEStatsRefresh()
     autoRefreshEnabled.value = true
     startAutoRefresh()
   }
@@ -2698,6 +2708,7 @@ const removeAlias = async (userId?: string) => {
 
 onUnmounted(() => {
   stopAutoRefresh()
+  stopSSEStatsRefresh()
   disconnectSSE()
 })
 
@@ -2724,9 +2735,76 @@ const stopAutoRefresh = () => {
 const toggleAutoRefresh = () => {
   autoRefreshEnabled.value = !autoRefreshEnabled.value
   if (autoRefreshEnabled.value) {
+    // Disable SSE when enabling auto-refresh (mutual exclusivity)
+    if (sseEnabled.value) {
+      sseEnabled.value = false
+      saveSSEEnabled()
+      disconnectSSE()
+      sseConnectionState.value = 'disconnected'
+      stopSSEStatsRefresh()
+    }
     startAutoRefresh()
   } else {
     stopAutoRefresh()
+  }
+}
+
+// Stats-only refresh for SSE mode (summary tables)
+const refreshStatsOnly = async () => {
+  try {
+    const { from, to } = getDateRange()
+    const [statsRes, activeSessionsRes] = await Promise.all([
+      api.getRequestLogStats({ from, to }),
+      api.getActiveSessions().catch(() => [] as ActiveSession[])
+    ])
+
+    // Detect updated groups in stats
+    const newUpdatedModels = detectUpdatedGroups(stats.value?.byModel, statsRes?.byModel)
+    const newUpdatedProviders = detectUpdatedGroups(stats.value?.byProvider, statsRes?.byProvider)
+    const newUpdatedClients = detectUpdatedGroups(stats.value?.byClient, statsRes?.byClient)
+    const newUpdatedSessions = detectUpdatedGroups(stats.value?.bySession, statsRes?.bySession)
+    const newUpdatedAPIKeys = detectUpdatedGroups(stats.value?.byApiKey, statsRes?.byApiKey)
+
+    stats.value = statsRes
+    activeSessions.value = activeSessionsRes
+
+    // Flash updated summary groups
+    if (newUpdatedModels.size > 0) {
+      updatedModels.value = newUpdatedModels
+      setTimeout(() => { updatedModels.value = new Set() }, 1000)
+    }
+    if (newUpdatedProviders.size > 0) {
+      updatedProviders.value = newUpdatedProviders
+      setTimeout(() => { updatedProviders.value = new Set() }, 1000)
+    }
+    if (newUpdatedClients.size > 0) {
+      updatedClients.value = newUpdatedClients
+      setTimeout(() => { updatedClients.value = new Set() }, 1000)
+    }
+    if (newUpdatedSessions.size > 0) {
+      updatedSessions.value = newUpdatedSessions
+      setTimeout(() => { updatedSessions.value = new Set() }, 1000)
+    }
+    if (newUpdatedAPIKeys.size > 0) {
+      updatedAPIKeys.value = newUpdatedAPIKeys
+      setTimeout(() => { updatedAPIKeys.value = new Set() }, 1000)
+    }
+  } catch (e) {
+    console.warn('Failed to refresh stats:', e)
+  }
+}
+
+const startSSEStatsRefresh = () => {
+  if (sseStatsRefreshTimer) {
+    clearInterval(sseStatsRefreshTimer)
+  }
+  sseStatsRefreshTimer = setInterval(refreshStatsOnly, SSE_STATS_REFRESH_INTERVAL)
+}
+
+const stopSSEStatsRefresh = () => {
+  if (sseStatsRefreshTimer) {
+    clearInterval(sseStatsRefreshTimer)
+    sseStatsRefreshTimer = null
   }
 }
 
