@@ -1996,6 +1996,43 @@ const handleLogCreated = (payload: LogCreatedPayload) => {
   setTimeout(() => {
     updatedIds.value = new Set()
   }, 1000)
+
+  // Update active sessions incrementally for new request
+  if (payload.sessionId) {
+    const sessionIndex = activeSessions.value.findIndex(s => s.sessionId === payload.sessionId)
+    if (sessionIndex !== -1) {
+      // Existing session - increment count and update lastRequestTime
+      const session = { ...activeSessions.value[sessionIndex] }
+      session.count++
+      session.lastRequestTime = payload.initialTime
+      activeSessions.value = [
+        ...activeSessions.value.slice(0, sessionIndex),
+        session,
+        ...activeSessions.value.slice(sessionIndex + 1)
+      ]
+      // Flash the updated session
+      updatedActiveSessions.value = new Set([payload.sessionId])
+      setTimeout(() => { updatedActiveSessions.value = new Set() }, 1000)
+    } else {
+      // New session - add to the list
+      const newSession: ActiveSession = {
+        sessionId: payload.sessionId,
+        type: payload.endpoint?.includes('responses') ? 'codex' : 'claude',
+        firstRequestTime: payload.initialTime,
+        lastRequestTime: payload.initialTime,
+        count: 1,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+        cost: 0
+      }
+      activeSessions.value = [newSession, ...activeSessions.value]
+      // Flash the new session
+      updatedActiveSessions.value = new Set([payload.sessionId])
+      setTimeout(() => { updatedActiveSessions.value = new Set() }, 1000)
+    }
+  }
 }
 
 const handleLogUpdated = (payload: LogUpdatedPayload) => {
@@ -2085,6 +2122,28 @@ const handleLogUpdated = (payload: LogUpdatedPayload) => {
         updatedClients.value = new Set()
         updatedSessions.value = new Set()
       }, 1000)
+
+      // Update active sessions with token/cost data when request completes
+      if (session && session !== 'unknown') {
+        const sessionIndex = activeSessions.value.findIndex(s => s.sessionId === session)
+        if (sessionIndex !== -1) {
+          const activeSession = { ...activeSessions.value[sessionIndex] }
+          activeSession.inputTokens += payload.inputTokens
+          activeSession.outputTokens += payload.outputTokens
+          activeSession.cacheCreationInputTokens += payload.cacheCreationInputTokens
+          activeSession.cacheReadInputTokens += payload.cacheReadInputTokens
+          activeSession.cost += payload.price
+          activeSession.lastRequestTime = payload.completeTime || activeSession.lastRequestTime
+          activeSessions.value = [
+            ...activeSessions.value.slice(0, sessionIndex),
+            activeSession,
+            ...activeSessions.value.slice(sessionIndex + 1)
+          ]
+          // Flash the updated session
+          updatedActiveSessions.value = new Set([session])
+          setTimeout(() => { updatedActiveSessions.value = new Set() }, 1000)
+        }
+      }
     }
 
     // Flash the updated row
@@ -2110,11 +2169,10 @@ const handleSSEConnectionChange = (state: ConnectionState) => {
   console.log(`📡 SSE connection state: ${state}`)
 
   if (state === 'connected') {
-    // SSE connected - disable polling (SSE handles real-time updates)
+    // SSE connected - disable all polling (SSE handlers update everything in real-time)
     autoRefreshEnabled.value = false
     stopAutoRefresh()
-    // Start low-frequency stats refresh for summary tables
-    startSSEStatsRefresh()
+    stopSSEStatsRefresh()
     silentRefresh()
   } else if (state === 'disconnected' || state === 'error') {
     // SSE disconnected - stop stats refresh and enable polling as fallback
@@ -2765,6 +2823,9 @@ const refreshStatsOnly = async () => {
     const newUpdatedSessions = detectUpdatedGroups(stats.value?.bySession, statsRes?.bySession)
     const newUpdatedAPIKeys = detectUpdatedGroups(stats.value?.byApiKey, statsRes?.byApiKey)
 
+    // Detect active session changes before updating
+    const newUpdatedActive = detectActiveSessionChanges(activeSessions.value, activeSessionsRes)
+
     stats.value = statsRes
     activeSessions.value = activeSessionsRes
 
@@ -2788,6 +2849,11 @@ const refreshStatsOnly = async () => {
     if (newUpdatedAPIKeys.size > 0) {
       updatedAPIKeys.value = newUpdatedAPIKeys
       setTimeout(() => { updatedAPIKeys.value = new Set() }, 1000)
+    }
+    // Flash updated active sessions
+    if (newUpdatedActive.size > 0) {
+      updatedActiveSessions.value = newUpdatedActive
+      setTimeout(() => { updatedActiveSessions.value = new Set() }, 1000)
     }
   } catch (e) {
     console.warn('Failed to refresh stats:', e)
