@@ -880,7 +880,7 @@
           <span v-else class="text-caption mono-text id-cell">—</span>
         </template>
 
-        <template v-slot:item.inputTokens="{ item }">
+        <template v-slot:item.tokens="{ item }">
           <v-progress-circular
             v-if="item.status === 'pending'"
             indeterminate
@@ -888,40 +888,26 @@
             width="2"
             color="grey"
           />
-          <span v-else class="token-text input-color">{{ formatTokens(item.inputTokens, '(↑)') }}</span>
-        </template>
-
-        <template v-slot:item.outputTokens="{ item }">
-          <v-progress-circular
-            v-if="item.status === 'pending'"
-            indeterminate
-            size="14"
-            width="2"
-            color="grey"
-          />
-          <span v-else class="token-text output-color">{{ formatTokens(item.outputTokens, '(↓)') }}</span>
-        </template>
-
-        <template v-slot:item.cacheCreation="{ item }">
-          <v-progress-circular
-            v-if="item.status === 'pending'"
-            indeterminate
-            size="14"
-            width="2"
-            color="grey"
-          />
-          <span v-else class="token-text cache-create-color">{{ formatTokens(item.cacheCreationInputTokens, '(+)') }}</span>
-        </template>
-
-        <template v-slot:item.cacheHit="{ item }">
-          <v-progress-circular
-            v-if="item.status === 'pending'"
-            indeterminate
-            size="14"
-            width="2"
-            color="grey"
-          />
-          <span v-else class="token-text cache-hit-color">{{ formatTokens(item.cacheReadInputTokens, '(⚡)') }}</span>
+          <v-tooltip v-else location="top" max-width="300">
+            <template v-slot:activator="{ props }">
+              <div v-bind="props" class="tokens-stacked">
+                <span class="token-cell input-color"><span class="token-num">{{ formatTokensCompact(item.inputTokens) }}</span><span class="token-sym">↑</span></span>
+                <span class="token-cell output-color"><span class="token-num">{{ formatTokensCompact(item.outputTokens) }}</span><span class="token-sym">↓</span></span>
+                <template v-if="item.cacheCreationInputTokens || item.cacheReadInputTokens">
+                  <span v-if="item.cacheCreationInputTokens" class="token-cell cache-create-color cache-cell"><span class="token-num">{{ formatTokensCompact(item.cacheCreationInputTokens) }}</span><span class="token-sym">+</span></span>
+                  <span v-else class="token-cell cache-cell"></span>
+                  <span v-if="item.cacheReadInputTokens" class="token-cell cache-hit-color cache-cell"><span class="token-num">{{ formatTokensCompact(item.cacheReadInputTokens) }}</span><span class="token-sym">⚡</span></span>
+                  <span v-else class="token-cell cache-cell"></span>
+                </template>
+              </div>
+            </template>
+            <div class="tokens-tooltip">
+              <div class="tooltip-row"><span class="tooltip-label">{{ t('requestLog.input') }}:</span> <span class="input-color">{{ formatNumber(item.inputTokens) }}</span></div>
+              <div class="tooltip-row"><span class="tooltip-label">{{ t('requestLog.output') }}:</span> <span class="output-color">{{ formatNumber(item.outputTokens) }}</span></div>
+              <div v-if="item.cacheCreationInputTokens" class="tooltip-row"><span class="tooltip-label">{{ t('requestLog.cacheCreation') }}:</span> <span class="cache-create-color">{{ formatNumber(item.cacheCreationInputTokens) }}</span></div>
+              <div v-if="item.cacheReadInputTokens" class="tooltip-row"><span class="tooltip-label">{{ t('requestLog.cacheHit') }}:</span> <span class="cache-hit-color">{{ formatNumber(item.cacheReadInputTokens) }}</span></div>
+            </div>
+          </v-tooltip>
         </template>
 
         <template v-slot:item.price="{ item }">
@@ -2202,10 +2188,7 @@ const defaultColumnWidths: Record<string, number> = {
   apiKeyId: 120,
   clientId: 220,
   sessionId: 240,
-  inputTokens: 100,
-  outputTokens: 100,
-  cacheCreation: 100,
-  cacheHit: 100,
+  tokens: 160,
   price: 80,
 }
 
@@ -2221,10 +2204,7 @@ const defaultColumnVisibility: Record<string, boolean> = {
   apiKeyId: true,
   clientId: true,
   sessionId: true,
-  inputTokens: true,
-  outputTokens: true,
-  cacheCreation: true,
-  cacheHit: true,
+  tokens: true,
   price: true,
 }
 
@@ -2240,10 +2220,7 @@ const columnDisplayNames = computed(() => ({
   apiKeyId: t('requestLog.apiKey'),
   clientId: t('requestLog.client'),
   sessionId: t('requestLog.session'),
-  inputTokens: t('requestLog.input'),
-  outputTokens: t('requestLog.output'),
-  cacheCreation: t('requestLog.cacheCreation'),
-  cacheHit: t('requestLog.cacheHit'),
+  tokens: t('requestLog.tokens'),
   price: t('requestLog.price'),
 }))
 
@@ -2253,9 +2230,14 @@ const loadColumnVisibility = () => {
     const saved = localStorage.getItem('requestlog-column-visibility')
     if (saved) {
       const parsed = JSON.parse(saved)
-      // Migration: remove old 'tokens' key if present
-      if ('tokens' in parsed) {
-        delete parsed.tokens
+      // Migration: convert old individual token columns to unified 'tokens' column
+      if ('inputTokens' in parsed || 'outputTokens' in parsed || 'cacheCreation' in parsed || 'cacheHit' in parsed) {
+        // If any of the old token columns were visible, show the new unified column
+        parsed.tokens = parsed.inputTokens || parsed.outputTokens || parsed.cacheCreation || parsed.cacheHit
+        delete parsed.inputTokens
+        delete parsed.outputTokens
+        delete parsed.cacheCreation
+        delete parsed.cacheHit
       }
       columnVisibility.value = { ...defaultColumnVisibility, ...parsed }
       // Save migrated data
@@ -2298,9 +2280,13 @@ const loadColumnWidths = () => {
     const saved = localStorage.getItem('requestlog-column-widths')
     if (saved) {
       const parsed = JSON.parse(saved)
-      // Migration: remove old 'tokens' key if present
-      if ('tokens' in parsed) {
-        delete parsed.tokens
+      // Migration: convert old individual token columns to unified 'tokens' column
+      if ('inputTokens' in parsed || 'outputTokens' in parsed || 'cacheCreation' in parsed || 'cacheHit' in parsed) {
+        parsed.tokens = 160
+        delete parsed.inputTokens
+        delete parsed.outputTokens
+        delete parsed.cacheCreation
+        delete parsed.cacheHit
       }
       columnWidths.value = { ...defaultColumnWidths, ...parsed }
       // Save migrated data
@@ -2334,10 +2320,7 @@ const allHeaders = [
   { title: () => t('requestLog.apiKey'), key: 'apiKeyId', sortable: false },
   { title: () => t('requestLog.client'), key: 'clientId', sortable: false },
   { title: () => t('requestLog.session'), key: 'sessionId', sortable: false },
-  { title: () => t('requestLog.input'), key: 'inputTokens', sortable: false },
-  { title: () => t('requestLog.output'), key: 'outputTokens', sortable: false },
-  { title: () => t('requestLog.cacheCreation'), key: 'cacheCreation', sortable: false },
-  { title: () => t('requestLog.cacheHit'), key: 'cacheHit', sortable: false },
+  { title: () => t('requestLog.tokens'), key: 'tokens', sortable: false },
   { title: () => t('requestLog.price'), key: 'price', sortable: false },
   { title: () => t('requestLog.status'), key: 'status', sortable: false },
 ]
@@ -2474,6 +2457,13 @@ const formatTokens = (tokens: number, symbol: string) => {
     numStr = String(tokens)
   }
   return numStr.padStart(6, '\u00A0') + '\u00A0' + symbol
+}
+
+// Compact token format for stacked display (2 decimals for precision)
+const formatTokensCompact = (tokens: number) => {
+  if (tokens >= 1000000) return (tokens / 1000000).toFixed(2) + 'M'
+  if (tokens >= 1000) return (tokens / 1000).toFixed(2) + 'K'
+  return String(tokens)
 }
 
 const formatPrice = (price: number) => {
@@ -2623,18 +2613,9 @@ const getRequestStatusLabel = (status: string) => {
 
 // Get color class for header based on column key
 const getHeaderColorClass = (key: string): string => {
-  switch (key) {
-    case 'inputTokens':
-      return 'input-color'
-    case 'outputTokens':
-      return 'output-color'
-    case 'cacheCreation':
-      return 'cache-create-color'
-    case 'cacheHit':
-      return 'cache-hit-color'
-    default:
-      return ''
-  }
+  // Previously used for individual token columns, now tokens are combined
+  // Keep the function for potential future use
+  return ''
 }
 
 const getRowProps = ({ item }: { item: RequestLog }) => {
@@ -3646,6 +3627,56 @@ const silentRefresh = async () => {
 
 .v-theme--dark .cache-hit-color {
   color: rgb(var(--v-theme-warning)) !important;
+}
+
+/* Stacked tokens display - using inline-grid for alignment */
+.tokens-stacked {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  gap: 2px 6px;
+  line-height: 1.3;
+}
+
+.token-cell {
+  display: inline-flex;
+  min-width: 58px;
+  font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, 'Courier New', monospace;
+  font-size: 0.75rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.token-num {
+  flex: 1;
+  text-align: right;
+  letter-spacing: -0.02em;
+}
+
+.token-sym {
+  width: 12px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.cache-cell {
+  font-size: 0.7rem;
+  opacity: 0.85;
+}
+
+/* Tokens tooltip styles */
+.tokens-tooltip {
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.tokens-tooltip .tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tokens-tooltip .tooltip-label {
+  color: rgba(255, 255, 255, 0.7);
 }
 
 /* Error tooltip styles */
