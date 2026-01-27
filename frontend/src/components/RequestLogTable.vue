@@ -390,6 +390,51 @@
 
           <v-divider class="my-4" />
 
+          <!-- Column Stacking Settings -->
+          <div class="settings-section mb-4">
+            <div class="text-subtitle-2 mb-2 d-flex align-center">
+              <v-icon size="18" class="mr-1">mdi-arrow-collapse-vertical</v-icon>
+              {{ t('requestLog.columnStacking') }}
+            </div>
+            <div class="stacking-options">
+              <div
+                v-for="config in stackPairConfigs"
+                :key="config.primary"
+                class="stacking-row"
+              >
+                <span class="text-body-2 stacking-label">{{ getStackPairLabel(config.primary) }}</span>
+                <v-btn-toggle
+                  v-model="stackModes[config.primary]"
+                  mandatory
+                  density="compact"
+                  variant="outlined"
+                  divided
+                  class="stacking-toggle"
+                  @update:model-value="saveStackingPrefs"
+                >
+                  <v-btn value="expanded" size="x-small">
+                    {{ t('requestLog.stackExpanded') }}
+                  </v-btn>
+                  <v-btn value="stacked" size="x-small">
+                    {{ t('requestLog.stackStacked') }}
+                  </v-btn>
+                  <v-btn value="responsive" size="x-small">
+                    {{ t('requestLog.stackAuto') }}
+                  </v-btn>
+                </v-btn-toggle>
+              </div>
+            </div>
+            <div class="d-flex align-center ga-2 mt-2">
+              <v-btn size="small" variant="tonal" @click="resetStackingPrefs">
+                <v-icon size="16" class="mr-1">mdi-restore</v-icon>
+                {{ t('requestLog.resetStacking') }}
+              </v-btn>
+            </div>
+            <div class="text-caption text-grey mt-2">{{ t('requestLog.columnStackingDesc') }}</div>
+          </div>
+
+          <v-divider class="my-4" />
+
           <div class="settings-section mb-4">
             <div class="text-subtitle-2 mb-2">{{ t('requestLog.columnWidthSettings') }}</div>
             <v-btn
@@ -766,7 +811,26 @@
         </template>
 
         <template v-slot:item.initialTime="{ item }">
-          <span class="text-caption">{{ formatTime(item.initialTime) }}</span>
+          <!-- Stacked: Time + Duration -->
+          <v-tooltip v-if="isStacked('initialTime')" location="top" max-width="300">
+            <template v-slot:activator="{ props }">
+              <div v-bind="props" class="stacked-cell">
+                <span class="text-caption">{{ formatTime(item.initialTime) }}</span>
+                <span v-if="item.status === 'pending'" class="stacked-secondary">
+                  <v-progress-circular indeterminate size="10" width="1" color="grey" />
+                </span>
+                <span v-else class="stacked-secondary duration-text" :class="'duration-' + getDurationColor(item.durationMs)">
+                  {{ formatDuration(item.durationMs) }}
+                </span>
+              </div>
+            </template>
+            <div class="stacked-tooltip">
+              <div><strong>{{ t('requestLog.time') }}:</strong> {{ formatTime(item.initialTime) }}</div>
+              <div><strong>{{ t('requestLog.duration') }}:</strong> {{ item.status === 'pending' ? '...' : formatDuration(item.durationMs) }}</div>
+            </div>
+          </v-tooltip>
+          <!-- Expanded: Time only -->
+          <span v-else class="text-caption">{{ formatTime(item.initialTime) }}</span>
         </template>
 
         <template v-slot:item.durationMs="{ item }">
@@ -790,6 +854,33 @@
             width="2"
             color="grey"
           />
+          <!-- Stacked: Channel + Model -->
+          <v-tooltip v-else-if="isStacked('providerName')" location="top" max-width="400">
+            <template v-slot:activator="{ props }">
+              <div v-bind="props" class="stacked-cell">
+                <v-chip size="x-small" variant="text" class="provider-chip">
+                  <v-icon v-if="item.type === 'claude'" start size="14" icon="custom:claude" class="provider-icon mr-1" />
+                  <v-icon v-else-if="item.type === 'openai' || item.type === 'codex' || item.type === 'responses'" start size="14" icon="custom:codex" class="provider-icon mr-1" />
+                  <v-icon v-else-if="item.type === 'gemini'" start size="14" icon="custom:gemini" class="provider-icon mr-1" />
+                  {{ item.providerName || item.type }}
+                </v-chip>
+                <span v-if="item.model" class="stacked-secondary">
+                  {{ item.model }}
+                  <v-icon v-if="item.reasoningEffort" size="12" class="ml-1" :color="getReasoningEffortColor(item.reasoningEffort)">{{ getReasoningEffortIcon(item.reasoningEffort) }}</v-icon>
+                  <v-icon v-else-if="item.responseModel && item.responseModel !== item.model" size="10" class="ml-1">mdi-swap-horizontal</v-icon>
+                </span>
+              </div>
+            </template>
+            <div class="stacked-tooltip">
+              <div><strong>{{ t('requestLog.channel') }}:</strong> {{ item.providerName || item.type }}</div>
+              <div><strong>{{ t('requestLog.model') }}:</strong> {{ item.model }}</div>
+              <div v-if="item.reasoningEffort"><strong>{{ t('requestLog.reasoningEffort') }}</strong> {{ item.reasoningEffort }}</div>
+              <div v-if="item.responseModel && item.responseModel !== item.model">
+                <strong>Mapped:</strong> {{ item.model }} → {{ item.responseModel }}
+              </div>
+            </div>
+          </v-tooltip>
+          <!-- Expanded: Channel only -->
           <v-chip v-else size="x-small" variant="text" class="provider-chip">
             <v-icon v-if="item.type === 'claude'" start size="14" icon="custom:claude" class="provider-icon mr-1" />
             <v-icon v-else-if="item.type === 'openai' || item.type === 'codex' || item.type === 'responses'" start size="14" icon="custom:codex" class="provider-icon mr-1" />
@@ -846,7 +937,42 @@
         </template>
 
         <template v-slot:item.clientId="{ item }">
-          <v-tooltip v-if="item.clientId" location="top" max-width="600">
+          <!-- Stacked: Client + Session -->
+          <v-tooltip v-if="isStacked('clientId')" location="top" max-width="600">
+            <template v-slot:activator="{ props }">
+              <div v-bind="props" class="stacked-cell">
+                <span
+                  v-if="item.clientId"
+                  class="text-caption mono-text id-cell clickable-id"
+                  @click.stop="openAliasDialog(item.clientId)"
+                >
+                  {{ getDisplayUserId(item.clientId) }}
+                </span>
+                <span v-else class="text-caption mono-text id-cell">—</span>
+                <span v-if="item.sessionId" class="stacked-secondary mono-text">
+                  {{ formatId(item.sessionId) }}
+                </span>
+              </div>
+            </template>
+            <div class="id-tooltip">
+              <div v-if="item.clientId">
+                <div v-if="getUserAlias(item.clientId)" class="alias-tooltip-row">
+                  <span class="alias-label">{{ t('requestLog.alias') }}:</span> {{ getUserAlias(item.clientId) }}
+                </div>
+                <div>
+                  <span class="id-label">{{ t('requestLog.clientId') }}:</span> {{ normalizeUserId(item.clientId) }}
+                </div>
+              </div>
+              <div v-else>
+                <span class="id-label">{{ t('requestLog.clientId') }}:</span> —
+              </div>
+              <div>
+                <span class="id-label">{{ t('requestLog.sessionId') }}:</span> {{ item.sessionId || '—' }}
+              </div>
+            </div>
+          </v-tooltip>
+          <!-- Expanded: Client only -->
+          <v-tooltip v-else-if="item.clientId" location="top" max-width="600">
             <template v-slot:activator="{ props }">
               <span
                 v-bind="props"
@@ -991,12 +1117,16 @@
 <script setup lang="ts">
 	import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 	import { useI18n } from 'vue-i18n'
+	import { useDisplay } from 'vuetify'
 	import { api, type RequestLog, type RequestLogStats, type GroupStats, type ActiveSession, type APIKey } from '../services/api'
 	import RequestDebugModal from './RequestDebugModal.vue'
 	import { useLogStream, type LogCreatedPayload, type LogUpdatedPayload, type ConnectionState } from '../composables/useLogStream'
 
 	// i18n
 	const { t } = useI18n()
+
+	// Viewport detection for responsive stacking
+	const { width: viewportWidth } = useDisplay()
 
 	const emit = defineEmits<{
 	  (e: 'dateRangeChange', payload: { from: string; to: string }): void
@@ -2210,6 +2340,84 @@ const defaultColumnVisibility: Record<string, boolean> = {
 
 const columnVisibility = ref<Record<string, boolean>>({ ...defaultColumnVisibility })
 
+// === Column Stacking Feature ===
+type StackMode = 'expanded' | 'stacked' | 'responsive'
+
+interface StackPairConfig {
+  primary: string
+  secondary: string
+}
+
+const stackPairConfigs: StackPairConfig[] = [
+  { primary: 'providerName', secondary: 'model' },
+  { primary: 'initialTime', secondary: 'durationMs' },
+  { primary: 'clientId', secondary: 'sessionId' },
+]
+
+// Get label for a stacking pair (computed at render time for i18n reactivity)
+const getStackPairLabel = (primary: string): string => {
+  switch (primary) {
+    case 'providerName': return `${t('requestLog.channel')} + ${t('requestLog.model')}`
+    case 'initialTime': return `${t('requestLog.time')} + ${t('requestLog.duration')}`
+    case 'clientId': return `${t('requestLog.client')} + ${t('requestLog.session')}`
+    default: return primary
+  }
+}
+
+const defaultStackModes: Record<string, StackMode> = {
+  providerName: 'expanded',
+  initialTime: 'expanded',
+  clientId: 'expanded',
+}
+
+const stackModes = ref<Record<string, StackMode>>({ ...defaultStackModes })
+
+// Returns true if a primary column should render its secondary inline
+const isStacked = (primaryKey: string): boolean => {
+  const config = stackPairConfigs.find(p => p.primary === primaryKey)
+  if (!config) return false
+  // Check if secondary column is visible in settings
+  if (!columnVisibility.value[config.secondary]) return false
+  const mode = stackModes.value[primaryKey]
+  if (mode === 'stacked') return true
+  if (mode === 'responsive') return viewportWidth.value <= 960
+  return false
+}
+
+// Returns true if a secondary column should be hidden from headers
+const isSecondaryHidden = (key: string): boolean => {
+  const config = stackPairConfigs.find(p => p.secondary === key)
+  if (!config) return false
+  return isStacked(config.primary)
+}
+
+const STACKING_KEY = 'requestlog-column-stacking'
+
+const loadStackingPrefs = () => {
+  try {
+    const saved = localStorage.getItem(STACKING_KEY)
+    if (saved) {
+      const parsed = JSON.parse(saved) as Record<string, StackMode>
+      Object.keys(parsed).forEach(key => {
+        if (key in stackModes.value) {
+          stackModes.value[key] = parsed[key]
+        }
+      })
+    }
+  } catch (e) { console.error('Failed to load stacking prefs:', e) }
+}
+
+const saveStackingPrefs = () => {
+  try {
+    localStorage.setItem(STACKING_KEY, JSON.stringify(stackModes.value))
+  } catch (e) { console.error('Failed to save stacking prefs:', e) }
+}
+
+const resetStackingPrefs = () => {
+  stackModes.value = { ...defaultStackModes }
+  saveStackingPrefs()
+}
+
 // Column display names for the settings UI
 const columnDisplayNames = computed(() => ({
   status: t('requestLog.status'),
@@ -2328,6 +2536,7 @@ const allHeaders = [
 const headers = computed(() =>
   allHeaders
     .filter(h => columnVisibility.value[h.key])
+    .filter(h => !isSecondaryHidden(h.key))
     .map(h => ({
       ...h,
       title: h.title(),
@@ -2725,6 +2934,7 @@ const removeAlias = async (userId?: string) => {
 	onMounted(() => {
 	  loadColumnWidths()
 	  loadColumnVisibility()
+	  loadStackingPrefs()
 	  loadSummaryColumnWidths()
 	  loadActiveSessionColumnWidths()
 	  loadPanelWidths()
@@ -4090,6 +4300,78 @@ const silentRefresh = async () => {
 
 .column-visibility-checkbox :deep(.v-label) {
   font-size: 0.875rem;
+}
+
+/* =========================================
+   Stacked Column Styles
+   ========================================= */
+
+/* Stacked column cells */
+.stacked-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.3;
+  padding: 2px 0;
+}
+
+.stacked-secondary {
+  font-size: 0.7rem;
+  opacity: 0.7;
+  line-height: 1.2;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Stacked tooltip */
+.stacked-tooltip {
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.stacked-tooltip div {
+  margin-bottom: 2px;
+}
+
+.stacked-tooltip strong {
+  color: rgba(255, 255, 255, 0.7);
+  margin-right: 4px;
+}
+
+/* Settings stacking rows */
+.stacking-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stacking-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background-color 200ms;
+}
+
+.stacking-row:hover {
+  background-color: rgba(var(--v-theme-on-surface), 0.04);
+}
+
+.stacking-label {
+  font-weight: 500;
+  min-width: 140px;
+}
+
+.stacking-toggle {
+  height: 28px;
+}
+
+.stacking-toggle .v-btn {
+  font-size: 0.7rem !important;
+  padding: 0 8px !important;
 }
 
 </style>

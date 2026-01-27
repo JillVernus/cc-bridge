@@ -467,6 +467,13 @@ export default {
     live: '时长',
     noActiveSessions: '暂无活跃会话',
     hasDebugData: '调试数据可用（请求头 + 请求体）',
+    // Column stacking
+    columnStacking: '列堆叠',
+    columnStackingDesc: '将相关列合并为堆叠显示以节省水平空间',
+    stackExpanded: '展开',
+    stackStacked: '堆叠',
+    stackAuto: '自动',
+    resetStacking: '重置',
     // User alias
     alias: '别名',
     assignAlias: '设置别名',

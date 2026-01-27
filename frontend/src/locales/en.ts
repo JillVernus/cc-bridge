@@ -467,6 +467,13 @@ export default {
     live: 'Live',
     noActiveSessions: 'No active sessions',
     hasDebugData: 'Debug data available (headers + body)',
+    // Column stacking
+    columnStacking: 'Column Stacking',
+    columnStackingDesc: 'Combine related columns into stacked displays to save horizontal space',
+    stackExpanded: 'Expanded',
+    stackStacked: 'Stacked',
+    stackAuto: 'Auto',
+    resetStacking: 'Reset',
     // User alias
     alias: 'Alias',
     assignAlias: 'Assign Alias',
