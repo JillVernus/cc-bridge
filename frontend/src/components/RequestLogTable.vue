@@ -307,14 +307,39 @@
       </div>
 
       <!-- Splitter 2 -->
-      <div class="panel-splitter" @mousedown="startPanelResize($event, 'splitter2')">
+      <div v-if="!isDateFilterCollapsed" class="panel-splitter" @mousedown="startPanelResize($event, 'splitter2')">
         <div class="splitter-handle"></div>
       </div>
+      <!-- Spacer when collapsed -->
+      <div v-else class="panel-splitter-spacer"></div>
 
       <!-- 日期筛选 -->
-      <div class="panel-wrapper" :style="{ width: panelWidths.dateFilter + '%' }">
+      <div class="panel-wrapper date-filter-panel" :class="{ collapsed: isDateFilterCollapsed }" :style="{ width: panelWidths.dateFilter + '%' }">
         <v-card class="summary-card date-filter-card" density="compact">
-          <div class="date-filter d-flex flex-column align-center justify-center pa-2">
+          <!-- Collapsed state: just the expand button -->
+          <div v-if="isDateFilterCollapsed" class="date-filter-collapsed d-flex align-center justify-center">
+            <v-btn
+              icon
+              variant="text"
+              size="small"
+              class="collapse-toggle-btn"
+              @click="toggleDateFilterCollapsed"
+            >
+              <v-icon size="20">mdi-chevron-double-left</v-icon>
+            </v-btn>
+          </div>
+          <!-- Expanded state: full date filter -->
+          <div v-else class="date-filter d-flex flex-column align-center justify-center pa-2">
+            <!-- Collapse button -->
+            <v-btn
+              icon
+              variant="text"
+              size="x-small"
+              class="collapse-toggle-btn date-filter-collapse-btn"
+              @click="toggleDateFilterCollapsed"
+            >
+              <v-icon size="18">mdi-chevron-double-right</v-icon>
+            </v-btn>
             <!-- Unit selector -->
             <v-btn-toggle
               v-model="dateUnit"
@@ -1919,6 +1944,81 @@ const defaultPanelWidths = {
 const panelWidths = ref<{ summary: number; reserved: number; dateFilter: number }>({ ...defaultPanelWidths })
 const topPanelsContainer = ref<HTMLElement | null>(null)
 
+// Date filter collapsed state
+const isDateFilterCollapsed = ref(false)
+const expandedPanelWidths = ref<{ summary: number; reserved: number; dateFilter: number } | null>(null)
+
+// Load collapsed state and expanded widths from localStorage
+const loadDateFilterCollapsed = () => {
+  try {
+    const saved = localStorage.getItem('requestlog-datefilter-collapsed')
+    if (saved === 'true') {
+      isDateFilterCollapsed.value = true
+    }
+    // Load expanded widths separately (these are the widths when expanded)
+    const savedExpanded = localStorage.getItem('requestlog-panel-widths-expanded')
+    if (savedExpanded) {
+      const parsed = JSON.parse(savedExpanded)
+      // Validate widths
+      if (parsed.summary > 0 && parsed.reserved > 0 && parsed.dateFilter > 0) {
+        expandedPanelWidths.value = { ...defaultPanelWidths, ...parsed }
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load date filter collapsed state:', e)
+  }
+}
+
+// Save collapsed state to localStorage
+const saveDateFilterCollapsed = () => {
+  try {
+    localStorage.setItem('requestlog-datefilter-collapsed', String(isDateFilterCollapsed.value))
+  } catch (e) {
+    console.error('Failed to save date filter collapsed state:', e)
+  }
+}
+
+// Save expanded widths separately
+const saveExpandedPanelWidths = () => {
+  try {
+    if (expandedPanelWidths.value) {
+      localStorage.setItem('requestlog-panel-widths-expanded', JSON.stringify(expandedPanelWidths.value))
+    }
+  } catch (e) {
+    console.error('Failed to save expanded panel widths:', e)
+  }
+}
+
+// Toggle date filter collapsed state
+const toggleDateFilterCollapsed = () => {
+  if (isDateFilterCollapsed.value) {
+    // Expanding: restore saved widths
+    if (expandedPanelWidths.value) {
+      panelWidths.value = { ...expandedPanelWidths.value }
+    }
+    isDateFilterCollapsed.value = false
+  } else {
+    // Collapsing: save current widths and redistribute
+    expandedPanelWidths.value = { ...panelWidths.value }
+    saveExpandedPanelWidths()
+    const collapsedWidth = 1
+    const freedWidth = panelWidths.value.dateFilter - collapsedWidth
+    const totalOther = panelWidths.value.summary + panelWidths.value.reserved
+    // Guard against division by zero
+    if (totalOther > 0) {
+      panelWidths.value.summary += freedWidth * (panelWidths.value.summary / totalOther)
+      panelWidths.value.reserved += freedWidth * (panelWidths.value.reserved / totalOther)
+    } else {
+      // Fallback: split evenly
+      panelWidths.value.summary = 49
+      panelWidths.value.reserved = 49
+    }
+    panelWidths.value.dateFilter = collapsedWidth
+    isDateFilterCollapsed.value = true
+  }
+  saveDateFilterCollapsed()
+}
+
 // Load panel widths from localStorage
 const loadPanelWidths = () => {
   try {
@@ -2005,6 +2105,23 @@ const onPanelResize = (e: MouseEvent) => {
 
 const stopPanelResize = () => {
   if (resizingSplitter.value) {
+    if (isDateFilterCollapsed.value && resizingSplitter.value === 'splitter1' && expandedPanelWidths.value) {
+      // If collapsed and resizing splitter1, update expanded widths proportionally
+      const oldTotal = panelResizeStartWidths.value.summary + panelResizeStartWidths.value.reserved
+      const newTotal = panelWidths.value.summary + panelWidths.value.reserved
+      if (oldTotal > 0 && newTotal > 0) {
+        const summaryRatio = panelWidths.value.summary / newTotal
+        const reservedRatio = panelWidths.value.reserved / newTotal
+        const expandedOtherTotal = expandedPanelWidths.value.summary + expandedPanelWidths.value.reserved
+        expandedPanelWidths.value.summary = expandedOtherTotal * summaryRatio
+        expandedPanelWidths.value.reserved = expandedOtherTotal * reservedRatio
+        saveExpandedPanelWidths()
+      }
+    } else if (!isDateFilterCollapsed.value) {
+      // If not collapsed, expanded widths = current widths
+      expandedPanelWidths.value = { ...panelWidths.value }
+      saveExpandedPanelWidths()
+    }
     savePanelWidths()
   }
   resizingSplitter.value = null
@@ -2938,6 +3055,25 @@ const removeAlias = async (userId?: string) => {
 	  loadSummaryColumnWidths()
 	  loadActiveSessionColumnWidths()
 	  loadPanelWidths()
+	  loadDateFilterCollapsed()
+	  // Apply collapsed state after loading panel widths
+	  if (isDateFilterCollapsed.value) {
+	    // Use persisted expanded widths if available, otherwise use loaded panel widths
+	    if (!expandedPanelWidths.value) {
+	      expandedPanelWidths.value = { ...panelWidths.value }
+	    }
+	    const collapsedWidth = 1
+	    const freedWidth = expandedPanelWidths.value.dateFilter - collapsedWidth
+	    const totalOther = expandedPanelWidths.value.summary + expandedPanelWidths.value.reserved
+	    if (totalOther > 0) {
+	      panelWidths.value.summary = expandedPanelWidths.value.summary + freedWidth * (expandedPanelWidths.value.summary / totalOther)
+	      panelWidths.value.reserved = expandedPanelWidths.value.reserved + freedWidth * (expandedPanelWidths.value.reserved / totalOther)
+	    } else {
+	      panelWidths.value.summary = 49
+	      panelWidths.value.reserved = 49
+	    }
+	    panelWidths.value.dateFilter = collapsedWidth
+	  }
 	  loadUserAliases()
 	  loadAPIKeys()
 	  loadSSEEnabled()
@@ -3240,6 +3376,11 @@ const silentRefresh = async () => {
   justify-content: center;
   position: relative;
   z-index: 10;
+}
+
+.panel-splitter-spacer {
+  width: 12px;
+  flex-shrink: 0;
 }
 
 .panel-splitter:hover .splitter-handle,
@@ -3564,6 +3705,43 @@ const silentRefresh = async () => {
 
 .date-filter {
   flex: 1;
+  position: relative;
+}
+
+/* Date filter panel collapse/expand */
+.date-filter-panel {
+  transition: width 0.2s ease-out;
+}
+
+.date-filter-panel.collapsed {
+  flex-shrink: 0;
+  min-width: 40px;
+}
+
+.date-filter-collapsed {
+  flex: 1;
+  height: 100%;
+}
+
+.date-filter-collapse-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  opacity: 0.5;
+  z-index: 1;
+}
+
+.date-filter-collapse-btn:hover {
+  opacity: 1;
+}
+
+.collapse-toggle-btn {
+  opacity: 0.6;
+}
+
+.collapse-toggle-btn:hover {
+  opacity: 1;
+  background: rgba(var(--v-theme-primary), 0.1);
 }
 
 .unit-toggle {
