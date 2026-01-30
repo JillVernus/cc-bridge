@@ -22,7 +22,7 @@
         <div v-else-if="config">
           <!-- Scope Note -->
           <v-alert type="info" variant="tonal" density="compact" class="mb-4">
-            {{ t('failover.quotaChannelsOnly') }}
+            {{ t('failover.allChannelsNote') }}
           </v-alert>
 
           <!-- Enable/Disable Toggle -->
@@ -34,7 +34,7 @@
               density="compact"
               hide-details
             />
-            <div class="text-caption text-grey mt-2">{{ t('failover.enableDescription') }}</div>
+            <div class="text-caption text-grey mt-2">{{ t('failover.circuitBreakerDescription') }}</div>
           </v-card>
 
           <!-- Rules Section -->
@@ -62,7 +62,7 @@
                       variant="text"
                       color="error"
                       @click.stop="removeRule(ruleIndex)"
-                      :disabled="!config.enabled || config.rules.length <= 1"
+                      :disabled="config.rules.length <= 1"
                     >
                       <v-icon size="16">mdi-delete</v-icon>
                     </v-btn>
@@ -82,7 +82,6 @@
                           variant="outlined"
                           hide-details
                           :placeholder="t('failover.codesPlaceholder')"
-                          :disabled="!config.enabled"
                         />
                       </div>
 
@@ -102,7 +101,6 @@
                               density="compact"
                               variant="outlined"
                               hide-details
-                              :disabled="!config.enabled"
                               style="max-width: 140px"
                               class="mr-2"
                             />
@@ -118,7 +116,6 @@
                                 density="compact"
                                 variant="outlined"
                                 hide-details
-                                :disabled="!config.enabled"
                                 :placeholder="t('failover.autoDetect')"
                                 style="max-width: 80px"
                                 class="mr-2"
@@ -135,7 +132,6 @@
                                 density="compact"
                                 variant="outlined"
                                 hide-details
-                                :disabled="!config.enabled"
                                 style="max-width: 70px"
                                 class="mr-2"
                               />
@@ -151,7 +147,7 @@
                               variant="text"
                               color="error"
                               @click="removeStep(ruleIndex, stepIndex)"
-                              :disabled="!config.enabled || (rule.actionChain?.length || 0) <= 1"
+                              :disabled="(rule.actionChain?.length || 0) <= 1"
                             >
                               <v-icon size="14">mdi-close</v-icon>
                             </v-btn>
@@ -168,7 +164,7 @@
                           size="small"
                           variant="text"
                           @click="addStep(ruleIndex)"
-                          :disabled="!config.enabled || (rule.actionChain?.length || 0) >= 5"
+                          :disabled="(rule.actionChain?.length || 0) >= 5"
                           class="mt-1"
                         >
                           <v-icon start size="16">mdi-plus</v-icon>
@@ -185,7 +181,6 @@
               size="small"
               variant="outlined"
               @click="addRule"
-              :disabled="!config.enabled"
               class="mt-2"
             >
               <v-icon start>mdi-plus</v-icon>
@@ -208,9 +203,13 @@
                     <v-chip size="x-small" color="warning" class="mr-2">{{ t('failover.actionFailover') }}</v-chip>
                     {{ t('failover.actionFailoverDesc') }}
                   </div>
-                  <div>
+                  <div class="mb-1">
                     <v-chip size="x-small" color="purple" class="mr-2">{{ t('failover.actionSuspend') }}</v-chip>
                     {{ t('failover.actionSuspendDesc') }}
+                  </div>
+                  <div>
+                    <v-chip size="x-small" color="grey" class="mr-2">{{ t('failover.actionNone') }}</v-chip>
+                    {{ t('failover.actionNoneDesc') }}
                   </div>
                 </div>
               </v-card>
@@ -288,7 +287,8 @@ const expandedRules = ref<Record<number, boolean>>({})
 const actionTypeOptions = computed(() => [
   { value: 'retry', label: t('failover.actionRetry') },
   { value: 'failover', label: t('failover.actionFailover') },
-  { value: 'suspend', label: t('failover.actionSuspend') }
+  { value: 'suspend', label: t('failover.actionSuspend') },
+  { value: 'none', label: t('failover.actionNone') }
 ])
 
 // Snackbar
@@ -326,6 +326,8 @@ const getActionChainSummary = (rule: FailoverRule): string => {
         return t('failover.actionFailover')
       case 'suspend':
         return t('failover.actionSuspend')
+      case 'none':
+        return t('failover.actionNone')
       default:
         return String(step.action)
     }

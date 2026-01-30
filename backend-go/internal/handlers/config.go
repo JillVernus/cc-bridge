@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http" // 新增
 	"strconv"
 	"strings"
@@ -1332,10 +1333,17 @@ func UpdateFailoverConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				}
 
 				// Validate ActionChain if present
-				if len(rule.ActionChain) > 0 {
+				if rule.ActionChain != nil {
+					// Reject empty actionChain - use {Action: "none"} instead
+					if len(rule.ActionChain) == 0 {
+						c.JSON(http.StatusBadRequest, gin.H{
+							"error": "规则 " + strconv.Itoa(i+1) + " 的动作链不能为空，请使用 {\"action\": \"none\"} 表示返回错误",
+						})
+						return
+					}
 					for j, step := range rule.ActionChain {
 						switch step.Action {
-						case config.ActionRetry, config.ActionFailover, config.ActionSuspend:
+						case config.ActionRetry, config.ActionFailover, config.ActionSuspend, config.ActionReturnError:
 							// Valid action
 						default:
 							c.JSON(http.StatusBadRequest, gin.H{
@@ -1344,6 +1352,22 @@ func UpdateFailoverConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 							return
 						}
 					}
+
+					// Warn about dangerous "others" rule with failover
+					if rule.ErrorCodes == "others" {
+						for _, step := range rule.ActionChain {
+							if step.Action == config.ActionFailover {
+								log.Printf("⚠️ 警告: 规则 %d 使用 'others' + 'failover'，这可能导致 4xx 客户端错误也触发故障转移", i+1)
+								break
+							}
+						}
+					}
+				} else if rule.Action == "" {
+					// Reject rules with neither actionChain nor legacy action
+					c.JSON(http.StatusBadRequest, gin.H{
+						"error": "规则 " + strconv.Itoa(i+1) + " 必须指定 actionChain 或 action",
+					})
+					return
 				}
 			}
 			cfg.Rules = req.Rules

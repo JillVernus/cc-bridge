@@ -1350,15 +1350,15 @@ export interface ProviderStatsHistoryResponse {
 
 // Failover Configuration Types
 // New action types for action chain
-export type FailoverActionType = 'retry' | 'failover' | 'suspend'
+export type FailoverActionType = 'retry' | 'failover' | 'suspend' | 'none'
 
 // Legacy action types (deprecated, for backward compatibility display only)
 export type LegacyFailoverAction = 'failover_immediate' | 'failover_threshold' | 'retry_wait' | 'suspend_channel'
 
 // Single step in the action chain
 export interface ActionStep {
-  action: FailoverActionType      // Action type: "retry", "failover", "suspend"
-  waitSeconds?: number            // Wait seconds before retry (0 = auto-detect from response, only for retry)
+  action: FailoverActionType      // Action type: "retry", "failover", "suspend", "none"
+  waitSeconds?: number            // Wait seconds before retry (0 = auto-detect from response body, only for retry)
   maxAttempts?: number            // Max retry attempts (only for retry, 99 = indefinite)
 }
 

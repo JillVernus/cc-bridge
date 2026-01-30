@@ -265,9 +265,10 @@ func (d *DebugLogConfig) GetMaxBodySize() int {
 
 // FailoverAction 故障转移动作类型 (新版本)
 const (
-	ActionRetry    = "retry"    // 等待后重试（可配置次数）
-	ActionFailover = "failover" // 故障转移到下一个密钥
-	ActionSuspend  = "suspend"  // 暂停渠道直到配额重置
+	ActionRetry       = "retry"    // 等待后重试（可配置次数）
+	ActionFailover    = "failover" // 故障转移到下一个密钥
+	ActionSuspend     = "suspend"  // 暂停渠道直到配额重置
+	ActionReturnError = "none"     // 返回错误给客户端（不重试/不故障转移）
 )
 
 // FailoverAction 故障转移动作类型 (旧版本 - 用于迁移)
@@ -307,7 +308,7 @@ type FailoverConfig struct {
 	ModelCooldownMaxWaitSeconds int `json:"modelCooldownMaxWaitSeconds,omitempty"` // Type 2: 模型冷却最大等待时间（默认 60 秒）
 }
 
-// GetDefaultFailoverRules 获取默认故障转移规则（用于配额渠道）
+// GetDefaultFailoverRules 获取默认故障转移规则（适用于所有渠道）
 // 规则按优先级排序：更具体的模式（如 429:QUOTA_EXHAUSTED）优先于通用模式（如 429）
 func GetDefaultFailoverRules() []FailoverRule {
 	return []FailoverRule{
@@ -324,20 +325,19 @@ func GetDefaultFailoverRules() []FailoverRule {
 			{Action: ActionRetry, WaitSeconds: 20, MaxAttempts: 99},
 			{Action: ActionFailover},
 		}},
-		// 通用 429 - 重试 3 次后故障转移
+		// 通用 429 - 等待 5 秒后重试 3 次，然后故障转移（统一所有提供商行为）
 		{ErrorCodes: "429", ActionChain: []ActionStep{
-			{Action: ActionRetry, WaitSeconds: 0, MaxAttempts: 3},
+			{Action: ActionRetry, WaitSeconds: 5, MaxAttempts: 3},
 			{Action: ActionFailover},
 		}},
 		// 认证错误 - 立即故障转移
 		{ErrorCodes: "401,403", ActionChain: []ActionStep{{Action: ActionFailover}}},
-		// 服务器错误 - 重试 2 次后故障转移
+		// 服务器错误 - 等待 5 秒后重试 2 次，然后故障转移
 		{ErrorCodes: "500,502,503,504", ActionChain: []ActionStep{
-			{Action: ActionRetry, WaitSeconds: 0, MaxAttempts: 2},
+			{Action: ActionRetry, WaitSeconds: 5, MaxAttempts: 2},
 			{Action: ActionFailover},
 		}},
-		// 其他错误 - 立即故障转移
-		{ErrorCodes: "others", ActionChain: []ActionStep{{Action: ActionFailover}}},
+		// 注意：不再包含 "others" 规则 - 未匹配的错误将返回给客户端（ActionNone）
 	}
 }
 
@@ -617,6 +617,18 @@ func (cm *ConfigManager) loadConfig() error {
 				return err
 			}
 			log.Printf("故障转移规则迁移完成，共迁移 %d 条规则", len(migratedRules))
+		}
+
+		// 安全警告：检查危险的 "others" 规则
+		for i, rule := range cm.config.Failover.Rules {
+			if rule.ErrorCodes == "others" {
+				for _, step := range rule.ActionChain {
+					if step.Action == ActionFailover {
+						log.Printf("⚠️ 警告: 故障转移规则 %d 使用 'others' + 'failover'，这可能导致 4xx 客户端错误也触发故障转移，建议移除此规则", i+1)
+						break
+					}
+				}
+			}
 		}
 	}
 

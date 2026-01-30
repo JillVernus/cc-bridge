@@ -291,6 +291,29 @@ func (ft *FailoverTracker) decideWithActionChain(channelIdx int, apiKey string, 
 					ChainComplete:   isLastStep,
 				}
 			}
+
+		case ActionReturnError:
+			// If we've exceeded all previous retry steps, return error to client
+			if count > cumulativeAttempts {
+				// Clear the counter (terminal action)
+				delete(ft.counters[key], errorGroup)
+
+				reason := "explicit_return_error"
+				if parsed != nil && parsed.Subtype != "" {
+					reason = parsed.Subtype
+				}
+
+				return FailoverDecision{
+					Action:          ActionNone,
+					Wait:            0,
+					MarkKeyFailed:   false,
+					DeprioritizeKey: false,
+					SuspendChannel:  false,
+					Reason:          reason,
+					ChainStepIndex:  stepIdx,
+					ChainComplete:   true,
+				}
+			}
 		}
 	}
 
@@ -378,6 +401,9 @@ func findMatchingRule(statusCode int, rules []FailoverRule) (*FailoverRule, stri
 // ShouldFailover 检查是否应该触发故障转移 (LEGACY - for backward compatibility)
 // 返回 (shouldFailover, isQuotaRelated)
 // 如果返回 true，表示已达到阈值，应该切换到下一个 key/channel
+//
+// Deprecated: Use DecideAction() instead. This function is kept for rollback only.
+// All handlers now use DecideAction() for unified failover logic.
 func (ft *FailoverTracker) ShouldFailover(channelIdx int, apiKey string, statusCode int, failoverConfig *FailoverConfig) (shouldFailover bool, isQuotaRelated bool) {
 	// 检查是否为配额相关错误（用于特殊处理）
 	isQuotaRelated = statusCode == 429
@@ -477,7 +503,8 @@ func (ft *FailoverTracker) GetErrorCount(channelIdx int, apiKey string, errorGro
 }
 
 // Decide429Action determines the action for a 429 error based on response body analysis.
-// LEGACY: Kept for backward compatibility. Use DecideAction for new code.
+//
+// Deprecated: Use DecideAction() instead. This function is kept for backward compatibility.
 func (ft *FailoverTracker) Decide429Action(channelIdx int, apiKey string, respBody []byte, failoverConfig *FailoverConfig) FailoverDecision {
 	return ft.DecideAction(channelIdx, apiKey, 429, respBody, failoverConfig)
 }
@@ -485,6 +512,9 @@ func (ft *FailoverTracker) Decide429Action(channelIdx int, apiKey string, respBo
 // LegacyFailover returns the original circuit breaker failover decision for non-quota channels.
 // For 429/401/403: immediate failover to next key
 // For other errors: no failover, return error to client
+//
+// Deprecated: Use DecideAction() instead. This function is kept for rollback only.
+// All handlers now use DecideAction() for unified failover logic.
 func (ft *FailoverTracker) LegacyFailover(statusCode int) FailoverDecision {
 	if statusCode == 429 || statusCode == 401 || statusCode == 403 {
 		return FailoverDecision{

@@ -706,16 +706,9 @@ func tryResponsesChannelWithAllKeys(
 
 			// Handle 429 errors with smart subtype detection
 			if resp.StatusCode == 429 && failoverTracker != nil {
-				// Choose failover logic based on quota type
-				var decision config.FailoverDecision
-				if upstream.QuotaType != "" {
-					// Quota channel: use admin failover settings
-					failoverConfig := cfgManager.GetFailoverConfig()
-					decision = failoverTracker.DecideAction(upstream.Index, apiKey, resp.StatusCode, respBodyBytes, &failoverConfig)
-				} else {
-					// Normal channel: use legacy circuit breaker (immediate failover on 429)
-					decision = failoverTracker.LegacyFailover(resp.StatusCode)
-				}
+				// Unified failover logic: always use admin failover settings
+				failoverConfig := cfgManager.GetFailoverConfig()
+				decision := failoverTracker.DecideAction(upstream.Index, apiKey, resp.StatusCode, respBodyBytes, &failoverConfig)
 
 				switch decision.Action {
 				case config.ActionRetrySameKey:
@@ -852,9 +845,9 @@ func tryResponsesChannelWithAllKeys(
 							HTTPStatus:    resp.StatusCode,
 							ChannelID:     upstream.Index,
 							ChannelName:   upstream.Name,
-							Error:         fmt.Sprintf("429 %s (threshold not reached)", decision.Reason),
+							Error:         fmt.Sprintf("429 %s (returning error)", decision.Reason),
 							UpstreamError: string(respBodyBytes),
-							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, "threshold not reached"),
+							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, decision.Reason),
 						}
 						_ = reqLogManager.Update(currentRequestLogID, record)
 					}
@@ -864,69 +857,186 @@ func tryResponsesChannelWithAllKeys(
 				}
 			}
 
-			// Non-429 errors: choose failover logic based on quota type
-			var shouldFailover, isQuotaRelated bool
+			// Non-429 errors: use unified failover logic with full decision switch
 			if failoverTracker != nil {
-				if upstream.QuotaType != "" {
-					// Quota channel: use admin failover settings
-					failoverConfig := cfgManager.GetFailoverConfig()
-					shouldFailover, isQuotaRelated = failoverTracker.ShouldFailover(upstream.Index, apiKey, resp.StatusCode, &failoverConfig)
-				} else {
-					// Normal channel: use legacy circuit breaker
-					decision := failoverTracker.LegacyFailover(resp.StatusCode)
-					shouldFailover = decision.Action == config.ActionFailoverKey
-					isQuotaRelated = false
+				failoverConfig := cfgManager.GetFailoverConfig()
+				decision := failoverTracker.DecideAction(upstream.Index, apiKey, resp.StatusCode, respBodyBytes, &failoverConfig)
+
+				switch decision.Action {
+				case config.ActionRetrySameKey:
+					// Wait and retry with same key
+					log.Printf("⏳ [Responses] %d %s: 等待 %v 后重试同一密钥 (max: %d)", resp.StatusCode, decision.Reason, decision.Wait, decision.MaxAttempts)
+
+					failoverInfo := requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionRetryWait, fmt.Sprintf("%.0fs", decision.Wait.Seconds()))
+
+					// AUDIT: Log this retry_wait attempt before waiting
+					if reqLogManager != nil && currentRequestLogID != "" {
+						completeTime := time.Now()
+						retryWaitRecord := &requestlog.RequestLog{
+							Status:        requestlog.StatusRetryWait,
+							CompleteTime:  completeTime,
+							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
+							Type:          upstream.ServiceType,
+							ProviderName:  upstream.Name,
+							HTTPStatus:    resp.StatusCode,
+							ChannelID:     upstream.Index,
+							ChannelName:   upstream.Name,
+							Error:         fmt.Sprintf("%d %s - retrying after %v", resp.StatusCode, decision.Reason, decision.Wait),
+							UpstreamError: string(respBodyBytes),
+							FailoverInfo:  failoverInfo,
+						}
+						if err := reqLogManager.Update(currentRequestLogID, retryWaitRecord); err != nil {
+							log.Printf("⚠️ [Responses] Failed to update retry_wait log: %v", err)
+						}
+
+						// Save debug log for this error response
+						SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+
+						// Create new pending log for the retry attempt
+						newPendingLog := &requestlog.RequestLog{
+							Status:      requestlog.StatusPending,
+							InitialTime: time.Now(),
+							Model:       responsesReq.Model,
+							Stream:      responsesReq.Stream,
+							Endpoint:    "/v1/responses",
+							ClientID:    clientID,
+							SessionID:   sessionID,
+							APIKeyID:    apiKeyID,
+						}
+						if err := reqLogManager.Add(newPendingLog); err != nil {
+							log.Printf("⚠️ [Responses] Failed to create retry pending log: %v", err)
+						} else {
+							currentRequestLogID = newPendingLog.ID
+						}
+					}
+
+					// Capture for last-resort error reporting
+					lastFailoverError = &struct {
+						Status       int
+						Body         []byte
+						FailoverInfo string
+					}{
+						Status:       resp.StatusCode,
+						Body:         respBodyBytes,
+						FailoverInfo: failoverInfo,
+					}
+
+					select {
+					case <-time.After(decision.Wait):
+						pinnedKey = apiKey            // Pin for next attempt
+						retryWaitPending = true       // Allow loop to continue
+						currentStartTime = time.Now() // Reset startTime after wait completes
+						continue
+					case <-c.Request.Context().Done():
+						// Client disconnected
+						return false, nil, currentRequestLogID
+					}
+
+				case config.ActionFailoverKey:
+					// Failover to next key
+					failedKeys[apiKey] = true
+					if decision.MarkKeyFailed {
+						cfgManager.MarkKeyAsFailed(apiKey)
+					}
+					log.Printf("⚠️ [Responses] %d %s: 切换到下一个密钥", resp.StatusCode, decision.Reason)
+
+					// Determine the reason for failover
+					failoverReason := requestlog.FailoverActionFailover
+					if resp.StatusCode == 401 || resp.StatusCode == 403 {
+						failoverReason = requestlog.FailoverActionAuthFailed
+					}
+					lastFailoverError = &struct {
+						Status       int
+						Body         []byte
+						FailoverInfo string
+					}{
+						Status:       resp.StatusCode,
+						Body:         respBodyBytes,
+						FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, failoverReason, "next key"),
+					}
+
+					// Only deprioritize for 429 errors (quota-related), not transient 5xx
+					if decision.DeprioritizeKey && resp.StatusCode == 429 {
+						deprioritizeCandidates[apiKey] = true
+					}
+					continue
+
+				case config.ActionSuspendChan:
+					// Suspend channel
+					if reqLogManager != nil && decision.SuspendChannel {
+						suspendedUntil := time.Now().Add(5 * time.Minute)
+						if upstream.QuotaResetAt != nil && upstream.QuotaResetAt.After(time.Now()) {
+							suspendedUntil = *upstream.QuotaResetAt
+							log.Printf("⏸️ [Responses] Channel [%d] %s: using QuotaResetAt %s for suspension",
+								upstream.Index, upstream.Name, suspendedUntil.Format(time.RFC3339))
+						} else {
+							log.Printf("⏸️ [Responses] Channel [%d] %s: using default 5min suspension (QuotaResetAt: %v)",
+								upstream.Index, upstream.Name, upstream.QuotaResetAt)
+						}
+						channelType := "responses"
+						if err := reqLogManager.SuspendChannel(upstream.Index, channelType, suspendedUntil, decision.Reason); err != nil {
+							log.Printf("⚠️ [Responses] Failed to suspend channel [%d] (%s): %v", upstream.Index, channelType, err)
+						}
+					}
+					log.Printf("⏸️ [Responses] %d %s: 渠道暂停，切换到下一个渠道", resp.StatusCode, decision.Reason)
+
+					// Return false to trigger channel failover (outer loop will try next channel)
+					return false, &struct {
+						Status       int
+						Body         []byte
+						FailoverInfo string
+					}{
+						Status:       resp.StatusCode,
+						Body:         respBodyBytes,
+						FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionSuspended, "next channel"),
+					}, currentRequestLogID
+
+				default:
+					// ActionNone - return error to client
+					if reqLogManager != nil && currentRequestLogID != "" {
+						completeTime := time.Now()
+						record := &requestlog.RequestLog{
+							Status:        requestlog.StatusError,
+							CompleteTime:  completeTime,
+							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
+							Type:          upstream.ServiceType,
+							ProviderName:  upstream.Name,
+							HTTPStatus:    resp.StatusCode,
+							ChannelID:     upstream.Index,
+							ChannelName:   upstream.Name,
+							Error:         fmt.Sprintf("upstream returned status %d", resp.StatusCode),
+							UpstreamError: string(respBodyBytes),
+							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, ""),
+						}
+						_ = reqLogManager.Update(currentRequestLogID, record)
+					}
+					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+					c.Data(resp.StatusCode, "application/json", respBodyBytes)
+					return true, nil, currentRequestLogID
 				}
 			} else {
-				shouldFailover, isQuotaRelated = shouldRetryWithNextKey(resp.StatusCode, respBodyBytes)
+				// No failover tracker - return error to client
+				if reqLogManager != nil && currentRequestLogID != "" {
+					completeTime := time.Now()
+					record := &requestlog.RequestLog{
+						Status:        requestlog.StatusError,
+						CompleteTime:  completeTime,
+						DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
+						Type:          upstream.ServiceType,
+						ProviderName:  upstream.Name,
+						HTTPStatus:    resp.StatusCode,
+						ChannelID:     upstream.Index,
+						ChannelName:   upstream.Name,
+						Error:         fmt.Sprintf("upstream returned status %d", resp.StatusCode),
+						UpstreamError: string(respBodyBytes),
+						FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, "", requestlog.FailoverActionReturnErr, ""),
+					}
+					_ = reqLogManager.Update(currentRequestLogID, record)
+				}
+				SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+				c.Data(resp.StatusCode, "application/json", respBodyBytes)
+				return true, nil, currentRequestLogID
 			}
-			if shouldFailover {
-				failedKeys[apiKey] = true
-				cfgManager.MarkKeyAsFailed(apiKey)
-				log.Printf("⚠️ [Responses] API密钥失败 (状态: %d)，尝试下一个密钥", resp.StatusCode)
-
-				// Determine the reason for failover
-				failoverReason := requestlog.FailoverActionFailover
-				if resp.StatusCode == 401 || resp.StatusCode == 403 {
-					failoverReason = requestlog.FailoverActionAuthFailed
-				}
-				lastFailoverError = &struct {
-					Status       int
-					Body         []byte
-					FailoverInfo string
-				}{
-					Status:       resp.StatusCode,
-					Body:         respBodyBytes,
-					FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, "", failoverReason, "next key"),
-				}
-
-				if isQuotaRelated {
-					deprioritizeCandidates[apiKey] = true
-				}
-				continue
-			}
-
-			// 非 failover 错误，更新请求日志并返回
-			if reqLogManager != nil && currentRequestLogID != "" {
-				completeTime := time.Now()
-				record := &requestlog.RequestLog{
-					Status:        requestlog.StatusError,
-					CompleteTime:  completeTime,
-					DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
-					Type:          upstream.ServiceType,
-					ProviderName:  upstream.Name,
-					HTTPStatus:    resp.StatusCode,
-					ChannelID:     upstream.Index,
-					ChannelName:   upstream.Name,
-					Error:         fmt.Sprintf("upstream returned status %d", resp.StatusCode),
-					UpstreamError: string(respBodyBytes),
-					FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, "", requestlog.FailoverActionReturnErr, ""),
-				}
-				_ = reqLogManager.Update(currentRequestLogID, record)
-			}
-			SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
-			c.Data(resp.StatusCode, "application/json", respBodyBytes)
-			return true, nil, currentRequestLogID
 		}
 
 		if len(deprioritizeCandidates) > 0 {
@@ -1366,16 +1476,9 @@ func handleSingleChannelResponses(
 
 			// Handle 429 errors with smart subtype detection (single-channel mode)
 			if resp.StatusCode == 429 && failoverTracker != nil {
-				// Choose failover logic based on quota type
-				var decision config.FailoverDecision
-				if upstream.QuotaType != "" {
-					// Quota channel: use admin failover settings
-					failoverConfig := cfgManager.GetFailoverConfig()
-					decision = failoverTracker.DecideAction(upstream.Index, apiKey, resp.StatusCode, respBodyBytes, &failoverConfig)
-				} else {
-					// Normal channel: use legacy circuit breaker (immediate failover on 429)
-					decision = failoverTracker.LegacyFailover(resp.StatusCode)
-				}
+				// Unified failover logic: always use admin failover settings
+				failoverConfig := cfgManager.GetFailoverConfig()
+				decision := failoverTracker.DecideAction(upstream.Index, apiKey, resp.StatusCode, respBodyBytes, &failoverConfig)
 
 				switch decision.Action {
 				case config.ActionRetrySameKey:
@@ -1511,7 +1614,7 @@ func handleSingleChannelResponses(
 				default:
 					// ActionNone - return error to client
 					if envCfg.EnableResponseLogs {
-						log.Printf("⚠️ [Responses] 429 %s (threshold not reached)", decision.Reason)
+						log.Printf("⚠️ [Responses] 429 %s (returning error)", decision.Reason)
 					}
 					if reqLogManager != nil && currentRequestLogID != "" {
 						completeTime := time.Now()
@@ -1524,9 +1627,9 @@ func handleSingleChannelResponses(
 							HTTPStatus:    resp.StatusCode,
 							ChannelID:     upstream.Index,
 							ChannelName:   upstream.Name,
-							Error:         fmt.Sprintf("429 %s (threshold not reached)", decision.Reason),
+							Error:         fmt.Sprintf("429 %s (returning error)", decision.Reason),
 							UpstreamError: string(respBodyBytes),
-							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, "threshold not reached"),
+							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, decision.Reason),
 						}
 						_ = reqLogManager.Update(currentRequestLogID, record)
 					}
@@ -1536,89 +1639,224 @@ func handleSingleChannelResponses(
 				}
 			}
 
-			// Non-429 errors: choose failover logic based on quota type
-			var shouldFailover, isQuotaRelated bool
+			// Non-429 errors: use unified failover logic with full decision switch
 			if failoverTracker != nil {
-				if upstream.QuotaType != "" {
-					// Quota channel: use admin failover settings
-					failoverConfig := cfgManager.GetFailoverConfig()
-					shouldFailover, isQuotaRelated = failoverTracker.ShouldFailover(upstream.Index, apiKey, resp.StatusCode, &failoverConfig)
-				} else {
-					// Normal channel: use legacy circuit breaker
-					decision := failoverTracker.LegacyFailover(resp.StatusCode)
-					shouldFailover = decision.Action == config.ActionFailoverKey
-					isQuotaRelated = false
-				}
-			} else {
-				shouldFailover, isQuotaRelated = shouldRetryWithNextKey(resp.StatusCode, respBodyBytes)
-			}
-			if shouldFailover {
-				lastError = fmt.Errorf("上游错误: %d", resp.StatusCode)
-				failedKeys[apiKey] = true
-				cfgManager.MarkKeyAsFailed(apiKey)
+				failoverConfig := cfgManager.GetFailoverConfig()
+				decision := failoverTracker.DecideAction(upstream.Index, apiKey, resp.StatusCode, respBodyBytes, &failoverConfig)
 
-				log.Printf("⚠️ Responses API密钥失败 (状态: %d)，尝试下一个密钥", resp.StatusCode)
-				if envCfg.EnableResponseLogs && envCfg.IsDevelopment() {
-					formattedBody := utils.FormatJSONBytesForLog(respBodyBytes, 500)
-					log.Printf("📦 失败原因:\n%s", formattedBody)
-				} else if envCfg.EnableResponseLogs {
-					log.Printf("失败原因: %s", string(respBodyBytes))
-				}
+				switch decision.Action {
+				case config.ActionRetrySameKey:
+					// Wait and retry with same key
+					log.Printf("⏳ [Responses] %d %s: 等待 %v 后重试同一密钥 (max: %d)", resp.StatusCode, decision.Reason, decision.Wait, decision.MaxAttempts)
 
-				lastFailoverError = &struct {
-					Status       int
-					Body         []byte
-					FailoverInfo string
-				}{
-					Status:       resp.StatusCode,
-					Body:         respBodyBytes,
-					FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, "", requestlog.FailoverActionFailover, "next key"),
-				}
+					failoverInfo := requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionRetryWait, fmt.Sprintf("%.0fs", decision.Wait.Seconds()))
 
-				if isQuotaRelated {
-					deprioritizeCandidates[apiKey] = true
-				}
-				continue
-			}
+					// AUDIT: Log this retry_wait attempt before waiting
+					if reqLogManager != nil && currentRequestLogID != "" {
+						completeTime := time.Now()
+						retryWaitRecord := &requestlog.RequestLog{
+							Status:        requestlog.StatusRetryWait,
+							CompleteTime:  completeTime,
+							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
+							Type:          upstream.ServiceType,
+							ProviderName:  upstream.Name,
+							HTTPStatus:    resp.StatusCode,
+							ChannelID:     upstream.Index,
+							ChannelName:   upstream.Name,
+							Error:         fmt.Sprintf("%d %s - retrying after %v", resp.StatusCode, decision.Reason, decision.Wait),
+							UpstreamError: string(respBodyBytes),
+							FailoverInfo:  failoverInfo,
+						}
+						if err := reqLogManager.Update(currentRequestLogID, retryWaitRecord); err != nil {
+							log.Printf("⚠️ [Responses] Failed to update retry_wait log: %v", err)
+						}
 
-			// Non-failover error - update request log and return
-			if reqLogManager != nil && currentRequestLogID != "" {
-				completeTime := time.Now()
-				record := &requestlog.RequestLog{
-					Status:        requestlog.StatusError,
-					CompleteTime:  completeTime,
-					DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
-					Type:          upstream.ServiceType,
-					ProviderName:  upstream.Name,
-					HTTPStatus:    resp.StatusCode,
-					ChannelID:     upstream.Index,
-					ChannelName:   upstream.Name,
-					Error:         fmt.Sprintf("upstream returned status %d", resp.StatusCode),
-					UpstreamError: string(respBodyBytes),
-					FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, "", requestlog.FailoverActionReturnErr, ""),
-				}
-				_ = reqLogManager.Update(currentRequestLogID, record)
-			}
+						// Save debug log for this error response
+						SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 
-			if envCfg.EnableResponseLogs {
-				log.Printf("⚠️ Responses 上游返回错误: %d", resp.StatusCode)
-				if envCfg.IsDevelopment() {
-					formattedBody := utils.FormatJSONBytesForLog(respBodyBytes, 500)
-					log.Printf("📦 错误响应体:\n%s", formattedBody)
-
-					respHeaders := make(map[string]string)
-					for key, values := range resp.Header {
-						if len(values) > 0 {
-							respHeaders[key] = values[0]
+						// Create new pending log for the retry attempt
+						newPendingLog := &requestlog.RequestLog{
+							Status:      requestlog.StatusPending,
+							InitialTime: time.Now(),
+							Model:       responsesReq.Model,
+							Stream:      responsesReq.Stream,
+							Endpoint:    "/v1/responses",
+							ClientID:    clientID,
+							SessionID:   sessionID,
+							APIKeyID:    apiKeyID,
+						}
+						if err := reqLogManager.Add(newPendingLog); err != nil {
+							log.Printf("⚠️ [Responses] Failed to create retry pending log: %v", err)
+						} else {
+							currentRequestLogID = newPendingLog.ID
 						}
 					}
-					respHeadersJSON, _ := json.MarshalIndent(respHeaders, "", "  ")
-					log.Printf("📋 错误响应头:\n%s", string(respHeadersJSON))
+
+					// Capture for last-resort error reporting
+					lastFailoverError = &struct {
+						Status       int
+						Body         []byte
+						FailoverInfo string
+					}{
+						Status:       resp.StatusCode,
+						Body:         respBodyBytes,
+						FailoverInfo: failoverInfo,
+					}
+
+					select {
+					case <-time.After(decision.Wait):
+						pinnedKey = apiKey            // Pin for next attempt
+						retryWaitPending = true       // Allow loop to continue
+						currentStartTime = time.Now() // Reset startTime after wait completes
+						continue
+					case <-c.Request.Context().Done():
+						// Client disconnected
+						return
+					}
+
+				case config.ActionFailoverKey:
+					// Failover to next key
+					lastError = fmt.Errorf("上游错误: %d", resp.StatusCode)
+					failedKeys[apiKey] = true
+					if decision.MarkKeyFailed {
+						cfgManager.MarkKeyAsFailed(apiKey)
+					}
+					log.Printf("⚠️ [Responses] %d %s: 切换到下一个密钥", resp.StatusCode, decision.Reason)
+
+					if envCfg.EnableResponseLogs && envCfg.IsDevelopment() {
+						formattedBody := utils.FormatJSONBytesForLog(respBodyBytes, 500)
+						log.Printf("📦 失败原因:\n%s", formattedBody)
+					} else if envCfg.EnableResponseLogs {
+						log.Printf("失败原因: %s", string(respBodyBytes))
+					}
+
+					lastFailoverError = &struct {
+						Status       int
+						Body         []byte
+						FailoverInfo string
+					}{
+						Status:       resp.StatusCode,
+						Body:         respBodyBytes,
+						FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionFailover, "next key"),
+					}
+
+					// Only deprioritize for 429 errors (quota-related), not transient 5xx
+					if decision.DeprioritizeKey && resp.StatusCode == 429 {
+						deprioritizeCandidates[apiKey] = true
+					}
+					continue
+
+				case config.ActionSuspendChan:
+					// Suspend channel (single-channel mode)
+					if reqLogManager != nil && decision.SuspendChannel {
+						suspendedUntil := time.Now().Add(5 * time.Minute)
+						if upstream.QuotaResetAt != nil && upstream.QuotaResetAt.After(time.Now()) {
+							suspendedUntil = *upstream.QuotaResetAt
+							log.Printf("⏸️ [Responses] Channel [%d] %s: using QuotaResetAt %s for suspension",
+								upstream.Index, upstream.Name, suspendedUntil.Format(time.RFC3339))
+						} else {
+							log.Printf("⏸️ [Responses] Channel [%d] %s: using default 5min suspension (QuotaResetAt: %v)",
+								upstream.Index, upstream.Name, upstream.QuotaResetAt)
+						}
+						if err := reqLogManager.SuspendChannel(upstream.Index, "responses", suspendedUntil, decision.Reason); err != nil {
+							log.Printf("⚠️ [Responses] Failed to suspend channel [%d] (responses): %v", upstream.Index, err)
+						}
+					}
+					log.Printf("⏸️ [Responses] %d %s: 渠道暂停 (单渠道模式，无可用后备)", resp.StatusCode, decision.Reason)
+
+					// For single-channel, return error since there's no other channel to try
+					if reqLogManager != nil && currentRequestLogID != "" {
+						completeTime := time.Now()
+						record := &requestlog.RequestLog{
+							Status:        requestlog.StatusError,
+							CompleteTime:  completeTime,
+							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
+							Type:          upstream.ServiceType,
+							ProviderName:  upstream.Name,
+							HTTPStatus:    resp.StatusCode,
+							ChannelID:     upstream.Index,
+							ChannelName:   upstream.Name,
+							Error:         fmt.Sprintf("%d %s - channel suspended", resp.StatusCode, decision.Reason),
+							UpstreamError: string(respBodyBytes),
+							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionSuspended, "no fallback"),
+						}
+						_ = reqLogManager.Update(currentRequestLogID, record)
+					}
+					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+					c.Data(resp.StatusCode, "application/json", respBodyBytes)
+					return
+
+				default:
+					// ActionNone - return error to client
+					if reqLogManager != nil && currentRequestLogID != "" {
+						completeTime := time.Now()
+						record := &requestlog.RequestLog{
+							Status:        requestlog.StatusError,
+							CompleteTime:  completeTime,
+							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
+							Type:          upstream.ServiceType,
+							ProviderName:  upstream.Name,
+							HTTPStatus:    resp.StatusCode,
+							ChannelID:     upstream.Index,
+							ChannelName:   upstream.Name,
+							Error:         fmt.Sprintf("upstream returned status %d", resp.StatusCode),
+							UpstreamError: string(respBodyBytes),
+							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, ""),
+						}
+						_ = reqLogManager.Update(currentRequestLogID, record)
+					}
+
+					if envCfg.EnableResponseLogs {
+						log.Printf("⚠️ [Responses] 上游返回错误: %d", resp.StatusCode)
+						if envCfg.IsDevelopment() {
+							formattedBody := utils.FormatJSONBytesForLog(respBodyBytes, 500)
+							log.Printf("📦 错误响应体:\n%s", formattedBody)
+
+							respHeaders := make(map[string]string)
+							for key, values := range resp.Header {
+								if len(values) > 0 {
+									respHeaders[key] = values[0]
+								}
+							}
+							respHeadersJSON, _ := json.MarshalIndent(respHeaders, "", "  ")
+							log.Printf("📋 错误响应头:\n%s", string(respHeadersJSON))
+						}
+					}
+					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+					c.Data(resp.StatusCode, "application/json", respBodyBytes)
+					return
 				}
+			} else {
+				// No failover tracker - return error to client
+				if reqLogManager != nil && currentRequestLogID != "" {
+					completeTime := time.Now()
+					record := &requestlog.RequestLog{
+						Status:        requestlog.StatusError,
+						CompleteTime:  completeTime,
+						DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
+						Type:          upstream.ServiceType,
+						ProviderName:  upstream.Name,
+						HTTPStatus:    resp.StatusCode,
+						ChannelID:     upstream.Index,
+						ChannelName:   upstream.Name,
+						Error:         fmt.Sprintf("upstream returned status %d", resp.StatusCode),
+						UpstreamError: string(respBodyBytes),
+						FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, "", requestlog.FailoverActionReturnErr, ""),
+					}
+					_ = reqLogManager.Update(currentRequestLogID, record)
+				}
+
+				if envCfg.EnableResponseLogs {
+					log.Printf("⚠️ [Responses] 上游返回错误: %d", resp.StatusCode)
+					if envCfg.IsDevelopment() {
+						formattedBody := utils.FormatJSONBytesForLog(respBodyBytes, 500)
+						log.Printf("📦 错误响应体:\n%s", formattedBody)
+					}
+				}
+				SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+				c.Data(resp.StatusCode, "application/json", respBodyBytes)
+				return
 			}
-			SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
-			c.Data(resp.StatusCode, "application/json", respBodyBytes)
-			return
 		}
 
 		if len(deprioritizeCandidates) > 0 {

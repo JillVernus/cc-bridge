@@ -838,11 +838,11 @@ export default {
 
   // Failover Settings
   failover: {
-    title: 'Quota/Credit Failover Settings',
-    quotaChannelsOnly: 'These settings only apply to channels with quota configured (Request Quota or Credit Quota). Normal channels use automatic circuit breaker failover.',
-    enabled: 'Enabled',
-    disabled: 'Disabled',
-    enableDescription: 'When enabled, use custom failover rules. When disabled, failover triggers immediately on any qualifying error.',
+    title: 'Failover Settings',
+    allChannelsNote: 'These settings apply to all channels. Rules define how errors are handled across all channel types.',
+    enabled: 'Circuit Breaker Disabled',
+    disabled: 'Circuit Breaker Enabled',
+    circuitBreakerDescription: 'When enabled, the scheduler circuit breaker is disabled and only admin rules are used. When disabled, the circuit breaker automatically skips unhealthy channels.',
     rulesSection: 'Failover Rules',
     rulesDescription: 'Define actions for different error types. Rules are matched in order from top to bottom.',
     rulesDescriptionNew: 'Define action chains for different error patterns. Each rule executes steps in order until completion.',
@@ -870,7 +870,7 @@ export default {
     howItWorksItem4: 'Use "others" to catch any unmatched error codes',
     howItWorksItem1New: 'Rules are matched top-to-bottom; first matching pattern wins',
     howItWorksItem2New: 'Action chain executes steps in order (e.g., retry 3x → failover)',
-    howItWorksItem3New: 'Wait=0 for retry means auto-detect from API response headers',
+    howItWorksItem3New: 'Wait=0 for retry means auto-detect from API response body',
     howItWorksItem4New: 'Max attempts=99 effectively means retry indefinitely',
     reset: 'Reset to Defaults',
     resetSuccess: 'Configuration reset to defaults',
@@ -886,9 +886,11 @@ export default {
     actionRetry: 'Retry',
     actionFailover: 'Failover',
     actionSuspend: 'Suspend',
+    actionNone: 'Return Error',
     actionRetryDesc: 'Wait and retry with same key (0s = auto-detect)',
     actionFailoverDesc: 'Switch to next key/channel',
     actionSuspendDesc: 'Suspend channel until quota resets',
+    actionNoneDesc: 'Return error to client without retry or failover',
     // Legacy action types (for backward compatibility display)
     actionFailoverImmediate: 'Immediate',
     actionFailoverThreshold: 'Threshold',

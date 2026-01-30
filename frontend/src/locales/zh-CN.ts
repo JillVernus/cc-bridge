@@ -838,11 +838,11 @@ export default {
 
   // 故障转移设置
   failover: {
-    title: '配额/额度故障转移设置',
-    quotaChannelsOnly: '这些设置仅适用于配置了配额的渠道（请求配额或额度配额）。普通渠道使用自动熔断器故障转移。',
-    enabled: '已启用',
-    disabled: '已禁用',
-    enableDescription: '启用后，使用自定义故障转移规则。禁用时，任何符合条件的错误都会立即触发故障转移。',
+    title: '故障转移设置',
+    allChannelsNote: '这些设置适用于所有渠道。规则定义了所有渠道类型的错误处理方式。',
+    enabled: '熔断器已禁用',
+    disabled: '熔断器已启用',
+    circuitBreakerDescription: '启用后，调度器熔断器被禁用，仅使用管理员规则。禁用时，熔断器会自动跳过不健康的渠道。',
     rulesSection: '故障转移规则',
     rulesDescription: '为不同错误类型定义处理动作。规则按从上到下的顺序匹配。',
     rulesDescriptionNew: '为不同错误模式定义动作链。每条规则按顺序执行步骤直至完成。',
@@ -870,7 +870,7 @@ export default {
     howItWorksItem4: '使用 "others" 捕获所有未匹配的错误码',
     howItWorksItem1New: '规则从上到下匹配，首个匹配的模式生效',
     howItWorksItem2New: '动作链按顺序执行（如：重试3次 → 切换渠道）',
-    howItWorksItem3New: '重试等待=0 表示从API响应头自动检测等待时间',
+    howItWorksItem3New: '重试等待=0 表示从API响应体自动检测等待时间',
     howItWorksItem4New: '最大次数=99 实际上表示无限重试',
     reset: '恢复默认',
     resetSuccess: '配置已恢复默认值',
@@ -886,9 +886,11 @@ export default {
     actionRetry: '重试',
     actionFailover: '切换',
     actionSuspend: '暂停',
+    actionNone: '返回错误',
     actionRetryDesc: '等待后使用同一密钥重试（0秒=自动检测）',
     actionFailoverDesc: '切换到下一个密钥/渠道',
     actionSuspendDesc: '暂停渠道直到配额重置',
+    actionNoneDesc: '直接返回错误给客户端，不重试或切换',
     // 旧版动作类型（向后兼容显示）
     actionFailoverImmediate: '立即切换',
     actionFailoverThreshold: '阈值切换',

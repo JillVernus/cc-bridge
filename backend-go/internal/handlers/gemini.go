@@ -637,16 +637,9 @@ func tryGeminiChannel(
 
 			// Handle 429 errors with smart subtype detection (quota channels)
 			if resp.StatusCode == 429 && failoverTracker != nil {
-				// Choose failover logic based on quota type
-				var decision config.FailoverDecision
-				if upstream.QuotaType != "" {
-					// Quota channel: use admin failover settings
-					failoverConfig := cfgManager.GetFailoverConfig()
-					decision = failoverTracker.DecideAction(upstream.Index, apiKey, resp.StatusCode, respBodyBytes, &failoverConfig)
-				} else {
-					// Normal channel: use legacy circuit breaker (immediate failover on 429)
-					decision = failoverTracker.LegacyFailover(resp.StatusCode)
-				}
+				// Unified failover logic: always use admin failover settings
+				failoverConfig := cfgManager.GetFailoverConfig()
+				decision := failoverTracker.DecideAction(upstream.Index, apiKey, resp.StatusCode, respBodyBytes, &failoverConfig)
 
 				switch decision.Action {
 				case config.ActionRetrySameKey:
@@ -784,9 +777,9 @@ func tryGeminiChannel(
 							HTTPStatus:    resp.StatusCode,
 							ChannelID:     upstream.Index,
 							ChannelName:   upstream.Name,
-							Error:         fmt.Sprintf("429 %s (threshold not reached)", decision.Reason),
+							Error:         fmt.Sprintf("429 %s (returning error)", decision.Reason),
 							UpstreamError: string(respBodyBytes),
-							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, "threshold not reached"),
+							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, decision.Reason),
 						}
 						_ = reqLogManager.Update(currentRequestLogID, record)
 					}
@@ -796,71 +789,186 @@ func tryGeminiChannel(
 				}
 			}
 
-			// Non-429 errors: choose failover logic based on quota type
-			var shouldFailover, isQuotaRelated bool
+			// Non-429 errors: use unified failover logic with full decision switch
 			if failoverTracker != nil {
-				if upstream.QuotaType != "" {
-					// Quota channel: use admin failover settings
-					failoverConfig := cfgManager.GetFailoverConfig()
-					shouldFailover, isQuotaRelated = failoverTracker.ShouldFailover(upstream.Index, apiKey, resp.StatusCode, &failoverConfig)
-				} else {
-					// Normal channel: use legacy circuit breaker
-					decision := failoverTracker.LegacyFailover(resp.StatusCode)
-					shouldFailover = decision.Action == config.ActionFailoverKey
-					isQuotaRelated = false
+				failoverConfig := cfgManager.GetFailoverConfig()
+				decision := failoverTracker.DecideAction(upstream.Index, apiKey, resp.StatusCode, respBodyBytes, &failoverConfig)
+
+				switch decision.Action {
+				case config.ActionRetrySameKey:
+					// Wait and retry with same key
+					log.Printf("⏳ [Gemini] %d %s: 等待 %v 后重试同一密钥 (max: %d)", resp.StatusCode, decision.Reason, decision.Wait, decision.MaxAttempts)
+
+					failoverInfo := requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionRetryWait, fmt.Sprintf("%.0fs", decision.Wait.Seconds()))
+
+					// AUDIT: Log this retry_wait attempt before waiting
+					if reqLogManager != nil && currentRequestLogID != "" {
+						completeTime := time.Now()
+						retryWaitRecord := &requestlog.RequestLog{
+							Status:        requestlog.StatusRetryWait,
+							CompleteTime:  completeTime,
+							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
+							Type:          upstream.ServiceType,
+							ProviderName:  upstream.Name,
+							HTTPStatus:    resp.StatusCode,
+							ChannelID:     upstream.Index,
+							ChannelName:   upstream.Name,
+							Error:         fmt.Sprintf("%d %s - retrying after %v", resp.StatusCode, decision.Reason, decision.Wait),
+							UpstreamError: string(respBodyBytes),
+							FailoverInfo:  failoverInfo,
+						}
+						if err := reqLogManager.Update(currentRequestLogID, retryWaitRecord); err != nil {
+							log.Printf("⚠️ [Gemini] Failed to update retry_wait log: %v", err)
+						}
+
+						// Save debug log for this error response
+						SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+
+						// Create new pending log for the retry attempt
+						newPendingLog := &requestlog.RequestLog{
+							Status:      requestlog.StatusPending,
+							InitialTime: time.Now(),
+							Model:       model,
+							Stream:      isStreaming,
+							Endpoint:    c.Request.URL.Path,
+							APIKeyID:    apiKeyID,
+						}
+						if err := reqLogManager.Add(newPendingLog); err != nil {
+							log.Printf("⚠️ [Gemini] Failed to create retry pending log: %v", err)
+						} else {
+							currentRequestLogID = newPendingLog.ID
+							*requestLogID = newPendingLog.ID
+						}
+					}
+
+					// Capture for last-resort error reporting
+					lastFailoverError = &struct {
+						Status       int
+						Body         []byte
+						FailoverInfo string
+					}{
+						Status:       resp.StatusCode,
+						Body:         respBodyBytes,
+						FailoverInfo: failoverInfo,
+					}
+
+					select {
+					case <-time.After(decision.Wait):
+						pinnedKey = apiKey            // Pin for next attempt
+						retryWaitPending = true       // Allow loop to continue
+						currentStartTime = time.Now() // Reset startTime after wait completes
+						continue
+					case <-c.Request.Context().Done():
+						// Client disconnected
+						return false, nil
+					}
+
+				case config.ActionFailoverKey:
+					// Failover to next key
+					failedKeys[apiKey] = true
+					if decision.MarkKeyFailed {
+						cfgManager.MarkKeyAsFailed(apiKey)
+					}
+					log.Printf("⚠️ [Gemini] %d %s: 切换到下一个密钥", resp.StatusCode, decision.Reason)
+
+					// Determine the reason for failover
+					failoverReason := requestlog.FailoverActionFailover
+					if resp.StatusCode == 401 || resp.StatusCode == 403 {
+						failoverReason = requestlog.FailoverActionAuthFailed
+					}
+
+					lastFailoverError = &struct {
+						Status       int
+						Body         []byte
+						FailoverInfo string
+					}{
+						Status:       resp.StatusCode,
+						Body:         respBodyBytes,
+						FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, failoverReason, "next key"),
+					}
+
+					// Only deprioritize for 429 errors (quota-related), not transient 5xx
+					if decision.DeprioritizeKey && resp.StatusCode == 429 {
+						deprioritizeCandidates[apiKey] = true
+					}
+					continue
+
+				case config.ActionSuspendChan:
+					// Suspend channel
+					if reqLogManager != nil && decision.SuspendChannel {
+						suspendedUntil := time.Now().Add(5 * time.Minute)
+						if upstream.QuotaResetAt != nil && upstream.QuotaResetAt.After(time.Now()) {
+							suspendedUntil = *upstream.QuotaResetAt
+							log.Printf("⏸️ [Gemini] Channel [%d] %s: using QuotaResetAt %s for suspension",
+								upstream.Index, upstream.Name, suspendedUntil.Format(time.RFC3339))
+						} else {
+							log.Printf("⏸️ [Gemini] Channel [%d] %s: using default 5min suspension (QuotaResetAt: %v)",
+								upstream.Index, upstream.Name, upstream.QuotaResetAt)
+						}
+						channelType := "gemini"
+						if err := reqLogManager.SuspendChannel(upstream.Index, channelType, suspendedUntil, decision.Reason); err != nil {
+							log.Printf("⚠️ [Gemini] Failed to suspend channel [%d] (%s): %v", upstream.Index, channelType, err)
+						}
+					}
+					log.Printf("⏸️ [Gemini] %d %s: 渠道暂停，切换到下一个渠道", resp.StatusCode, decision.Reason)
+
+					// Return false to trigger channel failover (outer loop will try next channel)
+					return false, &struct {
+						Status       int
+						Body         []byte
+						FailoverInfo string
+					}{
+						Status:       resp.StatusCode,
+						Body:         respBodyBytes,
+						FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionSuspended, "next channel"),
+					}
+
+				default:
+					// ActionNone - return error to client
+					if reqLogManager != nil && currentRequestLogID != "" {
+						completeTime := time.Now()
+						record := &requestlog.RequestLog{
+							Status:        requestlog.StatusError,
+							CompleteTime:  completeTime,
+							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
+							Type:          upstream.ServiceType,
+							ProviderName:  upstream.Name,
+							HTTPStatus:    resp.StatusCode,
+							ChannelID:     upstream.Index,
+							ChannelName:   upstream.Name,
+							Error:         fmt.Sprintf("upstream returned status %d", resp.StatusCode),
+							UpstreamError: string(respBodyBytes),
+							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, ""),
+						}
+						_ = reqLogManager.Update(currentRequestLogID, record)
+					}
+					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+					c.Data(resp.StatusCode, "application/json", respBodyBytes)
+					return true, nil
 				}
 			} else {
-				shouldFailover, isQuotaRelated = shouldRetryWithNextKey(resp.StatusCode, respBodyBytes)
+				// No failover tracker - return error to client
+				if reqLogManager != nil && currentRequestLogID != "" {
+					completeTime := time.Now()
+					record := &requestlog.RequestLog{
+						Status:        requestlog.StatusError,
+						CompleteTime:  completeTime,
+						DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
+						Type:          upstream.ServiceType,
+						ProviderName:  upstream.Name,
+						HTTPStatus:    resp.StatusCode,
+						ChannelID:     upstream.Index,
+						ChannelName:   upstream.Name,
+						Error:         fmt.Sprintf("upstream returned status %d", resp.StatusCode),
+						UpstreamError: string(respBodyBytes),
+						FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, "", requestlog.FailoverActionReturnErr, ""),
+					}
+					_ = reqLogManager.Update(currentRequestLogID, record)
+				}
+				SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+				c.Data(resp.StatusCode, "application/json", respBodyBytes)
+				return true, nil
 			}
-
-			if shouldFailover {
-				failedKeys[apiKey] = true
-				cfgManager.MarkKeyAsFailed(apiKey)
-				log.Printf("⚠️ [Gemini] API密钥失败 (状态: %d)，尝试下一个密钥", resp.StatusCode)
-
-				// Determine the reason for failover
-				failoverReason := requestlog.FailoverActionFailover
-				if resp.StatusCode == 401 || resp.StatusCode == 403 {
-					failoverReason = requestlog.FailoverActionAuthFailed
-				}
-
-				lastFailoverError = &struct {
-					Status       int
-					Body         []byte
-					FailoverInfo string
-				}{
-					Status:       resp.StatusCode,
-					Body:         respBodyBytes,
-					FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, "", failoverReason, "next key"),
-				}
-
-				if isQuotaRelated {
-					deprioritizeCandidates[apiKey] = true
-				}
-				continue
-			}
-
-			// Non-failover error - update request log and return
-			if reqLogManager != nil && currentRequestLogID != "" {
-				completeTime := time.Now()
-				record := &requestlog.RequestLog{
-					Status:        requestlog.StatusError,
-					CompleteTime:  completeTime,
-					DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
-					Type:          upstream.ServiceType,
-					ProviderName:  upstream.Name,
-					HTTPStatus:    resp.StatusCode,
-					ChannelID:     upstream.Index,
-					ChannelName:   upstream.Name,
-					Error:         fmt.Sprintf("upstream returned status %d", resp.StatusCode),
-					UpstreamError: string(respBodyBytes),
-					FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, "", requestlog.FailoverActionReturnErr, ""),
-				}
-				_ = reqLogManager.Update(currentRequestLogID, record)
-			}
-			SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
-			c.Data(resp.StatusCode, "application/json", respBodyBytes)
-			return true, nil
 		}
 
 		if len(deprioritizeCandidates) > 0 {
