@@ -138,7 +138,7 @@ func ProxyHandlerWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.ConfigM
 		isMultiChannel := channelScheduler.IsMultiChannelMode(false)
 
 		// Get allowed channels from API key permissions
-		var allowedChannels []int
+		var allowedChannels []string
 		if vk, exists := c.Get(middleware.ContextKeyValidatedKey); exists {
 			if validatedKey, ok := vk.(*apikey.ValidatedKey); ok && validatedKey != nil {
 				allowedChannels = validatedKey.GetAllowedChannels(false) // false = Messages API
@@ -207,7 +207,7 @@ func handleMultiChannelProxy(
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
 	usageManager *quota.UsageManager,
-	allowedChannels []int,
+	allowedChannels []string,
 	failoverTracker *config.FailoverTracker,
 	channelRateLimiter *middleware.ChannelRateLimiter,
 ) {
@@ -551,16 +551,28 @@ func handleMultiChannelProxy(
 			c.JSON(status, gin.H{"error": string(lastFailoverError.Body)})
 		}
 	} else {
-		errMsg := "all channels unavailable"
-		if lastError != nil {
-			errMsg = lastError.Error()
+		// Check if this is a permission error (no allowed channels)
+		if lastError != nil && errors.Is(lastError, scheduler.ErrNoAllowedChannels) {
+			errMsg := lastError.Error()
+			errJSON := fmt.Sprintf(`{"error":"channel not allowed","details":"%s","code":"CHANNEL_NOT_ALLOWED"}`, errMsg)
+			SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, 403, []byte(errJSON))
+			c.JSON(403, gin.H{
+				"error":   "channel not allowed",
+				"details": errMsg,
+				"code":    "CHANNEL_NOT_ALLOWED",
+			})
+		} else {
+			errMsg := "all channels unavailable"
+			if lastError != nil {
+				errMsg = lastError.Error()
+			}
+			errJSON := fmt.Sprintf(`{"error":"all channels unavailable","details":"%s"}`, errMsg)
+			SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, 503, []byte(errJSON))
+			c.JSON(503, gin.H{
+				"error":   "all channels unavailable",
+				"details": errMsg,
+			})
 		}
-		errJSON := fmt.Sprintf(`{"error":"all channels unavailable","details":"%s"}`, errMsg)
-		SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, 503, []byte(errJSON))
-		c.JSON(503, gin.H{
-			"error":   "all channels unavailable",
-			"details": errMsg,
-		})
 	}
 }
 
@@ -916,7 +928,7 @@ func handleSingleChannelProxy(
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
 	usageManager *quota.UsageManager,
-	allowedChannels []int,
+	allowedChannels []string,
 	failoverTracker *config.FailoverTracker,
 	clientID string,
 	sessionID string,
@@ -936,15 +948,15 @@ func handleSingleChannelProxy(
 	// Check if this channel is allowed by API key permissions
 	if len(allowedChannels) > 0 {
 		allowed := false
-		for _, idx := range allowedChannels {
-			if idx == upstream.Index {
+		for _, id := range allowedChannels {
+			if id == upstream.ID {
 				allowed = true
 				break
 			}
 		}
 		if !allowed {
 			c.JSON(403, gin.H{
-				"error": fmt.Sprintf("Channel %s (index %d) not allowed for this API key", upstream.Name, upstream.Index),
+				"error": fmt.Sprintf("Channel %s not allowed for this API key", upstream.Name),
 				"code":  "CHANNEL_NOT_ALLOWED",
 			})
 			return

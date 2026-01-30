@@ -1248,9 +1248,9 @@ export interface APIKey {
   lastUsedAt?: string
   // Permission fields (nil/empty = unrestricted)
   allowedEndpoints?: string[]      // ["messages"], ["responses"], ["gemini"], or any combination
-  allowedChannelsMsg?: number[]    // channel indices for /v1/messages
-  allowedChannelsResp?: number[]   // channel indices for /v1/responses
-  allowedChannelsGemini?: number[] // channel indices for /v1/gemini (GeminiUpstream)
+  allowedChannelsMsg?: string[]    // stable channel IDs for /v1/messages
+  allowedChannelsResp?: string[]   // stable channel IDs for /v1/responses
+  allowedChannelsGemini?: string[] // stable channel IDs for /v1/gemini (GeminiUpstream)
   allowedModels?: string[]         // glob patterns: ["claude-sonnet-*"]
 }
 
@@ -1261,9 +1261,9 @@ export interface CreateAPIKeyRequest {
   rateLimitRpm?: number
   // Permission fields (nil/empty = unrestricted)
   allowedEndpoints?: string[]
-  allowedChannelsMsg?: number[]
-  allowedChannelsResp?: number[]
-  allowedChannelsGemini?: number[]
+  allowedChannelsMsg?: string[]
+  allowedChannelsResp?: string[]
+  allowedChannelsGemini?: string[]
   allowedModels?: string[]
 }
 
@@ -1277,9 +1277,9 @@ export interface UpdateAPIKeyRequest {
   rateLimitRpm?: number
   // Permission fields (nil = no change, empty array = clear/unrestrict)
   allowedEndpoints?: string[]
-  allowedChannelsMsg?: number[]
-  allowedChannelsResp?: number[]
-  allowedChannelsGemini?: number[]
+  allowedChannelsMsg?: string[]
+  allowedChannelsResp?: string[]
+  allowedChannelsGemini?: string[]
   allowedModels?: string[]
 }
 

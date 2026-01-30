@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -14,6 +15,10 @@ import (
 	"github.com/JillVernus/cc-bridge/internal/metrics"
 	"github.com/JillVernus/cc-bridge/internal/session"
 )
+
+// ErrNoAllowedChannels is returned when channel permission filtering removes all available channels.
+// Handlers should return 403 Forbidden when they receive this error.
+var ErrNoAllowedChannels = errors.New("no channels available after permission filtering")
 
 // SuspensionChecker interface for checking channel suspension status
 type SuspensionChecker interface {
@@ -95,14 +100,14 @@ type SelectionResult struct {
 
 // SelectChannel 选择最佳渠道
 // 优先级: 促销期渠道 > Trace亲和（促销渠道失败时回退） > 渠道优先级顺序
-// allowedChannels: API key 允许的渠道索引列表，nil 表示允许所有渠道
+// allowedChannels: API key 允许的渠道ID列表，nil 表示允许所有渠道
 // model: The requested model name (used for composite channel routing)
 func (s *ChannelScheduler) SelectChannel(
 	ctx context.Context,
 	userID string,
 	failedChannels map[int]bool,
 	isResponses bool,
-	allowedChannels []int,
+	allowedChannels []string,
 	model string,
 ) (*SelectionResult, error) {
 	s.mu.RLock()
@@ -118,7 +123,7 @@ func (s *ChannelScheduler) SelectChannel(
 	if len(allowedChannels) > 0 {
 		activeChannels = s.filterByAllowedChannels(activeChannels, allowedChannels)
 		if len(activeChannels) == 0 {
-			return nil, fmt.Errorf("no available channel (allowed channels: %v)", allowedChannels)
+			return nil, fmt.Errorf("%w (allowed channels: %v)", ErrNoAllowedChannels, allowedChannels)
 		}
 	}
 
@@ -352,18 +357,18 @@ func (s *ChannelScheduler) orderChannelsByStrategy(channels []ChannelInfo, strat
 	return result
 }
 
-// filterByAllowedChannels filters channels to only those in the allowed list
-func (s *ChannelScheduler) filterByAllowedChannels(channels []ChannelInfo, allowed []int) []ChannelInfo {
+// filterByAllowedChannels filters channels to only those in the allowed list (by channel ID)
+func (s *ChannelScheduler) filterByAllowedChannels(channels []ChannelInfo, allowed []string) []ChannelInfo {
 	if len(allowed) == 0 {
 		return channels
 	}
-	allowedSet := make(map[int]bool)
-	for _, idx := range allowed {
-		allowedSet[idx] = true
+	allowedSet := make(map[string]bool)
+	for _, id := range allowed {
+		allowedSet[id] = true
 	}
 	var filtered []ChannelInfo
 	for _, ch := range channels {
-		if allowedSet[ch.Index] {
+		if allowedSet[ch.ID] {
 			filtered = append(filtered, ch)
 		}
 	}
@@ -648,6 +653,7 @@ func (s *ChannelScheduler) selectFallbackChannel(
 // ChannelInfo 渠道信息（用于排序）
 type ChannelInfo struct {
 	Index    int
+	ID       string // Stable channel ID for permission matching
 	Name     string
 	Priority int
 	Status   string
@@ -681,6 +687,7 @@ func (s *ChannelScheduler) getActiveChannels(isResponses bool) []ChannelInfo {
 
 			activeChannels = append(activeChannels, ChannelInfo{
 				Index:    i,
+				ID:       upstream.ID,
 				Name:     upstream.Name,
 				Priority: priority,
 				Status:   status,
@@ -792,7 +799,7 @@ type GeminiChannelInfo struct {
 func (s *ChannelScheduler) SelectGeminiChannel(
 	ctx context.Context,
 	failedChannels map[int]bool,
-	allowedChannels []int,
+	allowedChannels []string,
 ) (*SelectionResult, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -803,19 +810,20 @@ func (s *ChannelScheduler) SelectGeminiChannel(
 		return nil, fmt.Errorf("没有可用的活跃 Gemini 渠道")
 	}
 
-	// Filter by allowed channels if specified
+	// Filter by allowed channels if specified (by channel ID)
 	if len(allowedChannels) > 0 {
+		allowedSet := make(map[string]bool)
+		for _, id := range allowedChannels {
+			allowedSet[id] = true
+		}
 		var filtered []ChannelInfo
 		for _, ch := range activeChannels {
-			for _, allowed := range allowedChannels {
-				if ch.Index == allowed {
-					filtered = append(filtered, ch)
-					break
-				}
+			if allowedSet[ch.ID] {
+				filtered = append(filtered, ch)
 			}
 		}
 		if len(filtered) == 0 {
-			return nil, fmt.Errorf("no available Gemini channel (allowed channels: %v)", allowedChannels)
+			return nil, fmt.Errorf("%w (allowed channels: %v)", ErrNoAllowedChannels, allowedChannels)
 		}
 		activeChannels = filtered
 	}
@@ -884,6 +892,7 @@ func (s *ChannelScheduler) getActiveGeminiChannels() []ChannelInfo {
 		if status == "active" || status == "" {
 			channels = append(channels, ChannelInfo{
 				Index:    i,
+				ID:       upstream.ID,
 				Name:     upstream.Name,
 				Status:   status,
 				Priority: config.GetChannelPriority(&upstream, i),

@@ -154,7 +154,7 @@ func GeminiHandlerWithAPIKey(
 		}
 
 		// Get allowed channels from API key permissions (for Gemini channels)
-		var allowedChannels []int
+		var allowedChannels []string
 		if vk, exists := c.Get(middleware.ContextKeyValidatedKey); exists {
 			if validatedKey, ok := vk.(*apikey.ValidatedKey); ok && validatedKey != nil {
 				allowedChannels = validatedKey.GetAllowedChannelsByType("gemini")
@@ -220,7 +220,7 @@ func handleMultiChannelGemini(
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
 	usageManager *quota.UsageManager,
-	allowedChannels []int,
+	allowedChannels []string,
 	failoverTracker *config.FailoverTracker,
 	channelRateLimiter *middleware.ChannelRateLimiter,
 	apiKeyID *int64,
@@ -384,17 +384,29 @@ func handleMultiChannelGemini(
 			c.JSON(status, gin.H{"error": gin.H{"message": string(lastFailoverError.Body)}})
 		}
 	} else {
-		errMsg := "all gemini channels unavailable"
-		if lastError != nil {
-			errMsg = lastError.Error()
+		// Check if this is a permission error (no allowed channels)
+		if lastError != nil && errors.Is(lastError, scheduler.ErrNoAllowedChannels) {
+			errMsg := lastError.Error()
+			c.JSON(403, gin.H{
+				"error": gin.H{
+					"code":    403,
+					"message": errMsg,
+					"status":  "PERMISSION_DENIED",
+				},
+			})
+		} else {
+			errMsg := "all gemini channels unavailable"
+			if lastError != nil {
+				errMsg = lastError.Error()
+			}
+			c.JSON(503, gin.H{
+				"error": gin.H{
+					"code":    503,
+					"message": errMsg,
+					"status":  "UNAVAILABLE",
+				},
+			})
 		}
-		c.JSON(503, gin.H{
-			"error": gin.H{
-				"code":    503,
-				"message": errMsg,
-				"status":  "UNAVAILABLE",
-			},
-		})
 	}
 }
 
@@ -411,7 +423,7 @@ func handleSingleChannelGemini(
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
 	usageManager *quota.UsageManager,
-	allowedChannels []int,
+	allowedChannels []string,
 	failoverTracker *config.FailoverTracker,
 	channelRateLimiter *middleware.ChannelRateLimiter,
 	apiKeyID *int64,
@@ -432,8 +444,8 @@ func handleSingleChannelGemini(
 	// Check if this channel is allowed by API key permissions
 	if len(allowedChannels) > 0 {
 		allowed := false
-		for _, idx := range allowedChannels {
-			if idx == upstream.Index {
+		for _, id := range allowedChannels {
+			if id == upstream.ID {
 				allowed = true
 				break
 			}
@@ -442,7 +454,7 @@ func handleSingleChannelGemini(
 			c.JSON(403, gin.H{
 				"error": gin.H{
 					"code":    403,
-					"message": fmt.Sprintf("Channel %s (index %d) not allowed for this API key", upstream.Name, upstream.Index),
+					"message": fmt.Sprintf("Channel %s not allowed for this API key", upstream.Name),
 					"status":  "PERMISSION_DENIED",
 				},
 			})

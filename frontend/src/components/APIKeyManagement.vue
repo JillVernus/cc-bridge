@@ -221,7 +221,7 @@
               v-model="form.allowedChannelsMsg"
               :label="t('apiKeys.allowedChannelsMsg')"
               :hint="t('apiKeys.allowedChannelsMsgHint')"
-              :items="messagesChannels.map(c => ({ title: `[${c.index}] ${c.name}`, value: c.index }))"
+              :items="messagesChannels.map(c => ({ title: `[${c.index}] ${c.name}`, value: c.id }))"
               multiple
               chips
               closable-chips
@@ -235,7 +235,7 @@
               v-model="form.allowedChannelsResp"
               :label="t('apiKeys.allowedChannelsResp')"
               :hint="t('apiKeys.allowedChannelsRespHint')"
-              :items="responsesChannels.map(c => ({ title: `[${c.index}] ${c.name}`, value: c.index }))"
+              :items="responsesChannels.map(c => ({ title: `[${c.index}] ${c.name}`, value: c.id }))"
               multiple
               chips
               closable-chips
@@ -249,7 +249,7 @@
               v-model="form.allowedChannelsGemini"
               :label="t('apiKeys.allowedChannelsGemini')"
               :hint="t('apiKeys.allowedChannelsGeminiHint')"
-              :items="geminiChannels.map(c => ({ title: `[${c.index}] ${c.name}`, value: c.index }))"
+              :items="geminiChannels.map(c => ({ title: `[${c.index}] ${c.name}`, value: c.id }))"
               multiple
               chips
               closable-chips

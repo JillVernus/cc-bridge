@@ -26,9 +26,9 @@ type APIKey struct {
 
 	// Permission fields (nil/empty = unrestricted)
 	AllowedEndpoints      []string `json:"allowedEndpoints,omitempty"`      // ["messages"], ["responses"], ["gemini"], or any combination
-	AllowedChannelsMsg    []int    `json:"allowedChannelsMsg,omitempty"`    // channel indices for /v1/messages
-	AllowedChannelsResp   []int    `json:"allowedChannelsResp,omitempty"`   // channel indices for /v1/responses
-	AllowedChannelsGemini []int    `json:"allowedChannelsGemini,omitempty"` // channel indices for /v1/gemini (GeminiUpstream)
+	AllowedChannelsMsg    []string `json:"allowedChannelsMsg,omitempty"`    // stable channel IDs for /v1/messages
+	AllowedChannelsResp   []string `json:"allowedChannelsResp,omitempty"`   // stable channel IDs for /v1/responses
+	AllowedChannelsGemini []string `json:"allowedChannelsGemini,omitempty"` // stable channel IDs for /v1/gemini (GeminiUpstream)
 	AllowedModels         []string `json:"allowedModels,omitempty"`         // glob patterns: ["claude-sonnet-*"]
 }
 
@@ -41,9 +41,9 @@ type CreateAPIKeyRequest struct {
 
 	// Permission fields (nil/empty = unrestricted)
 	AllowedEndpoints      []string `json:"allowedEndpoints,omitempty"`
-	AllowedChannelsMsg    []int    `json:"allowedChannelsMsg,omitempty"`
-	AllowedChannelsResp   []int    `json:"allowedChannelsResp,omitempty"`
-	AllowedChannelsGemini []int    `json:"allowedChannelsGemini,omitempty"`
+	AllowedChannelsMsg    []string `json:"allowedChannelsMsg,omitempty"`
+	AllowedChannelsResp   []string `json:"allowedChannelsResp,omitempty"`
+	AllowedChannelsGemini []string `json:"allowedChannelsGemini,omitempty"`
 	AllowedModels         []string `json:"allowedModels,omitempty"`
 }
 
@@ -62,9 +62,9 @@ type UpdateAPIKeyRequest struct {
 
 	// Permission fields (nil = no change, empty slice = clear/unrestrict)
 	AllowedEndpoints      *[]string `json:"allowedEndpoints,omitempty"`
-	AllowedChannelsMsg    *[]int    `json:"allowedChannelsMsg,omitempty"`
-	AllowedChannelsResp   *[]int    `json:"allowedChannelsResp,omitempty"`
-	AllowedChannelsGemini *[]int    `json:"allowedChannelsGemini,omitempty"`
+	AllowedChannelsMsg    *[]string `json:"allowedChannelsMsg,omitempty"`
+	AllowedChannelsResp   *[]string `json:"allowedChannelsResp,omitempty"`
+	AllowedChannelsGemini *[]string `json:"allowedChannelsGemini,omitempty"`
 	AllowedModels         *[]string `json:"allowedModels,omitempty"`
 }
 
@@ -92,8 +92,8 @@ type ValidatedKey struct {
 
 	// Permission fields
 	AllowedEndpoints      []string
-	AllowedChannelsMsg    []int
-	AllowedChannelsResp   []int
-	AllowedChannelsGemini []int
+	AllowedChannelsMsg    []string
+	AllowedChannelsResp   []string
+	AllowedChannelsGemini []string
 	AllowedModels         []string
 }

@@ -1272,6 +1272,11 @@ func (cm *ConfigManager) AddUpstream(upstream UpstreamConfig) error {
 		upstream.ID = generateChannelID()
 	}
 
+	// Validate channel ID doesn't use reserved prefix
+	if strings.HasPrefix(upstream.ID, "__invalid_") {
+		return fmt.Errorf("channel ID cannot start with reserved prefix '__invalid_'")
+	}
+
 	// Validate composite channel before adding
 	if IsCompositeChannel(&upstream) {
 		if err := ValidateCompositeChannel(&upstream, cm.config.Upstream); err != nil {
@@ -2057,6 +2062,11 @@ func (cm *ConfigManager) AddResponsesUpstream(upstream UpstreamConfig) error {
 		upstream.ID = generateChannelID()
 	}
 
+	// Validate channel ID doesn't use reserved prefix
+	if strings.HasPrefix(upstream.ID, "__invalid_") {
+		return fmt.Errorf("channel ID cannot start with reserved prefix '__invalid_'")
+	}
+
 	// 新建渠道默认设为 active
 	if upstream.Status == "" {
 		upstream.Status = "active"
@@ -2760,6 +2770,11 @@ func (cm *ConfigManager) AddGeminiUpstream(upstream UpstreamConfig) error {
 	// Generate unique ID if not provided
 	if upstream.ID == "" {
 		upstream.ID = generateChannelID()
+	}
+
+	// Validate channel ID doesn't use reserved prefix
+	if strings.HasPrefix(upstream.ID, "__invalid_") {
+		return fmt.Errorf("channel ID cannot start with reserved prefix '__invalid_'")
 	}
 
 	// 新建渠道默认设为 active

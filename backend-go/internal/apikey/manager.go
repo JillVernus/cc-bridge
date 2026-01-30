@@ -22,12 +22,18 @@ const (
 	prefixLength = 8  // First 8 chars for display
 )
 
+// ChannelIDResolver resolves a channel index to its stable ID.
+// endpointType: "messages", "responses", or "gemini"
+// Returns empty string if index is invalid or channel not found.
+type ChannelIDResolver func(endpointType string, index int) string
+
 // Manager manages API key storage and validation using SQLite
 type Manager struct {
-	db      *sql.DB
-	mu      sync.RWMutex
-	cache   map[string]*ValidatedKey // key_hash -> ValidatedKey
-	dialect database.Dialect
+	db                *sql.DB
+	mu                sync.RWMutex
+	cache             map[string]*ValidatedKey // key_hash -> ValidatedKey
+	dialect           database.Dialect
+	channelIDResolver ChannelIDResolver // optional resolver for migrating int indices to string IDs
 }
 
 // NewManager creates a new API key manager with SQLite storage
@@ -147,9 +153,9 @@ func (m *Manager) refreshCache() error {
 			IsAdmin:               isAdmin,
 			RateLimitRPM:          rateLimitRPM,
 			AllowedEndpoints:      unmarshalStringSlice(allowedEndpoints),
-			AllowedChannelsMsg:    unmarshalIntSlice(allowedChannelsMsg),
-			AllowedChannelsResp:   unmarshalIntSlice(allowedChannelsResp),
-			AllowedChannelsGemini: unmarshalIntSlice(allowedChannelsGemini),
+			AllowedChannelsMsg:    m.unmarshalChannelIDs(allowedChannelsMsg, "messages"),
+			AllowedChannelsResp:   m.unmarshalChannelIDs(allowedChannelsResp, "responses"),
+			AllowedChannelsGemini: m.unmarshalChannelIDs(allowedChannelsGemini, "gemini"),
 			AllowedModels:         unmarshalStringSlice(allowedModels),
 		}
 	}
@@ -310,9 +316,9 @@ func (m *Manager) GetByID(id int64) (*APIKey, error) {
 
 	// Parse permission fields
 	key.AllowedEndpoints = unmarshalStringSlice(allowedEndpoints)
-	key.AllowedChannelsMsg = unmarshalIntSlice(allowedChannelsMsg)
-	key.AllowedChannelsResp = unmarshalIntSlice(allowedChannelsResp)
-	key.AllowedChannelsGemini = unmarshalIntSlice(allowedChannelsGemini)
+	key.AllowedChannelsMsg = m.unmarshalChannelIDs(allowedChannelsMsg, "messages")
+	key.AllowedChannelsResp = m.unmarshalChannelIDs(allowedChannelsResp, "responses")
+	key.AllowedChannelsGemini = m.unmarshalChannelIDs(allowedChannelsGemini, "gemini")
 	key.AllowedModels = unmarshalStringSlice(allowedModels)
 
 	return &key, nil
@@ -396,9 +402,9 @@ func (m *Manager) List(filter *APIKeyFilter) (*APIKeyListResponse, error) {
 
 		// Parse permission fields
 		key.AllowedEndpoints = unmarshalStringSlice(allowedEndpoints)
-		key.AllowedChannelsMsg = unmarshalIntSlice(allowedChannelsMsg)
-		key.AllowedChannelsResp = unmarshalIntSlice(allowedChannelsResp)
-		key.AllowedChannelsGemini = unmarshalIntSlice(allowedChannelsGemini)
+		key.AllowedChannelsMsg = m.unmarshalChannelIDs(allowedChannelsMsg, "messages")
+		key.AllowedChannelsResp = m.unmarshalChannelIDs(allowedChannelsResp, "responses")
+		key.AllowedChannelsGemini = m.unmarshalChannelIDs(allowedChannelsGemini, "gemini")
 		key.AllowedModels = unmarshalStringSlice(allowedModels)
 
 		keys = append(keys, key)
@@ -628,9 +634,9 @@ func (m *Manager) Validate(key string) *ValidatedKey {
 		IsAdmin:               isAdmin,
 		RateLimitRPM:          rateLimitRPM,
 		AllowedEndpoints:      unmarshalStringSlice(allowedEndpoints),
-		AllowedChannelsMsg:    unmarshalIntSlice(allowedChannelsMsg),
-		AllowedChannelsResp:   unmarshalIntSlice(allowedChannelsResp),
-		AllowedChannelsGemini: unmarshalIntSlice(allowedChannelsGemini),
+		AllowedChannelsMsg:    m.unmarshalChannelIDs(allowedChannelsMsg, "messages"),
+		AllowedChannelsResp:   m.unmarshalChannelIDs(allowedChannelsResp, "responses"),
+		AllowedChannelsGemini: m.unmarshalChannelIDs(allowedChannelsGemini, "gemini"),
 		AllowedModels:         unmarshalStringSlice(allowedModels),
 	}
 
@@ -732,6 +738,78 @@ func unmarshalIntSlice(s sql.NullString) []int {
 	}
 	if len(result) == 0 {
 		return nil
+	}
+	return result
+}
+
+// SetChannelIDResolver sets the resolver function for migrating channel indices to IDs.
+// This should be called after ConfigManager is initialized.
+// IMPORTANT: This triggers a cache refresh to re-migrate any legacy int-based permissions
+// that may have been cached with sentinels before the resolver was available.
+func (m *Manager) SetChannelIDResolver(resolver ChannelIDResolver) {
+	m.mu.Lock()
+	m.channelIDResolver = resolver
+	m.mu.Unlock()
+
+	// Refresh cache to re-process any legacy data with the new resolver
+	if err := m.refreshCache(); err != nil {
+		log.Printf("Warning: failed to refresh API key cache after setting resolver: %v", err)
+	}
+}
+
+// InvalidChannelSentinel is the prefix used for fail-closed channel IDs.
+// Channel IDs starting with this prefix are reserved and will never match real channels.
+const InvalidChannelSentinel = "__invalid_"
+
+// unmarshalChannelIDs performs tolerant decoding of channel permissions from database.
+// It tries to parse as []string first, then falls back to []int with migration.
+// endpointType: "messages", "responses", or "gemini" (used for migration resolution)
+// Returns []string of channel IDs. Uses "__invalid_idx_N__" sentinel for unmappable indices (fail-closed).
+// IMPORTANT: Never returns nil when a restriction payload exists but can't be interpreted - returns deny-all marker instead.
+func (m *Manager) unmarshalChannelIDs(s sql.NullString, endpointType string) []string {
+	if !s.Valid || s.String == "" || s.String == "null" || s.String == "[]" {
+		return nil
+	}
+
+	// Try parsing as []string first (new format)
+	var stringResult []string
+	if err := json.Unmarshal([]byte(s.String), &stringResult); err == nil && len(stringResult) > 0 {
+		// Successfully parsed as []string - treat as channel IDs
+		// Do NOT try to detect "numeric strings" - channel IDs can be any string including numeric ones
+		return stringResult
+	}
+
+	// Try parsing as []int (legacy format) and migrate
+	var intResult []int
+	if err := json.Unmarshal([]byte(s.String), &intResult); err == nil && len(intResult) > 0 {
+		return m.migrateChannelIndices(intResult, endpointType)
+	}
+
+	// FAIL-CLOSED: If we can't parse but data exists, return a deny-all sentinel
+	// This prevents malformed data from becoming "unrestricted"
+	log.Printf("Warning: failed to parse channel permissions (fail-closed): %s", s.String)
+	return []string{InvalidChannelSentinel + "parse_error__"}
+}
+
+// migrateChannelIndices converts legacy channel indices to stable channel IDs.
+// Uses InvalidChannelSentinel for indices that can't be resolved (fail-closed).
+func (m *Manager) migrateChannelIndices(indices []int, endpointType string) []string {
+	if len(indices) == 0 {
+		return nil
+	}
+
+	result := make([]string, 0, len(indices))
+	for _, idx := range indices {
+		var channelID string
+		if m.channelIDResolver != nil {
+			channelID = m.channelIDResolver(endpointType, idx)
+		}
+		if channelID == "" {
+			// Fail-closed: use sentinel that will never match a real channel
+			channelID = fmt.Sprintf("%sidx_%d__", InvalidChannelSentinel, idx)
+			log.Printf("Warning: cannot resolve channel index %d for %s, using sentinel (access will be denied)", idx, endpointType)
+		}
+		result = append(result, channelID)
 	}
 	return result
 }

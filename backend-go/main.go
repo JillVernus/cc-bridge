@@ -193,6 +193,27 @@ func main() {
 		}
 	}
 
+	// Set up channel ID resolver for migrating legacy channel index permissions to stable IDs
+	if apiKeyManager != nil && cfgManager != nil {
+		apiKeyManager.SetChannelIDResolver(func(endpointType string, index int) string {
+			cfg := cfgManager.GetConfig()
+			var upstreams []config.UpstreamConfig
+			switch endpointType {
+			case "responses":
+				upstreams = cfg.ResponsesUpstream
+			case "gemini":
+				upstreams = cfg.GeminiUpstream
+			default: // "messages"
+				upstreams = cfg.Upstream
+			}
+			if index >= 0 && index < len(upstreams) {
+				return upstreams[index].ID
+			}
+			return ""
+		})
+		log.Printf("✅ Channel ID resolver configured for API key permission migration")
+	}
+
 	// 初始化定价管理器
 	_, err = pricing.InitManager(".config/pricing.json")
 	if err != nil {
