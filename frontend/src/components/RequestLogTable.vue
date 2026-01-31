@@ -1153,9 +1153,11 @@
 	// Viewport detection for responsive stacking
 	const { width: viewportWidth } = useDisplay()
 
-	const emit = defineEmits<{
-	  (e: 'dateRangeChange', payload: { from: string; to: string }): void
-	}>()
+		const emit = defineEmits<{
+		  (e: 'dateRangeChange', payload: { from: string; to: string }): void
+		  (e: 'sseStateChange', state: ConnectionState): void
+		  (e: 'pollingEnabledChange', enabled: boolean): void
+		}>()
 
 const logs = ref<RequestLog[]>([])
 const stats = ref<RequestLogStats | null>(null)
@@ -2131,10 +2133,32 @@ const stopPanelResize = () => {
   document.body.style.userSelect = ''
 }
 
-// Auto-refresh
-const autoRefreshEnabled = ref(true)
-const autoRefreshInterval = ref(3) // seconds, persisted to localStorage
-let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
+	// Auto-refresh
+	// Default: if SSE is enabled (default), start with polling disabled and only fall back after a grace period.
+	// If user disabled SSE previously, start polling immediately.
+	const autoRefreshEnabled = ref(localStorage.getItem('requestlog-sse-enabled') === 'false')
+	const autoRefreshInterval = ref(3) // seconds, persisted to localStorage
+	let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
+
+	// Avoid thrashing between SSE and polling when the SSE connection blips briefly.
+	const POLLING_FALLBACK_DELAY_MS = 3000
+	let pollingFallbackTimer: ReturnType<typeof setTimeout> | null = null
+	const cancelPollingFallback = () => {
+	  if (pollingFallbackTimer) {
+	    clearTimeout(pollingFallbackTimer)
+	    pollingFallbackTimer = null
+	  }
+	}
+	const schedulePollingFallback = () => {
+	  cancelPollingFallback()
+	  pollingFallbackTimer = setTimeout(() => {
+	    // Only enable polling if SSE is still not connected.
+	    if (!sseEnabled.value) return
+	    if (sseConnectionState.value === 'connected') return
+	    autoRefreshEnabled.value = true
+	    startAutoRefresh()
+	  }, POLLING_FALLBACK_DELAY_MS)
+	}
 
 // Stats refresh timer for SSE mode (low-frequency poll for summary tables)
 const SSE_STATS_REFRESH_INTERVAL = 15000 // 15 seconds
@@ -2169,25 +2193,32 @@ const loadSSEEnabled = () => {
 const saveSSEEnabled = () => {
   localStorage.setItem('requestlog-sse-enabled', String(sseEnabled.value))
 }
-const toggleSSEEnabled = () => {
-  sseEnabled.value = !sseEnabled.value
-  saveSSEEnabled()
-  if (sseEnabled.value) {
-    // Enable SSE
-    connectSSE()
-  } else {
-    // Disable SSE, fall back to polling
-    disconnectSSE()
-    sseConnectionState.value = 'disconnected'
-    stopSSEStatsRefresh()
-    autoRefreshEnabled.value = true
-    startAutoRefresh()
-  }
-}
+	const toggleSSEEnabled = () => {
+	  sseEnabled.value = !sseEnabled.value
+	  saveSSEEnabled()
+	  if (sseEnabled.value) {
+	    // Enable SSE
+	    // Prefer SSE: stop time-based polling immediately, then fall back after a short grace period.
+	    cancelPollingFallback()
+	    autoRefreshEnabled.value = false
+	    stopAutoRefresh()
+	    connectSSE()
+	    schedulePollingFallback()
+	  } else {
+	    // Disable SSE, fall back to polling
+	    disconnectSSE()
+	    sseConnectionState.value = 'disconnected'
+	    stopSSEStatsRefresh()
+	    cancelPollingFallback()
+	    autoRefreshEnabled.value = true
+	    startAutoRefresh()
+	  }
+	}
 
-// SSE connection state
-const sseConnectionState = ref<ConnectionState>('disconnected')
-const isSSEConnected = computed(() => sseConnectionState.value === 'connected')
+	// SSE connection state
+	const sseConnectionState = ref<ConnectionState>('disconnected')
+	const isSSEConnected = computed(() => sseConnectionState.value === 'connected')
+	let ssePausedByVisibility = false
 
 // SSE event handlers
 const handleLogCreated = (payload: LogCreatedPayload) => {
@@ -2397,23 +2428,46 @@ const handleLogDebugData = (payload: { id: string; hasDebugData: boolean }) => {
   }
 }
 
-const handleSSEConnectionChange = (state: ConnectionState) => {
-  sseConnectionState.value = state
-  console.log(`📡 SSE connection state: ${state}`)
+	const handleSSEConnectionChange = (state: ConnectionState) => {
+	  sseConnectionState.value = state
+	  console.log(`📡 SSE connection state: ${state}`)
+	  emit('sseStateChange', state)
 
-  if (state === 'connected') {
-    // SSE connected - disable all polling (SSE handlers update everything in real-time)
-    autoRefreshEnabled.value = false
-    stopAutoRefresh()
-    stopSSEStatsRefresh()
-    silentRefresh()
-  } else if (state === 'disconnected' || state === 'error') {
-    // SSE disconnected - stop stats refresh and enable polling as fallback
-    stopSSEStatsRefresh()
-    autoRefreshEnabled.value = true
-    startAutoRefresh()
-  }
-}
+	  // If the tab isn't visible, keep everything paused (no polling fallback).
+	  if (document.visibilityState === 'hidden') {
+	    stopAutoRefresh()
+	    stopSSEStatsRefresh()
+	    cancelPollingFallback()
+	    return
+	  }
+
+	  if (state === 'connected') {
+	    // SSE connected - disable all polling (SSE handlers update everything in real-time)
+	    cancelPollingFallback()
+	    autoRefreshEnabled.value = false
+	    stopAutoRefresh()
+	    stopSSEStatsRefresh()
+	    silentRefresh()
+	    return
+	  }
+
+	  // For brief SSE disconnects/connection blips, delay enabling polling to avoid flapping.
+	  if (state === 'connecting') {
+	    cancelPollingFallback()
+	    autoRefreshEnabled.value = false
+	    stopAutoRefresh()
+	    schedulePollingFallback()
+	    return
+	  }
+
+	  if (state === 'disconnected' || state === 'error') {
+	    stopSSEStatsRefresh()
+	    cancelPollingFallback()
+	    autoRefreshEnabled.value = false
+	    stopAutoRefresh()
+	    schedulePollingFallback()
+	  }
+	}
 
 // Initialize SSE
 const { connectionState: sseState, isPollingFallback, connect: connectSSE, disconnect: disconnectSSE } = useLogStream({
@@ -3083,26 +3137,37 @@ const removeAlias = async (userId?: string) => {
 	  if (sseEnabled.value) {
 	    // Try SSE first, fall back to polling if it fails
 	    connectSSE()
-	    // Start polling as backup until SSE connects
-	    startAutoRefresh()
+	    // Start polling as backup only if SSE doesn't connect quickly.
+	    autoRefreshEnabled.value = false
+	    stopAutoRefresh()
+	    schedulePollingFallback()
 	  } else {
 	    // SSE disabled, use polling only
 	    startAutoRefresh()
 	  }
+	  document.addEventListener('visibilitychange', handleVisibilityChange)
 	})
 
 onUnmounted(() => {
   stopAutoRefresh()
   stopSSEStatsRefresh()
   disconnectSSE()
+  cancelPollingFallback()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 
-const startAutoRefresh = () => {
+// Let parent components (e.g. charts) follow the same "effective polling" state.
+watch(autoRefreshEnabled, (enabled) => {
+  emit('pollingEnabledChange', enabled)
+}, { immediate: true })
+
+	const startAutoRefresh = () => {
   if (autoRefreshTimer) {
     clearInterval(autoRefreshTimer)
   }
   if (autoRefreshEnabled.value) {
     autoRefreshTimer = setInterval(() => {
+      if (document.visibilityState === 'hidden') return
       if (autoRefreshEnabled.value) {
         silentRefresh()
       }
@@ -3114,6 +3179,42 @@ const stopAutoRefresh = () => {
   if (autoRefreshTimer) {
     clearInterval(autoRefreshTimer)
     autoRefreshTimer = null
+  }
+}
+
+	const handleVisibilityChange = () => {
+	  if (document.visibilityState === 'hidden') {
+	    stopAutoRefresh()
+	    cancelPollingFallback()
+	    // Disconnect SSE to avoid keeping a live connection open when user isn't watching.
+	    // We'll reconnect when the tab becomes visible again.
+	    if (sseEnabled.value && sseConnectionState.value !== 'disconnected') {
+	      ssePausedByVisibility = true
+	      disconnectSSE()
+	      sseConnectionState.value = 'disconnected'
+	      stopSSEStatsRefresh()
+	    }
+	    return
+	  }
+
+	  // Visible again: follow the same effective rules as the SSE/polling state machine.
+	  if (sseEnabled.value) {
+	    // Prefer SSE, only poll if SSE stays down past the grace period.
+	    stopAutoRefresh()
+	    cancelPollingFallback()
+	    if (ssePausedByVisibility) {
+	      ssePausedByVisibility = false
+	      connectSSE()
+	    }
+	    if (sseConnectionState.value !== 'connected') {
+	      schedulePollingFallback()
+	    }
+	    return
+	  }
+
+  // SSE disabled: resume polling only if user left auto-refresh enabled.
+  if (autoRefreshEnabled.value) {
+    startAutoRefresh()
   }
 }
 

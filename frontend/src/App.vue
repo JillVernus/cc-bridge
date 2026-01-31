@@ -216,7 +216,12 @@
         <template v-if="activeTab === 'logs'">
           <!-- 全局统计图表 - 可折叠 -->
           <v-card v-if="showGlobalStatsChart" elevation="0" class="global-chart-card mb-6">
-            <GlobalStatsChart ref="globalStatsChartRef" :from="logsDateRange?.from" :to="logsDateRange?.to" />
+            <GlobalStatsChart
+              ref="globalStatsChartRef"
+              :from="logsDateRange?.from"
+              :to="logsDateRange?.to"
+              :auto-refresh="logsPollingEnabled"
+            />
             <div class="chart-collapse-btn">
               <v-btn
                 icon
@@ -241,7 +246,10 @@
             </v-btn>
           </div>
 
-          <RequestLogTable @date-range-change="onLogsDateRangeChange" />
+          <RequestLogTable
+            @date-range-change="onLogsDateRangeChange"
+            @polling-enabled-change="logsPollingEnabled = $event"
+          />
         </template>
 
         <!-- API Keys 视图 -->
@@ -639,8 +647,16 @@ const { init: initTheme } = useAppTheme()
 const channelOrchestrationRef = ref<InstanceType<typeof ChannelOrchestration> | null>(null)
 
 // 自动刷新定时器
-let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
-const AUTO_REFRESH_INTERVAL = 2000 // 2秒
+// The old 2s "refresh everything" loop was too chatty. We split it:
+// - channel list refresh: moderate frequency
+// - metrics refresh: lower frequency (since it can be heavier)
+let channelsRefreshTimer: ReturnType<typeof setInterval> | null = null
+let metricsRefreshTimer: ReturnType<typeof setInterval> | null = null
+const CHANNELS_REFRESH_INTERVAL_MS = 5000
+const METRICS_REFRESH_INTERVAL_MS = 15000
+
+let channelsRefreshInFlight = false
+let metricsRefreshInFlight = false
 
 // 响应式数据
 const activeTab = ref<'messages' | 'responses' | 'gemini' | 'logs' | 'apikeys'>('messages') // Tab 切换状态
@@ -669,6 +685,12 @@ const logsDateRange = ref<LogDateRange | null>(null)
 const onLogsDateRangeChange = (range: LogDateRange) => {
   logsDateRange.value = range
 }
+
+// Logs view: whether time-based polling is currently enabled.
+// When SSE is active, RequestLogTable will emit polling-enabled-change=false,
+// and the GlobalStatsChart will stop its own polling timer.
+// Default: if user disabled SSE previously, start with polling enabled.
+const logsPollingEnabled = ref<boolean>(localStorage.getItem('requestlog-sse-enabled') === 'false')
 
 // 备份恢复相关状态
 const backupList = ref<Array<{ filename: string; createdAt: string; size: number }>>([])
@@ -1328,6 +1350,7 @@ const handleKeydown = (event: KeyboardEvent) => {
 onMounted(async () => {
   // 注册键盘快捷键
   window.addEventListener('keydown', handleKeydown)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 
   // 初始化主题系统
   initTheme()
@@ -1374,45 +1397,64 @@ onMounted(async () => {
 })
 
 // 启动自动刷新定时器
-const startAutoRefresh = () => {
-  if (autoRefreshTimer) {
-    clearInterval(autoRefreshTimer)
+const isChannelTab = () => activeTab.value === 'messages' || activeTab.value === 'responses' || activeTab.value === 'gemini'
+
+const autoRefreshChannels = async () => {
+  if (!isAuthenticated.value) return
+  if (document.visibilityState === 'hidden') return
+  if (!isChannelTab()) return
+  if (channelsRefreshInFlight) return
+  channelsRefreshInFlight = true
+  try {
+    await refreshChannels()
+  } catch (error) {
+    console.warn('自动刷新渠道失败:', error)
+  } finally {
+    channelsRefreshInFlight = false
   }
-  autoRefreshTimer = setInterval(async () => {
-    if (isAuthenticated.value) {
-      try {
-        // 静默刷新渠道数据
-        if (activeTab.value === 'messages') {
-          channelsData.value = await api.getChannels()
-        } else if (activeTab.value === 'responses') {
-          responsesChannelsData.value = await api.getResponsesChannels()
-        } else if (activeTab.value === 'gemini') {
-          geminiChannelsData.value = await api.getGeminiChannels()
-        }
-        // 同时刷新渠道指标
-        channelOrchestrationRef.value?.refreshMetrics()
-      } catch (error) {
-        // 静默处理错误，避免刷新失败时干扰用户
-        console.warn('自动刷新失败:', error)
-      }
-    }
-  }, AUTO_REFRESH_INTERVAL)
+}
+
+const autoRefreshMetrics = async () => {
+  if (!isAuthenticated.value) return
+  if (document.visibilityState === 'hidden') return
+  if (!isChannelTab()) return
+  const orchestration = channelOrchestrationRef.value
+  if (!orchestration) return
+  if (metricsRefreshInFlight) return
+  metricsRefreshInFlight = true
+  try {
+    await orchestration.refreshMetrics()
+  } catch (error) {
+    console.warn('自动刷新指标失败:', error)
+  } finally {
+    metricsRefreshInFlight = false
+  }
+}
+
+const startAutoRefresh = () => {
+  stopAutoRefresh()
+  channelsRefreshTimer = setInterval(() => { void autoRefreshChannels() }, CHANNELS_REFRESH_INTERVAL_MS)
+  metricsRefreshTimer = setInterval(() => { void autoRefreshMetrics() }, METRICS_REFRESH_INTERVAL_MS)
 }
 
 // 停止自动刷新定时器
 const stopAutoRefresh = () => {
-  if (autoRefreshTimer) {
-    clearInterval(autoRefreshTimer)
-    autoRefreshTimer = null
+  if (channelsRefreshTimer) {
+    clearInterval(channelsRefreshTimer)
+    channelsRefreshTimer = null
+  }
+  if (metricsRefreshTimer) {
+    clearInterval(metricsRefreshTimer)
+    metricsRefreshTimer = null
   }
 }
 
 // 监听 Tab 切换，刷新对应数据
 watch(activeTab, async () => {
   if (isAuthenticated.value) {
-    await refreshChannels()
-    // 切换 Tab 时立即刷新指标
-    channelOrchestrationRef.value?.refreshMetrics()
+    await autoRefreshChannels()
+    // 切换 Tab 时尽量刷新指标（ref 可能还未挂载）
+    await autoRefreshMetrics()
   }
 })
 
@@ -1425,13 +1467,24 @@ watch(isAuthenticated, newValue => {
   }
 })
 
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'hidden') {
+    stopAutoRefresh()
+    return
+  }
+  if (isAuthenticated.value) {
+    startAutoRefresh()
+    // Refresh once after returning to the tab so the UI isn't stale.
+    void autoRefreshChannels()
+    void autoRefreshMetrics()
+  }
+}
+
 // 在组件卸载时清除定时器和事件监听
 onUnmounted(() => {
-  if (autoRefreshTimer) {
-    clearInterval(autoRefreshTimer)
-    autoRefreshTimer = null
-  }
+  stopAutoRefresh()
   window.removeEventListener('keydown', handleKeydown)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>
 

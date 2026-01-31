@@ -167,6 +167,9 @@ type EndpointFilter = 'all' | 'messages' | 'responses' | 'gemini'
 const props = defineProps<{
   from?: string
   to?: string
+  // When false, disables the internal time-based auto refresh timer.
+  // Useful when the logs SSE stream is active (avoid redundant polling).
+  autoRefresh?: boolean
 }>()
 
 // LocalStorage keys for preferences
@@ -218,13 +221,16 @@ const errorMessage = ref('')
 const chartRef = ref<InstanceType<typeof VueApexCharts> | null>(null)
 const renderSeries = ref<any[]>([])
 
-// Auto refresh timer (2 seconds interval)
-const AUTO_REFRESH_INTERVAL = 2000
+// Auto refresh timer (keep charts fresh without hammering the API)
+const AUTO_REFRESH_INTERVAL = 10000
 let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
 
 const startAutoRefresh = () => {
+  if (props.autoRefresh === false) return
+  if (document.visibilityState === 'hidden') return
   stopAutoRefresh()
   autoRefreshTimer = setInterval(() => {
+    if (document.visibilityState === 'hidden') return
     if (!isRefreshing.value) {
       refreshData(true)
     }
@@ -248,7 +254,9 @@ const pauseAutoRefresh = () => {
 
 const resumeAutoRefresh = () => {
   isHovering.value = false
-  startAutoRefresh()
+  if (props.autoRefresh !== false) {
+    startAutoRefresh()
+  }
 }
 
 // Chart height
@@ -638,13 +646,36 @@ watch(selectedView, (newVal, oldVal) => {
 // Initial load and start auto refresh
 onMounted(() => {
   refreshData()
-  startAutoRefresh()
+  if (props.autoRefresh !== false) {
+    startAutoRefresh()
+  }
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 // Cleanup timer on unmount
 onUnmounted(() => {
   stopAutoRefresh()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
+
+// Allow parent to toggle auto refresh dynamically (e.g. based on SSE state).
+watch(() => props.autoRefresh, (enabled) => {
+  if (enabled === false) {
+    stopAutoRefresh()
+    return
+  }
+  startAutoRefresh()
+})
+
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'hidden') {
+    stopAutoRefresh()
+    return
+  }
+  if (props.autoRefresh === false) return
+  if (isHovering.value) return
+  startAutoRefresh()
+}
 
 // Expose refresh method
 defineExpose({

@@ -111,13 +111,16 @@ const errorMessage = ref('')
 const chartRef = ref<InstanceType<typeof VueApexCharts> | null>(null)
 
 // Auto refresh timer (2 seconds interval)
-const AUTO_REFRESH_INTERVAL = 2000
+const AUTO_REFRESH_INTERVAL = 10000
 let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
+const isRefreshing = ref(false)
 
 const startAutoRefresh = () => {
+  if (document.visibilityState === 'hidden') return
   stopAutoRefresh()
   autoRefreshTimer = setInterval(() => {
-    if (!isLoading.value) {
+    if (document.visibilityState === 'hidden') return
+    if (!isLoading.value && !isRefreshing.value) {
       refreshData(true)
     }
   }, AUTO_REFRESH_INTERVAL)
@@ -140,7 +143,9 @@ const pauseAutoRefresh = () => {
 
 const resumeAutoRefresh = () => {
   isHovering.value = false
-  startAutoRefresh()
+  if (document.visibilityState !== 'hidden') {
+    startAutoRefresh()
+  }
 }
 
 // Chart colors
@@ -305,6 +310,8 @@ const chartSeries = computed(() => {
 
 // Fetch data
 const refreshData = async (isAutoRefresh = false) => {
+  if (isRefreshing.value) return
+  isRefreshing.value = true
   if (!isAutoRefresh) {
     isLoading.value = true
   }
@@ -337,6 +344,7 @@ const refreshData = async (isAutoRefresh = false) => {
     showError.value = true
     historyData.value = null
   } finally {
+    isRefreshing.value = false
     if (!isAutoRefresh) {
       isLoading.value = false
     }
@@ -352,17 +360,28 @@ watch(selectedDuration, () => {
 onMounted(() => {
   refreshData()
   startAutoRefresh()
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 // Cleanup timer on unmount
 onUnmounted(() => {
   stopAutoRefresh()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 
 // Expose refresh method
 defineExpose({
   refreshData
 })
+
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'hidden') {
+    stopAutoRefresh()
+    return
+  }
+  if (isHovering.value) return
+  startAutoRefresh()
+}
 </script>
 
 <style scoped>
