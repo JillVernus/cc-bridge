@@ -603,6 +603,7 @@ func (s *ChannelScheduler) selectFallbackChannel(
 	useCircuitBreaker bool,
 ) (*SelectionResult, error) {
 	var bestChannel *ChannelInfo
+	var bestUpstream *config.UpstreamConfig
 	bestFailureRate := float64(2) // 初始化为不可能的值
 
 	for i := range activeChannels {
@@ -619,32 +620,39 @@ func (s *ChannelScheduler) selectFallbackChannel(
 			continue
 		}
 
+		// 获取上游配置并检查是否有可用的 API Key（复合渠道除外）
+		upstream := s.getUpstreamByIndex(ch.Index, isResponses)
+		if upstream == nil {
+			continue
+		}
+		if !config.IsCompositeChannel(upstream) && len(upstream.APIKeys) == 0 {
+			continue
+		}
+
 		failureRate := metricsManager.CalculateFailureRate(ch.Index)
 		if failureRate < bestFailureRate {
 			bestFailureRate = failureRate
 			bestChannel = ch
+			bestUpstream = upstream
 		}
 	}
 
-	if bestChannel != nil {
-		upstream := s.getUpstreamByIndex(bestChannel.Index, isResponses)
-		if upstream != nil {
-			log.Printf("⚠️ 降级选择渠道: [%d] %s (失败率: %.1f%%)",
-				bestChannel.Index, upstream.Name, bestFailureRate*100)
-			result := &SelectionResult{
-				Upstream:     upstream,
-				ChannelIndex: bestChannel.Index,
-				Reason:       "fallback",
-			}
-			resolved, err := s.resolveCompositeChannel(result, model, isResponses, failedChannels, metricsManager, useCircuitBreaker)
-			if err == nil {
-				return resolved, nil
-			}
-			log.Printf("⚠️ [Composite] Failed to resolve fallback channel [%d] %s: %v", bestChannel.Index, upstream.Name, err)
-			failedChannels[bestChannel.Index] = true
-			// Recursively try to find another fallback
-			return s.selectFallbackChannel(activeChannels, failedChannels, isResponses, model, metricsManager, useCircuitBreaker)
+	if bestChannel != nil && bestUpstream != nil {
+		log.Printf("⚠️ 降级选择渠道: [%d] %s (失败率: %.1f%%)",
+			bestChannel.Index, bestUpstream.Name, bestFailureRate*100)
+		result := &SelectionResult{
+			Upstream:     bestUpstream,
+			ChannelIndex: bestChannel.Index,
+			Reason:       "fallback",
 		}
+		resolved, err := s.resolveCompositeChannel(result, model, isResponses, failedChannels, metricsManager, useCircuitBreaker)
+		if err == nil {
+			return resolved, nil
+		}
+		log.Printf("⚠️ [Composite] Failed to resolve fallback channel [%d] %s: %v", bestChannel.Index, bestUpstream.Name, err)
+		failedChannels[bestChannel.Index] = true
+		// Recursively try to find another fallback
+		return s.selectFallbackChannel(activeChannels, failedChannels, isResponses, model, metricsManager, useCircuitBreaker)
 	}
 
 	return nil, fmt.Errorf("所有渠道都不可用")
