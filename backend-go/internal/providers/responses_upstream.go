@@ -25,13 +25,13 @@ func (p *ResponsesUpstreamProvider) ConvertToProviderRequest(c *gin.Context, ups
 	// 读取原始请求体
 	originalBodyBytes, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		return nil, nil, fmt.Errorf("读取请求体失败: %w", err)
+		return nil, nil, fmt.Errorf("failed to read request body: %w", err)
 	}
 	c.Request.Body = io.NopCloser(bytes.NewReader(originalBodyBytes))
 
 	var claudeReq types.ClaudeRequest
 	if err := json.Unmarshal(originalBodyBytes, &claudeReq); err != nil {
-		return nil, originalBodyBytes, fmt.Errorf("解析 Claude 请求失败: %w", err)
+		return nil, originalBodyBytes, fmt.Errorf("failed to parse Claude request: %w", err)
 	}
 
 	// 转换为 Responses API 格式
@@ -39,7 +39,7 @@ func (p *ResponsesUpstreamProvider) ConvertToProviderRequest(c *gin.Context, ups
 
 	reqBodyBytes, err := json.Marshal(responsesReq)
 	if err != nil {
-		return nil, originalBodyBytes, fmt.Errorf("序列化 Responses 请求失败: %w", err)
+		return nil, originalBodyBytes, fmt.Errorf("failed to marshal Responses request body: %w", err)
 	}
 
 	// 构建目标 URL
@@ -47,7 +47,7 @@ func (p *ResponsesUpstreamProvider) ConvertToProviderRequest(c *gin.Context, ups
 
 	req, err := http.NewRequest("POST", targetURL, bytes.NewReader(reqBodyBytes))
 	if err != nil {
-		return nil, originalBodyBytes, fmt.Errorf("创建请求失败: %w", err)
+		return nil, originalBodyBytes, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// 设置请求头

@@ -63,7 +63,7 @@ func (sm *SessionManager) GetOrCreateSession(previousResponseID string) (*Sessio
 			}
 		}
 		// 如果找不到对应会话，返回错误
-		return nil, fmt.Errorf("无效的 previous_response_id: %s", previousResponseID)
+		return nil, fmt.Errorf("invalid previous_response_id: %s", previousResponseID)
 	}
 
 	// 创建新会话
@@ -98,7 +98,7 @@ func (sm *SessionManager) AppendMessage(sessionID string, item types.ResponsesIt
 
 	session, exists := sm.sessions[sessionID]
 	if !exists {
-		return fmt.Errorf("会话不存在: %s", sessionID)
+		return fmt.Errorf("session not found: %s", sessionID)
 	}
 
 	session.Messages = append(session.Messages, item)
@@ -119,7 +119,7 @@ func (sm *SessionManager) AddTokens(sessionID string, tokensUsed int) error {
 
 	session, exists := sm.sessions[sessionID]
 	if !exists {
-		return fmt.Errorf("会话不存在: %s", sessionID)
+		return fmt.Errorf("session not found: %s", sessionID)
 	}
 
 	session.TotalTokens += tokensUsed
@@ -135,7 +135,7 @@ func (sm *SessionManager) UpdateLastResponseID(sessionID, responseID string) err
 
 	session, exists := sm.sessions[sessionID]
 	if !exists {
-		return fmt.Errorf("会话不存在: %s", sessionID)
+		return fmt.Errorf("session not found: %s", sessionID)
 	}
 
 	session.LastResponseID = responseID
@@ -149,7 +149,7 @@ func (sm *SessionManager) GetSession(sessionID string) (*Session, error) {
 
 	session, exists := sm.sessions[sessionID]
 	if !exists {
-		return nil, fmt.Errorf("会话不存在: %s", sessionID)
+		return nil, fmt.Errorf("session not found: %s", sessionID)
 	}
 
 	return session, nil

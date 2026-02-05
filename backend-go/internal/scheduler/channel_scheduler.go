@@ -84,6 +84,25 @@ func (s *ChannelScheduler) isChannelSuspended(channelIndex int, isResponses bool
 	return s.suspensionChecker.IsChannelSuspended(channelIndex, channelType)
 }
 
+// upstreamHasCredentials reports whether the upstream can be used for requests.
+// Composite channels are always usable (they route to other channels).
+// Regular channels require API keys, except Responses channels of type "openai-oauth" which use OAuth tokens instead.
+func (s *ChannelScheduler) upstreamHasCredentials(upstream *config.UpstreamConfig, isResponses bool) bool {
+	if upstream == nil {
+		return false
+	}
+	if config.IsCompositeChannel(upstream) {
+		return true
+	}
+	if len(upstream.APIKeys) > 0 {
+		return true
+	}
+	if isResponses && upstream.ServiceType == "openai-oauth" {
+		return upstream.OAuthTokens != nil && strings.TrimSpace(upstream.OAuthTokens.AccessToken) != ""
+	}
+	return false
+}
+
 // SelectionResult 渠道选择结果
 type SelectionResult struct {
 	Upstream     *config.UpstreamConfig
@@ -116,7 +135,7 @@ func (s *ChannelScheduler) SelectChannel(
 	// 获取活跃渠道列表
 	activeChannels := s.getActiveChannels(isResponses)
 	if len(activeChannels) == 0 {
-		return nil, fmt.Errorf("没有可用的活跃渠道")
+		return nil, fmt.Errorf("no active channels available")
 	}
 
 	// Filter by allowed channels if specified
@@ -143,8 +162,7 @@ func (s *ChannelScheduler) SelectChannel(
 		} else if !useCircuitBreaker || metricsManager.IsChannelHealthy(promotedChannel.Index) {
 			// 促销渠道存在且未失败，检查是否健康（仅当电路断路器启用时）
 			upstream := s.getUpstreamByIndex(promotedChannel.Index, isResponses)
-			// Composite channels don't need API keys; regular channels do
-			if upstream != nil && (config.IsCompositeChannel(upstream) || len(upstream.APIKeys) > 0) {
+			if s.upstreamHasCredentials(upstream, isResponses) {
 				log.Printf("🎉 促销期优先选择渠道: [%d] %s (user: %s)", promotedChannel.Index, upstream.Name, maskUserID(userID))
 				result := &SelectionResult{
 					Upstream:     upstream,
@@ -234,8 +252,7 @@ func (s *ChannelScheduler) SelectChannel(
 		}
 
 		upstream := s.getUpstreamByIndex(ch.Index, isResponses)
-		// Composite channels don't need API keys; regular channels do
-		if upstream != nil && (config.IsCompositeChannel(upstream) || len(upstream.APIKeys) > 0) {
+		if s.upstreamHasCredentials(upstream, isResponses) {
 			healthyCandidates = append(healthyCandidates, ch)
 		}
 	}
@@ -585,8 +602,8 @@ func (s *ChannelScheduler) isTargetChannelAvailable(
 		return false
 	}
 
-	// Check if has API keys
-	if len(target.APIKeys) == 0 {
+	// Check if has usable credentials
+	if !s.upstreamHasCredentials(target, isResponses) {
 		return false
 	}
 
@@ -625,7 +642,7 @@ func (s *ChannelScheduler) selectFallbackChannel(
 		if upstream == nil {
 			continue
 		}
-		if !config.IsCompositeChannel(upstream) && len(upstream.APIKeys) == 0 {
+		if !s.upstreamHasCredentials(upstream, isResponses) {
 			continue
 		}
 
@@ -655,7 +672,7 @@ func (s *ChannelScheduler) selectFallbackChannel(
 		return s.selectFallbackChannel(activeChannels, failedChannels, isResponses, model, metricsManager, useCircuitBreaker)
 	}
 
-	return nil, fmt.Errorf("所有渠道都不可用")
+	return nil, fmt.Errorf("all channels are unavailable")
 }
 
 // ChannelInfo 渠道信息（用于排序）
@@ -815,7 +832,7 @@ func (s *ChannelScheduler) SelectGeminiChannel(
 	// Get active Gemini channels
 	activeChannels := s.getActiveGeminiChannels()
 	if len(activeChannels) == 0 {
-		return nil, fmt.Errorf("没有可用的活跃 Gemini 渠道")
+		return nil, fmt.Errorf("no active Gemini channels available")
 	}
 
 	// Filter by allowed channels if specified (by channel ID)

@@ -79,8 +79,8 @@ func WebAuthMiddlewareWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.Co
 		// 如果禁用了 Web UI，返回 404
 		if !envCfg.EnableWebUI {
 			c.JSON(404, gin.H{
-				"error":   "Web界面已禁用",
-				"message": "此服务器运行在纯API模式下，请通过API端点访问服务",
+				"error":   "Web UI disabled",
+				"message": "This server is running in API-only mode. Please use the API endpoints.",
 			})
 			c.Abort()
 			return
@@ -277,7 +277,7 @@ func WebAuthMiddlewareWithAPIKeyAndFailureLimiter(envCfg *config.EnvConfig, cfgM
 		if failureLimiter != nil && failureLimiter.IsBlocked(clientIP) {
 			c.JSON(429, gin.H{
 				"error":   "Too Many Requests",
-				"message": "由于多次认证失败，您的 IP 已被临时封禁",
+				"message": "Your IP has been temporarily blocked due to repeated authentication failures",
 			})
 			c.Abort()
 			return
@@ -321,8 +321,8 @@ func WebAuthMiddlewareWithAPIKeyAndFailureLimiter(envCfg *config.EnvConfig, cfgM
 		// 如果禁用了 Web UI，返回 404
 		if !envCfg.EnableWebUI {
 			c.JSON(404, gin.H{
-				"error":   "Web界面已禁用",
-				"message": "此服务器运行在纯API模式下，请通过API端点访问服务",
+				"error":   "Web UI disabled",
+				"message": "This server is running in API-only mode. Please use the API endpoints.",
 			})
 			c.Abort()
 			return

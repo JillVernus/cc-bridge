@@ -130,7 +130,7 @@ func SetChannelPromotion(cfgManager ConfigManager) gin.HandlerFunc {
 		idStr := c.Param("id")
 		id, err := strconv.Atoi(idStr)
 		if err != nil {
-			c.JSON(400, gin.H{"error": "无效的渠道 ID"})
+			c.JSON(400, gin.H{"error": "Invalid channel ID"})
 			return
 		}
 
@@ -138,7 +138,7 @@ func SetChannelPromotion(cfgManager ConfigManager) gin.HandlerFunc {
 			Duration int `json:"duration"` // 促销期时长（秒），0 表示清除
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(400, gin.H{"error": "无效的请求参数"})
+			c.JSON(400, gin.H{"error": "Invalid request parameters"})
 			return
 		}
 
@@ -170,7 +170,7 @@ func SetResponsesChannelPromotion(cfgManager ResponsesConfigManager) gin.Handler
 		idStr := c.Param("id")
 		id, err := strconv.Atoi(idStr)
 		if err != nil {
-			c.JSON(400, gin.H{"error": "无效的渠道 ID"})
+			c.JSON(400, gin.H{"error": "Invalid channel ID"})
 			return
 		}
 
@@ -178,7 +178,7 @@ func SetResponsesChannelPromotion(cfgManager ResponsesConfigManager) gin.Handler
 			Duration int `json:"duration"` // 促销期时长（秒），0 表示清除
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(400, gin.H{"error": "无效的请求参数"})
+			c.JSON(400, gin.H{"error": "Invalid request parameters"})
 			return
 		}
 

@@ -77,7 +77,7 @@ func ReloadConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		if err := cfgManager.ReloadConfig(); err != nil {
 			c.JSON(500, gin.H{
 				"status":    "error",
-				"message":   "配置重载失败",
+				"message":   "Config reload failed",
 				"error":     err.Error(),
 				"timestamp": time.Now().Format(time.RFC3339),
 			})
@@ -87,7 +87,7 @@ func ReloadConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		config := cfgManager.GetConfig()
 		c.JSON(200, gin.H{
 			"status":    "success",
-			"message":   "配置已重载",
+			"message":   "Config reloaded",
 			"timestamp": time.Now().Format(time.RFC3339),
 			"config": gin.H{
 				"upstreamCount":        len(config.Upstream),

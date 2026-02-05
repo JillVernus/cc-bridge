@@ -1229,7 +1229,7 @@ func buildCodexOAuthRequest(
 	// 解析请求体为 map 以保留所有字段
 	var reqMap map[string]interface{}
 	if err := json.Unmarshal(bodyBytes, &reqMap); err != nil {
-		return nil, fmt.Errorf("解析请求失败: %w", err)
+		return nil, fmt.Errorf("failed to parse request body: %w", err)
 	}
 
 	// 模型重定向
@@ -1240,7 +1240,7 @@ func buildCodexOAuthRequest(
 	// 序列化请求体
 	reqBody, err := json.Marshal(reqMap)
 	if err != nil {
-		return nil, fmt.Errorf("序列化请求失败: %w", err)
+		return nil, fmt.Errorf("failed to marshal request body: %w", err)
 	}
 
 	// Codex OAuth 使用固定的 API 端点
@@ -1294,7 +1294,7 @@ func handleSingleChannelResponses(
 	upstream, err := cfgManager.GetCurrentResponsesUpstream()
 	if err != nil {
 		c.JSON(503, gin.H{
-			"error": "未配置任何 Responses 渠道，请先在管理界面添加渠道",
+			"error": "No Responses channels configured. Please add a channel in the admin UI.",
 			"code":  "NO_RESPONSES_UPSTREAM",
 		})
 		return
@@ -1357,7 +1357,7 @@ func handleSingleChannelResponses(
 	// Composite channels don't have API keys - they route to other channels
 	if len(upstream.APIKeys) == 0 && !config.IsCompositeChannel(upstream) {
 		c.JSON(503, gin.H{
-			"error": fmt.Sprintf("当前 Responses 渠道 \"%s\" 未配置API密钥", upstream.Name),
+			"error": fmt.Sprintf("Current Responses channel \"%s\" has no API keys configured", upstream.Name),
 			"code":  "NO_API_KEYS",
 		})
 		return
@@ -1716,7 +1716,7 @@ func handleSingleChannelResponses(
 
 				case config.ActionFailoverKey:
 					// Failover to next key
-					lastError = fmt.Errorf("上游错误: %d", resp.StatusCode)
+					lastError = fmt.Errorf("upstream error: %d", resp.StatusCode)
 					failedKeys[apiKey] = true
 					if decision.MarkKeyFailed {
 						cfgManager.MarkKeyAsFailed(apiKey)
@@ -1891,14 +1891,14 @@ func handleSingleChannelResponses(
 			c.JSON(status, gin.H{"error": string(lastFailoverError.Body)})
 		}
 	} else {
-		errMsg := "未知错误"
+		errMsg := "unknown error"
 		if lastError != nil {
 			errMsg = lastError.Error()
 		}
-		errJSON := fmt.Sprintf(`{"error":"所有上游 Responses API密钥都不可用","details":"%s"}`, errMsg)
+		errJSON := fmt.Sprintf(`{"error":"all upstream Responses API keys are unavailable","details":"%s"}`, errMsg)
 		SaveErrorDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, 500, []byte(errJSON))
 		c.JSON(500, gin.H{
-			"error":   "所有上游 Responses API密钥都不可用",
+			"error":   "all upstream Responses API keys are unavailable",
 			"details": errMsg,
 		})
 	}

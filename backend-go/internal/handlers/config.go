@@ -139,7 +139,7 @@ func UpdateUpstream(cfgManager *config.ConfigManager, sch *scheduler.ChannelSche
 
 		shouldResetMetrics, err := cfgManager.UpdateUpstream(id, updates)
 		if err != nil {
-			if strings.Contains(err.Error(), "无效的上游索引") {
+			if strings.Contains(err.Error(), "invalid upstream index") {
 				c.JSON(404, gin.H{"error": "Upstream not found"})
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
@@ -172,7 +172,7 @@ func DeleteUpstream(cfgManager *config.ConfigManager, channelRateLimiter *middle
 
 		removed, err := cfgManager.RemoveUpstream(id)
 		if err != nil {
-			if strings.Contains(err.Error(), "无效的上游索引") {
+			if strings.Contains(err.Error(), "invalid upstream index") {
 				c.JSON(404, gin.H{"error": "Upstream not found"})
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
@@ -213,10 +213,10 @@ func AddApiKey(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		if err := cfgManager.AddAPIKey(id, req.APIKey); err != nil {
-			if strings.Contains(err.Error(), "无效的上游索引") {
+			if strings.Contains(err.Error(), "invalid upstream index") {
 				c.JSON(404, gin.H{"error": "Upstream not found"})
-			} else if strings.Contains(err.Error(), "API密钥已存在") {
-				c.JSON(400, gin.H{"error": "API密钥已存在"})
+			} else if strings.Contains(err.Error(), "API key already exists") {
+				c.JSON(400, gin.H{"error": "API key already exists"})
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
 			}
@@ -249,9 +249,9 @@ func DeleteApiKey(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		if err := cfgManager.RemoveAPIKey(id, apiKey); err != nil {
-			if strings.Contains(err.Error(), "无效的上游索引") {
+			if strings.Contains(err.Error(), "invalid upstream index") {
 				c.JSON(404, gin.H{"error": "Upstream not found"})
-			} else if strings.Contains(err.Error(), "API密钥不存在") {
+			} else if strings.Contains(err.Error(), "API key not found") {
 				c.JSON(404, gin.H{"error": "API key not found"})
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
@@ -281,9 +281,9 @@ func DeleteApiKeyByIndex(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		if err := cfgManager.RemoveAPIKeyByIndex(channelID, keyIndex); err != nil {
-			if strings.Contains(err.Error(), "无效的上游索引") {
+			if strings.Contains(err.Error(), "invalid upstream index") {
 				c.JSON(404, gin.H{"error": "Channel not found"})
-			} else if strings.Contains(err.Error(), "无效的密钥索引") {
+			} else if strings.Contains(err.Error(), "invalid key index") {
 				c.JSON(404, gin.H{"error": "Key index not found"})
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
@@ -311,9 +311,9 @@ func MoveApiKeyToTopByIndex(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		if err := cfgManager.MoveAPIKeyToTopByIndex(channelID, keyIndex); err != nil {
-			if strings.Contains(err.Error(), "无效的上游索引") {
+			if strings.Contains(err.Error(), "invalid upstream index") {
 				c.JSON(404, gin.H{"error": "Channel not found"})
-			} else if strings.Contains(err.Error(), "无效的密钥索引") {
+			} else if strings.Contains(err.Error(), "invalid key index") {
 				c.JSON(404, gin.H{"error": "Key index not found"})
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
@@ -341,9 +341,9 @@ func MoveApiKeyToBottomByIndex(cfgManager *config.ConfigManager) gin.HandlerFunc
 		}
 
 		if err := cfgManager.MoveAPIKeyToBottomByIndex(channelID, keyIndex); err != nil {
-			if strings.Contains(err.Error(), "无效的上游索引") {
+			if strings.Contains(err.Error(), "invalid upstream index") {
 				c.JSON(404, gin.H{"error": "Channel not found"})
-			} else if strings.Contains(err.Error(), "无效的密钥索引") {
+			} else if strings.Contains(err.Error(), "invalid key index") {
 				c.JSON(404, gin.H{"error": "Key index not found"})
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
@@ -371,9 +371,9 @@ func DeleteResponsesApiKeyByIndex(cfgManager *config.ConfigManager) gin.HandlerF
 		}
 
 		if err := cfgManager.RemoveResponsesAPIKeyByIndex(channelID, keyIndex); err != nil {
-			if strings.Contains(err.Error(), "无效的上游索引") {
+			if strings.Contains(err.Error(), "invalid upstream index") {
 				c.JSON(404, gin.H{"error": "Channel not found"})
-			} else if strings.Contains(err.Error(), "无效的密钥索引") {
+			} else if strings.Contains(err.Error(), "invalid key index") {
 				c.JSON(404, gin.H{"error": "Key index not found"})
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
@@ -401,9 +401,9 @@ func MoveResponsesApiKeyToTopByIndex(cfgManager *config.ConfigManager) gin.Handl
 		}
 
 		if err := cfgManager.MoveResponsesAPIKeyToTopByIndex(channelID, keyIndex); err != nil {
-			if strings.Contains(err.Error(), "无效的上游索引") {
+			if strings.Contains(err.Error(), "invalid upstream index") {
 				c.JSON(404, gin.H{"error": "Channel not found"})
-			} else if strings.Contains(err.Error(), "无效的密钥索引") {
+			} else if strings.Contains(err.Error(), "invalid key index") {
 				c.JSON(404, gin.H{"error": "Key index not found"})
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
@@ -431,9 +431,9 @@ func MoveResponsesApiKeyToBottomByIndex(cfgManager *config.ConfigManager) gin.Ha
 		}
 
 		if err := cfgManager.MoveResponsesAPIKeyToBottomByIndex(channelID, keyIndex); err != nil {
-			if strings.Contains(err.Error(), "无效的上游索引") {
+			if strings.Contains(err.Error(), "invalid upstream index") {
 				c.JSON(404, gin.H{"error": "Channel not found"})
-			} else if strings.Contains(err.Error(), "无效的密钥索引") {
+			} else if strings.Contains(err.Error(), "invalid key index") {
 				c.JSON(404, gin.H{"error": "Key index not found"})
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
@@ -457,7 +457,7 @@ func UpdateLoadBalance(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		if err := cfgManager.SetLoadBalance(req.Strategy); err != nil {
-			if strings.Contains(err.Error(), "无效的负载均衡策略") {
+			if strings.Contains(err.Error(), "invalid load balancing strategy") {
 				c.JSON(400, gin.H{"error": err.Error()})
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
@@ -484,7 +484,7 @@ func UpdateResponsesLoadBalance(cfgManager *config.ConfigManager) gin.HandlerFun
 		}
 
 		if err := cfgManager.SetResponsesLoadBalance(req.Strategy); err != nil {
-			if strings.Contains(err.Error(), "无效的负载均衡策略") {
+			if strings.Contains(err.Error(), "invalid load balancing strategy") {
 				c.JSON(400, gin.H{"error": err.Error()})
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
@@ -511,7 +511,7 @@ func UpdateGeminiLoadBalance(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		if err := cfgManager.SetGeminiLoadBalance(req.Strategy); err != nil {
-			if strings.Contains(err.Error(), "无效的负载均衡策略") {
+			if strings.Contains(err.Error(), "invalid load balancing strategy") {
 				c.JSON(400, gin.H{"error": err.Error()})
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
@@ -852,10 +852,10 @@ func AddResponsesApiKey(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		if err := cfgManager.AddResponsesAPIKey(id, req.APIKey); err != nil {
-			if strings.Contains(err.Error(), "无效的上游索引") {
+			if strings.Contains(err.Error(), "invalid upstream index") {
 				c.JSON(404, gin.H{"error": "Upstream not found"})
-			} else if strings.Contains(err.Error(), "API密钥已存在") {
-				c.JSON(400, gin.H{"error": "API密钥已存在"})
+			} else if strings.Contains(err.Error(), "API key already exists") {
+				c.JSON(400, gin.H{"error": "API key already exists"})
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
 			}
@@ -886,9 +886,9 @@ func DeleteResponsesApiKey(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		if err := cfgManager.RemoveResponsesAPIKey(id, apiKey); err != nil {
-			if strings.Contains(err.Error(), "无效的上游索引") {
+			if strings.Contains(err.Error(), "invalid upstream index") {
 				c.JSON(404, gin.H{"error": "Upstream not found"})
-			} else if strings.Contains(err.Error(), "API密钥不存在") {
+			} else if strings.Contains(err.Error(), "API key not found") {
 				c.JSON(404, gin.H{"error": "API key not found"})
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
@@ -1041,7 +1041,7 @@ func SetChannelStatus(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		if err := cfgManager.SetChannelStatus(id, req.Status); err != nil {
-			if strings.Contains(err.Error(), "无效的上游索引") {
+			if strings.Contains(err.Error(), "invalid upstream index") {
 				c.JSON(404, gin.H{"error": "Channel not found"})
 			} else {
 				c.JSON(400, gin.H{"error": err.Error()})
@@ -1076,7 +1076,7 @@ func SetResponsesChannelStatus(cfgManager *config.ConfigManager) gin.HandlerFunc
 		}
 
 		if err := cfgManager.SetResponsesChannelStatus(id, req.Status); err != nil {
-			if strings.Contains(err.Error(), "无效的上游索引") {
+			if strings.Contains(err.Error(), "invalid upstream index") {
 				c.JSON(404, gin.H{"error": "Channel not found"})
 			} else {
 				c.JSON(400, gin.H{"error": err.Error()})
@@ -1328,7 +1328,7 @@ func UpdateFailoverConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			// Validate rules
 			for i, rule := range req.Rules {
 				if rule.ErrorCodes == "" {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "规则 " + strconv.Itoa(i+1) + " 缺少错误码"})
+					c.JSON(http.StatusBadRequest, gin.H{"error": "Rule " + strconv.Itoa(i+1) + " is missing error codes"})
 					return
 				}
 
@@ -1337,17 +1337,17 @@ func UpdateFailoverConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 					// Reject empty actionChain - use {Action: "none"} instead
 					if len(rule.ActionChain) == 0 {
 						c.JSON(http.StatusBadRequest, gin.H{
-							"error": "规则 " + strconv.Itoa(i+1) + " 的动作链不能为空，请使用 {\"action\": \"none\"} 表示返回错误",
+							"error": "Rule " + strconv.Itoa(i+1) + " actionChain cannot be empty; use {\"action\":\"none\"} to return an error",
 						})
 						return
 					}
 					for j, step := range rule.ActionChain {
 						switch step.Action {
 						case config.ActionRetry, config.ActionFailover, config.ActionSuspend, config.ActionReturnError:
-							// Valid action
+						// Valid action
 						default:
 							c.JSON(http.StatusBadRequest, gin.H{
-								"error": "规则 " + strconv.Itoa(i+1) + " 步骤 " + strconv.Itoa(j+1) + " 的动作无效: " + step.Action,
+								"error": "Rule " + strconv.Itoa(i+1) + " step " + strconv.Itoa(j+1) + " has invalid action: " + step.Action,
 							})
 							return
 						}
@@ -1365,7 +1365,7 @@ func UpdateFailoverConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				} else if rule.Action == "" {
 					// Reject rules with neither actionChain nor legacy action
 					c.JSON(http.StatusBadRequest, gin.H{
-						"error": "规则 " + strconv.Itoa(i+1) + " 必须指定 actionChain 或 action",
+						"error": "Rule " + strconv.Itoa(i+1) + " must specify either actionChain or action",
 					})
 					return
 				}

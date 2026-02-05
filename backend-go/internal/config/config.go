@@ -963,7 +963,7 @@ func (cm *ConfigManager) GetCurrentUpstream() (*UpstreamConfig, error) {
 	defer cm.mu.RUnlock()
 
 	if len(cm.config.Upstream) == 0 {
-		return nil, fmt.Errorf("未配置任何上游渠道")
+		return nil, fmt.Errorf("no upstream channels configured")
 	}
 
 	// 优先选择第一个 active 状态的渠道
@@ -1002,7 +1002,7 @@ func (cm *ConfigManager) GetNextResponsesAPIKey(upstream *UpstreamConfig, failed
 
 func (cm *ConfigManager) getNextAPIKeyWithStrategy(upstream *UpstreamConfig, failedKeys map[string]bool, strategy string, requestCounter *int) (string, error) {
 	if len(upstream.APIKeys) == 0 {
-		return "", fmt.Errorf("上游 %s 没有可用的API密钥", upstream.Name)
+		return "", fmt.Errorf("upstream %s has no available API keys", upstream.Name)
 	}
 
 	// 综合考虑临时失败密钥和内存中的失败密钥
@@ -1046,7 +1046,7 @@ func (cm *ConfigManager) getNextAPIKeyWithStrategy(upstream *UpstreamConfig, fai
 			}
 		}
 
-		return "", fmt.Errorf("上游 %s 的所有API密钥都暂时不可用", upstream.Name)
+		return "", fmt.Errorf("all API keys for upstream %s are temporarily unavailable", upstream.Name)
 	}
 
 	// 根据负载均衡策略选择密钥
@@ -1321,7 +1321,7 @@ func (cm *ConfigManager) UpdateUpstream(index int, updates UpstreamUpdate) (shou
 	defer cm.mu.Unlock()
 
 	if index < 0 || index >= len(cm.config.Upstream) {
-		return false, fmt.Errorf("无效的上游索引: %d", index)
+		return false, fmt.Errorf("invalid upstream index: %d", index)
 	}
 
 	upstream := &cm.config.Upstream[index]
@@ -1445,7 +1445,7 @@ func (cm *ConfigManager) RemoveUpstream(index int) (*UpstreamConfig, error) {
 	defer cm.mu.Unlock()
 
 	if index < 0 || index >= len(cm.config.Upstream) {
-		return nil, fmt.Errorf("无效的上游索引: %d", index)
+		return nil, fmt.Errorf("invalid upstream index: %d", index)
 	}
 
 	removed := cm.config.Upstream[index]
@@ -1521,13 +1521,13 @@ func (cm *ConfigManager) AddAPIKey(index int, apiKey string) error {
 	defer cm.mu.Unlock()
 
 	if index < 0 || index >= len(cm.config.Upstream) {
-		return fmt.Errorf("无效的上游索引: %d", index)
+		return fmt.Errorf("invalid upstream index: %d", index)
 	}
 
 	// 检查密钥是否已存在
 	for _, key := range cm.config.Upstream[index].APIKeys {
 		if key == apiKey {
-			return fmt.Errorf("API密钥已存在")
+			return fmt.Errorf("API key already exists")
 		}
 	}
 
@@ -1547,7 +1547,7 @@ func (cm *ConfigManager) RemoveAPIKey(index int, apiKey string) error {
 	defer cm.mu.Unlock()
 
 	if index < 0 || index >= len(cm.config.Upstream) {
-		return fmt.Errorf("无效的上游索引: %d", index)
+		return fmt.Errorf("invalid upstream index: %d", index)
 	}
 
 	// 查找并删除密钥
@@ -1562,7 +1562,7 @@ func (cm *ConfigManager) RemoveAPIKey(index int, apiKey string) error {
 	}
 
 	if !found {
-		return fmt.Errorf("API密钥不存在")
+		return fmt.Errorf("API key not found")
 	}
 
 	if err := cm.saveConfigLocked(cm.config); err != nil {
@@ -1632,7 +1632,7 @@ func (cm *ConfigManager) SetGeminiLoadBalance(strategy string) error {
 
 func validateLoadBalanceStrategy(strategy string) error {
 	if strategy != "round-robin" && strategy != "random" && strategy != "failover" {
-		return fmt.Errorf("无效的负载均衡策略: %s", strategy)
+		return fmt.Errorf("invalid load balancing strategy: %s", strategy)
 	}
 	return nil
 }
@@ -1691,7 +1691,7 @@ func (cm *ConfigManager) MoveAPIKeyToTop(upstreamIndex int, apiKey string) error
 	defer cm.mu.Unlock()
 
 	if upstreamIndex < 0 || upstreamIndex >= len(cm.config.Upstream) {
-		return fmt.Errorf("无效的上游索引: %d", upstreamIndex)
+		return fmt.Errorf("invalid upstream index: %d", upstreamIndex)
 	}
 
 	upstream := &cm.config.Upstream[upstreamIndex]
@@ -1718,7 +1718,7 @@ func (cm *ConfigManager) MoveAPIKeyToBottom(upstreamIndex int, apiKey string) er
 	defer cm.mu.Unlock()
 
 	if upstreamIndex < 0 || upstreamIndex >= len(cm.config.Upstream) {
-		return fmt.Errorf("无效的上游索引: %d", upstreamIndex)
+		return fmt.Errorf("invalid upstream index: %d", upstreamIndex)
 	}
 
 	upstream := &cm.config.Upstream[upstreamIndex]
@@ -1746,7 +1746,7 @@ func (cm *ConfigManager) MoveResponsesAPIKeyToTop(upstreamIndex int, apiKey stri
 	defer cm.mu.Unlock()
 
 	if upstreamIndex < 0 || upstreamIndex >= len(cm.config.ResponsesUpstream) {
-		return fmt.Errorf("无效的上游索引: %d", upstreamIndex)
+		return fmt.Errorf("invalid upstream index: %d", upstreamIndex)
 	}
 
 	upstream := &cm.config.ResponsesUpstream[upstreamIndex]
@@ -1772,7 +1772,7 @@ func (cm *ConfigManager) MoveResponsesAPIKeyToBottom(upstreamIndex int, apiKey s
 	defer cm.mu.Unlock()
 
 	if upstreamIndex < 0 || upstreamIndex >= len(cm.config.ResponsesUpstream) {
-		return fmt.Errorf("无效的上游索引: %d", upstreamIndex)
+		return fmt.Errorf("invalid upstream index: %d", upstreamIndex)
 	}
 
 	upstream := &cm.config.ResponsesUpstream[upstreamIndex]
@@ -1799,12 +1799,12 @@ func (cm *ConfigManager) RemoveAPIKeyByIndex(upstreamIndex int, keyIndex int) er
 	defer cm.mu.Unlock()
 
 	if upstreamIndex < 0 || upstreamIndex >= len(cm.config.Upstream) {
-		return fmt.Errorf("无效的上游索引: %d", upstreamIndex)
+		return fmt.Errorf("invalid upstream index: %d", upstreamIndex)
 	}
 
 	keys := cm.config.Upstream[upstreamIndex].APIKeys
 	if keyIndex < 0 || keyIndex >= len(keys) {
-		return fmt.Errorf("无效的密钥索引: %d", keyIndex)
+		return fmt.Errorf("invalid key index: %d", keyIndex)
 	}
 
 	cm.config.Upstream[upstreamIndex].APIKeys = append(keys[:keyIndex], keys[keyIndex+1:]...)
@@ -1823,12 +1823,12 @@ func (cm *ConfigManager) MoveAPIKeyToTopByIndex(upstreamIndex int, keyIndex int)
 	defer cm.mu.Unlock()
 
 	if upstreamIndex < 0 || upstreamIndex >= len(cm.config.Upstream) {
-		return fmt.Errorf("无效的上游索引: %d", upstreamIndex)
+		return fmt.Errorf("invalid upstream index: %d", upstreamIndex)
 	}
 
 	upstream := &cm.config.Upstream[upstreamIndex]
 	if keyIndex < 0 || keyIndex >= len(upstream.APIKeys) {
-		return fmt.Errorf("无效的密钥索引: %d", keyIndex)
+		return fmt.Errorf("invalid key index: %d", keyIndex)
 	}
 
 	if keyIndex == 0 {
@@ -1846,12 +1846,12 @@ func (cm *ConfigManager) MoveAPIKeyToBottomByIndex(upstreamIndex int, keyIndex i
 	defer cm.mu.Unlock()
 
 	if upstreamIndex < 0 || upstreamIndex >= len(cm.config.Upstream) {
-		return fmt.Errorf("无效的上游索引: %d", upstreamIndex)
+		return fmt.Errorf("invalid upstream index: %d", upstreamIndex)
 	}
 
 	upstream := &cm.config.Upstream[upstreamIndex]
 	if keyIndex < 0 || keyIndex >= len(upstream.APIKeys) {
-		return fmt.Errorf("无效的密钥索引: %d", keyIndex)
+		return fmt.Errorf("invalid key index: %d", keyIndex)
 	}
 
 	if keyIndex == len(upstream.APIKeys)-1 {
@@ -1870,12 +1870,12 @@ func (cm *ConfigManager) RemoveResponsesAPIKeyByIndex(upstreamIndex int, keyInde
 	defer cm.mu.Unlock()
 
 	if upstreamIndex < 0 || upstreamIndex >= len(cm.config.ResponsesUpstream) {
-		return fmt.Errorf("无效的上游索引: %d", upstreamIndex)
+		return fmt.Errorf("invalid upstream index: %d", upstreamIndex)
 	}
 
 	keys := cm.config.ResponsesUpstream[upstreamIndex].APIKeys
 	if keyIndex < 0 || keyIndex >= len(keys) {
-		return fmt.Errorf("无效的密钥索引: %d", keyIndex)
+		return fmt.Errorf("invalid key index: %d", keyIndex)
 	}
 
 	cm.config.ResponsesUpstream[upstreamIndex].APIKeys = append(keys[:keyIndex], keys[keyIndex+1:]...)
@@ -1894,12 +1894,12 @@ func (cm *ConfigManager) MoveResponsesAPIKeyToTopByIndex(upstreamIndex int, keyI
 	defer cm.mu.Unlock()
 
 	if upstreamIndex < 0 || upstreamIndex >= len(cm.config.ResponsesUpstream) {
-		return fmt.Errorf("无效的上游索引: %d", upstreamIndex)
+		return fmt.Errorf("invalid upstream index: %d", upstreamIndex)
 	}
 
 	upstream := &cm.config.ResponsesUpstream[upstreamIndex]
 	if keyIndex < 0 || keyIndex >= len(upstream.APIKeys) {
-		return fmt.Errorf("无效的密钥索引: %d", keyIndex)
+		return fmt.Errorf("invalid key index: %d", keyIndex)
 	}
 
 	if keyIndex == 0 {
@@ -1917,12 +1917,12 @@ func (cm *ConfigManager) MoveResponsesAPIKeyToBottomByIndex(upstreamIndex int, k
 	defer cm.mu.Unlock()
 
 	if upstreamIndex < 0 || upstreamIndex >= len(cm.config.ResponsesUpstream) {
-		return fmt.Errorf("无效的上游索引: %d", upstreamIndex)
+		return fmt.Errorf("invalid upstream index: %d", upstreamIndex)
 	}
 
 	upstream := &cm.config.ResponsesUpstream[upstreamIndex]
 	if keyIndex < 0 || keyIndex >= len(upstream.APIKeys) {
-		return fmt.Errorf("无效的密钥索引: %d", keyIndex)
+		return fmt.Errorf("invalid key index: %d", keyIndex)
 	}
 
 	if keyIndex == len(upstream.APIKeys)-1 {
@@ -2047,7 +2047,7 @@ func (cm *ConfigManager) GetCurrentResponsesUpstream() (*UpstreamConfig, error) 
 	defer cm.mu.RUnlock()
 
 	if len(cm.config.ResponsesUpstream) == 0 {
-		return nil, fmt.Errorf("未配置任何 Responses 渠道")
+		return nil, fmt.Errorf("no Responses channels configured")
 	}
 
 	// 优先选择第一个 active 状态的渠道
@@ -2104,7 +2104,7 @@ func (cm *ConfigManager) UpdateResponsesUpstream(index int, updates UpstreamUpda
 	defer cm.mu.Unlock()
 
 	if index < 0 || index >= len(cm.config.ResponsesUpstream) {
-		return false, fmt.Errorf("无效的 Responses 上游索引: %d", index)
+		return false, fmt.Errorf("invalid Responses upstream index: %d", index)
 	}
 
 	upstream := &cm.config.ResponsesUpstream[index]
@@ -2262,7 +2262,7 @@ func (cm *ConfigManager) RemoveResponsesUpstream(index int) (*UpstreamConfig, er
 	defer cm.mu.Unlock()
 
 	if index < 0 || index >= len(cm.config.ResponsesUpstream) {
-		return nil, fmt.Errorf("无效的 Responses 上游索引: %d", index)
+		return nil, fmt.Errorf("invalid Responses upstream index: %d", index)
 	}
 
 	removed := cm.config.ResponsesUpstream[index]
@@ -2290,13 +2290,13 @@ func (cm *ConfigManager) AddResponsesAPIKey(index int, apiKey string) error {
 	defer cm.mu.Unlock()
 
 	if index < 0 || index >= len(cm.config.ResponsesUpstream) {
-		return fmt.Errorf("无效的上游索引: %d", index)
+		return fmt.Errorf("invalid upstream index: %d", index)
 	}
 
 	// 检查密钥是否已存在
 	for _, key := range cm.config.ResponsesUpstream[index].APIKeys {
 		if key == apiKey {
-			return fmt.Errorf("API密钥已存在")
+			return fmt.Errorf("API key already exists")
 		}
 	}
 
@@ -2316,7 +2316,7 @@ func (cm *ConfigManager) RemoveResponsesAPIKey(index int, apiKey string) error {
 	defer cm.mu.Unlock()
 
 	if index < 0 || index >= len(cm.config.ResponsesUpstream) {
-		return fmt.Errorf("无效的上游索引: %d", index)
+		return fmt.Errorf("invalid upstream index: %d", index)
 	}
 
 	// 查找并删除密钥
@@ -2331,7 +2331,7 @@ func (cm *ConfigManager) RemoveResponsesAPIKey(index int, apiKey string) error {
 	}
 
 	if !found {
-		return fmt.Errorf("API密钥不存在")
+		return fmt.Errorf("API key not found")
 	}
 
 	if err := cm.saveConfigLocked(cm.config); err != nil {
@@ -2349,7 +2349,7 @@ func (cm *ConfigManager) UpdateResponsesOAuthTokens(index int, tokens *OAuthToke
 	defer cm.mu.Unlock()
 
 	if index < 0 || index >= len(cm.config.ResponsesUpstream) {
-		return fmt.Errorf("无效的 Responses 上游索引: %d", index)
+		return fmt.Errorf("invalid Responses upstream index: %d", index)
 	}
 
 	upstream := &cm.config.ResponsesUpstream[index]
@@ -2382,7 +2382,7 @@ func (cm *ConfigManager) UpdateResponsesOAuthTokensByName(name string, tokens *O
 		}
 	}
 
-	return fmt.Errorf("未找到名为 %s 的 Responses 渠道", name)
+	return fmt.Errorf("no Responses channel named %s found", name)
 }
 
 // ============== 多渠道调度相关方法 ==============
@@ -2394,17 +2394,17 @@ func (cm *ConfigManager) ReorderUpstreams(order []int) error {
 	defer cm.mu.Unlock()
 
 	if len(order) == 0 {
-		return fmt.Errorf("排序数组不能为空")
+		return fmt.Errorf("order list cannot be empty")
 	}
 
 	// 验证所有索引都有效且不重复
 	seen := make(map[int]bool)
 	for _, idx := range order {
 		if idx < 0 || idx >= len(cm.config.Upstream) {
-			return fmt.Errorf("无效的渠道索引: %d", idx)
+			return fmt.Errorf("invalid channel index: %d", idx)
 		}
 		if seen[idx] {
-			return fmt.Errorf("重复的渠道索引: %d", idx)
+			return fmt.Errorf("duplicate channel index: %d", idx)
 		}
 		seen[idx] = true
 	}
@@ -2430,16 +2430,16 @@ func (cm *ConfigManager) ReorderResponsesUpstreams(order []int) error {
 	defer cm.mu.Unlock()
 
 	if len(order) == 0 {
-		return fmt.Errorf("排序数组不能为空")
+		return fmt.Errorf("order list cannot be empty")
 	}
 
 	seen := make(map[int]bool)
 	for _, idx := range order {
 		if idx < 0 || idx >= len(cm.config.ResponsesUpstream) {
-			return fmt.Errorf("无效的渠道索引: %d", idx)
+			return fmt.Errorf("invalid channel index: %d", idx)
 		}
 		if seen[idx] {
-			return fmt.Errorf("重复的渠道索引: %d", idx)
+			return fmt.Errorf("duplicate channel index: %d", idx)
 		}
 		seen[idx] = true
 	}
@@ -2464,13 +2464,13 @@ func (cm *ConfigManager) SetChannelStatus(index int, status string) error {
 	defer cm.mu.Unlock()
 
 	if index < 0 || index >= len(cm.config.Upstream) {
-		return fmt.Errorf("无效的上游索引: %d", index)
+		return fmt.Errorf("invalid upstream index: %d", index)
 	}
 
 	// 状态值转为小写，支持大小写不敏感
 	status = strings.ToLower(status)
 	if status != "active" && status != "suspended" && status != "disabled" {
-		return fmt.Errorf("无效的状态: %s (允许值: active, suspended, disabled)", status)
+		return fmt.Errorf("invalid status: %s (allowed: active, suspended, disabled)", status)
 	}
 
 	cm.config.Upstream[index].Status = status
@@ -2489,13 +2489,13 @@ func (cm *ConfigManager) SetResponsesChannelStatus(index int, status string) err
 	defer cm.mu.Unlock()
 
 	if index < 0 || index >= len(cm.config.ResponsesUpstream) {
-		return fmt.Errorf("无效的上游索引: %d", index)
+		return fmt.Errorf("invalid upstream index: %d", index)
 	}
 
 	// 状态值转为小写，支持大小写不敏感
 	status = strings.ToLower(status)
 	if status != "active" && status != "suspended" && status != "disabled" {
-		return fmt.Errorf("无效的状态: %s (允许值: active, suspended, disabled)", status)
+		return fmt.Errorf("invalid status: %s (allowed: active, suspended, disabled)", status)
 	}
 
 	cm.config.ResponsesUpstream[index].Status = status
@@ -2531,7 +2531,7 @@ func (cm *ConfigManager) SetChannelPromotion(index int, duration time.Duration) 
 	defer cm.mu.Unlock()
 
 	if index < 0 || index >= len(cm.config.Upstream) {
-		return fmt.Errorf("无效的上游索引: %d", index)
+		return fmt.Errorf("invalid upstream index: %d", index)
 	}
 
 	if duration <= 0 {
@@ -2558,7 +2558,7 @@ func (cm *ConfigManager) SetResponsesChannelPromotion(index int, duration time.D
 	defer cm.mu.Unlock()
 
 	if index < 0 || index >= len(cm.config.ResponsesUpstream) {
-		return fmt.Errorf("无效的 Responses 上游索引: %d", index)
+		return fmt.Errorf("invalid Responses upstream index: %d", index)
 	}
 
 	if duration <= 0 {
@@ -2746,7 +2746,7 @@ func (cm *ConfigManager) GetCurrentGeminiUpstream() (*UpstreamConfig, error) {
 	defer cm.mu.RUnlock()
 
 	if len(cm.config.GeminiUpstream) == 0 {
-		return nil, fmt.Errorf("未配置任何 Gemini 渠道")
+		return nil, fmt.Errorf("no Gemini channels configured")
 	}
 
 	// 优先选择第一个 active 状态的渠道
@@ -2814,7 +2814,7 @@ func (cm *ConfigManager) UpdateGeminiUpstream(index int, updates UpstreamUpdate)
 	defer cm.mu.Unlock()
 
 	if index < 0 || index >= len(cm.config.GeminiUpstream) {
-		return false, fmt.Errorf("无效的 Gemini 上游索引: %d", index)
+		return false, fmt.Errorf("invalid Gemini upstream index: %d", index)
 	}
 
 	upstream := &cm.config.GeminiUpstream[index]
@@ -2927,7 +2927,7 @@ func (cm *ConfigManager) RemoveGeminiUpstream(index int) (*UpstreamConfig, error
 	defer cm.mu.Unlock()
 
 	if index < 0 || index >= len(cm.config.GeminiUpstream) {
-		return nil, fmt.Errorf("无效的 Gemini 上游索引: %d", index)
+		return nil, fmt.Errorf("invalid Gemini upstream index: %d", index)
 	}
 
 	removed := cm.config.GeminiUpstream[index]
@@ -2955,13 +2955,13 @@ func (cm *ConfigManager) AddGeminiAPIKey(index int, apiKey string) error {
 	defer cm.mu.Unlock()
 
 	if index < 0 || index >= len(cm.config.GeminiUpstream) {
-		return fmt.Errorf("无效的上游索引: %d", index)
+		return fmt.Errorf("invalid upstream index: %d", index)
 	}
 
 	// 检查密钥是否已存在
 	for _, key := range cm.config.GeminiUpstream[index].APIKeys {
 		if key == apiKey {
-			return fmt.Errorf("API密钥已存在")
+			return fmt.Errorf("API key already exists")
 		}
 	}
 
@@ -2981,7 +2981,7 @@ func (cm *ConfigManager) RemoveGeminiAPIKey(index int, apiKey string) error {
 	defer cm.mu.Unlock()
 
 	if index < 0 || index >= len(cm.config.GeminiUpstream) {
-		return fmt.Errorf("无效的上游索引: %d", index)
+		return fmt.Errorf("invalid upstream index: %d", index)
 	}
 
 	// 查找并删除密钥
@@ -2996,7 +2996,7 @@ func (cm *ConfigManager) RemoveGeminiAPIKey(index int, apiKey string) error {
 	}
 
 	if !found {
-		return fmt.Errorf("API密钥不存在")
+		return fmt.Errorf("API key not found")
 	}
 
 	if err := cm.saveConfigLocked(cm.config); err != nil {
@@ -3013,7 +3013,7 @@ func (cm *ConfigManager) SetGeminiChannelStatus(index int, status string) error 
 	defer cm.mu.Unlock()
 
 	if index < 0 || index >= len(cm.config.GeminiUpstream) {
-		return fmt.Errorf("无效的 Gemini 渠道索引: %d", index)
+		return fmt.Errorf("invalid Gemini channel index: %d", index)
 	}
 
 	cm.config.GeminiUpstream[index].Status = status
@@ -3032,17 +3032,17 @@ func (cm *ConfigManager) ReorderGeminiUpstreams(order []int) error {
 	defer cm.mu.Unlock()
 
 	if len(order) != len(cm.config.GeminiUpstream) {
-		return fmt.Errorf("排序列表长度不匹配: 期望 %d, 实际 %d", len(cm.config.GeminiUpstream), len(order))
+		return fmt.Errorf("order list length mismatch: expected %d, got %d", len(cm.config.GeminiUpstream), len(order))
 	}
 
 	// Validate order indices
 	seen := make(map[int]bool)
 	for _, idx := range order {
 		if idx < 0 || idx >= len(cm.config.GeminiUpstream) {
-			return fmt.Errorf("无效的渠道索引: %d", idx)
+			return fmt.Errorf("invalid channel index: %d", idx)
 		}
 		if seen[idx] {
-			return fmt.Errorf("重复的渠道索引: %d", idx)
+			return fmt.Errorf("duplicate channel index: %d", idx)
 		}
 		seen[idx] = true
 	}

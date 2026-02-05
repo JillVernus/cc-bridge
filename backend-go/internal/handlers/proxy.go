@@ -1047,7 +1047,7 @@ func handleSingleChannelProxy(
 	upstream, err := cfgManager.GetCurrentUpstream()
 	if err != nil {
 		c.JSON(503, gin.H{
-			"error": "未配置任何渠道，请先在管理界面添加渠道",
+			"error": "No channels configured. Please add a channel in the admin UI.",
 			"code":  "NO_UPSTREAM",
 		})
 		return
@@ -1074,7 +1074,7 @@ func handleSingleChannelProxy(
 	// Composite channels don't have API keys - they route to other channels
 	if len(upstream.APIKeys) == 0 && !config.IsCompositeChannel(upstream) {
 		c.JSON(503, gin.H{
-			"error": fmt.Sprintf("当前渠道 \"%s\" 未配置API密钥", upstream.Name),
+			"error": fmt.Sprintf("Current channel \"%s\" has no API keys configured", upstream.Name),
 			"code":  "NO_API_KEYS",
 		})
 		return
@@ -1459,7 +1459,7 @@ func handleSingleChannelProxy(
 
 				case config.ActionFailoverKey:
 					// Failover to next key
-					lastError = fmt.Errorf("上游错误: %d", resp.StatusCode)
+					lastError = fmt.Errorf("upstream error: %d", resp.StatusCode)
 					failedKeys[apiKey] = true
 					if decision.MarkKeyFailed {
 						cfgManager.MarkKeyAsFailed(apiKey)
@@ -1621,13 +1621,13 @@ func handleSingleChannelProxy(
 		return
 	}
 
-	// 所有密钥都失败了
-	log.Printf("💥 所有API密钥都失败了")
+	// All keys failed
+	log.Printf("💥 All API keys failed")
 
 	// 更新请求日志为错误状态
 	if reqLogManager != nil && currentRequestLogID != "" {
 		httpStatus := 500
-		errMsg := "所有API密钥都不可用"
+		errMsg := "all API keys are unavailable"
 		upstreamErr := ""
 		failoverInfo := ""
 		if lastFailoverError != nil && lastFailoverError.Status != 0 {
@@ -1666,14 +1666,14 @@ func handleSingleChannelProxy(
 			c.JSON(status, gin.H{"error": string(lastFailoverError.Body)})
 		}
 	} else {
-		errMsg := "未知错误"
+		errMsg := "unknown error"
 		if lastError != nil {
 			errMsg = lastError.Error()
 		}
-		errJSON := fmt.Sprintf(`{"error":"所有上游API密钥都不可用","details":"%s"}`, errMsg)
+		errJSON := fmt.Sprintf(`{"error":"all upstream API keys are unavailable","details":"%s"}`, errMsg)
 		SaveErrorDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, 500, []byte(errJSON))
 		c.JSON(500, gin.H{
-			"error":   "所有上游API密钥都不可用",
+			"error":   "all upstream API keys are unavailable",
 			"details": errMsg,
 		})
 	}

@@ -20,7 +20,7 @@ func ResponsesToClaudeMessages(sess *session.Session, newInput interface{}, inst
 	for _, item := range sess.Messages {
 		msg, err := responsesItemToClaudeMessage(item)
 		if err != nil {
-			return nil, "", fmt.Errorf("转换历史消息失败: %w", err)
+			return nil, "", fmt.Errorf("failed to convert history message: %w", err)
 		}
 		if msg != nil {
 			messages = append(messages, *msg)
@@ -36,7 +36,7 @@ func ResponsesToClaudeMessages(sess *session.Session, newInput interface{}, inst
 	for _, item := range newItems {
 		msg, err := responsesItemToClaudeMessage(item)
 		if err != nil {
-			return nil, "", fmt.Errorf("转换新消息失败: %w", err)
+			return nil, "", fmt.Errorf("failed to convert new message: %w", err)
 		}
 		if msg != nil {
 			messages = append(messages, *msg)
@@ -75,7 +75,7 @@ func responsesItemToClaudeMessage(item types.ResponsesItem) (*types.ClaudeMessag
 		// 旧格式：简单 string（向后兼容）
 		contentStr := extractTextFromContent(item.Content)
 		if contentStr == "" {
-			return nil, fmt.Errorf("text 类型的 content 不能为空")
+			return nil, fmt.Errorf("content for type \"text\" cannot be empty")
 		}
 
 		// 使用 item.Role（如果存在），否则默认为 user
@@ -103,7 +103,7 @@ func responsesItemToClaudeMessage(item types.ResponsesItem) (*types.ClaudeMessag
 		return nil, nil
 
 	default:
-		return nil, fmt.Errorf("未知的 item type: %s", item.Type)
+		return nil, fmt.Errorf("unknown item type: %s", item.Type)
 	}
 }
 
@@ -361,7 +361,7 @@ func parseResponsesInput(input interface{}) ([]types.ResponsesItem, error) {
 		return v, nil
 
 	default:
-		return nil, fmt.Errorf("不支持的 input 类型: %T", input)
+		return nil, fmt.Errorf("unsupported input type: %T", input)
 	}
 }
 

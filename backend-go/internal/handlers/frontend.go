@@ -43,7 +43,7 @@ func ServeFrontend(r *gin.Engine, frontendFS embed.FS) {
 			c.JSON(http.StatusNotFound, gin.H{
 				"error":   "API endpoint not found",
 				"path":    path,
-				"message": "请求的API端点不存在",
+				"message": "Requested API endpoint does not exist",
 			})
 			return
 		}

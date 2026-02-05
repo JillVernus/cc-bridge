@@ -49,13 +49,13 @@ type openAIChatClaudeRequest struct {
 func (p *OpenAIChatProvider) ConvertToProviderRequest(c *gin.Context, upstream *config.UpstreamConfig, apiKey string) (*http.Request, []byte, error) {
 	originalBodyBytes, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		return nil, nil, fmt.Errorf("读取请求体失败: %w", err)
+		return nil, nil, fmt.Errorf("failed to read request body: %w", err)
 	}
 	c.Request.Body = io.NopCloser(bytes.NewReader(originalBodyBytes))
 
 	var claudeReq openAIChatClaudeRequest
 	if err := json.Unmarshal(originalBodyBytes, &claudeReq); err != nil {
-		return nil, originalBodyBytes, fmt.Errorf("解析Claude请求体失败: %w", err)
+		return nil, originalBodyBytes, fmt.Errorf("failed to parse Claude request body: %w", err)
 	}
 
 	p.stream = claudeReq.Stream
@@ -69,7 +69,7 @@ func (p *OpenAIChatProvider) ConvertToProviderRequest(c *gin.Context, upstream *
 	if p.hasTools {
 		trigger, err = generateTriggerSignal()
 		if err != nil {
-			return nil, originalBodyBytes, fmt.Errorf("生成 trigger signal 失败: %w", err)
+			return nil, originalBodyBytes, fmt.Errorf("failed to generate trigger signal: %w", err)
 		}
 	}
 	p.triggerSignal = trigger
@@ -134,7 +134,7 @@ func (p *OpenAIChatProvider) ConvertToProviderRequest(c *gin.Context, upstream *
 
 	reqBodyBytes, err := json.Marshal(openaiReq)
 	if err != nil {
-		return nil, originalBodyBytes, fmt.Errorf("序列化 OpenAI Chat 请求体失败: %w", err)
+		return nil, originalBodyBytes, fmt.Errorf("failed to marshal OpenAI Chat request body: %w", err)
 	}
 
 	// Build URL with the same /v1 suffix detection used by the OpenAI provider.
@@ -149,7 +149,7 @@ func (p *OpenAIChatProvider) ConvertToProviderRequest(c *gin.Context, upstream *
 
 	req, err := http.NewRequest("POST", url, bytes.NewReader(reqBodyBytes))
 	if err != nil {
-		return nil, originalBodyBytes, fmt.Errorf("创建 OpenAI Chat 请求失败: %w", err)
+		return nil, originalBodyBytes, fmt.Errorf("failed to create OpenAI Chat request: %w", err)
 	}
 
 	// Use minimal headers for OpenAI-compatible upstreams to avoid forwarding Anthropic-specific headers.

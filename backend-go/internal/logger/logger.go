@@ -100,7 +100,7 @@ func (w *DailyWriter) rotate(newDate string) error {
 	filename := w.getFilename(newDate)
 	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		return fmt.Errorf("打开日志文件失败: %w", err)
+		return fmt.Errorf("failed to open log file: %w", err)
 	}
 
 	w.file = file
@@ -130,7 +130,7 @@ func (w *DailyWriter) Cleanup() error {
 
 	entries, err := os.ReadDir(w.logDir)
 	if err != nil {
-		return fmt.Errorf("读取日志目录失败: %w", err)
+		return fmt.Errorf("failed to read log directory: %w", err)
 	}
 
 	var deleted int
@@ -199,7 +199,7 @@ func Setup(cfg *Config) error {
 
 	// 确保日志目录存在
 	if err := os.MkdirAll(cfg.LogDir, 0755); err != nil {
-		return fmt.Errorf("创建日志目录失败: %w", err)
+		return fmt.Errorf("failed to create log directory: %w", err)
 	}
 
 	// 创建按日期轮转的日志写入器

@@ -23,14 +23,14 @@ func (p *GeminiProvider) ConvertToProviderRequest(c *gin.Context, upstream *conf
 	// 读取和解析原始请求体
 	originalBodyBytes, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		return nil, nil, fmt.Errorf("读取请求体失败: %w", err)
+		return nil, nil, fmt.Errorf("failed to read request body: %w", err)
 	}
 	// 恢复请求体，以便gin context可以被其他地方再次读取（尽管这里我们已经完全处理了）
 	c.Request.Body = io.NopCloser(bytes.NewReader(originalBodyBytes))
 
 	var claudeReq types.ClaudeRequest
 	if err := json.Unmarshal(originalBodyBytes, &claudeReq); err != nil {
-		return nil, originalBodyBytes, fmt.Errorf("解析Claude请求体失败: %w", err)
+		return nil, originalBodyBytes, fmt.Errorf("failed to parse Claude request body: %w", err)
 	}
 
 	// --- 复用旧的转换逻辑 ---
@@ -39,7 +39,7 @@ func (p *GeminiProvider) ConvertToProviderRequest(c *gin.Context, upstream *conf
 
 	reqBodyBytes, err := json.Marshal(geminiReq)
 	if err != nil {
-		return nil, originalBodyBytes, fmt.Errorf("序列化Gemini请求体失败: %w", err)
+		return nil, originalBodyBytes, fmt.Errorf("failed to marshal Gemini request body: %w", err)
 	}
 
 	model := config.RedirectModel(claudeReq.Model, upstream)
@@ -52,7 +52,7 @@ func (p *GeminiProvider) ConvertToProviderRequest(c *gin.Context, upstream *conf
 
 	req, err := http.NewRequest("POST", url, bytes.NewReader(reqBodyBytes))
 	if err != nil {
-		return nil, originalBodyBytes, fmt.Errorf("创建Gemini请求失败: %w", err)
+		return nil, originalBodyBytes, fmt.Errorf("failed to create Gemini request: %w", err)
 	}
 
 	// 使用统一的头部处理逻辑（透明代理）
