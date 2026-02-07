@@ -3920,6 +3920,7 @@ const silentRefresh = async () => {
 .log-table :deep(.v-table__wrapper > table > thead > tr > th),
 .log-table :deep(.v-table__wrapper > table > tbody > tr > td) {
   padding: 0 4px;
+  vertical-align: middle !important;
 }
 
 .log-table :deep(th) {
