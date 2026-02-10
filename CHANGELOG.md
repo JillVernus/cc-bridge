@@ -4,6 +4,18 @@
 
 ---
 
+## [v1.3.190] - 2026-02-10
+
+### 🐛 修复
+
+- **设置不同步到数据库**: 修复 Pricing、Aliases、Quota Usage 管理器在 `STORAGE_BACKEND=database` 模式下仅写入 JSON 文件而未写入数据库的问题，导致多实例间设置不同步
+  - `PricingManager.UpdateConfig()` 增加数据库 write-through
+  - `AliasesManager.UpdateConfig()` 增加数据库 write-through
+  - `UsageManager.save()` 增加数据库 write-through（使用 upsert）
+  - 启用数据库模式时自动禁用 JSON 文件监控，改用轮询同步
+
+---
+
 ## [v1.3.188] - 2026-02-05
 
 ### 🔧 修复

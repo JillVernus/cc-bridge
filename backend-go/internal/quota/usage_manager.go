@@ -20,6 +20,7 @@ type UsageManager struct {
 	usage     UsageFile
 	configMgr *config.ConfigManager
 	stopChan  chan struct{}
+	dbStorage *DBUsageStorage // Database storage adapter (nil if using JSON-only mode)
 }
 
 // NewUsageManager creates a new usage quota manager
@@ -40,12 +41,47 @@ func NewUsageManager(configDir string, configMgr *config.ConfigManager) (*UsageM
 	return m, nil
 }
 
-// load reads usage data from file
+// SetDBStorage sets the database storage adapter for write-through caching
+func (m *UsageManager) SetDBStorage(dbStorage *DBUsageStorage) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.dbStorage = dbStorage
+}
+
+// ReloadFromDB reloads usage data from the database (call after SetDBStorage)
+func (m *UsageManager) ReloadFromDB() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.dbStorage == nil {
+		return
+	}
+
+	usage, err := m.dbStorage.LoadAll()
+	if err != nil {
+		log.Printf("⚠️ Failed to reload quota usage from database: %v", err)
+		return
+	}
+	m.usage = usage
+	log.Printf("✅ Quota usage reloaded from database")
+}
+
+// load reads usage data from file or database
 func (m *UsageManager) load() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Initialize empty usage if file doesn't exist
+	// When using database storage, load from DB
+	if m.dbStorage != nil {
+		usage, err := m.dbStorage.LoadAll()
+		if err != nil {
+			return fmt.Errorf("failed to load quota usage from database: %w", err)
+		}
+		m.usage = usage
+		return nil
+	}
+
+	// JSON-only mode: read from file
 	if _, err := os.Stat(m.usageFile); os.IsNotExist(err) {
 		m.usage = UsageFile{
 			Messages:  make(map[string]ChannelUsage),
@@ -78,8 +114,20 @@ func (m *UsageManager) load() error {
 	return nil
 }
 
-// save persists usage data to file
+// save persists usage data to file or database
 func (m *UsageManager) save() error {
+	// When using database storage, write to DB
+	if m.dbStorage != nil {
+		usageCopy := m.usage
+		go func() {
+			if err := m.dbStorage.SaveAll(usageCopy); err != nil {
+				log.Printf("⚠️ Failed to sync quota usage to database: %v", err)
+			}
+		}()
+		return nil
+	}
+
+	// JSON-only mode: write to file
 	data, err := json.MarshalIndent(m.usage, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal quota usage: %w", err)

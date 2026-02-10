@@ -33,6 +33,7 @@ type PricingManager struct {
 	config     PricingConfig
 	configFile string
 	watcher    *fsnotify.Watcher
+	dbStorage  *DBPricingStorage // Database storage adapter (nil if using JSON-only mode)
 }
 
 var (
@@ -263,11 +264,39 @@ func (pm *PricingManager) GetExportableModels() map[string]ModelPricing {
 	return result
 }
 
+// SetDBStorage sets the database storage adapter for write-through caching
+func (pm *PricingManager) SetDBStorage(dbStorage *DBPricingStorage) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	pm.dbStorage = dbStorage
+	// Disable file watcher when using database storage (polling handles sync)
+	if pm.watcher != nil {
+		pm.watcher.Close()
+		pm.watcher = nil
+	}
+}
+
 // UpdateConfig 更新配置
 func (pm *PricingManager) UpdateConfig(config PricingConfig) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
+	// When using database storage, write to DB instead of JSON file
+	if pm.dbStorage != nil {
+		pm.config = config
+
+		// Write to database asynchronously (non-blocking)
+		configCopy := config
+		go func() {
+			if err := pm.dbStorage.SaveConfigToDB(configCopy); err != nil {
+				log.Printf("⚠️ Failed to sync pricing to database: %v", err)
+			}
+		}()
+
+		return nil
+	}
+
+	// JSON-only mode: write to file
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return err

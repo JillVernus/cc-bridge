@@ -175,6 +175,14 @@ func main() {
 		log.Printf("✅ 用量配额管理器已初始化")
 	}
 
+	// Enable database write-through for usage quota manager
+	if dbStorageMgr != nil && usageQuotaManager != nil {
+		usageQuotaManager.SetDBStorage(dbStorageMgr.GetUsageStorage())
+		// Reload usage from database now that DB storage is connected
+		usageQuotaManager.ReloadFromDB()
+		log.Printf("✅ 用量配额管理器已连接数据库存储")
+	}
+
 	// 初始化 API Key 管理器
 	// When using unified database, get the manager from dbStorageMgr
 	var apiKeyManager *apikey.Manager

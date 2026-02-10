@@ -119,9 +119,11 @@ func InitDBStorage(envCfg *config.EnvConfig, cfgManager *config.ConfigManager) *
 	cfgManager.SetDBStorage(mgr.configStorage) // Enable write-through caching
 	if pricingMgr := pricing.GetManager(); pricingMgr != nil {
 		mgr.pricingStorage.SetPricingManager(pricingMgr)
+		pricingMgr.SetDBStorage(mgr.pricingStorage) // Enable write-through caching
 	}
 	if aliasesMgr := aliases.GetManager(); aliasesMgr != nil {
 		mgr.aliasesStorage.SetAliasesManager(aliasesMgr)
+		aliasesMgr.SetDBStorage(mgr.aliasesStorage) // Enable write-through caching
 	}
 
 	// Start polling for changes

@@ -29,6 +29,7 @@ type AliasesManager struct {
 	config     AliasesConfig
 	configFile string
 	watcher    *fsnotify.Watcher
+	dbStorage  *DBAliasesStorage // Database storage adapter (nil if using JSON-only mode)
 }
 
 var (
@@ -158,11 +159,39 @@ func (am *AliasesManager) GetConfig() AliasesConfig {
 	return am.config
 }
 
+// SetDBStorage sets the database storage adapter for write-through caching
+func (am *AliasesManager) SetDBStorage(dbStorage *DBAliasesStorage) {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+	am.dbStorage = dbStorage
+	// Disable file watcher when using database storage (polling handles sync)
+	if am.watcher != nil {
+		am.watcher.Close()
+		am.watcher = nil
+	}
+}
+
 // UpdateConfig updates the configuration
 func (am *AliasesManager) UpdateConfig(config AliasesConfig) error {
 	am.mu.Lock()
 	defer am.mu.Unlock()
 
+	// When using database storage, write to DB instead of JSON file
+	if am.dbStorage != nil {
+		am.config = config
+
+		// Write to database asynchronously (non-blocking)
+		configCopy := config
+		go func() {
+			if err := am.dbStorage.SaveConfigToDB(configCopy); err != nil {
+				log.Printf("⚠️ Failed to sync aliases to database: %v", err)
+			}
+		}()
+
+		return nil
+	}
+
+	// JSON-only mode: write to file
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return err

@@ -259,3 +259,50 @@ func (s *DBUsageStorage) LoadAll() (UsageFile, error) {
 func (s *DBUsageStorage) GetDB() database.DB {
 	return s.db
 }
+
+// SaveAll saves the full usage state to the database using upserts
+func (s *DBUsageStorage) SaveAll(usage UsageFile) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	saveMap := func(entries map[string]ChannelUsage, channelType string) error {
+		for key, u := range entries {
+			channelID, err := strconv.Atoi(key)
+			if err != nil {
+				continue
+			}
+			var lastResetAt *string
+			if !u.LastResetAt.IsZero() {
+				t := u.LastResetAt.Format(time.RFC3339)
+				lastResetAt = &t
+			}
+			_, err = tx.Exec(`
+				INSERT INTO channel_usage (channel_id, channel_type, used, last_reset_at, updated_at)
+				VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+				ON CONFLICT(channel_id, channel_type) DO UPDATE SET
+					used = excluded.used,
+					last_reset_at = excluded.last_reset_at,
+					updated_at = CURRENT_TIMESTAMP
+			`, channelID, channelType, u.Used, lastResetAt)
+			if err != nil {
+				return fmt.Errorf("failed to upsert %s usage %d: %w", channelType, channelID, err)
+			}
+		}
+		return nil
+	}
+
+	if err := saveMap(usage.Messages, "messages"); err != nil {
+		return err
+	}
+	if err := saveMap(usage.Responses, "responses"); err != nil {
+		return err
+	}
+	if err := saveMap(usage.Gemini, "gemini"); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
