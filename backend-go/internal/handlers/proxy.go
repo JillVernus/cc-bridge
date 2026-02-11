@@ -662,6 +662,54 @@ func tryChannelWithAllKeys(
 			continue
 		}
 
+		// Content filter: detect errors hidden in HTTP 200 response bodies.
+		// On match, convert to a real error response and let the existing failover logic handle it.
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 && upstream.ContentFilter != nil && upstream.ContentFilter.Enabled {
+			var filterResult contentFilterResult
+			var bufferedBody []byte
+
+			if claudeReq.Stream {
+				var filterErr error
+				filterResult, bufferedBody, filterErr = checkContentFilterOnStream(resp, upstream.ContentFilter)
+				if filterErr != nil {
+					log.Printf("⚠️ Content filter stream read error: %v", filterErr)
+					failedKeys[apiKey] = true
+					continue
+				}
+			} else {
+				bodyData, readErr := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				if readErr != nil {
+					log.Printf("⚠️ Content filter body read error: %v", readErr)
+					failedKeys[apiKey] = true
+					continue
+				}
+				bufferedBody = bodyData
+				filterResult = checkContentFilterOnBody(bodyData, upstream.ContentFilter)
+			}
+
+			if filterResult.Matched {
+				syntheticStatus := upstream.ContentFilter.StatusCode
+				if syntheticStatus == 0 {
+					syntheticStatus = 429
+				}
+				resp.StatusCode = syntheticStatus
+				log.Printf("🚫 [Content Filter] Channel %d (%s): matched keyword %q, converting to HTTP %d for failover",
+					upstream.Index, upstream.Name, filterResult.MatchedKeyword, syntheticStatus)
+
+				errorBody, _ := json.Marshal(map[string]interface{}{
+					"error": map[string]interface{}{
+						"message": fmt.Sprintf("content_filter: %s", filterResult.AssembledText),
+						"type":    "content_filter_match",
+						"keyword": filterResult.MatchedKeyword,
+					},
+				})
+				bufferedBody = errorBody
+			}
+
+			resp.Body = io.NopCloser(bytes.NewReader(bufferedBody))
+		}
+
 		// 检查响应状态
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			respBodyBytes, _ := io.ReadAll(resp.Body)
@@ -1217,6 +1265,53 @@ func handleSingleChannelProxy(
 			cfgManager.MarkKeyAsFailed(apiKey)
 			log.Printf("⚠️ API密钥失败: %v", err)
 			continue
+		}
+
+		// Content filter: detect errors hidden in HTTP 200 response bodies.
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 && upstream.ContentFilter != nil && upstream.ContentFilter.Enabled {
+			var filterResult contentFilterResult
+			var bufferedBody []byte
+
+			if claudeReq.Stream {
+				var filterErr error
+				filterResult, bufferedBody, filterErr = checkContentFilterOnStream(resp, upstream.ContentFilter)
+				if filterErr != nil {
+					log.Printf("⚠️ Content filter stream read error: %v", filterErr)
+					failedKeys[apiKey] = true
+					continue
+				}
+			} else {
+				bodyData, readErr := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				if readErr != nil {
+					log.Printf("⚠️ Content filter body read error: %v", readErr)
+					failedKeys[apiKey] = true
+					continue
+				}
+				bufferedBody = bodyData
+				filterResult = checkContentFilterOnBody(bodyData, upstream.ContentFilter)
+			}
+
+			if filterResult.Matched {
+				syntheticStatus := upstream.ContentFilter.StatusCode
+				if syntheticStatus == 0 {
+					syntheticStatus = 429
+				}
+				resp.StatusCode = syntheticStatus
+				log.Printf("🚫 [Content Filter] Channel %d (%s): matched keyword %q, converting to HTTP %d for failover",
+					upstream.Index, upstream.Name, filterResult.MatchedKeyword, syntheticStatus)
+
+				errorBody, _ := json.Marshal(map[string]interface{}{
+					"error": map[string]interface{}{
+						"message": fmt.Sprintf("content_filter: %s", filterResult.AssembledText),
+						"type":    "content_filter_match",
+						"keyword": filterResult.MatchedKeyword,
+					},
+				})
+				bufferedBody = errorBody
+			}
+
+			resp.Body = io.NopCloser(bytes.NewReader(bufferedBody))
 		}
 
 		// 检查响应状态

@@ -357,6 +357,7 @@ export default {
     configTab: 'Configuration',
     quotaTab: 'Quota',
     rateLimitTab: 'Rate Limit',
+    contentFilterTab: 'Content Filter',
   },
 
   // Channel Rate Limit (per-channel upstream protection)
@@ -374,6 +375,23 @@ export default {
     behaviorTitle: 'Behavior',
     behaviorQueue: 'Requests exceeding {rpm} RPM will be queued (max {timeout}s wait), then released at 1/s interval',
     behaviorReject: 'Requests exceeding {rpm} RPM will be rejected with 429 error',
+  },
+
+  // Content Filter (per-channel response body error detection)
+  contentFilter: {
+    title: 'Content Filter',
+    subtitle: 'Response Error Detection',
+    description: 'Detect errors returned as HTTP 200 with error text in the response body. When enabled, responses are buffered and checked for keywords before forwarding to the client.',
+    enabled: 'Enable Content Filter',
+    enabledHint: 'When enabled, streaming responses are fully buffered before forwarding, adding latency equal to the response generation time. Only enable for channels known to have this issue.',
+    keywords: 'Error Keywords',
+    keywordsPlaceholder: 'Type a keyword and press Enter',
+    keywordsHint: 'Case-insensitive substring match. Press Enter to add each keyword.',
+    statusCode: 'Error Status Code',
+    statusCodeHint: 'HTTP status code to convert the response to (determines which failover rules apply)',
+    behaviorTitle: 'Behavior',
+    behaviorDesc: 'When a keyword is matched, the response is converted to HTTP {statusCode} and handled by the configured failover rules for that status code',
+    tabLabel: 'Content Filter',
   },
 
   // Request Log

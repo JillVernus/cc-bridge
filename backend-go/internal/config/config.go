@@ -55,6 +55,14 @@ func (t *TokenPriceMultipliers) GetEffectiveMultiplier(tokenType string) float64
 	return m
 }
 
+// ContentFilter defines per-channel response content filtering to detect errors
+// returned as HTTP 200 with error text in the response body.
+type ContentFilter struct {
+	Enabled    bool     `json:"enabled"`              // Whether content filtering is active
+	Keywords   []string `json:"keywords"`             // Keywords to match in response text (case-insensitive substring)
+	StatusCode int      `json:"statusCode,omitempty"` // HTTP status code to use when matched (default 429), determines which failover rules apply
+}
+
 // CompositeMapping defines a model-to-channel mapping for composite channels
 type CompositeMapping struct {
 	Pattern         string   `json:"pattern"`                 // Model pattern: "haiku", "sonnet", "opus" (mandatory, no wildcard)
@@ -103,6 +111,8 @@ type UpstreamConfig struct {
 	// Per-channel API key load balancing strategy (overrides global setting)
 	// Valid values: "" (inherit global), "round-robin", "random", "failover"
 	KeyLoadBalance string `json:"keyLoadBalance,omitempty"`
+	// Content filter: detect errors returned as HTTP 200 with error text in body
+	ContentFilter *ContentFilter `json:"contentFilter,omitempty"`
 }
 
 // GetResponseHeaderTimeout 获取响应头超时时间（秒），默认120秒
@@ -237,6 +247,8 @@ type UpstreamUpdate struct {
 	CompositeMappings []CompositeMapping `json:"compositeMappings"`
 	// Per-channel API key load balancing strategy (overrides global setting)
 	KeyLoadBalance *string `json:"keyLoadBalance"`
+	// Content filter
+	ContentFilter *ContentFilter `json:"contentFilter"`
 }
 
 // Config 配置结构
@@ -1418,6 +1430,10 @@ func (cm *ConfigManager) UpdateUpstream(index int, updates UpstreamUpdate) (shou
 	// Per-channel API key load balancing strategy
 	if updates.KeyLoadBalance != nil {
 		upstream.KeyLoadBalance = *updates.KeyLoadBalance
+	}
+	// Content filter
+	if updates.ContentFilter != nil {
+		upstream.ContentFilter = updates.ContentFilter
 	}
 	// Composite channel mappings
 	if updates.CompositeMappings != nil {

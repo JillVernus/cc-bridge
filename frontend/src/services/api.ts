@@ -146,6 +146,12 @@ export interface CompositeMapping {
   targetModel?: string           // Optional model name override
 }
 
+export interface ContentFilter {
+  enabled: boolean               // Whether content filtering is active
+  keywords: string[]             // Keywords to match in response text (case-insensitive substring)
+  statusCode?: number            // HTTP status code to synthesize on match (default 429), determines which failover rules apply
+}
+
 export interface Channel {
   id?: string                     // Unique channel ID (for composite mapping references)
   name: string
@@ -185,6 +191,8 @@ export interface Channel {
   queueTimeout?: number                    // Max seconds to wait in queue (default 60)
   // Per-channel API key load balancing strategy (overrides global setting)
   keyLoadBalance?: '' | 'round-robin' | 'random' | 'failover'
+  // Content filter: detect errors returned as HTTP 200 with error text in body
+  contentFilter?: ContentFilter
   // Composite channel mappings
   compositeMappings?: CompositeMapping[]   // Model-to-channel mappings for composite channels
 }

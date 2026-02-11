@@ -138,6 +138,10 @@
               <v-icon start size="small">mdi-speedometer</v-icon>
               {{ t('addChannel.rateLimitTab') }}
             </v-tab>
+            <v-tab value="contentfilter" :disabled="!form.serviceType || isCompositeChannel">
+              <v-icon start size="small">mdi-filter-check</v-icon>
+              {{ t('addChannel.contentFilterTab') }}
+            </v-tab>
           </v-tabs>
 
           <v-tabs-window v-model="activeTab">
@@ -837,6 +841,91 @@
                 </v-card-text>
               </v-card>
             </v-tabs-window-item>
+
+            <!-- Content Filter Tab -->
+            <v-tabs-window-item value="contentfilter">
+              <v-card variant="outlined" rounded="lg" class="mb-4">
+                <v-card-title class="d-flex align-center justify-space-between pa-4 pb-2">
+                  <div class="d-flex align-center ga-2">
+                    <v-icon color="primary">mdi-filter-check</v-icon>
+                    <span class="text-body-1 font-weight-bold">{{ t('contentFilter.title') }}</span>
+                  </div>
+                  <v-chip size="small" color="warning" variant="tonal">{{ t('contentFilter.subtitle') }}</v-chip>
+                </v-card-title>
+
+                <v-card-text class="pt-2">
+                  <div class="text-body-2 text-medium-emphasis mb-4">
+                    {{ t('contentFilter.description') }}
+                  </div>
+
+                  <!-- Enable Toggle -->
+                  <div class="d-flex align-center mb-4">
+                    <v-switch
+                      v-model="form.contentFilterEnabled"
+                      :label="t('contentFilter.enabled')"
+                      color="primary"
+                      density="compact"
+                      hide-details
+                    />
+                    <v-tooltip location="top">
+                      <template #activator="{ props }">
+                        <v-icon v-bind="props" size="small" color="grey" class="ml-2">mdi-information-outline</v-icon>
+                      </template>
+                      {{ t('contentFilter.enabledHint') }}
+                    </v-tooltip>
+                  </div>
+
+                  <!-- Keywords -->
+                  <div v-if="form.contentFilterEnabled" class="mb-4">
+                    <v-combobox
+                      v-model="form.contentFilterKeywords"
+                      :label="t('contentFilter.keywords')"
+                      :placeholder="t('contentFilter.keywordsPlaceholder')"
+                      multiple
+                      chips
+                      closable-chips
+                      variant="outlined"
+                      density="comfortable"
+                      :hint="t('contentFilter.keywordsHint')"
+                      persistent-hint
+                    />
+                  </div>
+
+                  <!-- Status Code -->
+                  <div v-if="form.contentFilterEnabled" class="mb-4">
+                    <div class="d-flex align-center ga-3 flex-wrap">
+                      <v-text-field
+                        v-model.number="form.contentFilterStatusCode"
+                        :label="t('contentFilter.statusCode')"
+                        type="number"
+                        min="400"
+                        max="599"
+                        step="1"
+                        variant="outlined"
+                        density="comfortable"
+                        hide-details
+                        style="max-width: 200px;"
+                      />
+                      <span class="text-body-2 text-medium-emphasis">{{ t('contentFilter.statusCodeHint') }}</span>
+                    </div>
+                  </div>
+
+                  <!-- Behavior Info -->
+                  <v-alert
+                    v-if="form.contentFilterEnabled && form.contentFilterKeywords.length > 0"
+                    type="info"
+                    variant="tonal"
+                    density="compact"
+                    class="mt-3"
+                  >
+                    <div>
+                      <strong>{{ t('contentFilter.behaviorTitle') }}:</strong>
+                      {{ t('contentFilter.behaviorDesc', { statusCode: form.contentFilterStatusCode || 429 }) }}
+                    </div>
+                  </v-alert>
+                </v-card-text>
+              </v-card>
+            </v-tabs-window-item>
           </v-tabs-window>
 
           <v-row>
@@ -1508,7 +1597,11 @@ const form = reactive({
   queueEnabled: false,
   queueTimeout: 60,
   // Per-channel API key load balance strategy
-  keyLoadBalance: '' as '' | 'round-robin' | 'random' | 'failover'
+  keyLoadBalance: '' as '' | 'round-robin' | 'random' | 'failover',
+  // Content filter
+  contentFilterEnabled: false,
+  contentFilterKeywords: [] as string[],
+  contentFilterStatusCode: 429
 })
 
 // OAuth 相关状态
@@ -2016,6 +2109,10 @@ const resetForm = () => {
   form.queueTimeout = 60
   // Reset key load balance
   form.keyLoadBalance = ''
+  // Reset content filter
+  form.contentFilterEnabled = false
+  form.contentFilterKeywords = []
+  form.contentFilterStatusCode = 429
   newApiKey.value = ''
   newMapping.source = ''
   newMapping.target = ''
@@ -2131,6 +2228,13 @@ const loadChannelData = (channel: Channel) => {
 
   // Load key load balance setting
   form.keyLoadBalance = channel.keyLoadBalance || ''
+
+  // Load content filter settings
+  if (channel.contentFilter) {
+    form.contentFilterEnabled = channel.contentFilter.enabled || false
+    form.contentFilterKeywords = channel.contentFilter.keywords || []
+    form.contentFilterStatusCode = channel.contentFilter.statusCode || 429
+  }
 
   // 加载 OAuth tokens（如果存在）
   if (channel.oauthTokens) {
@@ -2484,7 +2588,13 @@ const handleSubmit = async () => {
     queueEnabled: typeof form.rateLimitRpm === 'number' && form.rateLimitRpm > 0 ? form.queueEnabled : undefined,
     queueTimeout: typeof form.rateLimitRpm === 'number' && form.rateLimitRpm > 0 && form.queueEnabled ? (typeof form.queueTimeout === 'number' && !Number.isNaN(form.queueTimeout) && form.queueTimeout > 0 ? Math.floor(form.queueTimeout) : 60) : undefined,
     // Per-channel API key load balance strategy
-    keyLoadBalance: form.keyLoadBalance || undefined
+    keyLoadBalance: form.keyLoadBalance || undefined,
+    // Content filter
+    contentFilter: form.contentFilterEnabled ? {
+      enabled: true,
+      keywords: form.contentFilterKeywords.filter(k => k.trim()),
+      statusCode: form.contentFilterStatusCode || 429
+    } : undefined
   }
 
   // 对于 OAuth 渠道，添加 OAuth tokens

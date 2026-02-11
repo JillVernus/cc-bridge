@@ -357,6 +357,7 @@ export default {
     configTab: '配置',
     quotaTab: '配额',
     rateLimitTab: '限流',
+    contentFilterTab: '内容过滤',
   },
 
   // Channel Rate Limit (per-channel upstream protection)
@@ -374,6 +375,23 @@ export default {
     behaviorTitle: '行为',
     behaviorQueue: '超出 {rpm} RPM 的请求将排队等待（最长 {timeout} 秒），然后以每秒 1 个的速度释放',
     behaviorReject: '超出 {rpm} RPM 的请求将被拒绝并返回 429 错误',
+  },
+
+  // Content Filter (per-channel response body error detection)
+  contentFilter: {
+    title: '内容过滤',
+    subtitle: '响应错误检测',
+    description: '检测上游以 HTTP 200 返回但响应体中包含错误文本的情况。启用后，响应会先缓冲并检查关键词，再转发给客户端。',
+    enabled: '启用内容过滤',
+    enabledHint: '启用后，流式响应会完整缓冲后再转发，会增加等于响应生成时间的延迟。仅建议对已知存在此问题的渠道启用。',
+    keywords: '错误关键词',
+    keywordsPlaceholder: '输入关键词后按回车添加',
+    keywordsHint: '不区分大小写的子字符串匹配。按回车添加每个关键词。',
+    statusCode: '错误状态码',
+    statusCodeHint: '将响应转换为的 HTTP 状态码（决定使用哪个故障转移规则）',
+    behaviorTitle: '行为',
+    behaviorDesc: '匹配到关键词时，响应将被转换为 HTTP {statusCode}，并由该状态码对应的故障转移规则处理',
+    tabLabel: '内容过滤',
   },
 
   // Request Log
