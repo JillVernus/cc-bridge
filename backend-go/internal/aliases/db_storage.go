@@ -84,6 +84,7 @@ func (s *DBAliasesStorage) LoadConfigFromDB() (AliasesConfig, error) {
 	config := AliasesConfig{
 		MessagesModels:  []ModelAlias{},
 		ResponsesModels: []ModelAlias{},
+		GeminiModels:    []ModelAlias{},
 	}
 
 	rows, err := s.db.Query(`
@@ -122,6 +123,8 @@ func (s *DBAliasesStorage) LoadConfigFromDB() (AliasesConfig, error) {
 			config.MessagesModels = append(config.MessagesModels, alias)
 		case "responses":
 			config.ResponsesModels = append(config.ResponsesModels, alias)
+		case "gemini":
+			config.GeminiModels = append(config.GeminiModels, alias)
 		}
 	}
 
@@ -160,6 +163,17 @@ func (s *DBAliasesStorage) SaveConfigToDB(config AliasesConfig) error {
 		`, "responses", alias.Value, alias.Description, i)
 		if err != nil {
 			return fmt.Errorf("failed to insert responses alias %s: %w", alias.Value, err)
+		}
+	}
+
+	// Insert Gemini aliases
+	for i, alias := range config.GeminiModels {
+		_, err := tx.Exec(`
+			INSERT INTO model_aliases (alias_type, value, description, sort_order)
+			VALUES (?, ?, ?, ?)
+		`, "gemini", alias.Value, alias.Description, i)
+		if err != nil {
+			return fmt.Errorf("failed to insert gemini alias %s: %w", alias.Value, err)
 		}
 	}
 
@@ -225,12 +239,10 @@ func (s *DBAliasesStorage) checkForChanges() {
 				return
 			}
 
-			s.am.mu.Lock()
-			s.am.config = config
-			s.am.mu.Unlock()
+			s.am.UpdateConfigFromDB(config)
 
-			log.Printf("✅ Aliases reloaded from database: %d messages, %d responses",
-				len(config.MessagesModels), len(config.ResponsesModels))
+			log.Printf("✅ Aliases reloaded from database: %d messages, %d responses, %d gemini",
+				len(config.MessagesModels), len(config.ResponsesModels), len(config.GeminiModels))
 		}
 	}
 }

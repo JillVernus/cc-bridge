@@ -4,6 +4,18 @@
 
 ---
 
+## [v1.3.191] - 2026-02-11
+
+### 🐛 修复
+
+- **Pricing/Aliases 数据库同步失效**: 修复初始化顺序 bug——`InitDBStorage()` 在 `PricingManager` 和 `AliasesManager` 初始化之前运行，导致 `SetDBStorage()` 从未被调用，所有写入仍走 JSON 文件，多实例间数据不同步
+  - 新增 `ConnectPricingManager()` / `ConnectAliasesManager()`，在管理器初始化后正确连接数据库并从 DB 加载最新数据
+  - 将 Pricing/Aliases 轮询启动延迟到管理器连接完成后，消除竞态条件
+  - 修复 GeminiModels 在数据库读写中被丢弃的数据丢失 bug（`SaveConfigToDB` / `LoadConfigFromDB` 未处理 `gemini` 类型）
+  - 统一 `checkForChanges()` 使用 `UpdateConfigFromDB()` 方法，避免直接访问内部字段
+
+---
+
 ## [v1.3.190] - 2026-02-10
 
 ### 🐛 修复

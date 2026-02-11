@@ -276,6 +276,14 @@ func (pm *PricingManager) SetDBStorage(dbStorage *DBPricingStorage) {
 	}
 }
 
+// UpdateConfigFromDB replaces the in-memory config with data loaded from the database.
+// This is called during startup to ensure the manager has the latest DB state.
+func (pm *PricingManager) UpdateConfigFromDB(config PricingConfig) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	pm.config = config
+}
+
 // UpdateConfig 更新配置
 func (pm *PricingManager) UpdateConfig(config PricingConfig) error {
 	pm.mu.Lock()

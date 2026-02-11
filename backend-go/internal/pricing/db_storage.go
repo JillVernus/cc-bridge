@@ -253,9 +253,7 @@ func (s *DBPricingStorage) checkForChanges() {
 				return
 			}
 
-			s.pm.mu.Lock()
-			s.pm.config = config
-			s.pm.mu.Unlock()
+			s.pm.UpdateConfigFromDB(config)
 
 			log.Printf("✅ Pricing reloaded from database: %d models", len(config.Models))
 		}

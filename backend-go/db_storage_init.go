@@ -114,20 +114,16 @@ func InitDBStorage(envCfg *config.EnvConfig, cfgManager *config.ConfigManager) *
 		}
 	}
 
-	// Link to managers
+	// Link config manager (initialized before InitDBStorage, so available here)
 	mgr.configStorage.SetConfigManager(cfgManager)
 	cfgManager.SetDBStorage(mgr.configStorage) // Enable write-through caching
-	if pricingMgr := pricing.GetManager(); pricingMgr != nil {
-		mgr.pricingStorage.SetPricingManager(pricingMgr)
-		pricingMgr.SetDBStorage(mgr.pricingStorage) // Enable write-through caching
-	}
-	if aliasesMgr := aliases.GetManager(); aliasesMgr != nil {
-		mgr.aliasesStorage.SetAliasesManager(aliasesMgr)
-		aliasesMgr.SetDBStorage(mgr.aliasesStorage) // Enable write-through caching
-	}
 
-	// Start polling for changes
-	mgr.StartPolling()
+	// NOTE: Pricing and aliases managers are initialized AFTER InitDBStorage in main.go,
+	// so they must be linked later via ConnectPricingManager / ConnectAliasesManager.
+	// Polling is started via StartPolling() after all managers are connected.
+
+	// Start config polling only (config manager is already linked above)
+	mgr.configStorage.StartPolling()
 
 	log.Printf("✅ Database storage initialized (poll interval: %v)", pollInterval)
 	return mgr
@@ -164,14 +160,6 @@ func (m *DBStorageManager) MigrateFromJSON() error {
 	return lastErr
 }
 
-// StartPolling starts polling for all config changes
-func (m *DBStorageManager) StartPolling() {
-	m.configStorage.StartPolling()
-	m.pricingStorage.StartPolling()
-	m.aliasesStorage.StartPolling()
-	// Usage storage doesn't need polling (direct read/write)
-}
-
 // StopPolling stops all polling
 func (m *DBStorageManager) StopPolling() {
 	m.configStorage.StopPolling()
@@ -205,6 +193,43 @@ func (m *DBStorageManager) GetRequestLogManager() *requestlog.Manager {
 // Returns nil if the manager failed to initialize
 func (m *DBStorageManager) GetAPIKeyManager() *apikey.Manager {
 	return m.apiKeyManager
+}
+
+// ConnectPricingManager links the pricing manager to DB storage and reloads from DB
+func (m *DBStorageManager) ConnectPricingManager(pricingMgr *pricing.PricingManager) {
+	m.pricingStorage.SetPricingManager(pricingMgr)
+	pricingMgr.SetDBStorage(m.pricingStorage)
+
+	// Reload from database to pick up data from other instances
+	cfg, err := m.pricingStorage.LoadConfigFromDB()
+	if err != nil {
+		log.Printf("⚠️ Failed to load pricing from database: %v", err)
+		return
+	}
+	pricingMgr.UpdateConfigFromDB(cfg)
+
+	// Start polling now that the manager is connected
+	m.pricingStorage.StartPolling()
+	log.Printf("✅ Pricing manager connected to database storage (%d models loaded)", len(cfg.Models))
+}
+
+// ConnectAliasesManager links the aliases manager to DB storage and reloads from DB
+func (m *DBStorageManager) ConnectAliasesManager(aliasesMgr *aliases.AliasesManager) {
+	m.aliasesStorage.SetAliasesManager(aliasesMgr)
+	aliasesMgr.SetDBStorage(m.aliasesStorage)
+
+	// Reload from database to pick up data from other instances
+	cfg, err := m.aliasesStorage.LoadConfigFromDB()
+	if err != nil {
+		log.Printf("⚠️ Failed to load aliases from database: %v", err)
+		return
+	}
+	aliasesMgr.UpdateConfigFromDB(cfg)
+
+	// Start polling now that the manager is connected
+	m.aliasesStorage.StartPolling()
+	log.Printf("✅ Aliases manager connected to database storage (%d messages, %d responses loaded)",
+		len(cfg.MessagesModels), len(cfg.ResponsesModels))
 }
 
 // ensureAPIKeysColumns adds missing columns to api_keys table

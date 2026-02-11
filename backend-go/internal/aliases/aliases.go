@@ -171,6 +171,14 @@ func (am *AliasesManager) SetDBStorage(dbStorage *DBAliasesStorage) {
 	}
 }
 
+// UpdateConfigFromDB replaces the in-memory config with data loaded from the database.
+// This is called during startup to ensure the manager has the latest DB state.
+func (am *AliasesManager) UpdateConfigFromDB(config AliasesConfig) {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+	am.config = config
+}
+
 // UpdateConfig updates the configuration
 func (am *AliasesManager) UpdateConfig(config AliasesConfig) error {
 	am.mu.Lock()

@@ -238,6 +238,16 @@ func main() {
 		log.Printf("✅ 模型别名管理器已初始化")
 	}
 
+	// Enable database write-through for pricing and aliases managers
+	if dbStorageMgr != nil {
+		if pricingMgr := pricing.GetManager(); pricingMgr != nil {
+			dbStorageMgr.ConnectPricingManager(pricingMgr)
+		}
+		if aliasesMgr := aliases.GetManager(); aliasesMgr != nil {
+			dbStorageMgr.ConnectAliasesManager(aliasesMgr)
+		}
+	}
+
 	// 初始化速率限制配置管理器
 	rateLimitCfgManager, err := ratelimit.InitManager(".config/ratelimit.json")
 	if err != nil {
