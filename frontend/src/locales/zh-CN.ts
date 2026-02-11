@@ -26,7 +26,7 @@ export default {
     required: '必填',
     optional: '可选',
     yes: '是',
-    no: '否',
+    no: '否'
   },
 
   // Theme
@@ -35,13 +35,13 @@ export default {
     retroLight: '复古亮色',
     retroDark: '复古暗色',
     retroDeepDark: '复古深邃',
-    minimalDark: '简约暗色',
+    minimalDark: '简约暗色'
   },
 
   // Confirmation dialogs
   confirm: {
     deleteChannel: '删除渠道',
-    deleteApiKey: '删除 API 密钥',
+    deleteApiKey: '删除 API 密钥'
   },
 
   // App
@@ -54,7 +54,7 @@ export default {
     debugLogSettings: '调试日志设置',
     failoverSettings: '故障转移设置',
     logout: '注销',
-    loggedOut: '已安全注销',
+    loggedOut: '已安全注销'
   },
 
   // Auth
@@ -72,7 +72,7 @@ export default {
     tooManyAttempts: '认证尝试次数过多，请在5分钟后重试',
     waitAndRetry: '认证尝试次数过多，请在 {seconds} 秒后重试',
     savedKeyInvalid: '保存的访问密钥已失效，请重新输入',
-    enterKeyToContinue: '请输入访问密钥以继续',
+    enterKeyToContinue: '请输入访问密钥以继续'
   },
 
   // Stats
@@ -83,14 +83,14 @@ export default {
     failoverScheduling: '参与故障转移调度',
     systemStatus: '系统状态',
     running: '运行中',
-    serviceNormal: '服务正常运行',
+    serviceNormal: '服务正常运行'
   },
 
   // Actions
   actions: {
     addChannel: '添加渠道',
     testLatency: '测试延迟',
-    addFirstChannel: '添加第一个渠道',
+    addFirstChannel: '添加第一个渠道'
   },
 
   // Load Balance
@@ -103,7 +103,7 @@ export default {
     failover: '故障转移 (Failover)',
     failoverDesc: '优先使用主渠道，失败时切换',
     updated: '负载均衡策略已更新为: {strategy}',
-    updateFailed: '更新负载均衡策略失败: {error}',
+    updateFailed: '更新负载均衡策略失败: {error}'
   },
 
   // Per-channel key load balance
@@ -116,7 +116,7 @@ export default {
     random: '随机 (Random)',
     randomDesc: '随机选择API密钥',
     failover: '故障转移 (Failover)',
-    failoverDesc: '优先第一个密钥，失败时切换',
+    failoverDesc: '优先第一个密钥，失败时切换'
   },
 
   // Channel
@@ -140,7 +140,7 @@ export default {
     allLatencyTestComplete: '全部渠道延迟测试完成',
     batchLatencyTestFailed: '批量延迟测试失败: {error}',
     prioritySet: '渠道 {name} 已设为最高优先级，5分钟内优先使用',
-    prioritySetFailed: '设置快速添加优先级失败',
+    prioritySetFailed: '设置快速添加优先级失败'
   },
 
   // Channel Orchestration
@@ -176,7 +176,7 @@ export default {
     setStatusFailed: '设置渠道状态失败: {error}',
     setPriorityFailed: '设置优先级失败: {error}',
     quotaRemaining: '剩余',
-    clickForDetails: '点击查看详情',
+    clickForDetails: '点击查看详情'
   },
 
   // Channel Status
@@ -199,7 +199,7 @@ export default {
     hoursAgo: '{count} 小时前',
     connectionNormal: '连接正常：最近一次检测通过',
     connectionError: '连接异常：请检查基础 URL、网络或 API 密钥',
-    notDetected: '尚未检测：请点击"测试延迟"进行检测',
+    notDetected: '尚未检测：请点击"测试延迟"进行检测'
   },
 
   // Add Channel Modal
@@ -212,7 +212,8 @@ export default {
     detailedConfig: '详细配置',
     quickAdd: '快速添加',
     inputContent: '输入内容',
-    inputPlaceholder: '每行输入一个 API Key 或 Base URL\n\n示例:\nsk-xxx-your-api-key\nsk-yyy-another-key\nhttps://api.example.com/v1',
+    inputPlaceholder:
+      '每行输入一个 API Key 或 Base URL\n\n示例:\nsk-xxx-your-api-key\nsk-yyy-another-key\nhttps://api.example.com/v1',
     baseUrlDetected: '已检测',
     baseUrlRequired: '请输入一个有效的 URL (https://...)',
     apiKeysLabel: 'API 密钥',
@@ -250,9 +251,12 @@ export default {
     descriptionHint: '可选的渠道描述...',
     modelRedirect: '模型重定向 (可选)',
     autoConvertModel: '自动转换模型名称',
-    modelMappingHintResponses: '配置模型名称映射，将请求中的模型名重定向到目标模型。例如：将 "o3" 重定向到 "gpt-5.1-codex-max"',
-    modelMappingHintGemini: '配置模型名称映射，将请求中的模型名重定向到目标模型。例如：将 "gemini-3-flash-preview" 重定向到 "gemini-3-flash"',
-    modelMappingHintMessages: '配置模型名称映射，将请求中的模型名重定向到目标模型。例如：将 "opus" 重定向到 "claude-3-5-sonnet"',
+    modelMappingHintResponses:
+      '配置模型名称映射，将请求中的模型名重定向到目标模型。例如：将 "o3" 重定向到 "gpt-5.1-codex-max"',
+    modelMappingHintGemini:
+      '配置模型名称映射，将请求中的模型名重定向到目标模型。例如：将 "gemini-3-flash-preview" 重定向到 "gemini-3-flash"',
+    modelMappingHintMessages:
+      '配置模型名称映射，将请求中的模型名重定向到目标模型。例如：将 "opus" 重定向到 "claude-3-5-sonnet"',
     sourceModel: '源模型名',
     selectSourceModel: '选择源模型名',
     targetModel: '目标模型名',
@@ -269,7 +273,8 @@ export default {
     clickRefreshToLoad: '点击刷新按钮加载模型列表',
     priceMultiplier: '价格乘数 (可选)',
     channelDiscount: '渠道专属折扣',
-    priceMultiplierHint: '配置该渠道的价格乘数。例如：乘数 0.8 表示 8 折，0.5 表示 5 折。使用 "_default" 为所有模型设置默认乘数，或指定具体模型名（支持前缀匹配）。',
+    priceMultiplierHint:
+      '配置该渠道的价格乘数。例如：乘数 0.8 表示 8 折，0.5 表示 5 折。使用 "_default" 为所有模型设置默认乘数，或指定具体模型名（支持前缀匹配）。',
     modelNameDefault: '模型名 (或 _default)',
     modelNamePlaceholder: 'claude-opus-4-5 或 _default',
     inputMultiplier: '输入乘数',
@@ -357,7 +362,7 @@ export default {
     configTab: '配置',
     quotaTab: '配额',
     rateLimitTab: '限流',
-    contentFilterTab: '内容过滤',
+    contentFilterTab: '内容过滤'
   },
 
   // Channel Rate Limit (per-channel upstream protection)
@@ -374,24 +379,31 @@ export default {
     queueTimeoutHint: '秒 (队列中最大等待时间)',
     behaviorTitle: '行为',
     behaviorQueue: '超出 {rpm} RPM 的请求将排队等待（最长 {timeout} 秒），然后以每秒 1 个的速度释放',
-    behaviorReject: '超出 {rpm} RPM 的请求将被拒绝并返回 429 错误',
+    behaviorReject: '超出 {rpm} RPM 的请求将被拒绝并返回 429 错误'
   },
 
   // Content Filter (per-channel response body error detection)
   contentFilter: {
     title: '内容过滤',
     subtitle: '响应错误检测',
-    description: '检测上游以 HTTP 200 返回但响应体中包含错误文本的情况。启用后，响应会先缓冲并检查关键词，再转发给客户端。',
+    description:
+      '检测上游以 HTTP 200 返回但响应体中包含错误文本的情况。可配置多条匹配规则，每条规则可设置不同的 HTTP 状态码。',
     enabled: '启用内容过滤',
     enabledHint: '启用后，流式响应会完整缓冲后再转发，会增加等于响应生成时间的延迟。仅建议对已知存在此问题的渠道启用。',
-    keywords: '错误关键词',
+    rules: '过滤规则',
+    addRule: '添加规则',
+    ruleKeyword: '关键词',
+    ruleKeywordPlaceholder: '例如 INSUFFICIENT_MODEL_CAPACITY',
+    ruleStatusCode: '状态码',
+    rulesHint: '规则按从上到下顺序匹配，命中第一条后立即生效。关键词匹配为不区分大小写的子字符串匹配。',
+    keywords: '错误关键词（兼容旧版）',
     keywordsPlaceholder: '输入关键词后按回车添加',
     keywordsHint: '不区分大小写的子字符串匹配。按回车添加每个关键词。',
-    statusCode: '错误状态码',
-    statusCodeHint: '将响应转换为的 HTTP 状态码（决定使用哪个故障转移规则）',
+    statusCode: '错误状态码（兼容旧版）',
+    statusCodeHint: '旧版共享状态码字段。',
     behaviorTitle: '行为',
-    behaviorDesc: '匹配到关键词时，响应将被转换为 HTTP {statusCode}，并由该状态码对应的故障转移规则处理',
-    tabLabel: '内容过滤',
+    behaviorDesc: '匹配到规则后，响应会转换为该规则设置的 HTTP 状态码，并交给对应故障转移规则处理。',
+    tabLabel: '内容过滤'
   },
 
   // Request Log
@@ -501,7 +513,7 @@ export default {
     aliasNotUnique: '此别名已被使用',
     userAliasManagement: '用户ID别名',
     userAliasDesc: '点击表格中的用户ID来设置别名。别名存储在服务器上，可跨设备同步。',
-    noAliases: '暂无别名。点击日志表格中的用户ID添加。',
+    noAliases: '暂无别名。点击日志表格中的用户ID添加。'
   },
 
   // Pricing Settings
@@ -534,7 +546,7 @@ export default {
     confirmResetDesc: '确定要将所有定价配置重置为默认值吗？自定义的定价将会丢失。',
     duplicate: '复制',
     exportToModels: '导出',
-    exportToModelsHint: '在 /v1/models API 中显示',
+    exportToModelsHint: '在 /v1/models API 中显示'
   },
 
   // Model Aliases Settings
@@ -556,7 +568,7 @@ export default {
     loadFailed: '加载模型别名失败',
     confirmDelete: '确定要删除模型 "{model}" 吗？',
     confirmReset: '确认重置',
-    confirmResetDesc: '确定要将所有模型别名重置为默认值吗？自定义的别名将会丢失。',
+    confirmResetDesc: '确定要将所有模型别名重置为默认值吗？自定义的别名将会丢失。'
   },
 
   // Backup & Restore
@@ -574,7 +586,7 @@ export default {
     restoreFailed: '恢复配置失败',
     deleteSuccess: '备份已删除',
     deleteFailed: '删除备份失败',
-    loadFailed: '加载备份列表失败',
+    loadFailed: '加载备份列表失败'
   },
 
   // Rate Limit Settings
@@ -600,13 +612,13 @@ export default {
     thresholdOrderError: '阈值必须按失败次数升序排列',
     perKeyRateLimit: '速率限制 (RPM)',
     perKeyRateLimitHint: '0 = 使用全局限制',
-    useGlobal: '全局',
+    useGlobal: '全局'
   },
 
   // Language
   language: {
     en: 'English',
-    zhCN: '简体中文',
+    zhCN: '简体中文'
   },
 
   // Charts
@@ -616,20 +628,20 @@ export default {
       '6h': '6小时',
       '24h': '24小时',
       today: '今天',
-      period: '周期',
+      period: '周期'
     },
     endpoint: {
       all: '全部',
       messages: 'Claude',
       responses: 'Codex',
-      gemini: 'Gemini',
+      gemini: 'Gemini'
     },
     view: {
       traffic: '流量',
       tokens: 'Tokens',
       cache: '缓存',
       latency: '延迟',
-      cost: '费用',
+      cost: '费用'
     },
     summary: {
       totalRequests: '总请求数',
@@ -641,7 +653,7 @@ export default {
       p50Latency: 'p50 延迟',
       p95Latency: 'p95 延迟',
       totalCost: '总费用',
-      avgCostPerRequest: '平均/请求',
+      avgCostPerRequest: '平均/请求'
     },
     legend: {
       totalRequests: '总请求数',
@@ -651,16 +663,16 @@ export default {
       cacheCreate: '缓存创建',
       cacheHit: '缓存命中',
       p50Latency: 'p50 延迟',
-      p95Latency: 'p95 延迟',
+      p95Latency: 'p95 延迟'
     },
     unit: {
-      requests: '次请求',
+      requests: '次请求'
     },
     noData: '所选时间段无数据',
     noDataChannel: '该渠道暂无数据',
     error: {
-      fetchFailed: '获取图表数据失败',
-    },
+      fetchFailed: '获取图表数据失败'
+    }
   },
 
   // API Keys
@@ -691,7 +703,7 @@ export default {
       label: '状态',
       active: '启用',
       disabled: '禁用',
-      revoked: '已撤销',
+      revoked: '已撤销'
     },
     edit: '编辑',
     enable: '启用',
@@ -741,7 +753,7 @@ export default {
     allEndpoints: '全部端点',
     restrictedEndpoints: '{count} 个端点',
     restrictedModels: '{count} 个模式',
-    restrictedChannels: '{count} 个渠道',
+    restrictedChannels: '{count} 个渠道'
   },
 
   // OAuth 状态
@@ -760,7 +772,7 @@ export default {
     tokenStatus: {
       valid: '有效',
       expiring_soon: '即将过期',
-      expired: '已过期',
+      expired: '已过期'
     },
     expiresIn: '{seconds}秒后过期',
     loadError: '加载 OAuth 状态失败',
@@ -782,7 +794,7 @@ export default {
     // 积分
     creditsUnlimited: '无限积分',
     creditsBalance: '积分余额: {balance}',
-    creditsAvailable: '有可用积分',
+    creditsAvailable: '有可用积分'
   },
 
   // Quota (用户配置的渠道配额)
@@ -811,7 +823,7 @@ export default {
       hours: '小时',
       days: '天',
       weeks: '周',
-      months: '月',
+      months: '月'
     },
     manualReset: '立即重置',
     manualResetConfirm: '重置配额',
@@ -829,7 +841,7 @@ export default {
     resetModeFixed: '固定周期',
     resetModeRolling: '滚动周期',
     resetModeFixedHint: '按首次重置时间的固定周期重置',
-    resetModeRollingHint: '每次重置后从首次请求开始计算下一次重置时间',
+    resetModeRollingHint: '每次重置后从首次请求开始计算下一次重置时间'
   },
 
   // 调试日志设置
@@ -851,7 +863,7 @@ export default {
     purged: '已清除 {count} 条调试日志',
     purgeFailed: '清除调试日志失败',
     loadFailed: '加载调试日志配置失败',
-    saveFailed: '保存调试日志配置失败',
+    saveFailed: '保存调试日志配置失败'
   },
 
   // 故障转移设置
@@ -928,7 +940,7 @@ export default {
     errorCode429ResourceExhausted: '资源耗尽（通用）',
     errorCode403CreditExhausted: '余额/积分不足',
     errorCode5xx: '服务器错误',
-    errorCodeOthers: '其他未匹配的错误码',
+    errorCodeOthers: '其他未匹配的错误码'
   },
 
   // 调试详情弹窗
@@ -959,6 +971,6 @@ export default {
     httpStatus: 'HTTP 状态',
     error: '错误',
     failoverInfo: '故障转移',
-    upstreamError: '上游错误',
-  },
+    upstreamError: '上游错误'
+  }
 }

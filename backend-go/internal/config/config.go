@@ -55,12 +55,22 @@ func (t *TokenPriceMultipliers) GetEffectiveMultiplier(tokenType string) float64
 	return m
 }
 
+// ContentFilterRule defines a single content filter matching rule.
+// When keyword is matched (case-insensitive substring), response is converted to StatusCode.
+type ContentFilterRule struct {
+	Keyword    string `json:"keyword"`              // Keyword to match in response text (case-insensitive substring)
+	StatusCode int    `json:"statusCode,omitempty"` // HTTP status code to use when matched (default 429)
+}
+
 // ContentFilter defines per-channel response content filtering to detect errors
 // returned as HTTP 200 with error text in the response body.
 type ContentFilter struct {
-	Enabled    bool     `json:"enabled"`              // Whether content filtering is active
-	Keywords   []string `json:"keywords"`             // Keywords to match in response text (case-insensitive substring)
-	StatusCode int      `json:"statusCode,omitempty"` // HTTP status code to use when matched (default 429), determines which failover rules apply
+	Enabled bool `json:"enabled"` // Whether content filtering is active
+	// Rules for keyword-to-status mapping. First matched rule wins.
+	Rules []ContentFilterRule `json:"rules,omitempty"`
+	// Legacy fields (backward compatibility): if Rules is empty, these are used.
+	Keywords   []string `json:"keywords,omitempty"`   // Legacy: keyword list
+	StatusCode int      `json:"statusCode,omitempty"` // Legacy: shared status code for all keywords (default 429)
 }
 
 // CompositeMapping defines a model-to-channel mapping for composite channels

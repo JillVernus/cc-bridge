@@ -88,6 +88,8 @@ func GetUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				"keyLoadBalance": up.KeyLoadBalance,
 				// Composite channel mappings
 				"compositeMappings": up.CompositeMappings,
+				// Content filter
+				"contentFilter": up.ContentFilter,
 			}
 		}
 
@@ -749,6 +751,8 @@ func GetResponsesUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				"queueTimeout": up.QueueTimeout,
 				// Per-channel API key load balancing
 				"keyLoadBalance": up.KeyLoadBalance,
+				// Content filter
+				"contentFilter": up.ContentFilter,
 			}
 		}
 

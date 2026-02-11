@@ -10,17 +10,21 @@ import (
 	"github.com/JillVernus/cc-bridge/internal/config"
 )
 
+const defaultContentFilterStatusCode = 429
+
 // contentFilterResult holds the result of a content filter check.
 type contentFilterResult struct {
-	Matched        bool   // Whether a keyword was matched
-	MatchedKeyword string // The keyword that matched
-	AssembledText  string // The assembled text from the response
+	Matched           bool   // Whether a keyword was matched
+	MatchedKeyword    string // The keyword that matched
+	MatchedStatusCode int    // The HTTP status code to synthesize on match
+	AssembledText     string // The assembled text from the response
 }
 
 // checkContentFilterOnBody checks a response body (already read) for content filter keywords.
 // Works for both non-streaming JSON responses and buffered SSE streams.
 func checkContentFilterOnBody(bodyBytes []byte, filter *config.ContentFilter) contentFilterResult {
-	if filter == nil || !filter.Enabled || len(filter.Keywords) == 0 {
+	rules := resolveContentFilterRules(filter)
+	if filter == nil || !filter.Enabled || len(rules) == 0 {
 		return contentFilterResult{}
 	}
 
@@ -29,7 +33,7 @@ func checkContentFilterOnBody(bodyBytes []byte, filter *config.ContentFilter) co
 		return contentFilterResult{}
 	}
 
-	return matchKeywords(text, filter.Keywords)
+	return matchRules(text, rules)
 }
 
 // checkContentFilterOnStream buffers an SSE stream, assembles text from content_block_delta
@@ -42,7 +46,8 @@ func checkContentFilterOnStream(resp *http.Response, filter *config.ContentFilte
 		return contentFilterResult{}, nil, err
 	}
 
-	if filter == nil || !filter.Enabled || len(filter.Keywords) == 0 {
+	rules := resolveContentFilterRules(filter)
+	if filter == nil || !filter.Enabled || len(rules) == 0 {
 		return contentFilterResult{}, bodyBytes, nil
 	}
 
@@ -51,7 +56,7 @@ func checkContentFilterOnStream(resp *http.Response, filter *config.ContentFilte
 		return contentFilterResult{}, bodyBytes, nil
 	}
 
-	result := matchKeywords(text, filter.Keywords)
+	result := matchRules(text, rules)
 	return result, bodyBytes, nil
 }
 
@@ -127,19 +132,70 @@ func extractTextFromSSE(bodyBytes []byte) string {
 	return sb.String()
 }
 
-// matchKeywords checks text against a list of keywords (case-insensitive substring match).
-func matchKeywords(text string, keywords []string) contentFilterResult {
-	lowerText := strings.ToLower(text)
-	for _, kw := range keywords {
-		if kw == "" {
+// resolveContentFilterRules normalizes configured rules and handles legacy fields fallback.
+// Behavior: Rules (new format) are preferred; if empty, fallback to legacy Keywords + StatusCode.
+func resolveContentFilterRules(filter *config.ContentFilter) []config.ContentFilterRule {
+	if filter == nil {
+		return nil
+	}
+
+	rules := make([]config.ContentFilterRule, 0, len(filter.Rules))
+
+	// New format: rules[] where each keyword has its own status code.
+	for _, rule := range filter.Rules {
+		keyword := strings.TrimSpace(rule.Keyword)
+		if keyword == "" {
 			continue
 		}
-		if strings.Contains(lowerText, strings.ToLower(kw)) {
-			log.Printf("🚫 Content filter matched keyword: %q in response text", kw)
+		rules = append(rules, config.ContentFilterRule{
+			Keyword:    keyword,
+			StatusCode: normalizeContentFilterStatusCode(rule.StatusCode),
+		})
+	}
+	if len(rules) > 0 {
+		return rules
+	}
+
+	// Legacy format fallback: keywords[] + single statusCode.
+	legacyStatusCode := normalizeContentFilterStatusCode(filter.StatusCode)
+	for _, keyword := range filter.Keywords {
+		trimmed := strings.TrimSpace(keyword)
+		if trimmed == "" {
+			continue
+		}
+		rules = append(rules, config.ContentFilterRule{
+			Keyword:    trimmed,
+			StatusCode: legacyStatusCode,
+		})
+	}
+
+	return rules
+}
+
+func normalizeContentFilterStatusCode(statusCode int) int {
+	if statusCode < 400 || statusCode > 599 {
+		return defaultContentFilterStatusCode
+	}
+	return statusCode
+}
+
+// matchRules checks text against rules (case-insensitive substring match).
+// First matched rule wins.
+func matchRules(text string, rules []config.ContentFilterRule) contentFilterResult {
+	lowerText := strings.ToLower(text)
+	for _, rule := range rules {
+		keyword := strings.TrimSpace(rule.Keyword)
+		if keyword == "" {
+			continue
+		}
+		if strings.Contains(lowerText, strings.ToLower(keyword)) {
+			statusCode := normalizeContentFilterStatusCode(rule.StatusCode)
+			log.Printf("🚫 Content filter matched keyword: %q in response text, status=%d", keyword, statusCode)
 			return contentFilterResult{
-				Matched:        true,
-				MatchedKeyword: kw,
-				AssembledText:  text,
+				Matched:           true,
+				MatchedKeyword:    keyword,
+				MatchedStatusCode: statusCode,
+				AssembledText:     text,
 			}
 		}
 	}

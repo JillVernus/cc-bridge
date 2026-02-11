@@ -26,7 +26,7 @@ export default {
     required: 'Required',
     optional: 'Optional',
     yes: 'Yes',
-    no: 'No',
+    no: 'No'
   },
 
   // Theme
@@ -35,13 +35,13 @@ export default {
     retroLight: 'Retro Light',
     retroDark: 'Retro Dark',
     retroDeepDark: 'Retro Deep Dark',
-    minimalDark: 'Minimal Dark',
+    minimalDark: 'Minimal Dark'
   },
 
   // Confirmation dialogs
   confirm: {
     deleteChannel: 'Delete Channel',
-    deleteApiKey: 'Delete API Key',
+    deleteApiKey: 'Delete API Key'
   },
 
   // App
@@ -54,7 +54,7 @@ export default {
     debugLogSettings: 'Debug Log Settings',
     failoverSettings: 'Failover Settings',
     logout: 'Logout',
-    loggedOut: 'Logged out safely',
+    loggedOut: 'Logged out safely'
   },
 
   // Auth
@@ -63,7 +63,7 @@ export default {
     enterAccessKey: 'Please enter access key',
     accessManagement: 'Access Management',
     securityTips: 'Security Tips:',
-    tip1: 'Access key is set in server\'s PROXY_ACCESS_KEY environment variable',
+    tip1: "Access key is set in server's PROXY_ACCESS_KEY environment variable",
     tip2: 'Key will be saved locally for automatic login next time',
     tip3: 'Do not share your access key with others',
     tip4: 'If key is compromised, change server configuration immediately',
@@ -72,7 +72,7 @@ export default {
     tooManyAttempts: 'Too many auth attempts, please try again in 5 minutes',
     waitAndRetry: 'Too many auth attempts, please try again in {seconds} seconds',
     savedKeyInvalid: 'Saved access key is invalid, please re-enter',
-    enterKeyToContinue: 'Please enter access key to continue',
+    enterKeyToContinue: 'Please enter access key to continue'
   },
 
   // Stats
@@ -83,14 +83,14 @@ export default {
     failoverScheduling: 'In failover scheduling',
     systemStatus: 'System Status',
     running: 'Running',
-    serviceNormal: 'Service running normally',
+    serviceNormal: 'Service running normally'
   },
 
   // Actions
   actions: {
     addChannel: 'Add Channel',
     testLatency: 'Test Latency',
-    addFirstChannel: 'Add First Channel',
+    addFirstChannel: 'Add First Channel'
   },
 
   // Load Balance
@@ -103,7 +103,7 @@ export default {
     failover: 'Failover',
     failoverDesc: 'Use primary, switch on failure',
     updated: 'Load balance strategy updated to: {strategy}',
-    updateFailed: 'Failed to update load balance strategy: {error}',
+    updateFailed: 'Failed to update load balance strategy: {error}'
   },
 
   // Per-channel key load balance
@@ -116,7 +116,7 @@ export default {
     random: 'Random',
     randomDesc: 'Randomly select API key',
     failover: 'Failover',
-    failoverDesc: 'Use first key, switch on failure',
+    failoverDesc: 'Use first key, switch on failure'
   },
 
   // Channel
@@ -140,7 +140,7 @@ export default {
     allLatencyTestComplete: 'All channel latency tests complete',
     batchLatencyTestFailed: 'Batch latency test failed: {error}',
     prioritySet: 'Channel {name} set to highest priority for 5 minutes',
-    prioritySetFailed: 'Failed to set quick add priority',
+    prioritySetFailed: 'Failed to set quick add priority'
   },
 
   // Channel Orchestration
@@ -176,7 +176,7 @@ export default {
     setStatusFailed: 'Failed to set channel status: {error}',
     setPriorityFailed: 'Failed to set priority: {error}',
     quotaRemaining: 'remaining',
-    clickForDetails: 'Click for details',
+    clickForDetails: 'Click for details'
   },
 
   // Channel Status
@@ -199,7 +199,7 @@ export default {
     hoursAgo: '{count} hours ago',
     connectionNormal: 'Connection normal: last check passed',
     connectionError: 'Connection error: check base URL, network, or API key',
-    notDetected: 'Not detected: click "Test Latency" to check',
+    notDetected: 'Not detected: click "Test Latency" to check'
   },
 
   // Add Channel Modal
@@ -212,7 +212,8 @@ export default {
     detailedConfig: 'Detailed Config',
     quickAdd: 'Quick Add',
     inputContent: 'Input Content',
-    inputPlaceholder: 'Enter one API Key or Base URL per line\n\nExample:\nsk-xxx-your-api-key\nsk-yyy-another-key\nhttps://api.example.com/v1',
+    inputPlaceholder:
+      'Enter one API Key or Base URL per line\n\nExample:\nsk-xxx-your-api-key\nsk-yyy-another-key\nhttps://api.example.com/v1',
     baseUrlDetected: 'Detected',
     baseUrlRequired: 'Please enter a valid URL (https://...)',
     apiKeysLabel: 'API Keys',
@@ -250,9 +251,12 @@ export default {
     descriptionHint: 'Optional channel description...',
     modelRedirect: 'Model Redirect (optional)',
     autoConvertModel: 'Auto-convert model names',
-    modelMappingHintResponses: 'Configure model name mapping to redirect request models. e.g., redirect "o3" to "gpt-5.1-codex-max"',
-    modelMappingHintGemini: 'Configure model name mapping to redirect request models. e.g., redirect "gemini-3-flash-preview" to "gemini-3-flash"',
-    modelMappingHintMessages: 'Configure model name mapping to redirect request models. e.g., redirect "opus" to "claude-3-5-sonnet"',
+    modelMappingHintResponses:
+      'Configure model name mapping to redirect request models. e.g., redirect "o3" to "gpt-5.1-codex-max"',
+    modelMappingHintGemini:
+      'Configure model name mapping to redirect request models. e.g., redirect "gemini-3-flash-preview" to "gemini-3-flash"',
+    modelMappingHintMessages:
+      'Configure model name mapping to redirect request models. e.g., redirect "opus" to "claude-3-5-sonnet"',
     sourceModel: 'Source Model',
     selectSourceModel: 'Select source model',
     targetModel: 'Target Model',
@@ -269,7 +273,8 @@ export default {
     clickRefreshToLoad: 'Click refresh button to load models',
     priceMultiplier: 'Price Multiplier (optional)',
     channelDiscount: 'Channel discount',
-    priceMultiplierHint: 'Configure price multiplier for this channel. e.g., 0.8 = 80%, 0.5 = 50%. Use "_default" for all models, or specify model name (supports prefix matching).',
+    priceMultiplierHint:
+      'Configure price multiplier for this channel. e.g., 0.8 = 80%, 0.5 = 50%. Use "_default" for all models, or specify model name (supports prefix matching).',
     modelNameDefault: 'Model name (or _default)',
     modelNamePlaceholder: 'claude-opus-4-5 or _default',
     inputMultiplier: 'Input multiplier',
@@ -302,7 +307,8 @@ export default {
     serviceTypeOpenAIOAuth: 'OpenAI OAuth (Codex)',
     oauthConfig: 'OAuth Authentication',
     oauthRequired: 'Required',
-    oauthHint: 'Paste the content of auth.json from the official Codex CLI (~/.codex/auth.json). cc-bridge will automatically manage token refresh.',
+    oauthHint:
+      'Paste the content of auth.json from the official Codex CLI (~/.codex/auth.json). cc-bridge will automatically manage token refresh.',
     oauthJsonLabel: 'auth.json Content',
     oauthJsonPlaceholder: 'Paste the content of ~/.codex/auth.json here...',
     oauthJsonPath: 'File path',
@@ -315,8 +321,10 @@ export default {
     // Composite channel
     compositeMappings: 'Model Mappings',
     modelRouting: 'Model Routing',
-    compositeMappingsHint: 'Configure which channel should handle each model. Patterns are matched in order from top to bottom.',
-    compositeFailoverHint: 'Configure failover chains for each model. First channel is primary, rest are failovers tried in order.',
+    compositeMappingsHint:
+      'Configure which channel should handle each model. Patterns are matched in order from top to bottom.',
+    compositeFailoverHint:
+      'Configure failover chains for each model. First channel is primary, rest are failovers tried in order.',
     noCompositeMappings: 'At least one mapping is required. Add a model pattern and select a target channel.',
     modelPattern: 'Model Pattern',
     modelPatternPlaceholder: 'e.g., haiku, opus, *',
@@ -357,41 +365,53 @@ export default {
     configTab: 'Configuration',
     quotaTab: 'Quota',
     rateLimitTab: 'Rate Limit',
-    contentFilterTab: 'Content Filter',
+    contentFilterTab: 'Content Filter'
   },
 
   // Channel Rate Limit (per-channel upstream protection)
   channelRateLimit: {
     title: 'Channel Rate Limit',
     upstreamProtection: 'Upstream Protection',
-    description: 'Limit requests to this channel to protect upstream API rate limits. When exceeded, requests can be queued or rejected.',
+    description:
+      'Limit requests to this channel to protect upstream API rate limits. When exceeded, requests can be queued or rejected.',
     rateLimitRpm: 'Rate Limit (RPM)',
     rateLimitRpmPlaceholder: '0',
     rpmHint: 'requests per minute (0 = no limit)',
     queueEnabled: 'Enable Queue Mode',
-    queueEnabledHint: 'When enabled, requests exceeding the rate limit will be queued instead of rejected. Queued requests are released at 1-second intervals.',
+    queueEnabledHint:
+      'When enabled, requests exceeding the rate limit will be queued instead of rejected. Queued requests are released at 1-second intervals.',
     queueTimeout: 'Queue Timeout (s)',
     queueTimeoutHint: 'seconds (max wait time in queue)',
     behaviorTitle: 'Behavior',
     behaviorQueue: 'Requests exceeding {rpm} RPM will be queued (max {timeout}s wait), then released at 1/s interval',
-    behaviorReject: 'Requests exceeding {rpm} RPM will be rejected with 429 error',
+    behaviorReject: 'Requests exceeding {rpm} RPM will be rejected with 429 error'
   },
 
   // Content Filter (per-channel response body error detection)
   contentFilter: {
     title: 'Content Filter',
     subtitle: 'Response Error Detection',
-    description: 'Detect errors returned as HTTP 200 with error text in the response body. When enabled, responses are buffered and checked for keywords before forwarding to the client.',
+    description:
+      'Detect errors returned as HTTP 200 with error text in the response body. Configure multiple matching rules, each with its own HTTP status code.',
     enabled: 'Enable Content Filter',
-    enabledHint: 'When enabled, streaming responses are fully buffered before forwarding, adding latency equal to the response generation time. Only enable for channels known to have this issue.',
-    keywords: 'Error Keywords',
+    enabledHint:
+      'When enabled, streaming responses are fully buffered before forwarding, adding latency equal to the response generation time. Only enable for channels known to have this issue.',
+    rules: 'Filter Rules',
+    addRule: 'Add Rule',
+    ruleKeyword: 'Keyword',
+    ruleKeywordPlaceholder: 'e.g. INSUFFICIENT_MODEL_CAPACITY',
+    ruleStatusCode: 'Status Code',
+    rulesHint:
+      'Rules are checked top-to-bottom. First matched rule wins. Keyword matching is case-insensitive substring.',
+    keywords: 'Error Keywords (Legacy)',
     keywordsPlaceholder: 'Type a keyword and press Enter',
     keywordsHint: 'Case-insensitive substring match. Press Enter to add each keyword.',
-    statusCode: 'Error Status Code',
-    statusCodeHint: 'HTTP status code to convert the response to (determines which failover rules apply)',
+    statusCode: 'Error Status Code (Legacy)',
+    statusCodeHint: 'Legacy shared status code for keywords.',
     behaviorTitle: 'Behavior',
-    behaviorDesc: 'When a keyword is matched, the response is converted to HTTP {statusCode} and handled by the configured failover rules for that status code',
-    tabLabel: 'Content Filter',
+    behaviorDesc:
+      "When a rule is matched, the response is converted to that rule's HTTP status code and handled by configured failover rules.",
+    tabLabel: 'Content Filter'
   },
 
   // Request Log
@@ -500,8 +520,9 @@ export default {
     removeAlias: 'Remove Alias',
     aliasNotUnique: 'This alias is already in use',
     userAliasManagement: 'User ID Aliases',
-    userAliasDesc: 'Click on a User ID in the table to assign an alias. Aliases are stored on the server and synced across devices.',
-    noAliases: 'No aliases defined. Click on a User ID in the logs table to add one.',
+    userAliasDesc:
+      'Click on a User ID in the table to assign an alias. Aliases are stored on the server and synced across devices.',
+    noAliases: 'No aliases defined. Click on a User ID in the logs table to add one.'
   },
 
   // Pricing Settings
@@ -534,7 +555,7 @@ export default {
     confirmResetDesc: 'Are you sure you want to reset all pricing to defaults? Custom prices will be lost.',
     duplicate: 'Duplicate',
     exportToModels: 'Export',
-    exportToModelsHint: 'Show in /v1/models API',
+    exportToModelsHint: 'Show in /v1/models API'
   },
 
   // Model Aliases Settings
@@ -556,7 +577,7 @@ export default {
     loadFailed: 'Failed to load model aliases',
     confirmDelete: 'Are you sure you want to delete model "{model}"?',
     confirmReset: 'Confirm Reset',
-    confirmResetDesc: 'Are you sure you want to reset all model aliases to defaults? Custom aliases will be lost.',
+    confirmResetDesc: 'Are you sure you want to reset all model aliases to defaults? Custom aliases will be lost.'
   },
 
   // Backup & Restore
@@ -574,7 +595,7 @@ export default {
     restoreFailed: 'Failed to restore configuration',
     deleteSuccess: 'Backup deleted',
     deleteFailed: 'Failed to delete backup',
-    loadFailed: 'Failed to load backup list',
+    loadFailed: 'Failed to load backup list'
   },
 
   // Rate Limit Settings
@@ -600,13 +621,13 @@ export default {
     thresholdOrderError: 'Thresholds must be in ascending order by failure count',
     perKeyRateLimit: 'Rate Limit (RPM)',
     perKeyRateLimitHint: '0 = use global limit',
-    useGlobal: 'Global',
+    useGlobal: 'Global'
   },
 
   // Language
   language: {
     en: 'English',
-    zhCN: '简体中文',
+    zhCN: '简体中文'
   },
 
   // Charts
@@ -616,20 +637,20 @@ export default {
       '6h': '6h',
       '24h': '24h',
       today: 'Today',
-      period: 'Period',
+      period: 'Period'
     },
     endpoint: {
       all: 'All',
       messages: 'Claude',
       responses: 'Codex',
-      gemini: 'Gemini',
+      gemini: 'Gemini'
     },
     view: {
       traffic: 'Traffic',
       tokens: 'Tokens',
       cache: 'Cache',
       latency: 'Latency',
-      cost: 'Cost',
+      cost: 'Cost'
     },
     summary: {
       totalRequests: 'Total Requests',
@@ -641,7 +662,7 @@ export default {
       p50Latency: 'p50 Latency',
       p95Latency: 'p95 Latency',
       totalCost: 'Total Cost',
-      avgCostPerRequest: 'Avg / Request',
+      avgCostPerRequest: 'Avg / Request'
     },
     legend: {
       totalRequests: 'Total Requests',
@@ -651,16 +672,16 @@ export default {
       cacheCreate: 'Cache Create',
       cacheHit: 'Cache Hit',
       p50Latency: 'p50 Latency',
-      p95Latency: 'p95 Latency',
+      p95Latency: 'p95 Latency'
     },
     unit: {
-      requests: 'requests',
+      requests: 'requests'
     },
     noData: 'No data for selected period',
     noDataChannel: 'No data for this channel',
     error: {
-      fetchFailed: 'Failed to fetch chart data',
-    },
+      fetchFailed: 'Failed to fetch chart data'
+    }
   },
 
   // API Keys
@@ -691,7 +712,7 @@ export default {
       label: 'Status',
       active: 'Active',
       disabled: 'Disabled',
-      revoked: 'Revoked',
+      revoked: 'Revoked'
     },
     edit: 'Edit',
     enable: 'Enable',
@@ -699,8 +720,8 @@ export default {
     revoke: 'Revoke',
     delete: 'Delete',
     keyCreated: 'API Key Created',
-    keyCreatedWarning: 'Copy this key now. You won\'t be able to see it again!',
-    understood: 'I\'ve copied the key',
+    keyCreatedWarning: "Copy this key now. You won't be able to see it again!",
+    understood: "I've copied the key",
     keyCopied: 'Key copied to clipboard',
     copyError: 'Failed to copy key',
     confirmRevoke: 'Revoke API Key',
@@ -741,7 +762,7 @@ export default {
     allEndpoints: 'All Endpoints',
     restrictedEndpoints: '{count} endpoint(s)',
     restrictedModels: '{count} pattern(s)',
-    restrictedChannels: '{count} channel(s)',
+    restrictedChannels: '{count} channel(s)'
   },
 
   // OAuth Status
@@ -760,7 +781,7 @@ export default {
     tokenStatus: {
       valid: 'Valid',
       expiring_soon: 'Expiring Soon',
-      expired: 'Expired',
+      expired: 'Expired'
     },
     expiresIn: 'Expires in {seconds}s',
     loadError: 'Failed to load OAuth status',
@@ -782,13 +803,14 @@ export default {
     // Credits
     creditsUnlimited: 'Unlimited credits',
     creditsBalance: 'Credits: {balance}',
-    creditsAvailable: 'Credits available',
+    creditsAvailable: 'Credits available'
   },
 
   // Quota (user-configured channel quotas)
   quota: {
     title: 'Quota Settings',
-    description: 'Configure usage limits for this channel. Quotas are tracked for informational purposes and do not block requests when exceeded.',
+    description:
+      'Configure usage limits for this channel. Quotas are tracked for informational purposes and do not block requests when exceeded.',
     requestQuota: 'Request Quota',
     creditQuota: 'Credit Quota',
     used: 'Used',
@@ -811,7 +833,7 @@ export default {
       hours: 'Hours',
       days: 'Days',
       weeks: 'Weeks',
-      months: 'Months',
+      months: 'Months'
     },
     manualReset: 'Reset Now',
     manualResetConfirm: 'Reset Quota',
@@ -823,13 +845,14 @@ export default {
     quotaModels: 'Model Filter',
     quotaModelsLabel: 'Model Patterns',
     quotaModelsPlaceholder: 'Type pattern and press Enter',
-    quotaModelsHint: 'Only count quota for models matching these patterns (substring match). Leave empty for all models.',
+    quotaModelsHint:
+      'Only count quota for models matching these patterns (substring match). Leave empty for all models.',
     quotaModelsApplied: 'Models',
     resetMode: 'Reset Mode',
     resetModeFixed: 'Fixed Interval',
     resetModeRolling: 'Rolling Interval',
     resetModeFixedHint: 'Reset at fixed schedule based on first reset time',
-    resetModeRollingHint: 'Reset interval starts from first request after each reset',
+    resetModeRollingHint: 'Reset interval starts from first request after each reset'
   },
 
   // Debug Log Settings
@@ -837,7 +860,8 @@ export default {
     title: 'Debug Log Settings',
     enabled: 'Enabled',
     disabled: 'Disabled',
-    enableDescription: 'When enabled, full request and response bodies (headers + body) will be captured for debugging purposes.',
+    enableDescription:
+      'When enabled, full request and response bodies (headers + body) will be captured for debugging purposes.',
     retentionSection: 'Log Retention',
     retentionHours: 'Retention Hours',
     retentionDescription: 'Debug logs older than this will be automatically cleaned up.',
@@ -851,19 +875,22 @@ export default {
     purged: 'Purged {count} debug log entries',
     purgeFailed: 'Failed to purge debug logs',
     loadFailed: 'Failed to load debug log configuration',
-    saveFailed: 'Failed to save debug log configuration',
+    saveFailed: 'Failed to save debug log configuration'
   },
 
   // Failover Settings
   failover: {
     title: 'Failover Settings',
-    allChannelsNote: 'These settings apply to all channels. Rules define how errors are handled across all channel types.',
+    allChannelsNote:
+      'These settings apply to all channels. Rules define how errors are handled across all channel types.',
     enabled: 'Circuit Breaker Disabled',
     disabled: 'Circuit Breaker Enabled',
-    circuitBreakerDescription: 'When enabled, the scheduler circuit breaker is disabled and only admin rules are used. When disabled, the circuit breaker automatically skips unhealthy channels.',
+    circuitBreakerDescription:
+      'When enabled, the scheduler circuit breaker is disabled and only admin rules are used. When disabled, the circuit breaker automatically skips unhealthy channels.',
     rulesSection: 'Failover Rules',
     rulesDescription: 'Define actions for different error types. Rules are matched in order from top to bottom.',
-    rulesDescriptionNew: 'Define action chains for different error patterns. Each rule executes steps in order until completion.',
+    rulesDescriptionNew:
+      'Define action chains for different error patterns. Each rule executes steps in order until completion.',
     errorCodes: 'Error Pattern',
     errorPattern: 'Error Pattern',
     action: 'Action',
@@ -928,7 +955,7 @@ export default {
     errorCode429ResourceExhausted: 'Resource exhausted (generic)',
     errorCode403CreditExhausted: 'Credit/balance exhausted',
     errorCode5xx: 'Server errors',
-    errorCodeOthers: 'Any other error code',
+    errorCodeOthers: 'Any other error code'
   },
 
   // Debug Modal (for viewing request/response details)
@@ -959,6 +986,6 @@ export default {
     httpStatus: 'HTTP Status',
     error: 'Error',
     failoverInfo: 'Failover',
-    upstreamError: 'Upstream Error',
-  },
+    upstreamError: 'Upstream Error'
+  }
 }

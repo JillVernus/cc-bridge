@@ -48,10 +48,10 @@ export interface ChannelMetrics {
   requestCount: number
   successCount: number
   failureCount: number
-  successRate: number       // 0-100
-  errorRate: number         // 0-100
+  successRate: number // 0-100
+  errorRate: number // 0-100
   consecutiveFailures: number
-  latency: number           // ms
+  latency: number // ms
   lastSuccessAt?: string
   lastFailureAt?: string
   // 分时段统计 (15m, 1h, 6h, 24h)
@@ -140,72 +140,78 @@ export interface OAuthStatusResponse {
 
 // Composite channel model mapping
 export interface CompositeMapping {
-  pattern: string                // Model pattern: "haiku", "sonnet", "opus" (mandatory, no wildcard)
-  targetChannelId: string        // Primary target channel ID
-  failoverChain?: string[]       // Ordered failover channel IDs (min 1 required)
-  targetModel?: string           // Optional model name override
+  pattern: string // Model pattern: "haiku", "sonnet", "opus" (mandatory, no wildcard)
+  targetChannelId: string // Primary target channel ID
+  failoverChain?: string[] // Ordered failover channel IDs (min 1 required)
+  targetModel?: string // Optional model name override
 }
 
 export interface ContentFilter {
-  enabled: boolean               // Whether content filtering is active
-  keywords: string[]             // Keywords to match in response text (case-insensitive substring)
-  statusCode?: number            // HTTP status code to synthesize on match (default 429), determines which failover rules apply
+  enabled: boolean // Whether content filtering is active
+  rules?: ContentFilterRule[] // New format: per-keyword status code rules (first match wins)
+  keywords?: string[] // Legacy format: keywords to match in response text (case-insensitive substring)
+  statusCode?: number // Legacy format: shared HTTP status code for keywords (default 429)
+}
+
+export interface ContentFilterRule {
+  keyword: string
+  statusCode?: number
 }
 
 export interface Channel {
-  id?: string                     // Unique channel ID (for composite mapping references)
+  id?: string // Unique channel ID (for composite mapping references)
   name: string
   serviceType: 'openai' | 'openai_chat' | 'openaiold' | 'gemini' | 'claude' | 'responses' | 'openai-oauth' | 'composite'
   baseUrl: string
-  apiKeys?: string[]        // Only present when creating/updating, not in GET responses
-  apiKeyCount?: number      // Number of API keys (returned by GET)
-  maskedKeys?: Array<{ index: number; masked: string }>  // Masked keys for display/deletion
+  apiKeys?: string[] // Only present when creating/updating, not in GET responses
+  apiKeyCount?: number // Number of API keys (returned by GET)
+  maskedKeys?: Array<{ index: number; masked: string }> // Masked keys for display/deletion
   description?: string
   website?: string
   insecureSkipVerify?: boolean
-  responseHeaderTimeout?: number  // 响应头超时（秒），默认30秒
+  responseHeaderTimeout?: number // 响应头超时（秒），默认30秒
   modelMapping?: Record<string, string>
   latency?: number
   status?: ChannelStatus | 'healthy' | 'error' | 'unknown'
   index: number
   pinned?: boolean
   // 多渠道调度相关字段
-  priority?: number          // 渠道优先级（数字越小优先级越高）
-  metrics?: ChannelMetrics   // 实时指标
-  suspendReason?: string     // 熔断原因
+  priority?: number // 渠道优先级（数字越小优先级越高）
+  metrics?: ChannelMetrics // 实时指标
+  suspendReason?: string // 熔断原因
   // 价格乘数配置：key 为模型名称（支持前缀匹配），"_default" 为默认乘数
   priceMultipliers?: Record<string, TokenPriceMultipliers>
   // OAuth tokens for openai-oauth service type
   oauthTokens?: OAuthTokens
   // 配额设置
-  quotaType?: 'requests' | 'credit' | ''  // 配额类型：请求数 | 额度 | 无
-  quotaLimit?: number                      // 最大配额值
-  quotaResetAt?: string                    // 首次/下次重置时间 (ISO datetime)
-  quotaResetInterval?: number              // 重置间隔值
-  quotaResetUnit?: 'hours' | 'days' | 'weeks' | 'months'  // 重置间隔单位
-  quotaModels?: string[]                   // 配额计数模型过滤（子字符串匹配），空数组=全部模型
-  quotaResetMode?: 'fixed' | 'rolling'     // 重置模式：固定周期 | 滚动周期，默认 fixed
+  quotaType?: 'requests' | 'credit' | '' // 配额类型：请求数 | 额度 | 无
+  quotaLimit?: number // 最大配额值
+  quotaResetAt?: string // 首次/下次重置时间 (ISO datetime)
+  quotaResetInterval?: number // 重置间隔值
+  quotaResetUnit?: 'hours' | 'days' | 'weeks' | 'months' // 重置间隔单位
+  quotaModels?: string[] // 配额计数模型过滤（子字符串匹配），空数组=全部模型
+  quotaResetMode?: 'fixed' | 'rolling' // 重置模式：固定周期 | 滚动周期，默认 fixed
   // Per-channel rate limiting (upstream protection)
-  rateLimitRpm?: number                    // Requests per minute (0 = disabled)
-  queueEnabled?: boolean                   // Enable queue mode instead of reject
-  queueTimeout?: number                    // Max seconds to wait in queue (default 60)
+  rateLimitRpm?: number // Requests per minute (0 = disabled)
+  queueEnabled?: boolean // Enable queue mode instead of reject
+  queueTimeout?: number // Max seconds to wait in queue (default 60)
   // Per-channel API key load balancing strategy (overrides global setting)
   keyLoadBalance?: '' | 'round-robin' | 'random' | 'failover'
   // Content filter: detect errors returned as HTTP 200 with error text in body
   contentFilter?: ContentFilter
   // Composite channel mappings
-  compositeMappings?: CompositeMapping[]   // Model-to-channel mappings for composite channels
+  compositeMappings?: CompositeMapping[] // Model-to-channel mappings for composite channels
 }
 
 // 渠道用量配额状态
 export interface ChannelUsageStatus {
-  quotaType: '' | 'requests' | 'credit'  // 配额类型
-  limit: number                           // 最大配额值
-  used: number                            // 已使用量
-  remaining: number                       // 剩余量
-  remainingPercent: number                // 剩余百分比 (0-100)
-  lastResetAt?: string                    // 上次重置时间 (ISO datetime)
-  nextResetAt?: string                    // 下次重置时间 (ISO datetime)
+  quotaType: '' | 'requests' | 'credit' // 配额类型
+  limit: number // 最大配额值
+  used: number // 已使用量
+  remaining: number // 剩余量
+  remainingPercent: number // 剩余百分比 (0-100)
+  lastResetAt?: string // 上次重置时间 (ISO datetime)
+  nextResetAt?: string // 下次重置时间 (ISO datetime)
 }
 
 export interface ChannelsResponse {
@@ -347,17 +353,23 @@ class ApiService {
   }
 
   // Fetch models from upstream provider
-  async fetchUpstreamModels(channelId: number): Promise<{ success: boolean; models?: Array<{ id: string; object?: string; owned_by?: string }>; error?: string }> {
+  async fetchUpstreamModels(
+    channelId: number
+  ): Promise<{ success: boolean; models?: Array<{ id: string; object?: string; owned_by?: string }>; error?: string }> {
     return this.request(`/channels/${channelId}/models`)
   }
 
   // Fetch models from Responses upstream provider
-  async fetchResponsesUpstreamModels(channelId: number): Promise<{ success: boolean; models?: Array<{ id: string; object?: string; owned_by?: string }>; error?: string }> {
+  async fetchResponsesUpstreamModels(
+    channelId: number
+  ): Promise<{ success: boolean; models?: Array<{ id: string; object?: string; owned_by?: string }>; error?: string }> {
     return this.request(`/responses/channels/${channelId}/models`)
   }
 
   // Fetch models from Gemini upstream provider
-  async fetchGeminiUpstreamModels(channelId: number): Promise<{ success: boolean; models?: Array<{ id: string; object?: string; owned_by?: string }>; error?: string }> {
+  async fetchGeminiUpstreamModels(
+    channelId: number
+  ): Promise<{ success: boolean; models?: Array<{ id: string; object?: string; owned_by?: string }>; error?: string }> {
     return this.request(`/gemini/channels/${channelId}/models`)
   }
 
@@ -656,7 +668,12 @@ class ApiService {
     return this.request(`/logs${query}`)
   }
 
-  async getRequestLogStats(filter?: { from?: string; to?: string; clientId?: string; sessionId?: string }): Promise<RequestLogStats> {
+  async getRequestLogStats(filter?: {
+    from?: string
+    to?: string
+    clientId?: string
+    sessionId?: string
+  }): Promise<RequestLogStats> {
     const params = new URLSearchParams()
     if (filter?.from) params.set('from', filter.from)
     if (filter?.to) params.set('to', filter.to)
@@ -730,7 +747,10 @@ class ApiService {
   }
 
   // 添加或更新单个模型的定价
-  async setModelPricing(model: string, pricing: ModelPricing): Promise<{ message: string; model: string; pricing: ModelPricing }> {
+  async setModelPricing(
+    model: string,
+    pricing: ModelPricing
+  ): Promise<{ message: string; model: string; pricing: ModelPricing }> {
     return this.request(`/pricing/models/${encodeURIComponent(model)}`, {
       method: 'PUT',
       body: JSON.stringify(pricing)
@@ -952,7 +972,9 @@ class ApiService {
   getLogStreamURL(): string {
     const baseUrl = API_BASE.replace(/^\/api$/, '')
     const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:'
-    const host = import.meta.env.PROD ? window.location.host : (import.meta.env.VITE_BACKEND_URL?.replace(/^https?:\/\//, '') || window.location.host)
+    const host = import.meta.env.PROD
+      ? window.location.host
+      : import.meta.env.VITE_BACKEND_URL?.replace(/^https?:\/\//, '') || window.location.host
     return `${protocol}//${host}${API_BASE}/logs/stream`
   }
 
@@ -962,7 +984,12 @@ class ApiService {
   }
 
   // 获取全局统计历史数据
-  async getStatsHistory(duration: Duration = '1h', endpoint?: string, from?: string, to?: string): Promise<StatsHistoryResponse> {
+  async getStatsHistory(
+    duration: Duration = '1h',
+    endpoint?: string,
+    from?: string,
+    to?: string
+  ): Promise<StatsHistoryResponse> {
     const params = new URLSearchParams()
     params.set('duration', duration)
     if (endpoint) params.set('endpoint', endpoint)
@@ -972,7 +999,12 @@ class ApiService {
   }
 
   // 获取按 provider/channel 维度聚合的统计历史数据（用于成本/价格图表）
-  async getProviderStatsHistory(duration: Duration = '1h', endpoint?: string, from?: string, to?: string): Promise<ProviderStatsHistoryResponse> {
+  async getProviderStatsHistory(
+    duration: Duration = '1h',
+    endpoint?: string,
+    from?: string,
+    to?: string
+  ): Promise<ProviderStatsHistoryResponse> {
     const params = new URLSearchParams()
     params.set('duration', duration)
     if (endpoint) params.set('endpoint', endpoint)
@@ -982,7 +1014,11 @@ class ApiService {
   }
 
   // 获取渠道统计历史数据
-  async getChannelStatsHistory(channelId: number, duration: Duration = '1h', endpoint?: string): Promise<ChannelStatsHistoryResponse> {
+  async getChannelStatsHistory(
+    channelId: number,
+    duration: Duration = '1h',
+    endpoint?: string
+  ): Promise<ChannelStatsHistoryResponse> {
     const params = new URLSearchParams()
     params.set('duration', duration)
     if (endpoint) params.set('endpoint', endpoint)
@@ -1053,8 +1089,8 @@ export interface RequestLog {
   type: string
   providerName: string
   model: string
-  responseModel?: string  // 响应中的模型名称（可能与请求不同）
-  reasoningEffort?: string  // Codex reasoning effort (low/medium/high/xhigh)
+  responseModel?: string // 响应中的模型名称（可能与请求不同）
+  reasoningEffort?: string // Codex reasoning effort (low/medium/high/xhigh)
   inputTokens: number
   outputTokens: number
   cacheCreationInputTokens: number
@@ -1074,11 +1110,11 @@ export interface RequestLog {
   endpoint: string
   clientId?: string
   sessionId?: string
-  apiKeyId?: number  // API key ID for tracking
+  apiKeyId?: number // API key ID for tracking
   error?: string
-  upstreamError?: string  // 上游服务原始错误信息
-  failoverInfo?: string   // Failover handling info (e.g., "429:QUOTA_EXHAUSTED > suspended > next channel")
-  hasDebugData?: boolean  // Whether debug data (headers/body) is available
+  upstreamError?: string // 上游服务原始错误信息
+  failoverInfo?: string // Failover handling info (e.g., "429:QUOTA_EXHAUSTED > suspended > next channel")
+  hasDebugData?: boolean // Whether debug data (headers/body) is available
   createdAt: string
 }
 
@@ -1130,12 +1166,12 @@ export interface RequestLogStats {
 
 // 定价配置类型
 export interface ModelPricing {
-  inputPrice: number              // 输入 token 价格 ($/1M tokens)
-  outputPrice: number             // 输出 token 价格 ($/1M tokens)
-  cacheCreationPrice?: number | null  // 缓存创建价格 ($/1M tokens)，null/undefined 表示使用默认值，0 表示免费
-  cacheReadPrice?: number | null      // 缓存读取价格 ($/1M tokens)，null/undefined 表示使用默认值，0 表示免费
-  description?: string            // 模型描述
-  exportToModels?: boolean        // 是否导出到 /v1/models API，undefined 或 true 时导出
+  inputPrice: number // 输入 token 价格 ($/1M tokens)
+  outputPrice: number // 输出 token 价格 ($/1M tokens)
+  cacheCreationPrice?: number | null // 缓存创建价格 ($/1M tokens)，null/undefined 表示使用默认值，0 表示免费
+  cacheReadPrice?: number | null // 缓存读取价格 ($/1M tokens)，null/undefined 表示使用默认值，0 表示免费
+  description?: string // 模型描述
+  exportToModels?: boolean // 是否导出到 /v1/models API，undefined 或 true 时导出
 }
 
 export interface PricingConfig {
@@ -1157,10 +1193,10 @@ export interface AliasesConfig {
 
 // 渠道价格乘数配置（用于渠道级别的折扣）
 export interface TokenPriceMultipliers {
-  inputMultiplier?: number         // 输入 token 价格乘数，默认 1.0
-  outputMultiplier?: number        // 输出 token 价格乘数，默认 1.0
+  inputMultiplier?: number // 输入 token 价格乘数，默认 1.0
+  outputMultiplier?: number // 输出 token 价格乘数，默认 1.0
   cacheCreationMultiplier?: number // 缓存创建价格乘数，默认 1.0
-  cacheReadMultiplier?: number     // 缓存读取价格乘数，默认 1.0
+  cacheReadMultiplier?: number // 缓存读取价格乘数，默认 1.0
 }
 
 // 备份信息类型
@@ -1229,7 +1265,7 @@ export interface DebugLogEntry {
 // 活跃会话类型
 export interface ActiveSession {
   sessionId: string
-  type: string  // claude, openai, codex, responses
+  type: string // claude, openai, codex, responses
   firstRequestTime: string
   lastRequestTime: string
   count: number
@@ -1250,16 +1286,16 @@ export interface APIKey {
   description: string
   status: APIKeyStatus
   isAdmin: boolean
-  rateLimitRpm: number  // Requests per minute (0 = use global)
+  rateLimitRpm: number // Requests per minute (0 = use global)
   createdAt: string
   updatedAt: string
   lastUsedAt?: string
   // Permission fields (nil/empty = unrestricted)
-  allowedEndpoints?: string[]      // ["messages"], ["responses"], ["gemini"], or any combination
-  allowedChannelsMsg?: string[]    // stable channel IDs for /v1/messages
-  allowedChannelsResp?: string[]   // stable channel IDs for /v1/responses
+  allowedEndpoints?: string[] // ["messages"], ["responses"], ["gemini"], or any combination
+  allowedChannelsMsg?: string[] // stable channel IDs for /v1/messages
+  allowedChannelsResp?: string[] // stable channel IDs for /v1/responses
   allowedChannelsGemini?: string[] // stable channel IDs for /v1/gemini (GeminiUpstream)
-  allowedModels?: string[]         // glob patterns: ["claude-sonnet-*"]
+  allowedModels?: string[] // glob patterns: ["claude-sonnet-*"]
 }
 
 export interface CreateAPIKeyRequest {
@@ -1276,7 +1312,7 @@ export interface CreateAPIKeyRequest {
 }
 
 export interface CreateAPIKeyResponse extends APIKey {
-  key: string  // Full key, only returned once on creation
+  key: string // Full key, only returned once on creation
 }
 
 export interface UpdateAPIKeyRequest {
@@ -1365,18 +1401,18 @@ export type LegacyFailoverAction = 'failover_immediate' | 'failover_threshold' |
 
 // Single step in the action chain
 export interface ActionStep {
-  action: FailoverActionType      // Action type: "retry", "failover", "suspend", "none"
-  waitSeconds?: number            // Wait seconds before retry (0 = auto-detect from response body, only for retry)
-  maxAttempts?: number            // Max retry attempts (only for retry, 99 = indefinite)
+  action: FailoverActionType // Action type: "retry", "failover", "suspend", "none"
+  waitSeconds?: number // Wait seconds before retry (0 = auto-detect from response body, only for retry)
+  maxAttempts?: number // Max retry attempts (only for retry, 99 = indefinite)
 }
 
 export interface FailoverRule {
-  errorCodes: string              // Error code pattern: "401,403" or "429:QUOTA_EXHAUSTED" or "others"
-  actionChain?: ActionStep[]      // Action chain (new format)
+  errorCodes: string // Error code pattern: "401,403" or "429:QUOTA_EXHAUSTED" or "others"
+  actionChain?: ActionStep[] // Action chain (new format)
   // Legacy fields (deprecated, used for migration detection only)
-  action?: LegacyFailoverAction   // [Deprecated] Legacy action type
-  threshold?: number              // [Deprecated] For failover_threshold: consecutive errors before failover
-  waitSeconds?: number            // [Deprecated] For retry_wait: seconds to wait
+  action?: LegacyFailoverAction // [Deprecated] Legacy action type
+  threshold?: number // [Deprecated] For failover_threshold: consecutive errors before failover
+  waitSeconds?: number // [Deprecated] For retry_wait: seconds to wait
 }
 
 export interface FailoverConfig {

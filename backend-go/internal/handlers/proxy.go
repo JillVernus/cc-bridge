@@ -689,7 +689,7 @@ func tryChannelWithAllKeys(
 			}
 
 			if filterResult.Matched {
-				syntheticStatus := upstream.ContentFilter.StatusCode
+				syntheticStatus := filterResult.MatchedStatusCode
 				if syntheticStatus == 0 {
 					syntheticStatus = 429
 				}
@@ -1293,7 +1293,7 @@ func handleSingleChannelProxy(
 			}
 
 			if filterResult.Matched {
-				syntheticStatus := upstream.ContentFilter.StatusCode
+				syntheticStatus := filterResult.MatchedStatusCode
 				if syntheticStatus == 0 {
 					syntheticStatus = 429
 				}

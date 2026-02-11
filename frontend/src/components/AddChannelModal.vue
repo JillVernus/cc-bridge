@@ -10,7 +10,13 @@
             {{ isEditing ? t('addChannel.editTitle') : t('addChannel.addTitle') }}
           </div>
           <div class="text-body-2" :class="subtitleClasses">
-            {{ isEditing ? t('addChannel.editSubtitle') : isQuickMode ? t('addChannel.quickAddSubtitle') : t('addChannel.addSubtitle') }}
+            {{
+              isEditing
+                ? t('addChannel.editSubtitle')
+                : isQuickMode
+                  ? t('addChannel.quickAddSubtitle')
+                  : t('addChannel.addSubtitle')
+            }}
           </div>
         </div>
         <!-- 模式切换按钮（仅在添加模式显示） -->
@@ -19,13 +25,7 @@
           {{ isQuickMode ? t('addChannel.detailedConfig') : t('addChannel.quickAdd') }}
         </v-btn>
         <!-- iOS-style action buttons -->
-        <v-btn
-          icon
-          variant="text"
-          size="small"
-          @click="handleCancel"
-          class="modal-action-btn"
-        >
+        <v-btn icon variant="text" size="small" @click="handleCancel" class="modal-action-btn">
           <v-icon>mdi-close</v-icon>
         </v-btn>
         <v-btn
@@ -71,7 +71,9 @@
                       {{ detectedBaseUrl || t('addChannel.baseUrlRequired') }}
                     </div>
                   </div>
-                  <v-chip v-if="detectedBaseUrl" size="x-small" color="success" variant="tonal"> {{ t('addChannel.baseUrlDetected') }} </v-chip>
+                  <v-chip v-if="detectedBaseUrl" size="x-small" color="success" variant="tonal">
+                    {{ t('addChannel.baseUrlDetected') }}
+                  </v-chip>
                 </div>
 
                 <!-- API Keys 检测 -->
@@ -112,7 +114,10 @@
                   <div class="flex-grow-1">
                     <div class="text-body-2 font-weight-medium">{{ t('addChannel.channelType') }}</div>
                     <div class="text-caption text-medium-emphasis">
-                      {{ props.channelType === 'responses' ? t('addChannel.responsesType') : t('addChannel.messagesType') }} -
+                      {{
+                        props.channelType === 'responses' ? t('addChannel.responsesType') : t('addChannel.messagesType')
+                      }}
+                      -
                       {{ getDefaultServiceType() }}
                     </div>
                   </div>
@@ -147,444 +152,476 @@
           <v-tabs-window v-model="activeTab">
             <!-- Configuration Tab -->
             <v-tabs-window-item value="config">
-          <v-row class="mt-4">
-            <!-- 基本信息 -->
-            <v-col cols="12" md="6">
-              <v-text-field
-                v-model="form.name"
-                :label="t('addChannel.channelNameLabel')"
-                :placeholder="t('addChannel.channelNamePlaceholder')"
-                prepend-inner-icon="mdi-tag"
-                variant="outlined"
-                density="comfortable"
-                :rules="[rules.required]"
-                required
-                :error-messages="errors.name"
-              />
-            </v-col>
+              <v-row class="mt-4">
+                <!-- 基本信息 -->
+                <v-col cols="12" md="6">
+                  <v-text-field
+                    v-model="form.name"
+                    :label="t('addChannel.channelNameLabel')"
+                    :placeholder="t('addChannel.channelNamePlaceholder')"
+                    prepend-inner-icon="mdi-tag"
+                    variant="outlined"
+                    density="comfortable"
+                    :rules="[rules.required]"
+                    required
+                    :error-messages="errors.name"
+                  />
+                </v-col>
 
-            <v-col cols="12" md="6">
-              <v-select
-                v-model="form.serviceType"
-                :label="t('addChannel.serviceType')"
-                :items="serviceTypeOptions"
-                prepend-inner-icon="mdi-cog"
-                variant="outlined"
-                density="comfortable"
-                :rules="[rules.required]"
-                required
-                :error-messages="errors.serviceType"
-              />
-            </v-col>
+                <v-col cols="12" md="6">
+                  <v-select
+                    v-model="form.serviceType"
+                    :label="t('addChannel.serviceType')"
+                    :items="serviceTypeOptions"
+                    prepend-inner-icon="mdi-cog"
+                    variant="outlined"
+                    density="comfortable"
+                    :rules="[rules.required]"
+                    required
+                    :error-messages="errors.serviceType"
+                  />
+                </v-col>
 
-            <!-- 基础URL（非 OAuth 和 Composite 类型显示） -->
-            <v-col cols="12" v-if="!isOAuthChannel && !isCompositeChannel">
-              <v-text-field
-                v-model="form.baseUrl"
-                :label="t('addChannel.baseUrl')"
-                :placeholder="t('addChannel.baseUrlPlaceholder')"
-                prepend-inner-icon="mdi-web"
-                variant="outlined"
-                density="comfortable"
-                type="url"
-                :rules="[rules.required, rules.url]"
-                required
-                :error-messages="errors.baseUrl"
-                :hint="getUrlHint()"
-                persistent-hint
-              />
-            </v-col>
+                <!-- 基础URL（非 OAuth 和 Composite 类型显示） -->
+                <v-col cols="12" v-if="!isOAuthChannel && !isCompositeChannel">
+                  <v-text-field
+                    v-model="form.baseUrl"
+                    :label="t('addChannel.baseUrl')"
+                    :placeholder="t('addChannel.baseUrlPlaceholder')"
+                    prepend-inner-icon="mdi-web"
+                    variant="outlined"
+                    density="comfortable"
+                    type="url"
+                    :rules="[rules.required, rules.url]"
+                    required
+                    :error-messages="errors.baseUrl"
+                    :hint="getUrlHint()"
+                    persistent-hint
+                  />
+                </v-col>
 
-            <!-- OAuth 固定 URL 提示 -->
-            <v-col cols="12" v-if="isOAuthChannel">
-              <v-alert type="info" variant="tonal" density="compact" rounded="lg">
-                <div class="d-flex align-center ga-2">
-                  <v-icon size="small">mdi-lock</v-icon>
-                  <span class="text-body-2">
-                    {{ t('addChannel.oauthFixedUrl') }}: <code>https://chatgpt.com/backend-api/codex/responses</code>
-                  </span>
-                </div>
-              </v-alert>
-            </v-col>
-
-            <!-- 官网/控制台（可选，非 Composite 类型） -->
-            <v-col cols="12" v-if="!isCompositeChannel">
-              <v-text-field
-                v-model="form.website"
-                :label="t('addChannel.websiteLabel')"
-                :placeholder="t('addChannel.websitePlaceholder')"
-                prepend-inner-icon="mdi-open-in-new"
-                variant="outlined"
-                density="comfortable"
-                type="url"
-                :rules="[rules.urlOptional]"
-                :error-messages="errors.website"
-              />
-            </v-col>
-
-            <!-- 跳过 TLS 证书验证（非 Composite 类型） -->
-            <v-col cols="12" md="6" v-if="!isCompositeChannel">
-              <div class="d-flex align-center justify-space-between">
-                <div class="d-flex align-center ga-2">
-                  <v-icon color="warning">mdi-shield-alert</v-icon>
-                  <div>
-                    <div class="text-body-1 font-weight-medium">{{ t('addChannel.skipTlsVerify') }}</div>
-                    <div class="text-caption text-medium-emphasis">
-                      {{ t('addChannel.skipTlsVerifyHint') }}
+                <!-- OAuth 固定 URL 提示 -->
+                <v-col cols="12" v-if="isOAuthChannel">
+                  <v-alert type="info" variant="tonal" density="compact" rounded="lg">
+                    <div class="d-flex align-center ga-2">
+                      <v-icon size="small">mdi-lock</v-icon>
+                      <span class="text-body-2">
+                        {{ t('addChannel.oauthFixedUrl') }}:
+                        <code>https://chatgpt.com/backend-api/codex/responses</code>
+                      </span>
                     </div>
+                  </v-alert>
+                </v-col>
+
+                <!-- 官网/控制台（可选，非 Composite 类型） -->
+                <v-col cols="12" v-if="!isCompositeChannel">
+                  <v-text-field
+                    v-model="form.website"
+                    :label="t('addChannel.websiteLabel')"
+                    :placeholder="t('addChannel.websitePlaceholder')"
+                    prepend-inner-icon="mdi-open-in-new"
+                    variant="outlined"
+                    density="comfortable"
+                    type="url"
+                    :rules="[rules.urlOptional]"
+                    :error-messages="errors.website"
+                  />
+                </v-col>
+
+                <!-- 跳过 TLS 证书验证（非 Composite 类型） -->
+                <v-col cols="12" md="6" v-if="!isCompositeChannel">
+                  <div class="d-flex align-center justify-space-between">
+                    <div class="d-flex align-center ga-2">
+                      <v-icon color="warning">mdi-shield-alert</v-icon>
+                      <div>
+                        <div class="text-body-1 font-weight-medium">{{ t('addChannel.skipTlsVerify') }}</div>
+                        <div class="text-caption text-medium-emphasis">
+                          {{ t('addChannel.skipTlsVerifyHint') }}
+                        </div>
+                      </div>
+                    </div>
+                    <v-switch inset color="warning" hide-details v-model="form.insecureSkipVerify" />
                   </div>
-                </div>
-                <v-switch inset color="warning" hide-details v-model="form.insecureSkipVerify" />
-              </div>
-            </v-col>
+                </v-col>
 
-            <!-- 响应头超时（非 Composite 类型） -->
-            <v-col cols="12" md="6" v-if="!isCompositeChannel">
-              <v-text-field
-                v-model.number="form.responseHeaderTimeout"
-                :label="t('addChannel.responseTimeout')"
-                placeholder="30"
-                prepend-inner-icon="mdi-timer-outline"
-                variant="outlined"
-                density="comfortable"
-                type="number"
-                min="10"
-                max="300"
-                :hint="t('addChannel.responseTimeoutHint')"
-                persistent-hint
-              />
-            </v-col>
+                <!-- 响应头超时（非 Composite 类型） -->
+                <v-col cols="12" md="6" v-if="!isCompositeChannel">
+                  <v-text-field
+                    v-model.number="form.responseHeaderTimeout"
+                    :label="t('addChannel.responseTimeout')"
+                    placeholder="30"
+                    prepend-inner-icon="mdi-timer-outline"
+                    variant="outlined"
+                    density="comfortable"
+                    type="number"
+                    min="10"
+                    max="300"
+                    :hint="t('addChannel.responseTimeoutHint')"
+                    persistent-hint
+                  />
+                </v-col>
 
-            <!-- API密钥负载均衡策略（非 Composite 类型） -->
-            <v-col cols="12" md="6" v-if="!isCompositeChannel">
-              <v-select
-                v-model="form.keyLoadBalance"
-                :label="t('keyLoadBalance.title')"
-                :items="keyLoadBalanceOptions"
-                item-title="title"
-                item-value="value"
-                prepend-inner-icon="mdi-key-chain"
-                variant="outlined"
-                density="comfortable"
-              >
-                <template v-slot:item="{ props, item }">
-                  <v-list-item v-bind="props">
-                    <template v-slot:subtitle>
-                      {{ item.raw.description }}
-                    </template>
-                  </v-list-item>
-                </template>
-              </v-select>
-            </v-col>
-
-            <!-- 描述 -->
-            <v-col cols="12">
-              <v-textarea
-                v-model="form.description"
-                :label="t('addChannel.description')"
-                :hint="t('addChannel.descriptionHint')"
-                persistent-hint
-                prepend-inner-icon="mdi-text"
-                variant="outlined"
-                density="comfortable"
-                rows="3"
-                no-resize
-              />
-            </v-col>
-
-            <!-- Composite 渠道模型映射配置 -->
-            <v-col cols="12" v-if="isCompositeChannel">
-              <CompositeChannelEditor
-                :key="compositeEditorKey"
-                v-model="form.compositeMappings"
-                :all-channels="allChannels"
-              />
-            </v-col>
-
-            <!-- 模型重定向配置（非 Composite 类型） -->
-            <v-col cols="12" v-if="form.serviceType && !isCompositeChannel">
-              <v-card variant="outlined" rounded="lg">
-                <v-card-title class="d-flex align-center justify-space-between pa-4 pb-2">
-                  <div class="d-flex align-center ga-2">
-                    <v-icon color="primary">mdi-swap-horizontal</v-icon>
-                    <span class="text-body-1 font-weight-bold">{{ t('addChannel.modelRedirect') }}</span>
-                  </div>
-                  <v-chip size="small" color="secondary" variant="tonal"> {{ t('addChannel.autoConvertModel') }} </v-chip>
-                </v-card-title>
-
-                <v-card-text class="pt-2">
-                  <div class="text-body-2 text-medium-emphasis mb-4">
-                    {{ modelMappingHint }}
-                  </div>
-
-                  <!-- 现有映射列表 -->
-                  <div v-if="Object.keys(form.modelMapping).length" class="mb-4">
-                    <v-list density="compact" class="bg-transparent">
-                      <v-list-item
-                        v-for="[source, target] in Object.entries(form.modelMapping)"
-                        :key="source"
-                        class="mb-2"
-                        rounded="lg"
-                        variant="tonal"
-                        color="surface-variant"
-                      >
-                        <template v-slot:prepend>
-                          <v-icon size="small" color="primary">mdi-arrow-right</v-icon>
-                        </template>
-
-                        <v-list-item-title>
-                          <div class="d-flex align-center ga-2">
-                            <code class="text-caption">{{ source }}</code>
-                            <v-icon size="small" color="primary">mdi-arrow-right</v-icon>
-                            <code class="text-caption">{{ target }}</code>
-                          </div>
-                        </v-list-item-title>
-
-                        <template v-slot:append>
-                          <v-btn size="small" color="error" icon variant="text" @click="removeModelMapping(source)">
-                            <v-icon size="small" color="error">mdi-close</v-icon>
-                          </v-btn>
+                <!-- API密钥负载均衡策略（非 Composite 类型） -->
+                <v-col cols="12" md="6" v-if="!isCompositeChannel">
+                  <v-select
+                    v-model="form.keyLoadBalance"
+                    :label="t('keyLoadBalance.title')"
+                    :items="keyLoadBalanceOptions"
+                    item-title="title"
+                    item-value="value"
+                    prepend-inner-icon="mdi-key-chain"
+                    variant="outlined"
+                    density="comfortable"
+                  >
+                    <template v-slot:item="{ props, item }">
+                      <v-list-item v-bind="props">
+                        <template v-slot:subtitle>
+                          {{ item.raw.description }}
                         </template>
                       </v-list-item>
-                    </v-list>
-                  </div>
+                    </template>
+                  </v-select>
+                </v-col>
 
-                  <!-- 添加新映射 -->
-                  <div class="d-flex align-center ga-2">
-                    <v-select
-                      v-model="newMapping.source"
-                      :label="t('addChannel.sourceModel')"
-                      :items="sourceModelOptions"
-                      variant="outlined"
-                      density="comfortable"
-                      hide-details
-                      class="flex-1-1"
-                      :placeholder="t('addChannel.selectSourceModel')"
-                    />
-                    <v-icon color="primary">mdi-arrow-right</v-icon>
-                    <v-combobox
-                      v-model="newMapping.target"
-                      :label="t('addChannel.targetModel')"
-                      :placeholder="targetModelPlaceholder"
-                      :items="targetModelOptions"
-                      :loading="upstreamModelsLoading"
-                      item-value="value"
-                      item-title="title"
-                      :return-object="false"
-                      variant="outlined"
-                      density="comfortable"
-                      hide-details
-                      class="flex-1-1"
-                      @keyup.enter="addModelMapping"
-                    >
-                      <template #append-inner>
-                        <div class="d-flex align-center ga-1">
-                          <v-menu location="bottom end" :close-on-content-click="true">
-                            <template #activator="{ props: menuProps }">
-                              <v-tooltip :text="thinkingSuffixTooltip" location="top">
+                <!-- 描述 -->
+                <v-col cols="12">
+                  <v-textarea
+                    v-model="form.description"
+                    :label="t('addChannel.description')"
+                    :hint="t('addChannel.descriptionHint')"
+                    persistent-hint
+                    prepend-inner-icon="mdi-text"
+                    variant="outlined"
+                    density="comfortable"
+                    rows="3"
+                    no-resize
+                  />
+                </v-col>
+
+                <!-- Composite 渠道模型映射配置 -->
+                <v-col cols="12" v-if="isCompositeChannel">
+                  <CompositeChannelEditor
+                    :key="compositeEditorKey"
+                    v-model="form.compositeMappings"
+                    :all-channels="allChannels"
+                  />
+                </v-col>
+
+                <!-- 模型重定向配置（非 Composite 类型） -->
+                <v-col cols="12" v-if="form.serviceType && !isCompositeChannel">
+                  <v-card variant="outlined" rounded="lg">
+                    <v-card-title class="d-flex align-center justify-space-between pa-4 pb-2">
+                      <div class="d-flex align-center ga-2">
+                        <v-icon color="primary">mdi-swap-horizontal</v-icon>
+                        <span class="text-body-1 font-weight-bold">{{ t('addChannel.modelRedirect') }}</span>
+                      </div>
+                      <v-chip size="small" color="secondary" variant="tonal">
+                        {{ t('addChannel.autoConvertModel') }}
+                      </v-chip>
+                    </v-card-title>
+
+                    <v-card-text class="pt-2">
+                      <div class="text-body-2 text-medium-emphasis mb-4">
+                        {{ modelMappingHint }}
+                      </div>
+
+                      <!-- 现有映射列表 -->
+                      <div v-if="Object.keys(form.modelMapping).length" class="mb-4">
+                        <v-list density="compact" class="bg-transparent">
+                          <v-list-item
+                            v-for="[source, target] in Object.entries(form.modelMapping)"
+                            :key="source"
+                            class="mb-2"
+                            rounded="lg"
+                            variant="tonal"
+                            color="surface-variant"
+                          >
+                            <template v-slot:prepend>
+                              <v-icon size="small" color="primary">mdi-arrow-right</v-icon>
+                            </template>
+
+                            <v-list-item-title>
+                              <div class="d-flex align-center ga-2">
+                                <code class="text-caption">{{ source }}</code>
+                                <v-icon size="small" color="primary">mdi-arrow-right</v-icon>
+                                <code class="text-caption">{{ target }}</code>
+                              </div>
+                            </v-list-item-title>
+
+                            <template v-slot:append>
+                              <v-btn size="small" color="error" icon variant="text" @click="removeModelMapping(source)">
+                                <v-icon size="small" color="error">mdi-close</v-icon>
+                              </v-btn>
+                            </template>
+                          </v-list-item>
+                        </v-list>
+                      </div>
+
+                      <!-- 添加新映射 -->
+                      <div class="d-flex align-center ga-2">
+                        <v-select
+                          v-model="newMapping.source"
+                          :label="t('addChannel.sourceModel')"
+                          :items="sourceModelOptions"
+                          variant="outlined"
+                          density="comfortable"
+                          hide-details
+                          class="flex-1-1"
+                          :placeholder="t('addChannel.selectSourceModel')"
+                        />
+                        <v-icon color="primary">mdi-arrow-right</v-icon>
+                        <v-combobox
+                          v-model="newMapping.target"
+                          :label="t('addChannel.targetModel')"
+                          :placeholder="targetModelPlaceholder"
+                          :items="targetModelOptions"
+                          :loading="upstreamModelsLoading"
+                          item-value="value"
+                          item-title="title"
+                          :return-object="false"
+                          variant="outlined"
+                          density="comfortable"
+                          hide-details
+                          class="flex-1-1"
+                          @keyup.enter="addModelMapping"
+                        >
+                          <template #append-inner>
+                            <div class="d-flex align-center ga-1">
+                              <v-menu location="bottom end" :close-on-content-click="true">
+                                <template #activator="{ props: menuProps }">
+                                  <v-tooltip :text="thinkingSuffixTooltip" location="top">
+                                    <template #activator="{ props: tooltipProps }">
+                                      <v-btn
+                                        v-bind="{ ...menuProps, ...tooltipProps }"
+                                        icon
+                                        variant="text"
+                                        size="x-small"
+                                        :color="thinkingSuffixColor"
+                                        @mousedown.stop.prevent
+                                        @click.stop.prevent
+                                      >
+                                        <v-icon size="small">mdi-brain</v-icon>
+                                      </v-btn>
+                                    </template>
+                                  </v-tooltip>
+                                </template>
+                                <v-list density="compact">
+                                  <v-list-item @click="setThinkingSuffix('')">
+                                    <template #prepend>
+                                      <v-icon size="small" v-if="currentThinkingSuffix === ''">mdi-check</v-icon>
+                                    </template>
+                                    <v-list-item-title>{{ t('addChannel.thinkingSuffixNone') }}</v-list-item-title>
+                                  </v-list-item>
+                                  <v-divider />
+                                  <v-list-item
+                                    v-for="level in thinkingSuffixLevels"
+                                    :key="level"
+                                    @click="setThinkingSuffix(level)"
+                                  >
+                                    <template #prepend>
+                                      <v-icon size="small" v-if="currentThinkingSuffix === level">mdi-check</v-icon>
+                                    </template>
+                                    <v-list-item-title>{{ level }}</v-list-item-title>
+                                  </v-list-item>
+                                </v-list>
+                              </v-menu>
+
+                              <v-tooltip
+                                :text="upstreamModelsError || t('addChannel.fetchModelsTooltip')"
+                                location="top"
+                              >
                                 <template #activator="{ props: tooltipProps }">
                                   <v-btn
-                                    v-bind="{ ...menuProps, ...tooltipProps }"
+                                    v-bind="tooltipProps"
                                     icon
                                     variant="text"
                                     size="x-small"
-                                    :color="thinkingSuffixColor"
-                                    @mousedown.stop.prevent
-                                    @click.stop.prevent
+                                    :loading="upstreamModelsLoading"
+                                    :color="upstreamModelsError ? 'warning' : 'primary'"
+                                    :disabled="!isEditing"
+                                    @click.stop="fetchUpstreamModels"
                                   >
-                                    <v-icon size="small">mdi-brain</v-icon>
+                                    <v-icon size="small">{{
+                                      upstreamModelsError ? 'mdi-alert' : 'mdi-refresh'
+                                    }}</v-icon>
                                   </v-btn>
                                 </template>
                               </v-tooltip>
-                            </template>
-                            <v-list density="compact">
-                              <v-list-item @click="setThinkingSuffix('')">
-                                <template #prepend>
-                                  <v-icon size="small" v-if="currentThinkingSuffix === ''">mdi-check</v-icon>
-                                </template>
-                                <v-list-item-title>{{ t('addChannel.thinkingSuffixNone') }}</v-list-item-title>
-                              </v-list-item>
-                              <v-divider />
-                              <v-list-item
-                                v-for="level in thinkingSuffixLevels"
-                                :key="level"
-                                @click="setThinkingSuffix(level)"
-                              >
-                                <template #prepend>
-                                  <v-icon size="small" v-if="currentThinkingSuffix === level">mdi-check</v-icon>
-                                </template>
-                                <v-list-item-title>{{ level }}</v-list-item-title>
-                              </v-list-item>
-                            </v-list>
-                          </v-menu>
+                            </div>
+                          </template>
+                          <template #no-data>
+                            <v-list-item>
+                              <v-list-item-title class="text-caption text-medium-emphasis">
+                                {{ isEditing ? t('addChannel.clickRefreshToLoad') : t('addChannel.saveChannelFirst') }}
+                              </v-list-item-title>
+                            </v-list-item>
+                          </template>
+                        </v-combobox>
+                        <v-btn
+                          color="secondary"
+                          variant="elevated"
+                          @click="addModelMapping"
+                          :disabled="!String(newMapping.source || '').trim() || !String(newMapping.target || '').trim()"
+                        >
+                          {{ t('common.add') }}
+                        </v-btn>
+                      </div>
+                    </v-card-text>
+                  </v-card>
+                </v-col>
 
-                          <v-tooltip :text="upstreamModelsError || t('addChannel.fetchModelsTooltip')" location="top">
-                            <template #activator="{ props: tooltipProps }">
+                <!-- 价格乘数配置（折扣，非 Composite 类型） -->
+                <v-col cols="12" v-if="form.serviceType && !isCompositeChannel">
+                  <v-card variant="outlined" rounded="lg">
+                    <v-card-title class="d-flex align-center justify-space-between pa-4 pb-2">
+                      <div class="d-flex align-center ga-2">
+                        <v-icon color="success">mdi-percent</v-icon>
+                        <span class="text-body-1 font-weight-bold">{{ t('addChannel.priceMultiplier') }}</span>
+                      </div>
+                      <v-chip size="small" color="success" variant="tonal">
+                        {{ t('addChannel.channelDiscount') }}
+                      </v-chip>
+                    </v-card-title>
+
+                    <v-card-text class="pt-2">
+                      <div class="text-body-2 text-medium-emphasis mb-4">
+                        {{ t('addChannel.priceMultiplierHint') }}
+                      </div>
+
+                      <!-- 现有乘数列表 -->
+                      <div v-if="Object.keys(form.priceMultipliers).length" class="mb-4">
+                        <v-list density="compact" class="bg-transparent">
+                          <v-list-item
+                            v-for="[modelKey, mult] in Object.entries(form.priceMultipliers)"
+                            :key="modelKey"
+                            class="mb-2"
+                            rounded="lg"
+                            variant="tonal"
+                            color="surface-variant"
+                          >
+                            <template v-slot:prepend>
+                              <v-icon size="small" color="success">mdi-tag-outline</v-icon>
+                            </template>
+
+                            <v-list-item-title>
+                              <div class="d-flex align-center ga-2 flex-wrap">
+                                <code class="text-caption">{{
+                                  modelKey === '_default' ? t('addChannel.defaultAllModels') : modelKey
+                                }}</code>
+                                <span class="text-caption text-medium-emphasis mx-1">:</span>
+                                <span class="text-caption" v-if="mult.inputMultiplier && mult.inputMultiplier !== 1"
+                                  >{{ t('addChannel.input') }} {{ mult.inputMultiplier }}x</span
+                                >
+                                <span class="text-caption" v-if="mult.outputMultiplier && mult.outputMultiplier !== 1"
+                                  >{{ t('addChannel.output') }} {{ mult.outputMultiplier }}x</span
+                                >
+                                <span
+                                  class="text-caption"
+                                  v-if="mult.cacheCreationMultiplier && mult.cacheCreationMultiplier !== 1"
+                                  >{{ t('addChannel.cacheCreation') }} {{ mult.cacheCreationMultiplier }}x</span
+                                >
+                                <span
+                                  class="text-caption"
+                                  v-if="mult.cacheReadMultiplier && mult.cacheReadMultiplier !== 1"
+                                  >{{ t('addChannel.cacheRead') }} {{ mult.cacheReadMultiplier }}x</span
+                                >
+                                <span class="text-caption text-medium-emphasis" v-if="!hasNonDefaultMultiplier(mult)">{{
+                                  t('addChannel.noDiscount')
+                                }}</span>
+                              </div>
+                            </v-list-item-title>
+
+                            <template v-slot:append>
                               <v-btn
-                                v-bind="tooltipProps"
+                                size="small"
+                                color="error"
                                 icon
                                 variant="text"
-                                size="x-small"
-                                :loading="upstreamModelsLoading"
-                                :color="upstreamModelsError ? 'warning' : 'primary'"
-                                :disabled="!isEditing"
-                                @click.stop="fetchUpstreamModels"
+                                @click="removePriceMultiplier(modelKey)"
                               >
-                                <v-icon size="small">{{ upstreamModelsError ? 'mdi-alert' : 'mdi-refresh' }}</v-icon>
+                                <v-icon size="small" color="error">mdi-close</v-icon>
                               </v-btn>
                             </template>
-                          </v-tooltip>
+                          </v-list-item>
+                        </v-list>
+                      </div>
+
+                      <!-- 添加新乘数 -->
+                      <div class="price-multiplier-form">
+                        <div class="d-flex align-center ga-2 mb-3">
+                          <v-text-field
+                            v-model="newMultiplier.modelKey"
+                            :label="t('addChannel.modelNameDefault')"
+                            :placeholder="t('addChannel.modelNamePlaceholder')"
+                            variant="outlined"
+                            density="comfortable"
+                            hide-details
+                            class="flex-grow-1"
+                          />
                         </div>
-                      </template>
-                      <template #no-data>
-                        <v-list-item>
-                          <v-list-item-title class="text-caption text-medium-emphasis">
-                            {{ isEditing ? t('addChannel.clickRefreshToLoad') : t('addChannel.saveChannelFirst') }}
-                          </v-list-item-title>
-                        </v-list-item>
-                      </template>
-                    </v-combobox>
-                    <v-btn
-                      color="secondary"
-                      variant="elevated"
-                      @click="addModelMapping"
-                      :disabled="!String(newMapping.source || '').trim() || !String(newMapping.target || '').trim()"
-                    >
-                      {{ t('common.add') }}
-                    </v-btn>
-                  </div>
-                </v-card-text>
-              </v-card>
-            </v-col>
-
-            <!-- 价格乘数配置（折扣，非 Composite 类型） -->
-            <v-col cols="12" v-if="form.serviceType && !isCompositeChannel">
-              <v-card variant="outlined" rounded="lg">
-                <v-card-title class="d-flex align-center justify-space-between pa-4 pb-2">
-                  <div class="d-flex align-center ga-2">
-                    <v-icon color="success">mdi-percent</v-icon>
-                    <span class="text-body-1 font-weight-bold">{{ t('addChannel.priceMultiplier') }}</span>
-                  </div>
-                  <v-chip size="small" color="success" variant="tonal"> {{ t('addChannel.channelDiscount') }} </v-chip>
-                </v-card-title>
-
-                <v-card-text class="pt-2">
-                  <div class="text-body-2 text-medium-emphasis mb-4">
-                    {{ t('addChannel.priceMultiplierHint') }}
-                  </div>
-
-                  <!-- 现有乘数列表 -->
-                  <div v-if="Object.keys(form.priceMultipliers).length" class="mb-4">
-                    <v-list density="compact" class="bg-transparent">
-                      <v-list-item
-                        v-for="[modelKey, mult] in Object.entries(form.priceMultipliers)"
-                        :key="modelKey"
-                        class="mb-2"
-                        rounded="lg"
-                        variant="tonal"
-                        color="surface-variant"
-                      >
-                        <template v-slot:prepend>
-                          <v-icon size="small" color="success">mdi-tag-outline</v-icon>
-                        </template>
-
-                        <v-list-item-title>
-                          <div class="d-flex align-center ga-2 flex-wrap">
-                            <code class="text-caption">{{ modelKey === '_default' ? t('addChannel.defaultAllModels') : modelKey }}</code>
-                            <span class="text-caption text-medium-emphasis mx-1">:</span>
-                            <span class="text-caption" v-if="mult.inputMultiplier && mult.inputMultiplier !== 1">{{ t('addChannel.input') }} {{ mult.inputMultiplier }}x</span>
-                            <span class="text-caption" v-if="mult.outputMultiplier && mult.outputMultiplier !== 1">{{ t('addChannel.output') }} {{ mult.outputMultiplier }}x</span>
-                            <span class="text-caption" v-if="mult.cacheCreationMultiplier && mult.cacheCreationMultiplier !== 1">{{ t('addChannel.cacheCreation') }} {{ mult.cacheCreationMultiplier }}x</span>
-                            <span class="text-caption" v-if="mult.cacheReadMultiplier && mult.cacheReadMultiplier !== 1">{{ t('addChannel.cacheRead') }} {{ mult.cacheReadMultiplier }}x</span>
-                            <span class="text-caption text-medium-emphasis" v-if="!hasNonDefaultMultiplier(mult)">{{ t('addChannel.noDiscount') }}</span>
-                          </div>
-                        </v-list-item-title>
-
-                        <template v-slot:append>
-                          <v-btn size="small" color="error" icon variant="text" @click="removePriceMultiplier(modelKey)">
-                            <v-icon size="small" color="error">mdi-close</v-icon>
+                        <div class="d-flex align-center ga-2 mb-3 flex-wrap">
+                          <v-text-field
+                            v-model.number="newMultiplier.inputMultiplier"
+                            :label="t('addChannel.inputMultiplier')"
+                            placeholder="1.0"
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            variant="outlined"
+                            density="comfortable"
+                            hide-details
+                            style="min-width: 100px; max-width: 120px"
+                          />
+                          <v-text-field
+                            v-model.number="newMultiplier.outputMultiplier"
+                            :label="t('addChannel.outputMultiplier')"
+                            placeholder="1.0"
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            variant="outlined"
+                            density="comfortable"
+                            hide-details
+                            style="min-width: 100px; max-width: 120px"
+                          />
+                          <v-text-field
+                            v-model.number="newMultiplier.cacheCreationMultiplier"
+                            :label="t('addChannel.cacheCreation')"
+                            placeholder="1.0"
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            variant="outlined"
+                            density="comfortable"
+                            hide-details
+                            style="min-width: 100px; max-width: 120px"
+                          />
+                          <v-text-field
+                            v-model.number="newMultiplier.cacheReadMultiplier"
+                            :label="t('addChannel.cacheRead')"
+                            placeholder="1.0"
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            variant="outlined"
+                            density="comfortable"
+                            hide-details
+                            style="min-width: 100px; max-width: 120px"
+                          />
+                          <v-btn
+                            color="success"
+                            variant="elevated"
+                            @click="addPriceMultiplier"
+                            :disabled="!newMultiplier.modelKey.trim()"
+                          >
+                            {{ t('common.add') }}
                           </v-btn>
-                        </template>
-                      </v-list-item>
-                    </v-list>
-                  </div>
-
-                  <!-- 添加新乘数 -->
-                  <div class="price-multiplier-form">
-                    <div class="d-flex align-center ga-2 mb-3">
-                      <v-text-field
-                        v-model="newMultiplier.modelKey"
-                        :label="t('addChannel.modelNameDefault')"
-                        :placeholder="t('addChannel.modelNamePlaceholder')"
-                        variant="outlined"
-                        density="comfortable"
-                        hide-details
-                        class="flex-grow-1"
-                      />
-                    </div>
-                    <div class="d-flex align-center ga-2 mb-3 flex-wrap">
-                      <v-text-field
-                        v-model.number="newMultiplier.inputMultiplier"
-                        :label="t('addChannel.inputMultiplier')"
-                        placeholder="1.0"
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        variant="outlined"
-                        density="comfortable"
-                        hide-details
-                        style="min-width: 100px; max-width: 120px;"
-                      />
-                      <v-text-field
-                        v-model.number="newMultiplier.outputMultiplier"
-                        :label="t('addChannel.outputMultiplier')"
-                        placeholder="1.0"
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        variant="outlined"
-                        density="comfortable"
-                        hide-details
-                        style="min-width: 100px; max-width: 120px;"
-                      />
-                      <v-text-field
-                        v-model.number="newMultiplier.cacheCreationMultiplier"
-                        :label="t('addChannel.cacheCreation')"
-                        placeholder="1.0"
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        variant="outlined"
-                        density="comfortable"
-                        hide-details
-                        style="min-width: 100px; max-width: 120px;"
-                      />
-                      <v-text-field
-                        v-model.number="newMultiplier.cacheReadMultiplier"
-                        :label="t('addChannel.cacheRead')"
-                        placeholder="1.0"
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        variant="outlined"
-                        density="comfortable"
-                        hide-details
-                        style="min-width: 100px; max-width: 120px;"
-                      />
-                      <v-btn
-                        color="success"
-                        variant="elevated"
-                        @click="addPriceMultiplier"
-                        :disabled="!newMultiplier.modelKey.trim()"
-                      >
-                        {{ t('common.add') }}
-                      </v-btn>
-                    </div>
-                  </div>
-                </v-card-text>
-              </v-card>
-            </v-col>
-          </v-row>
+                        </div>
+                      </div>
+                    </v-card-text>
+                  </v-card>
+                </v-col>
+              </v-row>
             </v-tabs-window-item>
 
             <!-- Quota Tab -->
@@ -616,7 +653,7 @@
                       variant="outlined"
                       density="comfortable"
                       hide-details
-                      style="max-width: 200px;"
+                      style="max-width: 200px"
                     />
 
                     <v-text-field
@@ -630,7 +667,7 @@
                       variant="outlined"
                       density="comfortable"
                       hide-details
-                      style="max-width: 180px;"
+                      style="max-width: 180px"
                     >
                       <template #append-inner>
                         <v-tooltip location="top">
@@ -655,7 +692,7 @@
                         variant="outlined"
                         density="comfortable"
                         hide-details
-                        style="min-width: 280px; max-width: 320px;"
+                        style="min-width: 280px; max-width: 320px"
                       >
                         <template #append-inner>
                           <v-tooltip location="top">
@@ -677,7 +714,7 @@
                         variant="outlined"
                         density="comfortable"
                         hide-details
-                        style="min-width: 100px; max-width: 120px;"
+                        style="min-width: 100px; max-width: 120px"
                       >
                         <template #append-inner>
                           <v-tooltip location="top">
@@ -701,7 +738,7 @@
                         variant="outlined"
                         density="comfortable"
                         hide-details
-                        style="min-width: 100px; max-width: 140px;"
+                        style="min-width: 100px; max-width: 140px"
                       />
                     </div>
                   </div>
@@ -714,7 +751,11 @@
                         <template #activator="{ props }">
                           <v-icon v-bind="props" size="small" color="grey" class="ml-1">mdi-information-outline</v-icon>
                         </template>
-                        {{ form.quotaResetMode === 'fixed' ? t('quota.resetModeFixedHint') : t('quota.resetModeRollingHint') }}
+                        {{
+                          form.quotaResetMode === 'fixed'
+                            ? t('quota.resetModeFixedHint')
+                            : t('quota.resetModeRollingHint')
+                        }}
                       </v-tooltip>
                     </div>
                     <v-radio-group v-model="form.quotaResetMode" inline density="compact" hide-details>
@@ -758,7 +799,9 @@
                     <v-icon color="primary">mdi-speedometer</v-icon>
                     <span class="text-body-1 font-weight-bold">{{ t('channelRateLimit.title') }}</span>
                   </div>
-                  <v-chip size="small" color="info" variant="tonal">{{ t('channelRateLimit.upstreamProtection') }}</v-chip>
+                  <v-chip size="small" color="info" variant="tonal">{{
+                    t('channelRateLimit.upstreamProtection')
+                  }}</v-chip>
                 </v-card-title>
 
                 <v-card-text class="pt-2">
@@ -778,7 +821,7 @@
                       variant="outlined"
                       density="comfortable"
                       hide-details
-                      style="max-width: 200px;"
+                      style="max-width: 200px"
                     />
                     <span class="text-body-2 text-medium-emphasis">{{ t('channelRateLimit.rpmHint') }}</span>
                   </div>
@@ -814,7 +857,7 @@
                         variant="outlined"
                         density="comfortable"
                         hide-details
-                        style="max-width: 150px;"
+                        style="max-width: 150px"
                       />
                       <span class="text-body-2 text-medium-emphasis">{{ t('channelRateLimit.queueTimeoutHint') }}</span>
                     </div>
@@ -831,7 +874,12 @@
                     <div class="text-body-2">
                       <strong>{{ t('channelRateLimit.behaviorTitle') }}:</strong>
                       <span v-if="form.queueEnabled">
-                        {{ t('channelRateLimit.behaviorQueue', { rpm: form.rateLimitRpm, timeout: form.queueTimeout || 60 }) }}
+                        {{
+                          t('channelRateLimit.behaviorQueue', {
+                            rpm: form.rateLimitRpm,
+                            timeout: form.queueTimeout || 60
+                          })
+                        }}
                       </span>
                       <span v-else>
                         {{ t('channelRateLimit.behaviorReject', { rpm: form.rateLimitRpm }) }}
@@ -875,44 +923,62 @@
                     </v-tooltip>
                   </div>
 
-                  <!-- Keywords -->
+                  <!-- Rules -->
                   <div v-if="form.contentFilterEnabled" class="mb-4">
-                    <v-combobox
-                      v-model="form.contentFilterKeywords"
-                      :label="t('contentFilter.keywords')"
-                      :placeholder="t('contentFilter.keywordsPlaceholder')"
-                      multiple
-                      chips
-                      closable-chips
-                      variant="outlined"
-                      density="comfortable"
-                      :hint="t('contentFilter.keywordsHint')"
-                      persistent-hint
-                    />
-                  </div>
+                    <div class="d-flex align-center justify-space-between mb-3">
+                      <div class="text-body-2 font-weight-medium">{{ t('contentFilter.rules') }}</div>
+                      <v-btn
+                        size="small"
+                        color="primary"
+                        variant="tonal"
+                        prepend-icon="mdi-plus"
+                        @click="addContentFilterRule"
+                      >
+                        {{ t('contentFilter.addRule') }}
+                      </v-btn>
+                    </div>
 
-                  <!-- Status Code -->
-                  <div v-if="form.contentFilterEnabled" class="mb-4">
-                    <div class="d-flex align-center ga-3 flex-wrap">
-                      <v-text-field
-                        v-model.number="form.contentFilterStatusCode"
-                        :label="t('contentFilter.statusCode')"
-                        type="number"
-                        min="400"
-                        max="599"
-                        step="1"
-                        variant="outlined"
-                        density="comfortable"
-                        hide-details
-                        style="max-width: 200px;"
-                      />
-                      <span class="text-body-2 text-medium-emphasis">{{ t('contentFilter.statusCodeHint') }}</span>
+                    <div class="d-flex flex-column ga-3">
+                      <div
+                        v-for="(rule, index) in form.contentFilterRules"
+                        :key="`content-filter-rule-${index}`"
+                        class="d-flex align-center ga-3 flex-wrap"
+                      >
+                        <v-text-field
+                          v-model="rule.keyword"
+                          :label="t('contentFilter.ruleKeyword')"
+                          :placeholder="t('contentFilter.ruleKeywordPlaceholder')"
+                          variant="outlined"
+                          density="comfortable"
+                          hide-details
+                          style="min-width: 280px; flex: 1"
+                        />
+                        <v-text-field
+                          v-model.number="rule.statusCode"
+                          :label="t('contentFilter.ruleStatusCode')"
+                          type="number"
+                          min="400"
+                          max="599"
+                          step="1"
+                          variant="outlined"
+                          density="comfortable"
+                          hide-details
+                          style="max-width: 160px"
+                        />
+                        <v-btn icon variant="text" color="error" @click="removeContentFilterRule(index)">
+                          <v-icon>mdi-delete-outline</v-icon>
+                        </v-btn>
+                      </div>
+                    </div>
+
+                    <div class="text-caption text-medium-emphasis mt-2">
+                      {{ t('contentFilter.rulesHint') }}
                     </div>
                   </div>
 
                   <!-- Behavior Info -->
                   <v-alert
-                    v-if="form.contentFilterEnabled && form.contentFilterKeywords.length > 0"
+                    v-if="form.contentFilterEnabled && normalizedContentFilterRules.length > 0"
                     type="info"
                     variant="tonal"
                     density="compact"
@@ -920,7 +986,7 @@
                   >
                     <div>
                       <strong>{{ t('contentFilter.behaviorTitle') }}:</strong>
-                      {{ t('contentFilter.behaviorDesc', { statusCode: form.contentFilterStatusCode || 429 }) }}
+                      {{ t('contentFilter.behaviorDesc') }}
                     </div>
                   </v-alert>
                 </v-card-text>
@@ -1194,7 +1260,12 @@
                                 </v-btn>
                               </template>
                             </v-tooltip>
-                            <v-tooltip :text="t('addChannel.deleteKey')" location="top" :open-delay="150" content-class="key-tooltip">
+                            <v-tooltip
+                              :text="t('addChannel.deleteKey')"
+                              location="top"
+                              :open-delay="150"
+                              content-class="key-tooltip"
+                            >
                               <template #activator="{ props: tooltipProps }">
                                 <v-btn
                                   v-bind="tooltipProps"
@@ -1256,7 +1327,7 @@
 import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useTheme } from 'vuetify'
 import { useI18n } from 'vue-i18n'
-import type { Channel, OAuthTokens, AliasesConfig } from '../services/api'
+import type { Channel, OAuthTokens, AliasesConfig, ContentFilterRule as ApiContentFilterRule } from '../services/api'
 import { api } from '../services/api'
 import CompositeChannelEditor from './CompositeChannelEditor.vue'
 
@@ -1569,10 +1640,36 @@ const targetModelPlaceholder = computed(() => {
   }
 })
 
+type ContentFilterRuleForm = {
+  keyword: string
+  statusCode: number
+}
+
+const defaultContentFilterRule = (): ContentFilterRuleForm => ({
+  keyword: '',
+  statusCode: 429
+})
+
+const normalizeContentFilterStatusCode = (statusCode: number | undefined): number => {
+  if (typeof statusCode !== 'number' || Number.isNaN(statusCode)) return 429
+  const rounded = Math.floor(statusCode)
+  if (rounded < 400 || rounded > 599) return 429
+  return rounded
+}
+
 // 表单数据
 const form = reactive({
   name: '',
-  serviceType: '' as 'openai' | 'openai_chat' | 'openaiold' | 'gemini' | 'claude' | 'responses' | 'openai-oauth' | 'composite' | '',
+  serviceType: '' as
+    | 'openai'
+    | 'openai_chat'
+    | 'openaiold'
+    | 'gemini'
+    | 'claude'
+    | 'responses'
+    | 'openai-oauth'
+    | 'composite'
+    | '',
   baseUrl: '',
   website: '',
   insecureSkipVerify: false,
@@ -1580,10 +1677,23 @@ const form = reactive({
   description: '',
   apiKeys: [] as string[],
   modelMapping: {} as Record<string, string>,
-  priceMultipliers: {} as Record<string, { inputMultiplier?: number; outputMultiplier?: number; cacheCreationMultiplier?: number; cacheReadMultiplier?: number }>,
+  priceMultipliers: {} as Record<
+    string,
+    {
+      inputMultiplier?: number
+      outputMultiplier?: number
+      cacheCreationMultiplier?: number
+      cacheReadMultiplier?: number
+    }
+  >,
   oauthTokens: undefined as OAuthTokens | undefined,
   // Composite channel mappings
-  compositeMappings: [] as Array<{ pattern: string; targetChannelId: string; failoverChain?: string[]; targetModel?: string }>,
+  compositeMappings: [] as Array<{
+    pattern: string
+    targetChannelId: string
+    failoverChain?: string[]
+    targetModel?: string
+  }>,
   // Quota settings
   quotaType: '' as '' | 'requests' | 'credit',
   quotaLimit: undefined as number | undefined,
@@ -1600,9 +1710,30 @@ const form = reactive({
   keyLoadBalance: '' as '' | 'round-robin' | 'random' | 'failover',
   // Content filter
   contentFilterEnabled: false,
-  contentFilterKeywords: [] as string[],
-  contentFilterStatusCode: 429
+  contentFilterRules: [defaultContentFilterRule()] as ContentFilterRuleForm[]
 })
+
+const normalizedContentFilterRules = computed<ApiContentFilterRule[]>(() => {
+  return form.contentFilterRules
+    .map(rule => ({
+      keyword: rule.keyword.trim(),
+      statusCode: normalizeContentFilterStatusCode(rule.statusCode)
+    }))
+    .filter(rule => rule.keyword.length > 0)
+})
+
+const addContentFilterRule = () => {
+  form.contentFilterRules.push(defaultContentFilterRule())
+}
+
+const removeContentFilterRule = (index: number) => {
+  if (index < 0 || index >= form.contentFilterRules.length) return
+  if (form.contentFilterRules.length === 1) {
+    form.contentFilterRules[0] = defaultContentFilterRule()
+    return
+  }
+  form.contentFilterRules.splice(index, 1)
+}
 
 // OAuth 相关状态
 const oauthJsonInput = ref('')
@@ -1823,11 +1954,12 @@ const fetchUpstreamModels = async () => {
   upstreamModelsError.value = ''
 
   try {
-    const result = props.channelType === 'responses'
-      ? await api.fetchResponsesUpstreamModels(props.channel.index)
-      : props.channelType === 'gemini'
-        ? await api.fetchGeminiUpstreamModels(props.channel.index)
-        : await api.fetchUpstreamModels(props.channel.index)
+    const result =
+      props.channelType === 'responses'
+        ? await api.fetchResponsesUpstreamModels(props.channel.index)
+        : props.channelType === 'gemini'
+          ? await api.fetchGeminiUpstreamModels(props.channel.index)
+          : await api.fetchUpstreamModels(props.channel.index)
 
     if (result.success && result.models) {
       upstreamModels.value = result.models
@@ -2033,11 +2165,7 @@ const isFormValid = computed(() => {
       return form.name.trim() && form.serviceType
     }
     // 新建模式：必须提供 OAuth tokens
-    return (
-      form.name.trim() &&
-      form.serviceType &&
-      form.oauthTokens !== undefined
-    )
+    return form.name.trim() && form.serviceType && form.oauthTokens !== undefined
   }
   // Composite 渠道需要至少一个映射
   if (form.serviceType === 'composite') {
@@ -2111,8 +2239,7 @@ const resetForm = () => {
   form.keyLoadBalance = ''
   // Reset content filter
   form.contentFilterEnabled = false
-  form.contentFilterKeywords = []
-  form.contentFilterStatusCode = 429
+  form.contentFilterRules = [defaultContentFilterRule()]
   newApiKey.value = ''
   newMapping.source = ''
   newMapping.target = ''
@@ -2194,12 +2321,13 @@ const loadChannelData = (channel: Channel) => {
   form.priceMultipliers = { ...(channel.priceMultipliers || {}) }
 
   // Load composite mappings
-  form.compositeMappings = channel.compositeMappings?.map(m => ({
-    pattern: m.pattern,
-    targetChannelId: m.targetChannelId || '',
-    failoverChain: m.failoverChain || [],
-    targetModel: m.targetModel
-  })) || []
+  form.compositeMappings =
+    channel.compositeMappings?.map(m => ({
+      pattern: m.pattern,
+      targetChannelId: m.targetChannelId || '',
+      failoverChain: m.failoverChain || [],
+      targetModel: m.targetModel
+    })) || []
 
   // Load quota settings
   form.quotaType = channel.quotaType || ''
@@ -2232,8 +2360,33 @@ const loadChannelData = (channel: Channel) => {
   // Load content filter settings
   if (channel.contentFilter) {
     form.contentFilterEnabled = channel.contentFilter.enabled || false
-    form.contentFilterKeywords = channel.contentFilter.keywords || []
-    form.contentFilterStatusCode = channel.contentFilter.statusCode || 429
+    const loadedRules: ContentFilterRuleForm[] = []
+
+    if (Array.isArray(channel.contentFilter.rules) && channel.contentFilter.rules.length > 0) {
+      for (const rule of channel.contentFilter.rules) {
+        const keyword = typeof rule.keyword === 'string' ? rule.keyword.trim() : ''
+        if (!keyword) continue
+        loadedRules.push({
+          keyword,
+          statusCode: normalizeContentFilterStatusCode(rule.statusCode)
+        })
+      }
+    } else if (Array.isArray(channel.contentFilter.keywords) && channel.contentFilter.keywords.length > 0) {
+      const legacyStatusCode = normalizeContentFilterStatusCode(channel.contentFilter.statusCode)
+      for (const keyword of channel.contentFilter.keywords) {
+        const trimmed = keyword.trim()
+        if (!trimmed) continue
+        loadedRules.push({
+          keyword: trimmed,
+          statusCode: legacyStatusCode
+        })
+      }
+    }
+
+    form.contentFilterRules = loadedRules.length > 0 ? loadedRules : [defaultContentFilterRule()]
+  } else {
+    form.contentFilterEnabled = false
+    form.contentFilterRules = [defaultContentFilterRule()]
   }
 
   // 加载 OAuth tokens（如果存在）
@@ -2438,33 +2591,45 @@ const moveExistingKeyToBottom = async (keyIndex: number) => {
   }
 }
 
-	const addModelMapping = () => {
-	  const source = String(newMapping.source || '').trim()
-	  const target = String(newMapping.target || '').trim()
-	  if (source && target && !form.modelMapping[source]) {
-	    form.modelMapping[source] = target
-	    newMapping.source = ''
-	    newMapping.target = ''
-	  }
-	}
+const addModelMapping = () => {
+  const source = String(newMapping.source || '').trim()
+  const target = String(newMapping.target || '').trim()
+  if (source && target && !form.modelMapping[source]) {
+    form.modelMapping[source] = target
+    newMapping.source = ''
+    newMapping.target = ''
+  }
+}
 
 const removeModelMapping = (source: string) => {
   delete form.modelMapping[source]
 }
 
 // Price multiplier methods
-const hasNonDefaultMultiplier = (mult: { inputMultiplier?: number; outputMultiplier?: number; cacheCreationMultiplier?: number; cacheReadMultiplier?: number }) => {
-  return (mult.inputMultiplier !== undefined && mult.inputMultiplier !== 1) ||
-         (mult.outputMultiplier !== undefined && mult.outputMultiplier !== 1) ||
-         (mult.cacheCreationMultiplier !== undefined && mult.cacheCreationMultiplier !== 1) ||
-         (mult.cacheReadMultiplier !== undefined && mult.cacheReadMultiplier !== 1)
+const hasNonDefaultMultiplier = (mult: {
+  inputMultiplier?: number
+  outputMultiplier?: number
+  cacheCreationMultiplier?: number
+  cacheReadMultiplier?: number
+}) => {
+  return (
+    (mult.inputMultiplier !== undefined && mult.inputMultiplier !== 1) ||
+    (mult.outputMultiplier !== undefined && mult.outputMultiplier !== 1) ||
+    (mult.cacheCreationMultiplier !== undefined && mult.cacheCreationMultiplier !== 1) ||
+    (mult.cacheReadMultiplier !== undefined && mult.cacheReadMultiplier !== 1)
+  )
 }
 
 const addPriceMultiplier = () => {
   const modelKey = newMultiplier.modelKey.trim()
   if (!modelKey || form.priceMultipliers[modelKey]) return
 
-  const mult: { inputMultiplier?: number; outputMultiplier?: number; cacheCreationMultiplier?: number; cacheReadMultiplier?: number } = {}
+  const mult: {
+    inputMultiplier?: number
+    outputMultiplier?: number
+    cacheCreationMultiplier?: number
+    cacheReadMultiplier?: number
+  } = {}
 
   // Only include non-default values (undefined or 1.0 means default)
   if (newMultiplier.inputMultiplier !== undefined && newMultiplier.inputMultiplier !== 1) {
@@ -2577,24 +2742,46 @@ const handleSubmit = async () => {
     // Quota settings - always send quotaType (empty string clears quota)
     // Note: Use validNumber helper to convert NaN to undefined (v-model.number returns NaN for empty inputs)
     quotaType: form.quotaType,
-    quotaLimit: form.quotaType && typeof form.quotaLimit === 'number' && !Number.isNaN(form.quotaLimit) ? form.quotaLimit : undefined,
+    quotaLimit:
+      form.quotaType && typeof form.quotaLimit === 'number' && !Number.isNaN(form.quotaLimit)
+        ? form.quotaLimit
+        : undefined,
     quotaResetAt: form.quotaType && form.quotaResetAt ? new Date(form.quotaResetAt).toISOString() : undefined,
-    quotaResetInterval: form.quotaType && typeof form.quotaResetInterval === 'number' && !Number.isNaN(form.quotaResetInterval) ? form.quotaResetInterval : undefined,
+    quotaResetInterval:
+      form.quotaType && typeof form.quotaResetInterval === 'number' && !Number.isNaN(form.quotaResetInterval)
+        ? form.quotaResetInterval
+        : undefined,
     quotaResetUnit: form.quotaType ? form.quotaResetUnit : undefined,
     quotaModels: form.quotaType && form.quotaModels.length > 0 ? form.quotaModels : undefined,
     quotaResetMode: form.quotaType ? form.quotaResetMode : undefined,
     // Per-channel rate limiting
-    rateLimitRpm: typeof form.rateLimitRpm === 'number' && !Number.isNaN(form.rateLimitRpm) && form.rateLimitRpm >= 0 ? Math.floor(form.rateLimitRpm) : undefined,
+    rateLimitRpm:
+      typeof form.rateLimitRpm === 'number' && !Number.isNaN(form.rateLimitRpm) && form.rateLimitRpm >= 0
+        ? Math.floor(form.rateLimitRpm)
+        : undefined,
     queueEnabled: typeof form.rateLimitRpm === 'number' && form.rateLimitRpm > 0 ? form.queueEnabled : undefined,
-    queueTimeout: typeof form.rateLimitRpm === 'number' && form.rateLimitRpm > 0 && form.queueEnabled ? (typeof form.queueTimeout === 'number' && !Number.isNaN(form.queueTimeout) && form.queueTimeout > 0 ? Math.floor(form.queueTimeout) : 60) : undefined,
+    queueTimeout:
+      typeof form.rateLimitRpm === 'number' && form.rateLimitRpm > 0 && form.queueEnabled
+        ? typeof form.queueTimeout === 'number' && !Number.isNaN(form.queueTimeout) && form.queueTimeout > 0
+          ? Math.floor(form.queueTimeout)
+          : 60
+        : undefined,
     // Per-channel API key load balance strategy
     keyLoadBalance: form.keyLoadBalance || undefined,
     // Content filter
-    contentFilter: form.contentFilterEnabled ? {
-      enabled: true,
-      keywords: form.contentFilterKeywords.filter(k => k.trim()),
-      statusCode: form.contentFilterStatusCode || 429
-    } : undefined
+    contentFilter: form.contentFilterEnabled
+      ? {
+          enabled: true,
+          rules: normalizedContentFilterRules.value,
+          // Backward compatibility for older backend versions:
+          // old format only supports a single shared statusCode for all keywords.
+          keywords: normalizedContentFilterRules.value.map(rule => rule.keyword),
+          statusCode:
+            normalizedContentFilterRules.value.length > 0
+              ? normalizedContentFilterRules.value[0].statusCode || 429
+              : 429
+        }
+      : undefined
   }
 
   // 对于 OAuth 渠道，添加 OAuth tokens
@@ -2638,11 +2825,14 @@ watch(
       compositeEditorReopenCount.value++
       // Refresh model aliases config (only if authenticated)
       if (api.getApiKey()) {
-        api.getModelAliases().then(config => {
-          aliasesConfig.value = config
-        }).catch(err => {
-          console.warn('Failed to load model aliases config:', err)
-        })
+        api
+          .getModelAliases()
+          .then(config => {
+            aliasesConfig.value = config
+          })
+          .catch(err => {
+            console.warn('Failed to load model aliases config:', err)
+          })
       }
       if (props.channel) {
         // 编辑模式：使用表单模式

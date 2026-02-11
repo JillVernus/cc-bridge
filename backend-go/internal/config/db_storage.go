@@ -146,6 +146,10 @@ func (s *DBConfigStorage) insertChannelTx(tx *database.Tx, channelType string, i
 	priceMultipliers, _ := json.Marshal(upstream.PriceMultipliers)
 	quotaModels, _ := json.Marshal(upstream.QuotaModels)
 	compositeMappings, _ := json.Marshal(upstream.CompositeMappings)
+	var contentFilter []byte
+	if upstream.ContentFilter != nil {
+		contentFilter, _ = json.Marshal(upstream.ContentFilter)
+	}
 
 	var oauthTokens []byte
 	if upstream.OAuthTokens != nil {
@@ -180,8 +184,8 @@ func (s *DBConfigStorage) insertChannelTx(tx *database.Tx, channelType string, i
 				quota_reset_interval, quota_reset_unit, quota_reset_mode,
 				rate_limit_rpm, queue_enabled, queue_timeout, key_load_balance,
 				api_keys, model_mapping, price_multipliers, oauth_tokens,
-				quota_models, composite_mappings
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+				quota_models, composite_mappings, content_filter
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
 		`
 	} else {
 		query = `
@@ -192,8 +196,8 @@ func (s *DBConfigStorage) insertChannelTx(tx *database.Tx, channelType string, i
 				quota_reset_interval, quota_reset_unit, quota_reset_mode,
 				rate_limit_rpm, queue_enabled, queue_timeout, key_load_balance,
 				api_keys, model_mapping, price_multipliers, oauth_tokens,
-				quota_models, composite_mappings
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				quota_models, composite_mappings, content_filter
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`
 	}
 
@@ -206,7 +210,7 @@ func (s *DBConfigStorage) insertChannelTx(tx *database.Tx, channelType string, i
 		upstream.RateLimitRpm, upstream.QueueEnabled, upstream.QueueTimeout,
 		upstream.KeyLoadBalance, string(apiKeys), string(modelMapping),
 		string(priceMultipliers), string(oauthTokens), string(quotaModels),
-		string(compositeMappings),
+		string(compositeMappings), string(contentFilter),
 	)
 	return err
 }
@@ -275,7 +279,7 @@ func (s *DBConfigStorage) loadChannels(channelType string) ([]UpstreamConfig, er
 			quota_reset_interval, quota_reset_unit, quota_reset_mode,
 			rate_limit_rpm, queue_enabled, queue_timeout, key_load_balance,
 			api_keys, model_mapping, price_multipliers, oauth_tokens,
-			quota_models, composite_mappings
+			quota_models, composite_mappings, content_filter
 		FROM channels
 		WHERE channel_type = ?
 		ORDER BY priority, id
@@ -288,7 +292,7 @@ func (s *DBConfigStorage) loadChannels(channelType string) ([]UpstreamConfig, er
 				quota_reset_interval, quota_reset_unit, quota_reset_mode,
 				rate_limit_rpm, queue_enabled, queue_timeout, key_load_balance,
 				api_keys, model_mapping, price_multipliers, oauth_tokens,
-				quota_models, composite_mappings
+				quota_models, composite_mappings, content_filter
 			FROM channels
 			WHERE channel_type = $1
 			ORDER BY priority, id
@@ -328,6 +332,7 @@ func (s *DBConfigStorage) loadChannels(channelType string) ([]UpstreamConfig, er
 			oauthTokensJSON       sql.NullString
 			quotaModelsJSON       sql.NullString
 			compositeMappingsJSON sql.NullString
+			contentFilterJSON     sql.NullString
 		)
 
 		err := rows.Scan(
@@ -337,7 +342,7 @@ func (s *DBConfigStorage) loadChannels(channelType string) ([]UpstreamConfig, er
 			&quotaResetInterval, &quotaResetUnit, &quotaResetMode,
 			&rateLimitRpm, &queueEnabled, &queueTimeout, &keyLoadBalance,
 			&apiKeysJSON, &modelMappingJSON, &priceMultipliersJSON, &oauthTokensJSON,
-			&quotaModelsJSON, &compositeMappingsJSON,
+			&quotaModelsJSON, &compositeMappingsJSON, &contentFilterJSON,
 		)
 		if err != nil {
 			log.Printf("⚠️ Failed to scan channel: %v", err)
@@ -399,6 +404,9 @@ func (s *DBConfigStorage) loadChannels(channelType string) ([]UpstreamConfig, er
 		}
 		if compositeMappingsJSON.Valid && compositeMappingsJSON.String != "" {
 			json.Unmarshal([]byte(compositeMappingsJSON.String), &upstream.CompositeMappings)
+		}
+		if contentFilterJSON.Valid && contentFilterJSON.String != "" {
+			json.Unmarshal([]byte(contentFilterJSON.String), &upstream.ContentFilter)
 		}
 
 		channels = append(channels, upstream)
@@ -545,6 +553,10 @@ func (s *DBConfigStorage) updateChannelTx(tx *database.Tx, channelType string, c
 	priceMultipliers, _ := json.Marshal(upstream.PriceMultipliers)
 	quotaModels, _ := json.Marshal(upstream.QuotaModels)
 	compositeMappings, _ := json.Marshal(upstream.CompositeMappings)
+	var contentFilter []byte
+	if upstream.ContentFilter != nil {
+		contentFilter, _ = json.Marshal(upstream.ContentFilter)
+	}
 
 	var oauthTokens []byte
 	if upstream.OAuthTokens != nil {
@@ -581,8 +593,9 @@ func (s *DBConfigStorage) updateChannelTx(tx *database.Tx, channelType string, c
 				queue_enabled = $18, queue_timeout = $19, key_load_balance = $20,
 				api_keys = $21, model_mapping = $22, price_multipliers = $23,
 				oauth_tokens = $24, quota_models = $25, composite_mappings = $26,
+				content_filter = $27,
 				updated_at = CURRENT_TIMESTAMP
-			WHERE channel_id = $27 AND channel_type = $28
+			WHERE channel_id = $28 AND channel_type = $29
 		`
 	} else {
 		query = `
@@ -595,6 +608,7 @@ func (s *DBConfigStorage) updateChannelTx(tx *database.Tx, channelType string, c
 				queue_enabled = ?, queue_timeout = ?, key_load_balance = ?,
 				api_keys = ?, model_mapping = ?, price_multipliers = ?,
 				oauth_tokens = ?, quota_models = ?, composite_mappings = ?,
+				content_filter = ?,
 				updated_at = CURRENT_TIMESTAMP
 			WHERE channel_id = ? AND channel_type = ?
 		`
@@ -608,7 +622,7 @@ func (s *DBConfigStorage) updateChannelTx(tx *database.Tx, channelType string, c
 		upstream.QuotaResetUnit, upstream.QuotaResetMode, upstream.RateLimitRpm,
 		upstream.QueueEnabled, upstream.QueueTimeout, upstream.KeyLoadBalance,
 		string(apiKeys), string(modelMapping), string(priceMultipliers),
-		string(oauthTokens), string(quotaModels), string(compositeMappings),
+		string(oauthTokens), string(quotaModels), string(compositeMappings), string(contentFilter),
 		channelID, channelType,
 	)
 	return err
