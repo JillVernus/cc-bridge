@@ -66,9 +66,9 @@ type DB interface {
 	QueryRow(query string, args ...interface{}) *sql.Row
 	QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row
 
-	// Transaction support
-	Begin() (*sql.Tx, error)
-	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
+	// Transaction support — returns a dialect-aware Tx that converts placeholders
+	Begin() (*Tx, error)
+	BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error)
 
 	// Dialect information
 	Dialect() Dialect
@@ -115,8 +115,97 @@ func (db *BaseDB) Helper() *DialectHelper {
 	return db.helper
 }
 
+// Exec executes a query with automatic placeholder conversion for PostgreSQL
+func (db *BaseDB) Exec(query string, args ...interface{}) (sql.Result, error) {
+	return db.DB.Exec(ConvertPlaceholders(query, db.dialect), args...)
+}
+
+// ExecContext executes a query with context and automatic placeholder conversion
+func (db *BaseDB) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+	return db.DB.ExecContext(ctx, ConvertPlaceholders(query, db.dialect), args...)
+}
+
+// Query executes a query with automatic placeholder conversion for PostgreSQL
+func (db *BaseDB) Query(query string, args ...interface{}) (*sql.Rows, error) {
+	return db.DB.Query(ConvertPlaceholders(query, db.dialect), args...)
+}
+
+// QueryContext executes a query with context and automatic placeholder conversion
+func (db *BaseDB) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+	return db.DB.QueryContext(ctx, ConvertPlaceholders(query, db.dialect), args...)
+}
+
+// QueryRow executes a query returning a single row with automatic placeholder conversion
+func (db *BaseDB) QueryRow(query string, args ...interface{}) *sql.Row {
+	return db.DB.QueryRow(ConvertPlaceholders(query, db.dialect), args...)
+}
+
+// QueryRowContext executes a query with context returning a single row with automatic placeholder conversion
+func (db *BaseDB) QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row {
+	return db.DB.QueryRowContext(ctx, ConvertPlaceholders(query, db.dialect), args...)
+}
+
+// Begin starts a transaction and returns a dialect-aware Tx wrapper
+func (db *BaseDB) Begin() (*Tx, error) {
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return nil, err
+	}
+	return &Tx{Tx: tx, dialect: db.dialect}, nil
+}
+
+// BeginTx starts a transaction with options and returns a dialect-aware Tx wrapper
+func (db *BaseDB) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) {
+	tx, err := db.DB.BeginTx(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	return &Tx{Tx: tx, dialect: db.dialect}, nil
+}
+
+// Tx wraps *sql.Tx with automatic placeholder conversion for PostgreSQL
+type Tx struct {
+	*sql.Tx
+	dialect Dialect
+}
+
+// Exec executes a query within the transaction with automatic placeholder conversion
+func (tx *Tx) Exec(query string, args ...interface{}) (sql.Result, error) {
+	return tx.Tx.Exec(ConvertPlaceholders(query, tx.dialect), args...)
+}
+
+// ExecContext executes a query with context within the transaction
+func (tx *Tx) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+	return tx.Tx.ExecContext(ctx, ConvertPlaceholders(query, tx.dialect), args...)
+}
+
+// Query executes a query within the transaction with automatic placeholder conversion
+func (tx *Tx) Query(query string, args ...interface{}) (*sql.Rows, error) {
+	return tx.Tx.Query(ConvertPlaceholders(query, tx.dialect), args...)
+}
+
+// QueryContext executes a query with context within the transaction
+func (tx *Tx) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+	return tx.Tx.QueryContext(ctx, ConvertPlaceholders(query, tx.dialect), args...)
+}
+
+// QueryRow executes a query returning a single row within the transaction
+func (tx *Tx) QueryRow(query string, args ...interface{}) *sql.Row {
+	return tx.Tx.QueryRow(ConvertPlaceholders(query, tx.dialect), args...)
+}
+
+// QueryRowContext executes a query with context returning a single row within the transaction
+func (tx *Tx) QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row {
+	return tx.Tx.QueryRowContext(ctx, ConvertPlaceholders(query, tx.dialect), args...)
+}
+
+// Prepare creates a prepared statement with automatic placeholder conversion
+func (tx *Tx) Prepare(query string) (*sql.Stmt, error) {
+	return tx.Tx.Prepare(ConvertPlaceholders(query, tx.dialect))
+}
+
 // Transaction executes a function within a transaction
-func Transaction(db DB, fn func(tx *sql.Tx) error) error {
+func Transaction(db DB, fn func(tx *Tx) error) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -138,7 +227,7 @@ func Transaction(db DB, fn func(tx *sql.Tx) error) error {
 }
 
 // TransactionContext executes a function within a transaction with context
-func TransactionContext(ctx context.Context, db DB, fn func(tx *sql.Tx) error) error {
+func TransactionContext(ctx context.Context, db DB, fn func(tx *Tx) error) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)

@@ -133,7 +133,7 @@ func (s *DBConfigStorage) MigrateFromJSONIfNeeded(jsonPath string) error {
 }
 
 // insertChannelTx inserts a channel into the database within a transaction
-func (s *DBConfigStorage) insertChannelTx(tx *sql.Tx, channelType string, index int, upstream *UpstreamConfig) error {
+func (s *DBConfigStorage) insertChannelTx(tx *database.Tx, channelType string, index int, upstream *UpstreamConfig) error {
 	// Generate channel ID if not present
 	channelID := upstream.ID
 	if channelID == "" {
@@ -469,7 +469,7 @@ func (s *DBConfigStorage) SaveConfigToDB(config *Config) error {
 }
 
 // syncChannelsTx synchronizes channels of a specific type using smart UPDATE/INSERT/DELETE
-func (s *DBConfigStorage) syncChannelsTx(tx *sql.Tx, channelType string, channels []UpstreamConfig) error {
+func (s *DBConfigStorage) syncChannelsTx(tx *database.Tx, channelType string, channels []UpstreamConfig) error {
 	// Load existing channel IDs from database
 	var query string
 	if s.db.Dialect() == database.DialectPostgreSQL {
@@ -538,7 +538,7 @@ func (s *DBConfigStorage) syncChannelsTx(tx *sql.Tx, channelType string, channel
 }
 
 // updateChannelTx updates an existing channel in the database
-func (s *DBConfigStorage) updateChannelTx(tx *sql.Tx, channelType string, channelID string, index int, upstream *UpstreamConfig) error {
+func (s *DBConfigStorage) updateChannelTx(tx *database.Tx, channelType string, channelID string, index int, upstream *UpstreamConfig) error {
 	// Serialize complex fields to JSON
 	apiKeys, _ := json.Marshal(upstream.APIKeys)
 	modelMapping, _ := json.Marshal(upstream.ModelMapping)

@@ -1,7 +1,6 @@
 package database
 
 import (
-	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -237,7 +236,7 @@ func TestTransaction(t *testing.T) {
 	}
 
 	// Test successful transaction
-	err = Transaction(db, func(tx *sql.Tx) error {
+	err = Transaction(db, func(tx *Tx) error {
 		_, err := tx.Exec("INSERT INTO settings (key, value, category) VALUES (?, ?, ?)",
 			"tx_key1", "tx_value1", "test")
 		if err != nil {
@@ -262,7 +261,7 @@ func TestTransaction(t *testing.T) {
 	}
 
 	// Test failed transaction (rollback)
-	err = Transaction(db, func(tx *sql.Tx) error {
+	err = Transaction(db, func(tx *Tx) error {
 		_, err := tx.Exec("INSERT INTO settings (key, value, category) VALUES (?, ?, ?)",
 			"tx_key3", "tx_value3", "test")
 		if err != nil {

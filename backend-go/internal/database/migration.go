@@ -1,7 +1,6 @@
 package database
 
 import (
-	"database/sql"
 	"embed"
 	"fmt"
 	"log"
@@ -269,6 +268,6 @@ func AddColumnIfNotExists(db DB, table, column, definition string) error {
 }
 
 // RunInTransaction executes a function within a transaction
-func RunInTransaction(db DB, fn func(tx *sql.Tx) error) error {
+func RunInTransaction(db DB, fn func(tx *Tx) error) error {
 	return Transaction(db, fn)
 }
