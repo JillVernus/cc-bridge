@@ -1533,25 +1533,31 @@ const parseOAuthJson = () => {
   try {
     const parsed = JSON.parse(oauthJsonInput.value.trim())
 
+    // Normalize: support both nested format (tokens: {...}) and flat format (tokens at root level)
+    // Flat format: {"id_token":"...","access_token":"...","refresh_token":"...","account_id":"...","last_refresh":"...","email":"...","type":"codex","expired":"..."}
+    const isFlat = !parsed.tokens && parsed.access_token
+    const tokens = isFlat ? parsed : parsed.tokens
+    const lastRefresh = parsed.last_refresh
+
     // 验证必需字段
-    if (!parsed.tokens?.access_token) {
+    if (!tokens?.access_token) {
       oauthParseError.value = t('addChannel.oauthMissingAccessToken')
       return
     }
-    if (!parsed.tokens?.account_id) {
+    if (!tokens?.account_id) {
       oauthParseError.value = t('addChannel.oauthMissingAccountId')
       return
     }
-    if (!parsed.tokens?.refresh_token) {
+    if (!tokens?.refresh_token) {
       oauthParseError.value = t('addChannel.oauthMissingRefreshToken')
       return
     }
 
-    // 尝试从 JWT 中提取 email（可选）
-    let email: string | undefined
+    // 尝试从 JWT 中提取 email，或使用 flat format 中的 email 字段
+    let email: string | undefined = isFlat ? parsed.email : undefined
     try {
-      const idToken = parsed.tokens.id_token
-      if (idToken) {
+      const idToken = tokens.id_token
+      if (idToken && !email) {
         const parts = idToken.split('.')
         if (parts.length === 3) {
           const payload = JSON.parse(atob(parts[1]))
@@ -1564,16 +1570,16 @@ const parseOAuthJson = () => {
 
     // 设置解析结果
     form.oauthTokens = {
-      access_token: parsed.tokens.access_token,
-      account_id: parsed.tokens.account_id,
-      id_token: parsed.tokens.id_token,
-      refresh_token: parsed.tokens.refresh_token,
-      last_refresh: parsed.last_refresh
+      access_token: tokens.access_token,
+      account_id: tokens.account_id,
+      id_token: tokens.id_token,
+      refresh_token: tokens.refresh_token,
+      last_refresh: lastRefresh
     }
 
     parsedOAuthInfo.value = {
       email,
-      accountId: parsed.tokens.account_id.substring(0, 12) + '...'
+      accountId: tokens.account_id.substring(0, 12) + '...'
     }
   } catch {
     oauthParseError.value = t('addChannel.oauthInvalidJson')
