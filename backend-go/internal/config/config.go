@@ -811,6 +811,24 @@ func (cm *ConfigManager) saveConfigLocked(config Config) error {
 	// When using database storage, skip JSON file operations
 	// Database is the source of truth in multi-instance deployments
 	if cm.dbStorage != nil {
+		// Ensure all channels have IDs before saving to prevent
+		// duplicate ID generation in concurrent async writes
+		for i := range config.Upstream {
+			if config.Upstream[i].ID == "" {
+				config.Upstream[i].ID = generateChannelID()
+			}
+		}
+		for i := range config.ResponsesUpstream {
+			if config.ResponsesUpstream[i].ID == "" {
+				config.ResponsesUpstream[i].ID = generateChannelID()
+			}
+		}
+		for i := range config.GeminiUpstream {
+			if config.GeminiUpstream[i].ID == "" {
+				config.GeminiUpstream[i].ID = generateChannelID()
+			}
+		}
+
 		cm.config = config
 
 		// Write to database asynchronously (non-blocking)

@@ -134,11 +134,7 @@ func (s *DBConfigStorage) MigrateFromJSONIfNeeded(jsonPath string) error {
 
 // insertChannelTx inserts a channel into the database within a transaction
 func (s *DBConfigStorage) insertChannelTx(tx *database.Tx, channelType string, index int, upstream *UpstreamConfig) error {
-	// Generate channel ID if not present
 	channelID := upstream.ID
-	if channelID == "" {
-		channelID = generateChannelID()
-	}
 
 	// Serialize complex fields to JSON
 	apiKeys, _ := json.Marshal(upstream.APIKeys)
@@ -506,23 +502,24 @@ func (s *DBConfigStorage) syncChannelsTx(tx *database.Tx, channelType string, ch
 	keepIDs := make(map[string]bool)
 
 	// UPDATE or INSERT each channel
-	for i, upstream := range channels {
-		// Generate channel ID if not present
-		channelID := upstream.ID
-		if channelID == "" {
-			channelID = generateChannelID()
+	for i := range channels {
+		upstream := &channels[i]
+		// Generate channel ID if not present and write it back to the slice
+		// so that insertChannelTx uses the same ID (preventing double-generation)
+		if upstream.ID == "" {
+			upstream.ID = generateChannelID()
 		}
-		keepIDs[channelID] = true
+		keepIDs[upstream.ID] = true
 
-		if existingIDs[channelID] {
+		if existingIDs[upstream.ID] {
 			// UPDATE existing channel
-			if err := s.updateChannelTx(tx, channelType, channelID, i, &upstream); err != nil {
-				return fmt.Errorf("failed to update channel %s: %w", channelID, err)
+			if err := s.updateChannelTx(tx, channelType, upstream.ID, i, upstream); err != nil {
+				return fmt.Errorf("failed to update channel %s: %w", upstream.ID, err)
 			}
 		} else {
 			// INSERT new channel
-			if err := s.insertChannelTx(tx, channelType, i, &upstream); err != nil {
-				return fmt.Errorf("failed to insert channel %s: %w", channelID, err)
+			if err := s.insertChannelTx(tx, channelType, i, upstream); err != nil {
+				return fmt.Errorf("failed to insert channel %s: %w", upstream.ID, err)
 			}
 		}
 	}
