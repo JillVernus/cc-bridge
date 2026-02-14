@@ -19,6 +19,10 @@ const (
 	ContextKeyIsBootstrap   = "isBootstrapAdmin"
 	ContextKeyRateLimitRPM  = "rateLimitRPM"
 	ContextKeyValidatedKey  = "validatedKey" // Full ValidatedKey struct for permission checks
+
+	// Endpoint permission token for non-admin access to:
+	// GET /api/messages/channels/current
+	EndpointPermissionMessagesChannelCurrent = "messages_current_channel"
 )
 
 // secureCompare performs a constant-time comparison of two strings
@@ -94,10 +98,20 @@ func WebAuthMiddlewareWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.Co
 
 		// 检查访问密钥（仅对管理 API 请求）
 		if strings.HasPrefix(path, "/api") {
-			// 🔒 安全修复: 所有管理 API 端点都需要 admin 权限
-			// 管理操作包括: 渠道配置、日志查看、定价设置、备份恢复等
-			if !validateAndSetContext(c, envCfg, apiKeyManager, true) {
-				return
+			// Special case: allow non-admin API keys with explicit endpoint permission.
+			if path == "/api/messages/channels/current" {
+				if !validateAndSetContext(c, envCfg, apiKeyManager, false) {
+					return
+				}
+				if !checkMessagesCurrentChannelPermission(c) {
+					return
+				}
+			} else {
+				// 🔒 安全修复: 其他管理 API 端点都需要 admin 权限
+				// 管理操作包括: 渠道配置、日志查看、定价设置、备份恢复等
+				if !validateAndSetContext(c, envCfg, apiKeyManager, true) {
+					return
+				}
 			}
 		}
 
@@ -134,6 +148,7 @@ func validateAndSetContext(c *gin.Context, envCfg *config.EnvConfig, apiKeyManag
 			c.Set(ContextKeyAPIKeyIsAdmin, vk.IsAdmin)
 			c.Set(ContextKeyIsBootstrap, false)
 			c.Set(ContextKeyRateLimitRPM, vk.RateLimitRPM)
+			c.Set(ContextKeyValidatedKey, vk)
 
 			if envCfg.ShouldLog("info") {
 				log.Printf("✅ [认证成功] IP: %s | Path: %s | Time: %s | Key: %s",
@@ -150,6 +165,7 @@ func validateAndSetContext(c *gin.Context, envCfg *config.EnvConfig, apiKeyManag
 		c.Set(ContextKeyAPIKeyName, "master")
 		c.Set(ContextKeyAPIKeyIsAdmin, true)
 		c.Set(ContextKeyIsBootstrap, true)
+		c.Set(ContextKeyValidatedKey, (*apikey.ValidatedKey)(nil))
 
 		if envCfg.ShouldLog("info") {
 			log.Printf("✅ [认证成功] IP: %s | Path: %s | Time: %s | Key: master",
@@ -336,10 +352,20 @@ func WebAuthMiddlewareWithAPIKeyAndFailureLimiter(envCfg *config.EnvConfig, cfgM
 
 		// 检查访问密钥（仅对管理 API 请求）
 		if strings.HasPrefix(path, "/api") {
-			// 🔒 安全修复: 所有管理 API 端点都需要 admin 权限
-			// 管理操作包括: 渠道配置、日志查看、定价设置、备份恢复等
-			if !validateAndSetContextWithFailureLimiter(c, envCfg, apiKeyManager, true, failureLimiter) {
-				return
+			// Special case: allow non-admin API keys with explicit endpoint permission.
+			if path == "/api/messages/channels/current" {
+				if !validateAndSetContextWithFailureLimiter(c, envCfg, apiKeyManager, false, failureLimiter) {
+					return
+				}
+				if !checkMessagesCurrentChannelPermission(c) {
+					return
+				}
+			} else {
+				// 🔒 安全修复: 其他管理 API 端点都需要 admin 权限
+				// 管理操作包括: 渠道配置、日志查看、定价设置、备份恢复等
+				if !validateAndSetContextWithFailureLimiter(c, envCfg, apiKeyManager, true, failureLimiter) {
+					return
+				}
 			}
 		}
 
@@ -380,6 +406,7 @@ func validateAndSetContextWithFailureLimiter(c *gin.Context, envCfg *config.EnvC
 			c.Set(ContextKeyAPIKeyIsAdmin, vk.IsAdmin)
 			c.Set(ContextKeyIsBootstrap, false)
 			c.Set(ContextKeyRateLimitRPM, vk.RateLimitRPM)
+			c.Set(ContextKeyValidatedKey, vk)
 
 			if envCfg.ShouldLog("info") {
 				log.Printf("✅ [认证成功] IP: %s | Path: %s | Time: %s | Key: %s",
@@ -402,6 +429,7 @@ func validateAndSetContextWithFailureLimiter(c *gin.Context, envCfg *config.EnvC
 		c.Set(ContextKeyAPIKeyIsAdmin, true)
 		c.Set(ContextKeyIsBootstrap, true)
 		c.Set(ContextKeyRateLimitRPM, 0) // Master key uses global limit
+		c.Set(ContextKeyValidatedKey, (*apikey.ValidatedKey)(nil))
 
 		if envCfg.ShouldLog("info") {
 			log.Printf("✅ [认证成功] IP: %s | Path: %s | Time: %s | Key: master",
@@ -453,4 +481,52 @@ func sanitizePathForLogs(path string) string {
 
 	parts[0] = "<redacted>"
 	return path[:i+len(keyMarker)] + strings.Join(parts, "/")
+}
+
+// checkMessagesCurrentChannelPermission authorizes GET /api/messages/channels/current.
+// Admin/bootstrap keys are always allowed.
+// Non-admin keys must explicitly include EndpointPermissionMessagesChannelCurrent
+// in allowedEndpoints.
+func checkMessagesCurrentChannelPermission(c *gin.Context) bool {
+	if isAdminVal, exists := c.Get(ContextKeyAPIKeyIsAdmin); exists {
+		if isAdmin, ok := isAdminVal.(bool); ok && isAdmin {
+			return true
+		}
+	}
+
+	vkVal, exists := c.Get(ContextKeyValidatedKey)
+	if !exists {
+		c.JSON(403, gin.H{
+			"error":   "Forbidden",
+			"message": "Endpoint /api/messages/channels/current not allowed for this API key",
+			"code":    "ENDPOINT_NOT_ALLOWED",
+		})
+		c.Abort()
+		return false
+	}
+
+	vk, ok := vkVal.(*apikey.ValidatedKey)
+	if !ok || vk == nil {
+		c.JSON(403, gin.H{
+			"error":   "Forbidden",
+			"message": "Endpoint /api/messages/channels/current not allowed for this API key",
+			"code":    "ENDPOINT_NOT_ALLOWED",
+		})
+		c.Abort()
+		return false
+	}
+
+	for _, endpoint := range vk.AllowedEndpoints {
+		if strings.EqualFold(endpoint, EndpointPermissionMessagesChannelCurrent) {
+			return true
+		}
+	}
+
+	c.JSON(403, gin.H{
+		"error":   "Forbidden",
+		"message": "Endpoint /api/messages/channels/current not allowed for this API key",
+		"code":    "ENDPOINT_NOT_ALLOWED",
+	})
+	c.Abort()
+	return false
 }

@@ -1291,7 +1291,7 @@ export interface APIKey {
   updatedAt: string
   lastUsedAt?: string
   // Permission fields (nil/empty = unrestricted)
-  allowedEndpoints?: string[] // ["messages"], ["responses"], ["gemini"], or any combination
+  allowedEndpoints?: string[] // ["messages"], ["responses"], ["gemini"], ["messages_current_channel"], or any combination
   allowedChannelsMsg?: string[] // stable channel IDs for /v1/messages
   allowedChannelsResp?: string[] // stable channel IDs for /v1/responses
   allowedChannelsGemini?: string[] // stable channel IDs for /v1/gemini (GeminiUpstream)

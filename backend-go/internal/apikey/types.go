@@ -25,7 +25,7 @@ type APIKey struct {
 	LastUsedAt   *time.Time `json:"lastUsedAt,omitempty"`
 
 	// Permission fields (nil/empty = unrestricted)
-	AllowedEndpoints      []string `json:"allowedEndpoints,omitempty"`      // ["messages"], ["responses"], ["gemini"], or any combination
+	AllowedEndpoints      []string `json:"allowedEndpoints,omitempty"`      // ["messages"], ["responses"], ["gemini"], ["messages_current_channel"], or any combination
 	AllowedChannelsMsg    []string `json:"allowedChannelsMsg,omitempty"`    // stable channel IDs for /v1/messages
 	AllowedChannelsResp   []string `json:"allowedChannelsResp,omitempty"`   // stable channel IDs for /v1/responses
 	AllowedChannelsGemini []string `json:"allowedChannelsGemini,omitempty"` // stable channel IDs for /v1/gemini (GeminiUpstream)
@@ -40,7 +40,7 @@ type CreateAPIKeyRequest struct {
 	RateLimitRPM int    `json:"rateLimitRpm"`
 
 	// Permission fields (nil/empty = unrestricted)
-	AllowedEndpoints      []string `json:"allowedEndpoints,omitempty"`
+	AllowedEndpoints      []string `json:"allowedEndpoints,omitempty"` // Supports "messages_current_channel" for GET /api/messages/channels/current
 	AllowedChannelsMsg    []string `json:"allowedChannelsMsg,omitempty"`
 	AllowedChannelsResp   []string `json:"allowedChannelsResp,omitempty"`
 	AllowedChannelsGemini []string `json:"allowedChannelsGemini,omitempty"`

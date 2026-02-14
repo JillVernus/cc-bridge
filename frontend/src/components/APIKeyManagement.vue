@@ -167,10 +167,10 @@
               rows="2"
             />
             <v-checkbox
-              v-if="!editingKey"
               v-model="form.isAdmin"
               :label="t('apiKeys.isAdmin')"
-              :hint="t('apiKeys.isAdminHint')"
+              :hint="editingKey ? t('apiKeys.isAdminEditHint') : t('apiKeys.isAdminHint')"
+              :disabled="!!editingKey"
               persistent-hint
             />
             <v-text-field
@@ -187,6 +187,14 @@
             <v-divider class="my-4" />
             <div class="text-subtitle-1 mb-2">{{ t('apiKeys.permissions') }}</div>
             <div class="text-caption text-grey mb-3">{{ t('apiKeys.permissionsHint') }}</div>
+
+            <v-checkbox
+              v-model="allowMessagesCurrentChannel"
+              :label="t('apiKeys.endpointMessagesCurrentChannel')"
+              :hint="t('apiKeys.endpointMessagesCurrentChannelHint')"
+              persistent-hint
+              class="mt-1"
+            />
 
             <!-- Allowed Endpoints -->
             <v-select
@@ -392,6 +400,20 @@ const form = ref<FormState>({
   allowedChannelsGemini: [],
   allowedModels: [],
   allowedModelsText: ''
+})
+
+const MESSAGES_CURRENT_CHANNEL_ENDPOINT = 'messages_current_channel'
+
+const allowMessagesCurrentChannel = computed({
+  get: () => (form.value.allowedEndpoints || []).includes(MESSAGES_CURRENT_CHANNEL_ENDPOINT),
+  set: (enabled: boolean) => {
+    const endpoints = [...(form.value.allowedEndpoints || [])]
+    const filtered = endpoints.filter(e => e !== MESSAGES_CURRENT_CHANNEL_ENDPOINT)
+    if (enabled) {
+      filtered.push(MESSAGES_CURRENT_CHANNEL_ENDPOINT)
+    }
+    form.value.allowedEndpoints = filtered
+  }
 })
 
 // Snackbar
