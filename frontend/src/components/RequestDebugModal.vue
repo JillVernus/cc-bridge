@@ -194,9 +194,23 @@
                   >
                     <v-icon size="small">mdi-content-copy</v-icon>
                   </v-btn>
+                  <v-btn
+                    v-if="debugData.requestBody"
+                    variant="tonal"
+                    size="x-small"
+                    class="ml-2"
+                    @click="requestParsed = !requestParsed"
+                    :color="requestParsed ? 'primary' : undefined"
+                  >
+                    <v-icon size="small" start>{{ requestParsed ? 'mdi-text' : 'mdi-file-tree' }}</v-icon>
+                    {{ requestParsed ? t('debugModal.parsed') : t('debugModal.parse') }}
+                  </v-btn>
                 </div>
                 <v-card variant="outlined">
-                  <pre class="body-content">{{ formatJson(debugData.requestBody) }}</pre>
+                  <div v-if="requestParsed" class="parsed-content pa-3">
+                    <parsed-body :body="debugData.requestBody" type="request" />
+                  </div>
+                  <pre v-else class="body-content">{{ formatJson(debugData.requestBody) }}</pre>
                 </v-card>
               </div>
               <div v-else class="text-center pa-8">
@@ -252,9 +266,23 @@
                   >
                     <v-icon size="small">mdi-content-copy</v-icon>
                   </v-btn>
+                  <v-btn
+                    v-if="debugData.responseBody"
+                    variant="tonal"
+                    size="x-small"
+                    class="ml-2"
+                    @click="responseParsed = !responseParsed"
+                    :color="responseParsed ? 'primary' : undefined"
+                  >
+                    <v-icon size="small" start>{{ responseParsed ? 'mdi-text' : 'mdi-file-tree' }}</v-icon>
+                    {{ responseParsed ? t('debugModal.parsed') : t('debugModal.parse') }}
+                  </v-btn>
                 </div>
                 <v-card variant="outlined">
-                  <pre class="body-content">{{ formatJson(debugData.responseBody) }}</pre>
+                  <div v-if="responseParsed" class="parsed-content pa-3">
+                    <parsed-body :body="debugData.responseBody" type="response" />
+                  </div>
+                  <pre v-else class="body-content">{{ formatJson(debugData.responseBody) }}</pre>
                 </v-card>
               </div>
               <div v-else class="text-center pa-8">
@@ -278,6 +306,7 @@
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api, type DebugLogEntry, type RequestLog } from '../services/api'
+import ParsedBody from './ParsedBody.vue'
 
 const { t } = useI18n()
 
@@ -295,6 +324,8 @@ const loading = ref(false)
 const debugData = ref<DebugLogEntry | null>(null)
 const activeTab = ref('metadata')
 const showCopySnackbar = ref(false)
+const requestParsed = ref(false)
+const responseParsed = ref(false)
 
 // Load debug data when dialog opens
 watch(() => props.modelValue, (newVal) => {
@@ -304,6 +335,8 @@ watch(() => props.modelValue, (newVal) => {
     // Reset state when dialog closes
     debugData.value = null
     activeTab.value = 'metadata'
+    requestParsed.value = false
+    responseParsed.value = false
   }
 })
 
@@ -555,5 +588,11 @@ const copyToClipboard = async (text: string) => {
 
 .v-theme--dark .body-content {
   background: rgba(255, 255, 255, 0.02);
+}
+
+.parsed-content {
+  max-height: 400px;
+  overflow: auto;
+  font-size: 0.8rem;
 }
 </style>

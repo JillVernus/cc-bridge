@@ -971,6 +971,8 @@ export default {
     httpStatus: 'HTTP 状态',
     error: '错误',
     failoverInfo: '故障转移',
-    upstreamError: '上游错误'
+    upstreamError: '上游错误',
+    parse: '解析',
+    parsed: '已解析'
   }
 }

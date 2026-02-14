@@ -3319,78 +3319,70 @@ const silentRefresh = async () => {
       console.warn('Failed to fetch active sessions:', e)
     }
 
-    // Detect updated/new records
-    const oldLogsMap = new Map(logs.value.map(l => [l.id, l]))
-    const newUpdatedIds = new Set<string>()
+    // When SSE is connected, skip flash animations.
+    // SSE event handlers already flash rows/groups for real changes.
+    // The silentRefresh here only syncs authoritative data from the server
+    // (e.g. after reconnect), so flashing would be misleading.
+    const skipFlash = isSSEConnected.value
 
-    for (const newLog of logsRes.requests || []) {
-      const oldLog = oldLogsMap.get(newLog.id)
-      if (!oldLog || oldLog.status !== newLog.status) {
-        newUpdatedIds.add(newLog.id)
+    if (!skipFlash) {
+      // Detect updated/new records
+      const oldLogsMap = new Map(logs.value.map(l => [l.id, l]))
+      const newUpdatedIds = new Set<string>()
+
+      for (const newLog of logsRes.requests || []) {
+        const oldLog = oldLogsMap.get(newLog.id)
+        if (!oldLog || oldLog.status !== newLog.status) {
+          newUpdatedIds.add(newLog.id)
+        }
+      }
+
+      // Detect updated groups in stats
+      const newUpdatedModels = detectUpdatedGroups(stats.value?.byModel, statsRes?.byModel)
+      const newUpdatedProviders = detectUpdatedGroups(stats.value?.byProvider, statsRes?.byProvider)
+      const newUpdatedClients = detectUpdatedGroups(stats.value?.byClient, statsRes?.byClient)
+      const newUpdatedSessions = detectUpdatedGroups(stats.value?.bySession, statsRes?.bySession)
+      const newUpdatedAPIKeys = detectUpdatedGroups(stats.value?.byApiKey, statsRes?.byApiKey)
+
+      if (newUpdatedIds.size > 0) {
+        updatedIds.value = newUpdatedIds
+        setTimeout(() => { updatedIds.value = new Set() }, 1000)
+      }
+      if (newUpdatedModels.size > 0) {
+        updatedModels.value = newUpdatedModels
+        setTimeout(() => { updatedModels.value = new Set() }, 1000)
+      }
+      if (newUpdatedProviders.size > 0) {
+        updatedProviders.value = newUpdatedProviders
+        setTimeout(() => { updatedProviders.value = new Set() }, 1000)
+      }
+      if (newUpdatedClients.size > 0) {
+        updatedClients.value = newUpdatedClients
+        setTimeout(() => { updatedClients.value = new Set() }, 1000)
+      }
+      if (newUpdatedSessions.size > 0) {
+        updatedSessions.value = newUpdatedSessions
+        setTimeout(() => { updatedSessions.value = new Set() }, 1000)
+      }
+      if (newUpdatedAPIKeys.size > 0) {
+        updatedAPIKeys.value = newUpdatedAPIKeys
+        setTimeout(() => { updatedAPIKeys.value = new Set() }, 1000)
+      }
+
+      // Detect updated active sessions
+      const newUpdatedActive = detectActiveSessionChanges(activeSessions.value, activeSessionsRes)
+      if (newUpdatedActive.size > 0) {
+        updatedActiveSessions.value = newUpdatedActive
+        setTimeout(() => { updatedActiveSessions.value = new Set() }, 1000)
       }
     }
 
-    // Detect updated groups in stats
-    const newUpdatedModels = detectUpdatedGroups(stats.value?.byModel, statsRes?.byModel)
-    const newUpdatedProviders = detectUpdatedGroups(stats.value?.byProvider, statsRes?.byProvider)
-    const newUpdatedClients = detectUpdatedGroups(stats.value?.byClient, statsRes?.byClient)
-    const newUpdatedSessions = detectUpdatedGroups(stats.value?.bySession, statsRes?.bySession)
-    const newUpdatedAPIKeys = detectUpdatedGroups(stats.value?.byApiKey, statsRes?.byApiKey)
-
+    // Always update the data (authoritative sync from server)
     logs.value = logsRes.requests || []
     total.value = logsRes.total
     hasMore.value = logsRes.hasMore
     stats.value = statsRes
-
-    if (newUpdatedIds.size > 0) {
-      updatedIds.value = newUpdatedIds
-      setTimeout(() => {
-        updatedIds.value = new Set()
-      }, 1000)
-    }
-
-    if (newUpdatedModels.size > 0) {
-      updatedModels.value = newUpdatedModels
-      setTimeout(() => {
-        updatedModels.value = new Set()
-      }, 1000)
-    }
-
-    if (newUpdatedProviders.size > 0) {
-      updatedProviders.value = newUpdatedProviders
-      setTimeout(() => {
-        updatedProviders.value = new Set()
-      }, 1000)
-    }
-    if (newUpdatedClients.size > 0) {
-      updatedClients.value = newUpdatedClients
-      setTimeout(() => {
-        updatedClients.value = new Set()
-      }, 1000)
-    }
-    if (newUpdatedSessions.size > 0) {
-      updatedSessions.value = newUpdatedSessions
-      setTimeout(() => {
-        updatedSessions.value = new Set()
-      }, 1000)
-    }
-    if (newUpdatedAPIKeys.size > 0) {
-      updatedAPIKeys.value = newUpdatedAPIKeys
-      setTimeout(() => {
-        updatedAPIKeys.value = new Set()
-      }, 1000)
-    }
-
-    // Detect updated active sessions
-    const newUpdatedActive = detectActiveSessionChanges(activeSessions.value, activeSessionsRes)
     activeSessions.value = activeSessionsRes || []
-
-    if (newUpdatedActive.size > 0) {
-      updatedActiveSessions.value = newUpdatedActive
-      setTimeout(() => {
-        updatedActiveSessions.value = new Set()
-      }, 1000)
-    }
   } catch (error) {
     console.error('Failed to refresh logs:', error)
   }

@@ -986,6 +986,8 @@ export default {
     httpStatus: 'HTTP Status',
     error: 'Error',
     failoverInfo: 'Failover',
-    upstreamError: 'Upstream Error'
+    upstreamError: 'Upstream Error',
+    parse: 'Parse',
+    parsed: 'Parsed'
   }
 }
