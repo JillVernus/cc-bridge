@@ -49,6 +49,7 @@ export interface RecentCallStat {
   timestamp?: string
   model?: string
   channelName?: string
+  routedChannelName?: string
 }
 
 export interface ChannelMetrics {

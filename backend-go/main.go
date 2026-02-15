@@ -44,6 +44,16 @@ func main() {
 	// 初始化配置管理器
 	envCfg := config.NewEnvConfig()
 
+	log.Printf(
+		"🧭 Runtime storage profile: ENV=%s, STORAGE_BACKEND=%s, DATABASE_TYPE=%s",
+		envCfg.Env,
+		envCfg.StorageBackend,
+		envCfg.DatabaseType,
+	)
+	if envCfg.IsDevelopment() && strings.EqualFold(envCfg.StorageBackend, "database") && strings.EqualFold(envCfg.DatabaseType, "postgresql") {
+		log.Printf("🛠️ Development environment is using PostgreSQL")
+	}
+
 	// 🔒 安全检查：禁止使用默认访问密钥（除非显式允许）
 	// 防止因 ENV 配置错误导致生产环境暴露
 	if envCfg.ProxyAccessKey == "your-proxy-access-key" {
@@ -192,11 +202,12 @@ func main() {
 		})
 
 		// Restore recent API call slots from persisted request logs (for channel metrics UI).
-		// Run immediately, then retry once after startup settles (DB/config polling) to avoid cold-start races.
+		// Run immediately, then run a second pass after startup settles (DB/config polling)
+		// to correct any temporary index/name mismatches caused by stale pre-poll config.
 		seedRecentCallMetricsFromLogs(reqLogManager, channelScheduler, cfgManager, false)
 		go func() {
 			time.Sleep(8 * time.Second)
-			seedRecentCallMetricsFromLogs(reqLogManager, channelScheduler, cfgManager, true)
+			seedRecentCallMetricsFromLogs(reqLogManager, channelScheduler, cfgManager, false)
 		}()
 
 		// 连接调度器与请求日志管理器（用于配额渠道暂停检查）
@@ -839,8 +850,9 @@ func buildUniqueChannelNameIndex(upstreams []config.UpstreamConfig) map[string]i
 }
 
 // resolveSeedTargetIndex resolves historical channel index to current config index.
-// It prefers stable channel UID, then unique channel name, then channel index bounds check.
-// Returns (index, mappedBy) where mappedBy is one of: "uid", "name", "index", "".
+// It prefers stable channel UID, then unique channel name.
+// Index fallback is intentionally disabled to avoid cross-channel pollution after reorder/rename.
+// Returns (index, mappedBy) where mappedBy is one of: "uid", "name", "".
 func resolveSeedTargetIndex(channelUID string, channelID int, channelName string, idToIndex map[string]int, nameToIndex map[string]int, channelCount int) (int, string) {
 	uid := strings.TrimSpace(channelUID)
 	if uid != "" {
@@ -854,17 +866,6 @@ func resolveSeedTargetIndex(channelUID string, channelID int, channelName string
 		if idx, ok := nameToIndex[name]; ok {
 			return idx, "name"
 		}
-	}
-
-	if channelCount > 0 {
-		if channelID >= 0 && channelID < channelCount {
-			return channelID, "index"
-		}
-		return -1, ""
-	}
-
-	if channelID >= 0 {
-		return channelID, "index"
 	}
 	return -1, ""
 }

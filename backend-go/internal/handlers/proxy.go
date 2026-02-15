@@ -307,6 +307,14 @@ func handleMultiChannelProxy(
 		if selection.ResolvedModel != "" {
 			metricsModel = selection.ResolvedModel
 		}
+		metricsChannelIndex := channelIndex
+		metricsChannelName := upstream.Name
+		metricsRoutedChannelName := ""
+		if selection.CompositeUpstream != nil && selection.CompositeChannelIndex >= 0 {
+			metricsChannelIndex = selection.CompositeChannelIndex
+			metricsChannelName = selection.CompositeUpstream.Name
+			metricsRoutedChannelName = upstream.Name
+		}
 
 		if shouldLogInfo {
 			if selection.CompositeUpstream != nil {
@@ -332,7 +340,7 @@ func handleMultiChannelProxy(
 					log.Printf("🚫 [Channel Rate Limit] Channel %d (%s): %v",
 						channelIndex, upstream.Name, result.Error)
 				}
-				channelScheduler.RecordFailureWithStatusDetail(channelIndex, false, 429, metricsModel, upstream.Name)
+				channelScheduler.RecordFailureWithStatusDetail(metricsChannelIndex, false, 429, metricsModel, metricsChannelName, metricsRoutedChannelName)
 				// Mark channel as failed for this request and try next channel
 				failedChannels[channelIndex] = true
 				lastError = result.Error
@@ -350,11 +358,22 @@ func handleMultiChannelProxy(
 
 		if success {
 			// ActionNone/no-failover branches return handled=true with an error payload.
-			// Treat any such handled payload as failure in channel metrics.
-			if failoverErr != nil {
-				channelScheduler.RecordFailureWithStatusDetail(channelIndex, false, failoverErr.Status, metricsModel, upstream.Name)
+			// Classify by actual HTTP status as a guard against false-green metrics.
+			handledStatus := c.Writer.Status()
+			if handledStatus <= 0 {
+				handledStatus = http.StatusOK
+			}
+			if failoverErr != nil || handledStatus >= http.StatusBadRequest {
+				failureStatus := handledStatus
+				if failoverErr != nil && failoverErr.Status > 0 {
+					failureStatus = failoverErr.Status
+				}
+				if failureStatus < http.StatusBadRequest {
+					failureStatus = http.StatusInternalServerError
+				}
+				channelScheduler.RecordFailureWithStatusDetail(metricsChannelIndex, false, failureStatus, metricsModel, metricsChannelName, metricsRoutedChannelName)
 			} else {
-				channelScheduler.RecordSuccessWithStatusDetail(channelIndex, false, 200, metricsModel, upstream.Name)
+				channelScheduler.RecordSuccessWithStatusDetail(metricsChannelIndex, false, handledStatus, metricsModel, metricsChannelName, metricsRoutedChannelName)
 				// For composite channels, set affinity to the composite channel (not the resolved target)
 				// This ensures subsequent requests still go through composite routing logic
 				affinityIndex := channelIndex
@@ -371,7 +390,7 @@ func handleMultiChannelProxy(
 		if failoverErr != nil {
 			failureStatus = failoverErr.Status
 		}
-		channelScheduler.RecordFailureWithStatusDetail(channelIndex, false, failureStatus, metricsModel, upstream.Name)
+		channelScheduler.RecordFailureWithStatusDetail(metricsChannelIndex, false, failureStatus, metricsModel, metricsChannelName, metricsRoutedChannelName)
 		failedChannels[channelIndex] = true
 
 		// For composite channels, check if there are more in the failover chain
@@ -1170,7 +1189,12 @@ func handleSingleChannelProxy(
 
 	// Resolve composite channel to target channel
 	metricsModel := claudeReq.Model
+	metricsChannelIndex := upstream.Index
+	metricsChannelName := upstream.Name
+	metricsRoutedChannelName := ""
 	if config.IsCompositeChannel(upstream) {
+		compositeName := upstream.Name
+		compositeIndex := upstream.Index
 		cfg := cfgManager.GetConfig()
 		targetChannelID, targetIndex, resolvedModel, found := config.ResolveCompositeMapping(upstream, claudeReq.Model, cfg.Upstream)
 		if !found {
@@ -1190,6 +1214,9 @@ func handleSingleChannelProxy(
 		targetUpstream := cfg.Upstream[targetIndex]
 		log.Printf("🔀 [Single-Channel Composite] '%s' → target [%d] '%s' for model '%s' (resolved: '%s')",
 			upstream.Name, targetIndex, targetUpstream.Name, claudeReq.Model, resolvedModel)
+		metricsChannelIndex = compositeIndex
+		metricsChannelName = compositeName
+		metricsRoutedChannelName = targetUpstream.Name
 		upstream = &targetUpstream
 		if resolvedModel != "" {
 			metricsModel = resolvedModel
@@ -1197,10 +1224,10 @@ func handleSingleChannelProxy(
 	}
 
 	recordSingleSuccess := func(statusCode int) {
-		channelScheduler.RecordSuccessWithStatusDetail(upstream.Index, false, statusCode, metricsModel, upstream.Name)
+		channelScheduler.RecordSuccessWithStatusDetail(metricsChannelIndex, false, statusCode, metricsModel, metricsChannelName, metricsRoutedChannelName)
 	}
 	recordSingleFailure := func(statusCode int) {
-		channelScheduler.RecordFailureWithStatusDetail(upstream.Index, false, statusCode, metricsModel, upstream.Name)
+		channelScheduler.RecordFailureWithStatusDetail(metricsChannelIndex, false, statusCode, metricsModel, metricsChannelName, metricsRoutedChannelName)
 	}
 
 	// Check per-channel rate limit (if configured)
@@ -1208,7 +1235,7 @@ func handleSingleChannelProxy(
 		result := channelRateLimiter.Acquire(c.Request.Context(), upstream, "messages")
 		if !result.Allowed {
 			log.Printf("🚫 [Channel Rate Limit] Channel %d (%s): %v", upstream.Index, upstream.Name, result.Error)
-			channelScheduler.RecordFailureWithStatusDetail(upstream.Index, false, 429, metricsModel, upstream.Name)
+			channelScheduler.RecordFailureWithStatusDetail(metricsChannelIndex, false, 429, metricsModel, metricsChannelName, metricsRoutedChannelName)
 			if reqLogManager != nil && requestLogID != "" {
 				completeTime := time.Now()
 				record := &requestlog.RequestLog{

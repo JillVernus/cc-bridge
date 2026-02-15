@@ -830,6 +830,7 @@ type RecentCallSlot = {
   timestamp?: string
   model?: string
   channelName?: string
+  routedChannelName?: string
 }
 
 const getRecentCalls = (channelIndex: number): RecentCallSlot[] => {
@@ -845,7 +846,8 @@ const getRecentCalls = (channelIndex: number): RecentCallSlot[] => {
     statusCode: call.statusCode,
     timestamp: call.timestamp,
     model: call.model,
-    channelName: call.channelName
+    channelName: call.channelName,
+    routedChannelName: call.routedChannelName
   }))
 
   if (normalizedCalls.length >= recentCallsLimit) {
@@ -896,7 +898,8 @@ const getRecentCallTooltipLines = (call: RecentCallSlot, isCompositeChannel: boo
   ]
 
   if (isCompositeChannel) {
-    lines.push(`Channel: ${call.channelName?.trim() ? call.channelName : 'N/A'}`)
+    const compositeTarget = call.routedChannelName?.trim() || call.channelName?.trim() || 'N/A'
+    lines.push(`Channel: ${compositeTarget}`)
   }
 
   return lines

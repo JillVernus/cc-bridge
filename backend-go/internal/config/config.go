@@ -428,6 +428,43 @@ func MigrateRules(rules []FailoverRule) ([]FailoverRule, bool) {
 	return migrated, needsMigration
 }
 
+// NormalizeDangerousOthersFailoverRules rewrites dangerous catch-all rules:
+// errorCodes="others" with action "failover" will be converted to "none" (return error).
+// Returns normalized rules and number of changed rules.
+func NormalizeDangerousOthersFailoverRules(rules []FailoverRule) ([]FailoverRule, int) {
+	if len(rules) == 0 {
+		return rules, 0
+	}
+
+	normalized := make([]FailoverRule, len(rules))
+	copy(normalized, rules)
+
+	changedRules := 0
+	for i := range normalized {
+		if strings.ToLower(strings.TrimSpace(normalized[i].ErrorCodes)) != "others" {
+			continue
+		}
+
+		// Legacy rules may still use Action; migrate first for consistent normalization.
+		if len(normalized[i].ActionChain) == 0 && normalized[i].Action != "" {
+			normalized[i] = MigrateRule(normalized[i])
+		}
+
+		ruleChanged := false
+		for j := range normalized[i].ActionChain {
+			if normalized[i].ActionChain[j].Action == ActionFailover {
+				normalized[i].ActionChain[j].Action = ActionReturnError
+				ruleChanged = true
+			}
+		}
+		if ruleChanged {
+			changedRules++
+		}
+	}
+
+	return normalized, changedRules
+}
+
 type Config struct {
 	Upstream        []UpstreamConfig `json:"upstream"`
 	CurrentUpstream int              `json:"currentUpstream,omitempty"` // 已废弃：旧格式兼容用
@@ -666,25 +703,21 @@ func (cm *ConfigManager) loadConfig() error {
 	// 故障转移规则迁移：检测旧格式规则并转换为新的动作链格式
 	if len(cm.config.Failover.Rules) > 0 {
 		migratedRules, needsRuleMigration := MigrateRules(cm.config.Failover.Rules)
-		if needsRuleMigration {
-			log.Printf("检测到旧格式故障转移规则，正在迁移到动作链格式...")
-			cm.config.Failover.Rules = migratedRules
+		normalizedRules, normalizedRuleCount := NormalizeDangerousOthersFailoverRules(migratedRules)
+		if needsRuleMigration || normalizedRuleCount > 0 {
+			if needsRuleMigration {
+				log.Printf("检测到旧格式故障转移规则，正在迁移到动作链格式...")
+			}
+			if normalizedRuleCount > 0 {
+				log.Printf("⚠️ 检测到 %d 条危险规则 'others + failover'，已自动转换为 'others + return_error'", normalizedRuleCount)
+			}
+			cm.config.Failover.Rules = normalizedRules
 			if err := cm.saveConfigLocked(cm.config); err != nil {
-				log.Printf("保存故障转移规则迁移失败: %v", err)
+				log.Printf("保存故障转移规则更新失败: %v", err)
 				return err
 			}
-			log.Printf("故障转移规则迁移完成，共迁移 %d 条规则", len(migratedRules))
-		}
-
-		// 安全警告：检查危险的 "others" 规则
-		for i, rule := range cm.config.Failover.Rules {
-			if rule.ErrorCodes == "others" {
-				for _, step := range rule.ActionChain {
-					if step.Action == ActionFailover {
-						log.Printf("⚠️ 警告: 故障转移规则 %d 使用 'others' + 'failover'，这可能导致 4xx 客户端错误也触发故障转移，建议移除此规则", i+1)
-						break
-					}
-				}
+			if needsRuleMigration {
+				log.Printf("故障转移规则迁移完成，共迁移 %d 条规则", len(migratedRules))
 			}
 		}
 	}
@@ -2847,6 +2880,12 @@ func (cm *ConfigManager) GetFailoverConfig() FailoverConfig {
 func (cm *ConfigManager) UpdateFailoverConfig(config FailoverConfig) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
+
+	normalizedRules, normalizedRuleCount := NormalizeDangerousOthersFailoverRules(config.Rules)
+	if normalizedRuleCount > 0 {
+		log.Printf("⚠️ 检测到 %d 条危险规则 'others + failover'，已自动转换为 'others + return_error'", normalizedRuleCount)
+	}
+	config.Rules = normalizedRules
 
 	cm.config.Failover = config
 	return cm.saveConfigLocked(cm.config)

@@ -341,6 +341,14 @@ func handleMultiChannelResponses(
 		if selection.ResolvedModel != "" {
 			metricsModel = selection.ResolvedModel
 		}
+		metricsChannelIndex := channelIndex
+		metricsChannelName := upstream.Name
+		metricsRoutedChannelName := ""
+		if selection.CompositeUpstream != nil && selection.CompositeChannelIndex >= 0 {
+			metricsChannelIndex = selection.CompositeChannelIndex
+			metricsChannelName = selection.CompositeUpstream.Name
+			metricsRoutedChannelName = upstream.Name
+		}
 
 		if shouldLogInfo {
 			if selection.CompositeUpstream != nil {
@@ -366,7 +374,7 @@ func handleMultiChannelResponses(
 					log.Printf("🚫 [Channel Rate Limit/Responses] Channel %d (%s): %v",
 						channelIndex, upstream.Name, result.Error)
 				}
-				channelScheduler.RecordFailureWithStatusDetail(channelIndex, true, 429, metricsModel, upstream.Name)
+				channelScheduler.RecordFailureWithStatusDetail(metricsChannelIndex, true, 429, metricsModel, metricsChannelName, metricsRoutedChannelName)
 				// Mark channel as failed for this request and try next channel
 				failedChannels[channelIndex] = true
 				lastError = result.Error
@@ -383,11 +391,22 @@ func handleMultiChannelResponses(
 
 		if success {
 			// ActionNone/no-failover branches return handled=true with an error payload.
-			// Treat any such handled payload as failure so recent success stats stay accurate.
-			if failoverErr != nil {
-				channelScheduler.RecordFailureWithStatusDetail(channelIndex, true, failoverErr.Status, metricsModel, upstream.Name)
+			// Classify by actual HTTP status as a guard against false-green metrics.
+			handledStatus := c.Writer.Status()
+			if handledStatus <= 0 {
+				handledStatus = http.StatusOK
+			}
+			if failoverErr != nil || handledStatus >= http.StatusBadRequest {
+				failureStatus := handledStatus
+				if failoverErr != nil && failoverErr.Status > 0 {
+					failureStatus = failoverErr.Status
+				}
+				if failureStatus < http.StatusBadRequest {
+					failureStatus = http.StatusInternalServerError
+				}
+				channelScheduler.RecordFailureWithStatusDetail(metricsChannelIndex, true, failureStatus, metricsModel, metricsChannelName, metricsRoutedChannelName)
 			} else {
-				channelScheduler.RecordSuccessWithStatusDetail(channelIndex, true, 200, metricsModel, upstream.Name)
+				channelScheduler.RecordSuccessWithStatusDetail(metricsChannelIndex, true, handledStatus, metricsModel, metricsChannelName, metricsRoutedChannelName)
 				// For composite channels, set affinity to the composite channel (not the resolved target)
 				// This ensures subsequent requests still go through composite routing logic
 				affinityIndex := channelIndex
@@ -404,7 +423,7 @@ func handleMultiChannelResponses(
 		if failoverErr != nil {
 			failureStatus = failoverErr.Status
 		}
-		channelScheduler.RecordFailureWithStatusDetail(channelIndex, true, failureStatus, metricsModel, upstream.Name)
+		channelScheduler.RecordFailureWithStatusDetail(metricsChannelIndex, true, failureStatus, metricsModel, metricsChannelName, metricsRoutedChannelName)
 		failedChannels[channelIndex] = true
 
 		// For composite channels, check if there are more in the failover chain
@@ -1360,12 +1379,17 @@ func handleSingleChannelResponses(
 		}
 	}
 
+	metricsModel := responsesReq.Model
+	metricsChannelIndex := upstream.Index
+	metricsChannelName := upstream.Name
+	metricsRoutedChannelName := ""
+
 	// Check per-channel rate limit (if configured)
 	if channelRateLimiter != nil && upstream.RateLimitRpm > 0 {
 		result := channelRateLimiter.Acquire(c.Request.Context(), upstream, "responses")
 		if !result.Allowed {
 			log.Printf("🚫 [Channel Rate Limit/Responses] Channel %d (%s): %v", upstream.Index, upstream.Name, result.Error)
-			channelScheduler.RecordFailureWithStatusDetail(upstream.Index, true, 429, responsesReq.Model, upstream.Name)
+			channelScheduler.RecordFailureWithStatusDetail(metricsChannelIndex, true, 429, metricsModel, metricsChannelName, metricsRoutedChannelName)
 			if reqLogManager != nil && requestLogID != "" {
 				completeTime := time.Now()
 				record := &requestlog.RequestLog{
@@ -1403,7 +1427,7 @@ func handleSingleChannelResponses(
 			if status == 0 {
 				status = 500
 			}
-			channelScheduler.RecordFailureWithStatusDetail(upstream.Index, true, status, responsesReq.Model, upstream.Name)
+			channelScheduler.RecordFailureWithStatusDetail(metricsChannelIndex, true, status, metricsModel, metricsChannelName, metricsRoutedChannelName)
 			SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, status, failoverErr.Body)
 			var errBody map[string]interface{}
 			if err := json.Unmarshal(failoverErr.Body, &errBody); err == nil {
@@ -1412,9 +1436,17 @@ func handleSingleChannelResponses(
 				c.JSON(status, gin.H{"error": string(failoverErr.Body)})
 			}
 		} else if success {
-			channelScheduler.RecordSuccessWithStatusDetail(upstream.Index, true, 200, responsesReq.Model, upstream.Name)
+			handledStatus := c.Writer.Status()
+			if handledStatus <= 0 {
+				handledStatus = http.StatusOK
+			}
+			if handledStatus >= http.StatusBadRequest {
+				channelScheduler.RecordFailureWithStatusDetail(metricsChannelIndex, true, handledStatus, metricsModel, metricsChannelName, metricsRoutedChannelName)
+			} else {
+				channelScheduler.RecordSuccessWithStatusDetail(metricsChannelIndex, true, handledStatus, metricsModel, metricsChannelName, metricsRoutedChannelName)
+			}
 		} else {
-			channelScheduler.RecordFailureWithStatusDetail(upstream.Index, true, 500, responsesReq.Model, upstream.Name)
+			channelScheduler.RecordFailureWithStatusDetail(metricsChannelIndex, true, 500, metricsModel, metricsChannelName, metricsRoutedChannelName)
 		}
 		return
 	}
@@ -1429,8 +1461,9 @@ func handleSingleChannelResponses(
 	}
 
 	// Resolve composite channel to target channel
-	metricsModel := responsesReq.Model
 	if config.IsCompositeChannel(upstream) {
+		compositeName := upstream.Name
+		compositeIndex := upstream.Index
 		cfg := cfgManager.GetConfig()
 		targetChannelID, targetIndex, resolvedModel, found := config.ResolveCompositeMapping(upstream, responsesReq.Model, cfg.ResponsesUpstream)
 		if !found {
@@ -1450,6 +1483,9 @@ func handleSingleChannelResponses(
 		targetUpstream := cfg.ResponsesUpstream[targetIndex]
 		log.Printf("🔀 [Single-Channel Composite] '%s' → target [%d] '%s' for model '%s' (resolved: '%s')",
 			upstream.Name, targetIndex, targetUpstream.Name, responsesReq.Model, resolvedModel)
+		metricsChannelIndex = compositeIndex
+		metricsChannelName = compositeName
+		metricsRoutedChannelName = targetUpstream.Name
 		upstream = &targetUpstream
 		if resolvedModel != "" {
 			metricsModel = resolvedModel
@@ -1457,10 +1493,10 @@ func handleSingleChannelResponses(
 	}
 
 	recordSingleSuccess := func(statusCode int) {
-		channelScheduler.RecordSuccessWithStatusDetail(upstream.Index, true, statusCode, metricsModel, upstream.Name)
+		channelScheduler.RecordSuccessWithStatusDetail(metricsChannelIndex, true, statusCode, metricsModel, metricsChannelName, metricsRoutedChannelName)
 	}
 	recordSingleFailure := func(statusCode int) {
-		channelScheduler.RecordFailureWithStatusDetail(upstream.Index, true, statusCode, metricsModel, upstream.Name)
+		channelScheduler.RecordFailureWithStatusDetail(metricsChannelIndex, true, statusCode, metricsModel, metricsChannelName, metricsRoutedChannelName)
 	}
 
 	provider := &providers.ResponsesProvider{SessionManager: sessionManager}

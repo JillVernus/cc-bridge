@@ -1,8 +1,12 @@
+name: cc-bridge-postgres-sample
+
+# SAMPLE compose file for PostgreSQL-backed deployment.
+# Copy and customize for your own deployment.
 services:
   # PostgreSQL database for HA deployment
   postgres:
     image: postgres:16-alpine
-    container_name: cc-bridge-db
+    container_name: cc-bridge-db-sample
     environment:
       POSTGRES_DB: ccbridge
       POSTGRES_USER: ccbridge
@@ -22,7 +26,7 @@ services:
     # build:
     #   context: .
     #   dockerfile: Dockerfile
-    container_name: cc-bridge
+    container_name: cc-bridge-sample
     ports:
       - '3000:3000'
     volumes:

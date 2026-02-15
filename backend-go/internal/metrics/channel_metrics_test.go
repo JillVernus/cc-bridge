@@ -12,14 +12,16 @@ func TestSeedRecentCalls_TrimsAndSanitizes(t *testing.T) {
 	calls := make([]RecentCall, 0, 25)
 	for i := 0; i < 25; i++ {
 		calls = append(calls, RecentCall{
-			Success:     i%2 == 0,
-			StatusCode:  i + 100,
-			Timestamp:   time.Unix(int64(i), 0),
-			Model:       "test-model",
-			ChannelName: "test-channel",
+			Success:           i%2 == 0,
+			StatusCode:        i + 100,
+			Timestamp:         time.Unix(int64(i), 0),
+			Model:             "test-model",
+			ChannelName:       "test-channel",
+			RoutedChannelName: " test-route ",
 		})
 	}
 	calls[10].StatusCode = -1
+	calls[12].RoutedChannelName = "test-channel"
 
 	m.SeedRecentCalls(3, calls)
 
@@ -40,6 +42,12 @@ func TestSeedRecentCalls_TrimsAndSanitizes(t *testing.T) {
 	}
 	if metrics.RecentCalls[0].ChannelName != calls[5].ChannelName {
 		t.Fatalf("expected seeded channel name %q, got %q", calls[5].ChannelName, metrics.RecentCalls[0].ChannelName)
+	}
+	if metrics.RecentCalls[0].RoutedChannelName != "test-route" {
+		t.Fatalf("expected seeded routed channel name to be trimmed, got %q", metrics.RecentCalls[0].RoutedChannelName)
+	}
+	if metrics.RecentCalls[7].RoutedChannelName != "" {
+		t.Fatalf("expected duplicate routed channel name to be deduplicated, got %q", metrics.RecentCalls[7].RoutedChannelName)
 	}
 
 	// Negative status code must be sanitized to 0.
@@ -168,5 +176,33 @@ func TestReconcileChannelIdentity_PrefersStableIDOverName(t *testing.T) {
 	}
 	if len(after.RecentCalls) != 1 {
 		t.Fatalf("expected slots preserved when stable ID matches, got %d", len(after.RecentCalls))
+	}
+}
+
+func TestRecordRecentCall_RoutedChannelMetadata(t *testing.T) {
+	m := NewMetricsManager()
+	t.Cleanup(m.Stop)
+
+	m.RecordSuccessWithStatusDetail(4, 200, "model-x", "composite-a", "target-a")
+
+	metrics := m.GetMetrics(4)
+	if metrics == nil || len(metrics.RecentCalls) != 1 {
+		t.Fatalf("expected one recent call, got %+v", metrics)
+	}
+	call := metrics.RecentCalls[0]
+	if call.ChannelName != "composite-a" {
+		t.Fatalf("expected owner channel name %q, got %q", "composite-a", call.ChannelName)
+	}
+	if call.RoutedChannelName != "target-a" {
+		t.Fatalf("expected routed channel name %q, got %q", "target-a", call.RoutedChannelName)
+	}
+
+	m.RecordFailureWithStatusDetail(4, 503, "model-x", "channel-a", "channel-a")
+	metrics = m.GetMetrics(4)
+	if metrics == nil || len(metrics.RecentCalls) != 2 {
+		t.Fatalf("expected two recent calls, got %+v", metrics)
+	}
+	if metrics.RecentCalls[1].RoutedChannelName != "" {
+		t.Fatalf("expected duplicate routed channel name to be omitted, got %q", metrics.RecentCalls[1].RoutedChannelName)
 	}
 }

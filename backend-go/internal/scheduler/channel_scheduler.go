@@ -759,8 +759,8 @@ func (s *ChannelScheduler) RecordSuccessWithStatus(channelIndex int, isResponses
 }
 
 // RecordSuccessWithStatusDetail 记录渠道成功（可选状态码、模型和渠道名）
-func (s *ChannelScheduler) RecordSuccessWithStatusDetail(channelIndex int, isResponses bool, statusCode int, model, channelName string) {
-	s.getMetricsManager(isResponses).RecordSuccessWithStatusDetail(channelIndex, statusCode, model, channelName)
+func (s *ChannelScheduler) RecordSuccessWithStatusDetail(channelIndex int, isResponses bool, statusCode int, model, channelName string, routedChannelName ...string) {
+	s.getMetricsManager(isResponses).RecordSuccessWithStatusDetail(channelIndex, statusCode, model, channelName, routedChannelName...)
 }
 
 // RecordFailure 记录渠道失败
@@ -774,8 +774,8 @@ func (s *ChannelScheduler) RecordFailureWithStatus(channelIndex int, isResponses
 }
 
 // RecordFailureWithStatusDetail 记录渠道失败（可选状态码、模型和渠道名）
-func (s *ChannelScheduler) RecordFailureWithStatusDetail(channelIndex int, isResponses bool, statusCode int, model, channelName string) {
-	s.getMetricsManager(isResponses).RecordFailureWithStatusDetail(channelIndex, statusCode, model, channelName)
+func (s *ChannelScheduler) RecordFailureWithStatusDetail(channelIndex int, isResponses bool, statusCode int, model, channelName string, routedChannelName ...string) {
+	s.getMetricsManager(isResponses).RecordFailureWithStatusDetail(channelIndex, statusCode, model, channelName, routedChannelName...)
 }
 
 // SetTraceAffinity 设置 Trace 亲和
@@ -1008,8 +1008,8 @@ func (s *ChannelScheduler) RecordGeminiSuccessWithStatus(channelIndex int, statu
 }
 
 // RecordGeminiSuccessWithStatusDetail records success for Gemini channel (optional status code/model/channel name)
-func (s *ChannelScheduler) RecordGeminiSuccessWithStatusDetail(channelIndex int, statusCode int, model, channelName string) {
-	s.geminiMetricsManager.RecordSuccessWithStatusDetail(channelIndex, statusCode, model, channelName)
+func (s *ChannelScheduler) RecordGeminiSuccessWithStatusDetail(channelIndex int, statusCode int, model, channelName string, routedChannelName ...string) {
+	s.geminiMetricsManager.RecordSuccessWithStatusDetail(channelIndex, statusCode, model, channelName, routedChannelName...)
 }
 
 // RecordGeminiFailure records failure for Gemini channel
@@ -1023,8 +1023,8 @@ func (s *ChannelScheduler) RecordGeminiFailureWithStatus(channelIndex int, statu
 }
 
 // RecordGeminiFailureWithStatusDetail records failure for Gemini channel (optional status code/model/channel name)
-func (s *ChannelScheduler) RecordGeminiFailureWithStatusDetail(channelIndex int, statusCode int, model, channelName string) {
-	s.geminiMetricsManager.RecordFailureWithStatusDetail(channelIndex, statusCode, model, channelName)
+func (s *ChannelScheduler) RecordGeminiFailureWithStatusDetail(channelIndex int, statusCode int, model, channelName string, routedChannelName ...string) {
+	s.geminiMetricsManager.RecordFailureWithStatusDetail(channelIndex, statusCode, model, channelName, routedChannelName...)
 }
 
 // ResetGeminiChannelMetrics resets metrics for a Gemini channel

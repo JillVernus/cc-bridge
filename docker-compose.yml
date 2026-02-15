@@ -1,3 +1,8 @@
+name: cc-bridge-sample
+
+# SAMPLE compose file.
+# Copy and customize for your own deployment.
+# For PostgreSQL deployment, prefer docker-compose.postgres.yml.
 services:
   # CC-Bridge: Multi-provider AI proxy service (Backend + Frontend)
   cc-bridge:
@@ -9,7 +14,7 @@ services:
     #   # 中国网络使用:
     #   # dockerfile: Dockerfile_China
     #   target: runtime
-    container_name: cc-bridge
+    container_name: cc-bridge-sample
     ports:
       # 统一端口：前端界面 + API + 管理接口
       - '3000:3000'
@@ -24,7 +29,7 @@ services:
       # 是否启用Web管理界面 (true=一体化模式, false=纯API模式)
       - ENABLE_WEB_UI=true
       # 代理访问密钥 - 用于验证客户端对代理服务器的访问权限
-      - PROXY_ACCESS_KEY=your-super-strong-secret-key
+      - PROXY_ACCESS_KEY=${PROXY_ACCESS_KEY:-your-super-strong-secret-key}
       # 日志级别 (error, warn, info, debug)
       - LOG_LEVEL=warn
       # 负载均衡策略 (round-robin, random, failover)

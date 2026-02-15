@@ -15,11 +15,12 @@ type RequestRecord struct {
 
 // RecentCall 最近调用结果（用于 UI 快速可视化）
 type RecentCall struct {
-	Success     bool      `json:"success"`
-	StatusCode  int       `json:"statusCode,omitempty"`
-	Timestamp   time.Time `json:"timestamp,omitempty"`
-	Model       string    `json:"model,omitempty"`
-	ChannelName string    `json:"channelName,omitempty"`
+	Success           bool      `json:"success"`
+	StatusCode        int       `json:"statusCode,omitempty"`
+	Timestamp         time.Time `json:"timestamp,omitempty"`
+	Model             string    `json:"model,omitempty"`
+	ChannelName       string    `json:"channelName,omitempty"`
+	RoutedChannelName string    `json:"routedChannelName,omitempty"`
 }
 
 // ChannelMetrics 渠道指标
@@ -121,7 +122,7 @@ func (m *MetricsManager) RecordSuccessWithStatus(channelIndex int, statusCode in
 }
 
 // RecordSuccessWithStatusDetail 记录成功请求（可选状态码、模型和渠道名）
-func (m *MetricsManager) RecordSuccessWithStatusDetail(channelIndex int, statusCode int, model, channelName string) {
+func (m *MetricsManager) RecordSuccessWithStatusDetail(channelIndex int, statusCode int, model, channelName string, routedChannelName ...string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -146,7 +147,11 @@ func (m *MetricsManager) RecordSuccessWithStatusDetail(channelIndex int, statusC
 	m.appendToHistory(metrics, now, true)
 
 	// 记录最近调用
-	m.appendRecentCall(metrics, true, statusCode, model, channelName)
+	routed := ""
+	if len(routedChannelName) > 0 {
+		routed = routedChannelName[0]
+	}
+	m.appendRecentCall(metrics, true, statusCode, model, channelName, routed)
 }
 
 // RecordFailure 记录失败请求
@@ -160,7 +165,7 @@ func (m *MetricsManager) RecordFailureWithStatus(channelIndex int, statusCode in
 }
 
 // RecordFailureWithStatusDetail 记录失败请求（可选状态码、模型和渠道名）
-func (m *MetricsManager) RecordFailureWithStatusDetail(channelIndex int, statusCode int, model, channelName string) {
+func (m *MetricsManager) RecordFailureWithStatusDetail(channelIndex int, statusCode int, model, channelName string, routedChannelName ...string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -185,7 +190,11 @@ func (m *MetricsManager) RecordFailureWithStatusDetail(channelIndex int, statusC
 	m.appendToHistory(metrics, now, false)
 
 	// 记录最近调用
-	m.appendRecentCall(metrics, false, statusCode, model, channelName)
+	routed := ""
+	if len(routedChannelName) > 0 {
+		routed = routedChannelName[0]
+	}
+	m.appendRecentCall(metrics, false, statusCode, model, channelName, routed)
 }
 
 // ReconcileChannelIdentity 将索引指标与当前配置中的渠道身份（ID/名称）对齐。
@@ -308,20 +317,25 @@ func (m *MetricsManager) appendToHistory(metrics *ChannelMetrics, timestamp time
 }
 
 // appendRecentCall 记录最近调用结果（最多保留 recentCallsLimit 条）
-func (m *MetricsManager) appendRecentCall(metrics *ChannelMetrics, success bool, statusCode int, model, channelName string) {
+func (m *MetricsManager) appendRecentCall(metrics *ChannelMetrics, success bool, statusCode int, model, channelName, routedChannelName string) {
 	if statusCode < 0 {
 		statusCode = 0
 	}
 	normalizedChannelName := strings.TrimSpace(channelName)
+	normalizedRoutedChannelName := strings.TrimSpace(routedChannelName)
+	if strings.EqualFold(normalizedChannelName, normalizedRoutedChannelName) {
+		normalizedRoutedChannelName = ""
+	}
 	if normalizedChannelName != "" {
 		metrics.boundChannelName = normalizedChannelName
 	}
 	metrics.RecentCalls = append(metrics.RecentCalls, RecentCall{
-		Success:     success,
-		StatusCode:  statusCode,
-		Timestamp:   time.Now(),
-		Model:       model,
-		ChannelName: normalizedChannelName,
+		Success:           success,
+		StatusCode:        statusCode,
+		Timestamp:         time.Now(),
+		Model:             model,
+		ChannelName:       normalizedChannelName,
+		RoutedChannelName: normalizedRoutedChannelName,
 	})
 	if len(metrics.RecentCalls) > recentCallsLimit {
 		metrics.RecentCalls = metrics.RecentCalls[len(metrics.RecentCalls)-recentCallsLimit:]
@@ -353,6 +367,10 @@ func (m *MetricsManager) SeedRecentCalls(channelIndex int, calls []RecentCall) {
 			seeded[i].StatusCode = 0
 		}
 		seeded[i].ChannelName = strings.TrimSpace(seeded[i].ChannelName)
+		seeded[i].RoutedChannelName = strings.TrimSpace(seeded[i].RoutedChannelName)
+		if strings.EqualFold(seeded[i].ChannelName, seeded[i].RoutedChannelName) {
+			seeded[i].RoutedChannelName = ""
+		}
 	}
 	metrics.RecentCalls = seeded
 	metrics.boundChannelName = inferRecentChannelName(seeded)

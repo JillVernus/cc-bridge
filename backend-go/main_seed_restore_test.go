@@ -65,8 +65,8 @@ func TestResolveSeedTargetIndex(t *testing.T) {
 
 	t.Run("fallback to bounded channel id", func(t *testing.T) {
 		idx, by := resolveSeedTargetIndex("", 2, "unknown", nil, map[string]int{"beta": 3}, 5)
-		if idx != 2 || by != "index" {
-			t.Fatalf("expected fallback index=2,index, got %d,%q", idx, by)
+		if idx != -1 || by != "" {
+			t.Fatalf("expected no fallback without uid/name mapping, got %d,%q", idx, by)
 		}
 	})
 
@@ -79,8 +79,8 @@ func TestResolveSeedTargetIndex(t *testing.T) {
 
 	t.Run("accept non-negative when count unknown", func(t *testing.T) {
 		idx, by := resolveSeedTargetIndex("", 9, "unknown", nil, nil, 0)
-		if idx != 9 || by != "index" {
-			t.Fatalf("expected unknown-count fallback index=9,index, got %d,%q", idx, by)
+		if idx != -1 || by != "" {
+			t.Fatalf("expected no fallback without uid/name mapping, got %d,%q", idx, by)
 		}
 	})
 }

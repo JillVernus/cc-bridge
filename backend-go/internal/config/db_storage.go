@@ -640,6 +640,10 @@ func (s *DBConfigStorage) updateChannelTx(tx *database.Tx, channelType string, c
 
 // StartPolling starts polling for configuration changes
 func (s *DBConfigStorage) StartPolling() {
+	// Run an immediate check so startup uses the latest DB config
+	// instead of waiting for the first ticker interval.
+	s.checkForChanges()
+
 	s.pollWg.Add(1)
 	go s.pollLoop()
 	log.Printf("🔄 Started DB config polling (interval: %v)", s.pollInterval)

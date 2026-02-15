@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"log"
 	"net/http" // 新增
 	"strconv"
 	"strings"
@@ -1399,15 +1398,6 @@ func UpdateFailoverConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 						}
 					}
 
-					// Warn about dangerous "others" rule with failover
-					if rule.ErrorCodes == "others" {
-						for _, step := range rule.ActionChain {
-							if step.Action == config.ActionFailover {
-								log.Printf("⚠️ 警告: 规则 %d 使用 'others' + 'failover'，这可能导致 4xx 客户端错误也触发故障转移", i+1)
-								break
-							}
-						}
-					}
 				} else if rule.Action == "" {
 					// Reject rules with neither actionChain nor legacy action
 					c.JSON(http.StatusBadRequest, gin.H{
@@ -1423,10 +1413,11 @@ func UpdateFailoverConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		savedCfg := cfgManager.GetFailoverConfig()
 
 		c.JSON(http.StatusOK, gin.H{
-			"enabled": cfg.Enabled,
-			"rules":   cfg.Rules,
+			"enabled": savedCfg.Enabled,
+			"rules":   savedCfg.Rules,
 		})
 	}
 }
@@ -1443,10 +1434,11 @@ func ResetFailoverConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		savedCfg := cfgManager.GetFailoverConfig()
 
 		c.JSON(http.StatusOK, gin.H{
-			"enabled": cfg.Enabled,
-			"rules":   cfg.Rules,
+			"enabled": savedCfg.Enabled,
+			"rules":   savedCfg.Rules,
 		})
 	}
 }

@@ -275,10 +275,21 @@ func handleMultiChannelGemini(
 		if success {
 			// ActionNone/no-failover branches return handled=true with an error payload.
 			// Treat any such handled payload as failure so recent success stats stay accurate.
-			if failoverErr != nil {
-				channelScheduler.RecordGeminiFailureWithStatusDetail(channelIndex, failoverErr.Status, model, upstream.Name)
+			handledStatus := c.Writer.Status()
+			if handledStatus <= 0 {
+				handledStatus = http.StatusOK
+			}
+			if failoverErr != nil || handledStatus >= http.StatusBadRequest {
+				failureStatus := handledStatus
+				if failoverErr != nil && failoverErr.Status > 0 {
+					failureStatus = failoverErr.Status
+				}
+				if failureStatus < http.StatusBadRequest {
+					failureStatus = http.StatusInternalServerError
+				}
+				channelScheduler.RecordGeminiFailureWithStatusDetail(channelIndex, failureStatus, model, upstream.Name)
 			} else {
-				channelScheduler.RecordGeminiSuccessWithStatusDetail(channelIndex, 200, model, upstream.Name)
+				channelScheduler.RecordGeminiSuccessWithStatusDetail(channelIndex, handledStatus, model, upstream.Name)
 			}
 			return
 		}
@@ -528,14 +539,21 @@ func handleSingleChannelGemini(
 	if success {
 		// ActionNone/no-failover branches return handled=true with an error payload.
 		// Treat any such handled payload as failure in metrics.
-		if failoverErr != nil {
-			failureStatus := failoverErr.Status
-			if failureStatus <= 0 {
-				failureStatus = 500
+		handledStatus := c.Writer.Status()
+		if handledStatus <= 0 {
+			handledStatus = http.StatusOK
+		}
+		if failoverErr != nil || handledStatus >= http.StatusBadRequest {
+			failureStatus := handledStatus
+			if failoverErr != nil && failoverErr.Status > 0 {
+				failureStatus = failoverErr.Status
+			}
+			if failureStatus < http.StatusBadRequest {
+				failureStatus = http.StatusInternalServerError
 			}
 			channelScheduler.RecordGeminiFailureWithStatusDetail(upstream.Index, failureStatus, model, upstream.Name)
 		} else {
-			channelScheduler.RecordGeminiSuccessWithStatusDetail(upstream.Index, 200, model, upstream.Name)
+			channelScheduler.RecordGeminiSuccessWithStatusDetail(upstream.Index, handledStatus, model, upstream.Name)
 		}
 		return
 	}
