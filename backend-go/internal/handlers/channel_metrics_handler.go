@@ -37,6 +37,7 @@ func GetChannelMetrics(metricsManager *metrics.MetricsManager) gin.HandlerFunc {
 				"consecutiveFailures": m.ConsecutiveFailures,
 				"latency":             0, // 需要从其他地方获取
 				"timeWindows":         timeWindowStats,
+				"recentCalls":         m.RecentCalls,
 			}
 
 			if m.LastSuccessAt != nil {

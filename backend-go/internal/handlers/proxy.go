@@ -344,20 +344,29 @@ func handleMultiChannelProxy(
 		requestLogID = updatedLogID // Update requestLogID in case it was changed during retry_wait
 
 		if success {
-			// Success: record and update trace affinity
-			channelScheduler.RecordSuccess(channelIndex, false)
-			// For composite channels, set affinity to the composite channel (not the resolved target)
-			// This ensures subsequent requests still go through composite routing logic
-			affinityIndex := channelIndex
-			if selection.CompositeChannelIndex >= 0 {
-				affinityIndex = selection.CompositeChannelIndex
+			// ActionNone/no-failover branches return handled=true with an error payload.
+			// Treat any such handled payload as failure in channel metrics.
+			if failoverErr != nil {
+				channelScheduler.RecordFailureWithStatus(channelIndex, false, failoverErr.Status)
+			} else {
+				channelScheduler.RecordSuccessWithStatus(channelIndex, false, 200)
+				// For composite channels, set affinity to the composite channel (not the resolved target)
+				// This ensures subsequent requests still go through composite routing logic
+				affinityIndex := channelIndex
+				if selection.CompositeChannelIndex >= 0 {
+					affinityIndex = selection.CompositeChannelIndex
+				}
+				channelScheduler.SetTraceAffinity(clientID, affinityIndex)
 			}
-			channelScheduler.SetTraceAffinity(clientID, affinityIndex)
 			return
 		}
 
 		// Channel failed: record failure metrics
-		channelScheduler.RecordFailure(channelIndex, false)
+		failureStatus := 0
+		if failoverErr != nil {
+			failureStatus = failoverErr.Status
+		}
+		channelScheduler.RecordFailureWithStatus(channelIndex, false, failureStatus)
 		failedChannels[channelIndex] = true
 
 		// For composite channels, check if there are more in the failover chain
@@ -868,7 +877,15 @@ func tryChannelWithAllKeys(
 					}
 					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
-					return true, nil, currentRequestLogID
+					return true, &struct {
+						Status       int
+						Body         []byte
+						FailoverInfo string
+					}{
+						Status:       resp.StatusCode,
+						Body:         respBodyBytes,
+						FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, decision.Reason),
+					}, currentRequestLogID
 				}
 			}
 
@@ -1026,7 +1043,15 @@ func tryChannelWithAllKeys(
 					}
 					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
-					return true, nil, currentRequestLogID
+					return true, &struct {
+						Status       int
+						Body         []byte
+						FailoverInfo string
+					}{
+						Status:       resp.StatusCode,
+						Body:         respBodyBytes,
+						FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, ""),
+					}, currentRequestLogID
 				}
 			} else {
 				// No failover tracker - return error to client
@@ -1049,7 +1074,15 @@ func tryChannelWithAllKeys(
 				}
 				SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 				c.Data(resp.StatusCode, "application/json", respBodyBytes)
-				return true, nil, currentRequestLogID
+				return true, &struct {
+					Status       int
+					Body         []byte
+					FailoverInfo string
+				}{
+					Status:       resp.StatusCode,
+					Body:         respBodyBytes,
+					FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, "", requestlog.FailoverActionReturnErr, ""),
+				}, currentRequestLogID
 			}
 		}
 

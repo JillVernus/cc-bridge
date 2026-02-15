@@ -82,48 +82,27 @@
 
             <!-- 指标显示 -->
             <div class="channel-metrics">
-              <template v-if="getChannelMetrics(element.index)">
-                <v-tooltip location="top" :open-delay="200">
-                  <template #activator="{ props: tooltipProps }">
-                    <div v-bind="tooltipProps" class="d-flex align-center metrics-display">
-                      <!-- 15分钟有请求时显示成功率，否则显示 -- -->
-                      <template v-if="get15mStats(element.index)?.requestCount">
-                        <v-chip
-                          size="x-small"
-                          :color="getSuccessRateColor(get15mStats(element.index)?.successRate)"
-                          variant="tonal"
-                        >
-                          {{ get15mStats(element.index)?.successRate?.toFixed(0) }}%
-                        </v-chip>
-                        <span class="text-caption text-medium-emphasis ml-2">
-                          {{ get15mStats(element.index)?.requestCount }} {{ t('orchestration.requests') }}
-                        </span>
+              <div class="recent-calls-display">
+                <div class="recent-calls-blocks">
+                  <template v-for="(call, callIndex) in getRecentCalls(element.index)" :key="`${element.index}-${callIndex}`">
+                    <v-tooltip v-if="call.state === 'failure'" location="top" :open-delay="120">
+                      <template #activator="{ props: tooltipProps }">
+                        <span v-bind="tooltipProps" class="recent-call-block is-failure" />
                       </template>
-                      <span v-else class="text-caption text-medium-emphasis">--</span>
-                    </div>
+                      <span class="text-caption">{{ getRecentFailureTooltip(call) }}</span>
+                    </v-tooltip>
+                    <span
+                      v-else
+                      class="recent-call-block"
+                      :class="{
+                        'is-success': call.state === 'success',
+                        'is-unused': call.state === 'unused'
+                      }"
+                    />
                   </template>
-                  <div class="metrics-tooltip">
-                    <div class="text-caption font-weight-bold mb-1">{{ t('orchestration.requestStats') }}</div>
-                    <div class="metrics-tooltip-row">
-                      <span>{{ t('orchestration.minutes15') }}</span>
-                      <span>{{ formatStats(get15mStats(element.index)) }}</span>
-                    </div>
-                    <div class="metrics-tooltip-row">
-                      <span>{{ t('orchestration.hour1') }}</span>
-                      <span>{{ formatStats(get1hStats(element.index)) }}</span>
-                    </div>
-                    <div class="metrics-tooltip-row">
-                      <span>{{ t('orchestration.hours6') }}</span>
-                      <span>{{ formatStats(get6hStats(element.index)) }}</span>
-                    </div>
-                    <div class="metrics-tooltip-row">
-                      <span>{{ t('orchestration.hours24') }}</span>
-                      <span>{{ formatStats(get24hStats(element.index)) }}</span>
-                    </div>
-                  </div>
-                </v-tooltip>
-              </template>
-              <span v-else class="text-caption text-medium-emphasis">--</span>
+                </div>
+                <span class="recent-calls-rate">{{ getRecentSuccessRate(element.index) }}</span>
+              </div>
             </div>
 
             <!-- Inline Quota Bar (usage quota or OAuth quota) -->
@@ -621,7 +600,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import draggable from 'vuedraggable'
-import { api, type Channel, type ChannelMetrics, type ChannelStatus, type TimeWindowStats, type QuotaInfo, type ChannelUsageStatus } from '../services/api'
+import { api, type Channel, type ChannelMetrics, type ChannelStatus, type RecentCallStat, type QuotaInfo, type ChannelUsageStatus } from '../services/api'
 import ChannelStatusBadge from './ChannelStatusBadge.vue'
 import ChannelStatsChart from './ChannelStatsChart.vue'
 import OAuthStatusDialog from './OAuthStatusDialog.vue'
@@ -821,29 +800,43 @@ const getChannelMetrics = (channelIndex: number): ChannelMetrics | undefined => 
   return metrics.value.find(m => m.channelIndex === channelIndex)
 }
 
-// 获取分时段统计的辅助方法
-const get15mStats = (channelIndex: number) => {
-  return getChannelMetrics(channelIndex)?.timeWindows?.['15m']
+const recentCallsLimit = 20
+
+type RecentCallSlot = {
+  state: 'unused' | 'success' | 'failure'
+  statusCode?: number
 }
 
-const get1hStats = (channelIndex: number) => {
-  return getChannelMetrics(channelIndex)?.timeWindows?.['1h']
+const getRecentCalls = (channelIndex: number): RecentCallSlot[] => {
+  const recentCalls = getChannelMetrics(channelIndex)?.recentCalls ?? []
+  const normalizedCalls: RecentCallSlot[] = recentCalls.slice(-recentCallsLimit).map((call: RecentCallStat) => ({
+    state: call.success ? 'success' : 'failure',
+    statusCode: call.statusCode
+  }))
+
+  if (normalizedCalls.length >= recentCallsLimit) {
+    return normalizedCalls
+  }
+
+  const leadingUnused = Array.from({ length: recentCallsLimit - normalizedCalls.length }, () => ({
+    state: 'unused' as const
+  }))
+  return [...leadingUnused, ...normalizedCalls]
 }
 
-const get6hStats = (channelIndex: number) => {
-  return getChannelMetrics(channelIndex)?.timeWindows?.['6h']
+const getRecentSuccessRate = (channelIndex: number): string => {
+  const recentCalls = getChannelMetrics(channelIndex)?.recentCalls?.slice(-recentCallsLimit) ?? []
+  if (recentCalls.length === 0) return '0%'
+
+  const successCount = recentCalls.filter(call => call.success).length
+  return `${Math.round((successCount / recentCalls.length) * 100)}%`
 }
 
-const get24hStats = (channelIndex: number) => {
-  return getChannelMetrics(channelIndex)?.timeWindows?.['24h']
-}
-
-// 获取成功率颜色
-const getSuccessRateColor = (rate?: number): string => {
-  if (rate === undefined) return 'grey'
-  if (rate >= 90) return 'success'
-  if (rate >= 70) return 'warning'
-  return 'error'
+const getRecentFailureTooltip = (call: RecentCallSlot): string => {
+  if (call.statusCode && call.statusCode > 0) {
+    return `HTTP ${call.statusCode}`
+  }
+  return 'HTTP error'
 }
 
 // 获取配额条颜色 (based on used percent)
@@ -852,12 +845,6 @@ const getQuotaBarColor = (usedPercent: number): string => {
   if (remaining >= 50) return 'rgb(var(--v-theme-success))'
   if (remaining >= 20) return 'rgb(var(--v-theme-warning))'
   return 'rgb(var(--v-theme-error))'
-}
-
-// 格式化统计数据：有请求显示"N 请求 (X%)"，无请求显示"--"
-const formatStats = (stats?: TimeWindowStats): string => {
-  if (!stats || !stats.requestCount) return '--'
-  return `${stats.requestCount} ${t('orchestration.requests')} (${stats.successRate?.toFixed(0)}%)`
 }
 
 // 获取官网 URL（优先使用 website，否则从 baseUrl 提取域名）
@@ -1060,7 +1047,7 @@ defineExpose({
 
 .channel-row {
   display: grid;
-  grid-template-columns: 36px 36px 110px 1fr 130px 90px 140px;
+  grid-template-columns: 36px 36px 110px 1fr 230px 90px 140px;
   align-items: center;
   gap: 10px;
   padding: 12px 16px;
@@ -1074,7 +1061,7 @@ defineExpose({
 
 /* Responses tab has an extra quota column */
 .channel-row.has-quota-column {
-  grid-template-columns: 36px 36px 110px 1fr 130px 100px 90px 140px;
+  grid-template-columns: 36px 36px 110px 1fr 230px 100px 90px 140px;
 }
 
 .channel-row:hover {
@@ -1176,7 +1163,47 @@ defineExpose({
 .channel-metrics {
   display: flex;
   align-items: center;
-  gap: 6px;
+}
+
+.recent-calls-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.recent-calls-blocks {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.recent-call-block {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  background: rgba(var(--v-theme-on-surface), 0.22);
+}
+
+.recent-call-block.is-unused {
+  background: rgba(var(--v-theme-on-surface), 0.2);
+}
+
+.recent-call-block.is-success {
+  background: rgb(var(--v-theme-success));
+}
+
+.recent-call-block.is-failure {
+  background: rgb(var(--v-theme-error));
+  cursor: help;
+}
+
+.recent-calls-rate {
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 36px;
+  text-align: right;
+  color: rgba(var(--v-theme-on-surface), 0.8);
 }
 
 /* Inline Quota Bar */
@@ -1527,34 +1554,6 @@ defineExpose({
     flex: 1;
     justify-content: flex-end;
   }
-}
-
-/* 指标显示样式 */
-.metrics-display {
-  cursor: help;
-}
-
-/* 指标 tooltip 样式 */
-.metrics-tooltip {
-  font-size: 12px;
-  line-height: 1.5;
-  color: rgb(var(--v-theme-on-surface));
-}
-
-.metrics-tooltip-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 2px 0;
-}
-
-.metrics-tooltip-row span:first-child {
-  color: rgba(var(--v-theme-on-surface), 0.7);
-}
-
-.metrics-tooltip-row span:last-child {
-  font-weight: 500;
-  color: rgb(var(--v-theme-on-surface));
 }
 
 /* =========================================

@@ -272,12 +272,22 @@ func handleMultiChannelGemini(
 		}
 
 		if success {
-			channelScheduler.RecordGeminiSuccess(channelIndex)
+			// ActionNone/no-failover branches return handled=true with an error payload.
+			// Treat any such handled payload as failure so recent success stats stay accurate.
+			if failoverErr != nil {
+				channelScheduler.RecordGeminiFailureWithStatus(channelIndex, failoverErr.Status)
+			} else {
+				channelScheduler.RecordGeminiSuccessWithStatus(channelIndex, 200)
+			}
 			return
 		}
 
 		// Channel failed
-		channelScheduler.RecordGeminiFailure(channelIndex)
+		failureStatus := 0
+		if failoverErr != nil {
+			failureStatus = failoverErr.Status
+		}
+		channelScheduler.RecordGeminiFailureWithStatus(channelIndex, failureStatus)
 		failedChannels[channelIndex] = true
 
 		// Check if there are more channels to try
@@ -785,7 +795,15 @@ func tryGeminiChannel(
 					}
 					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
-					return true, nil
+					return true, &struct {
+						Status       int
+						Body         []byte
+						FailoverInfo string
+					}{
+						Status:       resp.StatusCode,
+						Body:         respBodyBytes,
+						FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, decision.Reason),
+					}
 				}
 			}
 
@@ -944,7 +962,15 @@ func tryGeminiChannel(
 					}
 					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
-					return true, nil
+					return true, &struct {
+						Status       int
+						Body         []byte
+						FailoverInfo string
+					}{
+						Status:       resp.StatusCode,
+						Body:         respBodyBytes,
+						FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, ""),
+					}
 				}
 			} else {
 				// No failover tracker - return error to client
@@ -967,7 +993,15 @@ func tryGeminiChannel(
 				}
 				SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
 				c.Data(resp.StatusCode, "application/json", respBodyBytes)
-				return true, nil
+				return true, &struct {
+					Status       int
+					Body         []byte
+					FailoverInfo string
+				}{
+					Status:       resp.StatusCode,
+					Body:         respBodyBytes,
+					FailoverInfo: requestlog.FormatFailoverInfo(resp.StatusCode, "", requestlog.FailoverActionReturnErr, ""),
+				}
 			}
 		}
 

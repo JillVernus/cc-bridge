@@ -43,6 +43,11 @@ export interface TimeWindowStats {
   successRate: number
 }
 
+export interface RecentCallStat {
+  success: boolean
+  statusCode?: number
+}
+
 export interface ChannelMetrics {
   channelIndex: number
   requestCount: number
@@ -61,6 +66,7 @@ export interface ChannelMetrics {
     '6h': TimeWindowStats
     '24h': TimeWindowStats
   }
+  recentCalls?: RecentCallStat[]
 }
 
 // OAuth tokens for OpenAI OAuth channels (Codex)

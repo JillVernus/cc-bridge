@@ -12,16 +12,23 @@ type RequestRecord struct {
 	Success   bool
 }
 
+// RecentCall 最近调用结果（用于 UI 快速可视化）
+type RecentCall struct {
+	Success    bool `json:"success"`
+	StatusCode int  `json:"statusCode,omitempty"`
+}
+
 // ChannelMetrics 渠道指标
 type ChannelMetrics struct {
-	ChannelIndex        int        `json:"channelIndex"`
-	RequestCount        int64      `json:"requestCount"`
-	SuccessCount        int64      `json:"successCount"`
-	FailureCount        int64      `json:"failureCount"`
-	ConsecutiveFailures int64      `json:"consecutiveFailures"`
-	LastSuccessAt       *time.Time `json:"lastSuccessAt,omitempty"`
-	LastFailureAt       *time.Time `json:"lastFailureAt,omitempty"`
-	CircuitBrokenAt     *time.Time `json:"circuitBrokenAt,omitempty"` // 熔断开始时间
+	ChannelIndex        int          `json:"channelIndex"`
+	RequestCount        int64        `json:"requestCount"`
+	SuccessCount        int64        `json:"successCount"`
+	FailureCount        int64        `json:"failureCount"`
+	ConsecutiveFailures int64        `json:"consecutiveFailures"`
+	LastSuccessAt       *time.Time   `json:"lastSuccessAt,omitempty"`
+	LastFailureAt       *time.Time   `json:"lastFailureAt,omitempty"`
+	CircuitBrokenAt     *time.Time   `json:"circuitBrokenAt,omitempty"` // 熔断开始时间
+	RecentCalls         []RecentCall `json:"recentCalls,omitempty"`     // 最近调用（最多 20 条）
 	// 滑动窗口记录（最近 N 次请求的结果）
 	recentResults []bool // true=success, false=failure
 	// 带时间戳的请求记录（用于分时段统计，保留24小时）
@@ -45,6 +52,8 @@ type MetricsManager struct {
 	circuitRecoveryTime time.Duration           // 熔断恢复时间
 	stopCh              chan struct{}           // 用于停止清理 goroutine
 }
+
+const recentCallsLimit = 20
 
 // NewMetricsManager 创建指标管理器
 func NewMetricsManager() *MetricsManager {
@@ -88,6 +97,7 @@ func (m *MetricsManager) getOrCreate(channelIndex int) *ChannelMetrics {
 	metrics := &ChannelMetrics{
 		ChannelIndex:  channelIndex,
 		recentResults: make([]bool, 0, m.windowSize),
+		RecentCalls:   make([]RecentCall, 0, recentCallsLimit),
 	}
 	m.metrics[channelIndex] = metrics
 	return metrics
@@ -95,6 +105,11 @@ func (m *MetricsManager) getOrCreate(channelIndex int) *ChannelMetrics {
 
 // RecordSuccess 记录成功请求
 func (m *MetricsManager) RecordSuccess(channelIndex int) {
+	m.RecordSuccessWithStatus(channelIndex, 0)
+}
+
+// RecordSuccessWithStatus 记录成功请求（可选状态码）
+func (m *MetricsManager) RecordSuccessWithStatus(channelIndex int, statusCode int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -117,10 +132,18 @@ func (m *MetricsManager) RecordSuccess(channelIndex int) {
 
 	// 记录带时间戳的请求
 	m.appendToHistory(metrics, now, true)
+
+	// 记录最近调用
+	m.appendRecentCall(metrics, true, statusCode)
 }
 
 // RecordFailure 记录失败请求
 func (m *MetricsManager) RecordFailure(channelIndex int) {
+	m.RecordFailureWithStatus(channelIndex, 0)
+}
+
+// RecordFailureWithStatus 记录失败请求（可选状态码）
+func (m *MetricsManager) RecordFailureWithStatus(channelIndex int, statusCode int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -143,6 +166,9 @@ func (m *MetricsManager) RecordFailure(channelIndex int) {
 
 	// 记录带时间戳的请求
 	m.appendToHistory(metrics, now, false)
+
+	// 记录最近调用
+	m.appendRecentCall(metrics, false, statusCode)
 }
 
 // isCircuitBroken 判断是否达到熔断条件（内部方法，调用前需持有锁）
@@ -195,6 +221,20 @@ func (m *MetricsManager) appendToHistory(metrics *ChannelMetrics, timestamp time
 	}
 	if newStart > 0 {
 		metrics.requestHistory = metrics.requestHistory[newStart:]
+	}
+}
+
+// appendRecentCall 记录最近调用结果（最多保留 recentCallsLimit 条）
+func (m *MetricsManager) appendRecentCall(metrics *ChannelMetrics, success bool, statusCode int) {
+	if statusCode < 0 {
+		statusCode = 0
+	}
+	metrics.RecentCalls = append(metrics.RecentCalls, RecentCall{
+		Success:    success,
+		StatusCode: statusCode,
+	})
+	if len(metrics.RecentCalls) > recentCallsLimit {
+		metrics.RecentCalls = metrics.RecentCalls[len(metrics.RecentCalls)-recentCallsLimit:]
 	}
 }
 
@@ -251,6 +291,8 @@ func (m *MetricsManager) GetMetrics(channelIndex int) *ChannelMetrics {
 	defer m.mu.RUnlock()
 
 	if metrics, exists := m.metrics[channelIndex]; exists {
+		recentCalls := make([]RecentCall, len(metrics.RecentCalls))
+		copy(recentCalls, metrics.RecentCalls)
 		// 返回副本
 		return &ChannelMetrics{
 			ChannelIndex:        metrics.ChannelIndex,
@@ -261,6 +303,7 @@ func (m *MetricsManager) GetMetrics(channelIndex int) *ChannelMetrics {
 			LastSuccessAt:       metrics.LastSuccessAt,
 			LastFailureAt:       metrics.LastFailureAt,
 			CircuitBrokenAt:     metrics.CircuitBrokenAt,
+			RecentCalls:         recentCalls,
 		}
 	}
 	return nil
@@ -273,6 +316,8 @@ func (m *MetricsManager) GetAllMetrics() []*ChannelMetrics {
 
 	result := make([]*ChannelMetrics, 0, len(m.metrics))
 	for _, metrics := range m.metrics {
+		recentCalls := make([]RecentCall, len(metrics.RecentCalls))
+		copy(recentCalls, metrics.RecentCalls)
 		result = append(result, &ChannelMetrics{
 			ChannelIndex:        metrics.ChannelIndex,
 			RequestCount:        metrics.RequestCount,
@@ -282,6 +327,7 @@ func (m *MetricsManager) GetAllMetrics() []*ChannelMetrics {
 			LastSuccessAt:       metrics.LastSuccessAt,
 			LastFailureAt:       metrics.LastFailureAt,
 			CircuitBrokenAt:     metrics.CircuitBrokenAt,
+			RecentCalls:         recentCalls,
 		})
 	}
 	return result

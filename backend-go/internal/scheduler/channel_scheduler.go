@@ -750,12 +750,22 @@ func (s *ChannelScheduler) getUpstreamByIndex(index int, isResponses bool) *conf
 
 // RecordSuccess 记录渠道成功
 func (s *ChannelScheduler) RecordSuccess(channelIndex int, isResponses bool) {
-	s.getMetricsManager(isResponses).RecordSuccess(channelIndex)
+	s.RecordSuccessWithStatus(channelIndex, isResponses, 0)
+}
+
+// RecordSuccessWithStatus 记录渠道成功（可选状态码）
+func (s *ChannelScheduler) RecordSuccessWithStatus(channelIndex int, isResponses bool, statusCode int) {
+	s.getMetricsManager(isResponses).RecordSuccessWithStatus(channelIndex, statusCode)
 }
 
 // RecordFailure 记录渠道失败
 func (s *ChannelScheduler) RecordFailure(channelIndex int, isResponses bool) {
-	s.getMetricsManager(isResponses).RecordFailure(channelIndex)
+	s.RecordFailureWithStatus(channelIndex, isResponses, 0)
+}
+
+// RecordFailureWithStatus 记录渠道失败（可选状态码）
+func (s *ChannelScheduler) RecordFailureWithStatus(channelIndex int, isResponses bool, statusCode int) {
+	s.getMetricsManager(isResponses).RecordFailureWithStatus(channelIndex, statusCode)
 }
 
 // SetTraceAffinity 设置 Trace 亲和
@@ -979,12 +989,22 @@ func (s *ChannelScheduler) isGeminiChannelSuspended(channelIndex int) (bool, tim
 
 // RecordGeminiSuccess records success for Gemini channel
 func (s *ChannelScheduler) RecordGeminiSuccess(channelIndex int) {
-	s.geminiMetricsManager.RecordSuccess(channelIndex)
+	s.RecordGeminiSuccessWithStatus(channelIndex, 0)
+}
+
+// RecordGeminiSuccessWithStatus records success for Gemini channel (optional status code)
+func (s *ChannelScheduler) RecordGeminiSuccessWithStatus(channelIndex int, statusCode int) {
+	s.geminiMetricsManager.RecordSuccessWithStatus(channelIndex, statusCode)
 }
 
 // RecordGeminiFailure records failure for Gemini channel
 func (s *ChannelScheduler) RecordGeminiFailure(channelIndex int) {
-	s.geminiMetricsManager.RecordFailure(channelIndex)
+	s.RecordGeminiFailureWithStatus(channelIndex, 0)
+}
+
+// RecordGeminiFailureWithStatus records failure for Gemini channel (optional status code)
+func (s *ChannelScheduler) RecordGeminiFailureWithStatus(channelIndex int, statusCode int) {
+	s.geminiMetricsManager.RecordFailureWithStatus(channelIndex, statusCode)
 }
 
 // ResetGeminiChannelMetrics resets metrics for a Gemini channel
