@@ -826,7 +826,7 @@ func (cm *ConfigManager) saveConfigLocked(config Config) error {
 	// Database is the source of truth in multi-instance deployments
 	if cm.dbStorage != nil {
 		// Ensure all channels have IDs before saving to prevent
-		// duplicate ID generation in concurrent async writes
+		// duplicate ID generation in concurrent writes
 		for i := range config.Upstream {
 			if config.Upstream[i].ID == "" {
 				config.Upstream[i].ID = generateChannelID()
@@ -845,20 +845,16 @@ func (cm *ConfigManager) saveConfigLocked(config Config) error {
 
 		cm.config = config
 
-		// Write to database asynchronously (non-blocking)
-		configCopy := config
-		go func() {
-			start := time.Now()
-			if err := cm.dbStorage.SaveConfigToDB(&configCopy); err != nil {
-				log.Printf("⚠️ Failed to sync config to database: %v", err)
-			} else {
-				elapsed := time.Since(start)
-				if elapsed > 100*time.Millisecond {
-					log.Printf("⏱️ Database sync took %v (async)", elapsed)
-				}
-			}
-		}()
-
+		// Write to database synchronously to guarantee ordering and
+		// return persistence errors to callers.
+		start := time.Now()
+		if err := cm.dbStorage.SaveConfigToDB(&config); err != nil {
+			return err
+		}
+		elapsed := time.Since(start)
+		if elapsed > 100*time.Millisecond {
+			log.Printf("⏱️ Database sync took %v", elapsed)
+		}
 		return nil
 	}
 
