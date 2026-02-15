@@ -233,7 +233,7 @@
                 <v-tooltip location="top" :open-delay="200">
                   <template #activator="{ props: tooltipProps }">
                     <div v-bind="tooltipProps" class="oauth-quota-dual-bar" @click="openOAuthStatus(element)">
-                      <template v-if="getChannelQuota(element.index)?.codex_quota">
+                      <template v-if="getChannelQuota(element)?.codex_quota">
                         <!-- 5h quota bar -->
                         <div class="oauth-quota-row">
                           <span class="oauth-quota-label">5h</span>
@@ -241,12 +241,12 @@
                             <div
                               class="quota-bar"
                               :style="{
-                                width: `${100 - getChannelQuota(element.index)!.codex_quota!.primary_used_percent}%`,
-                                backgroundColor: getQuotaBarColor(getChannelQuota(element.index)!.codex_quota!.primary_used_percent)
+                                width: `${100 - getChannelQuota(element)!.codex_quota!.primary_used_percent}%`,
+                                backgroundColor: getQuotaBarColor(getChannelQuota(element)!.codex_quota!.primary_used_percent)
                               }"
                             />
                           </div>
-                          <span class="quota-text">{{ 100 - getChannelQuota(element.index)!.codex_quota!.primary_used_percent }}%</span>
+                          <span class="quota-text">{{ 100 - getChannelQuota(element)!.codex_quota!.primary_used_percent }}%</span>
                         </div>
                         <!-- 7d quota bar -->
                         <div class="oauth-quota-row">
@@ -255,27 +255,27 @@
                             <div
                               class="quota-bar"
                               :style="{
-                                width: `${100 - getChannelQuota(element.index)!.codex_quota!.secondary_used_percent}%`,
-                                backgroundColor: getQuotaBarColor(getChannelQuota(element.index)!.codex_quota!.secondary_used_percent)
+                                width: `${100 - getChannelQuota(element)!.codex_quota!.secondary_used_percent}%`,
+                                backgroundColor: getQuotaBarColor(getChannelQuota(element)!.codex_quota!.secondary_used_percent)
                               }"
                             />
                           </div>
-                          <span class="quota-text">{{ 100 - getChannelQuota(element.index)!.codex_quota!.secondary_used_percent }}%</span>
+                          <span class="quota-text">{{ 100 - getChannelQuota(element)!.codex_quota!.secondary_used_percent }}%</span>
                         </div>
                       </template>
                       <span v-else class="text-caption text-medium-emphasis">--</span>
                     </div>
                   </template>
                   <div class="quota-tooltip">
-                    <template v-if="getChannelQuota(element.index)?.codex_quota">
+                    <template v-if="getChannelQuota(element)?.codex_quota">
                       <div class="text-caption font-weight-bold mb-1">{{ t('oauth.usageQuota') }}</div>
                       <div class="quota-tooltip-row">
                         <span>{{ t('oauth.primaryWindow') }}:</span>
-                        <span>{{ 100 - getChannelQuota(element.index)!.codex_quota!.primary_used_percent }}% {{ t('orchestration.quotaRemaining') }}</span>
+                        <span>{{ 100 - getChannelQuota(element)!.codex_quota!.primary_used_percent }}% {{ t('orchestration.quotaRemaining') }}</span>
                       </div>
                       <div class="quota-tooltip-row">
                         <span>{{ t('oauth.secondaryWindow') }}:</span>
-                        <span>{{ 100 - getChannelQuota(element.index)!.codex_quota!.secondary_used_percent }}% {{ t('orchestration.quotaRemaining') }}</span>
+                        <span>{{ 100 - getChannelQuota(element)!.codex_quota!.secondary_used_percent }}% {{ t('orchestration.quotaRemaining') }}</span>
                       </div>
                       <div class="text-caption text-medium-emphasis mt-1">{{ t('orchestration.clickForDetails') }}</div>
                     </template>
@@ -649,21 +649,34 @@ const expandedChartChannelId = ref<number | null>(null) // 展开图表的渠道
 const showOAuthStatusDialog = ref(false)
 const oauthStatusChannelId = ref<number | null>(null)
 
-// Quota data for OAuth channels (keyed by channel index)
-const channelQuotas = ref<Record<number, QuotaInfo>>({})
+// Quota data for OAuth channels (keyed by stable channel id when available)
+const channelQuotas = ref<Record<string, QuotaInfo>>({})
+
+const getQuotaKey = (channel: Channel): string => {
+  if (channel.id && channel.id.trim().length > 0) {
+    return `id:${channel.id}`
+  }
+  return `idx:${channel.index}`
+}
 
 // Get quota for a channel
-const getChannelQuota = (channelIndex: number): QuotaInfo | undefined => {
-  return channelQuotas.value[channelIndex]
+const getChannelQuota = (channel: Channel): QuotaInfo | undefined => {
+  return channelQuotas.value[getQuotaKey(channel)]
 }
 
 // Fetch quota for OAuth channels
 const fetchOAuthQuotas = async () => {
   // Only fetch for responses channels with openai-oauth service type
-  if (props.channelType !== 'responses') return
+  if (props.channelType !== 'responses') {
+    channelQuotas.value = {}
+    return
+  }
 
   const oauthChannels = props.channels.filter(ch => ch.serviceType === 'openai-oauth')
-  if (oauthChannels.length === 0) return
+  if (oauthChannels.length === 0) {
+    channelQuotas.value = {}
+    return
+  }
 
   // Fetch quota for each OAuth channel in parallel
   const results = await Promise.allSettled(
@@ -671,7 +684,7 @@ const fetchOAuthQuotas = async () => {
       try {
         const status = await api.getResponsesChannelOAuthStatus(ch.index)
         if (status.quota) {
-          return { index: ch.index, quota: status.quota }
+          return { key: getQuotaKey(ch), quota: status.quota }
         }
         return null
       } catch {
@@ -681,10 +694,10 @@ const fetchOAuthQuotas = async () => {
   )
 
   // Update quotas
-  const newQuotas: Record<number, QuotaInfo> = {}
+  const newQuotas: Record<string, QuotaInfo> = {}
   for (const result of results) {
     if (result.status === 'fulfilled' && result.value) {
-      newQuotas[result.value.index] = result.value.quota
+      newQuotas[result.value.key] = result.value.quota
     }
   }
   channelQuotas.value = newQuotas
@@ -1078,6 +1091,17 @@ watch(() => props.channelType, () => {
   metrics.value = []
   schedulerStats.value = null
   void refreshMetrics()
+  fetchOAuthQuotas()
+  fetchUsageQuotas()
+})
+
+const channelQuotaCacheKey = computed(() => props.channels
+  .map(ch => `${ch.id ?? ''}:${ch.index}:${ch.priority ?? ''}:${ch.status ?? ''}:${ch.serviceType}`)
+  .join('|'))
+
+// Channel indices can change after DB polling / reorder operations.
+// Re-fetch quota snapshots whenever the channel mapping changes.
+watch(channelQuotaCacheKey, () => {
   fetchOAuthQuotas()
   fetchUsageQuotas()
 })

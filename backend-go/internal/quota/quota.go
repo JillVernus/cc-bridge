@@ -358,20 +358,103 @@ func (m *Manager) GetStatus(channelID int) *QuotaStatus {
 	defer m.mu.RUnlock()
 
 	if status, exists := m.quotas[channelID]; exists {
-		// Return a copy to avoid race conditions
-		copy := *status
-		if status.RateLimit != nil {
-			rlCopy := *status.RateLimit
-			copy.RateLimit = &rlCopy
-		}
-		if status.CodexQuota != nil {
-			cqCopy := *status.CodexQuota
-			copy.CodexQuota = &cqCopy
-		}
-		return &copy
+		return cloneStatus(status)
 	}
 
 	return nil
+}
+
+// GetStatusForChannel returns quota status for a channel index/name pair.
+// It protects against stale index remapping by validating channel name.
+// If index lookup mismatches the expected name, it attempts to locate by name
+// and remap the in-memory key to the current channel index.
+func (m *Manager) GetStatusForChannel(channelID int, channelName string) *QuotaStatus {
+	if m == nil {
+		return nil
+	}
+
+	name := strings.TrimSpace(channelName)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if status, exists := m.quotas[channelID]; exists {
+		// Fast path: channel identity matches or cannot be validated.
+		if name == "" || status.ChannelName == "" || status.ChannelName == name {
+			if status.ChannelName == "" && name != "" {
+				status.ChannelName = name
+				m.persist(status)
+			}
+			return cloneStatus(status)
+		}
+	}
+
+	if name == "" {
+		return nil
+	}
+
+	// Slow path: find best status with matching channel name and remap.
+	matchID := -1
+	var match *QuotaStatus
+	var matchUpdatedAt time.Time
+	for id, candidate := range m.quotas {
+		if candidate == nil || candidate.ChannelName != name {
+			continue
+		}
+		candidateUpdatedAt := statusUpdatedAt(candidate)
+		if match == nil || candidateUpdatedAt.After(matchUpdatedAt) {
+			match = candidate
+			matchID = id
+			matchUpdatedAt = candidateUpdatedAt
+		}
+	}
+
+	if match == nil {
+		// Avoid returning stale data for the wrong channel.
+		delete(m.quotas, channelID)
+		return nil
+	}
+
+	remapped := *match
+	remapped.ChannelID = channelID
+	remapped.ChannelName = name
+	m.quotas[channelID] = &remapped
+	if matchID >= 0 && matchID != channelID {
+		delete(m.quotas, matchID)
+	}
+	m.persist(&remapped)
+
+	return cloneStatus(&remapped)
+}
+
+func cloneStatus(status *QuotaStatus) *QuotaStatus {
+	if status == nil {
+		return nil
+	}
+	copy := *status
+	if status.RateLimit != nil {
+		rlCopy := *status.RateLimit
+		copy.RateLimit = &rlCopy
+	}
+	if status.CodexQuota != nil {
+		cqCopy := *status.CodexQuota
+		copy.CodexQuota = &cqCopy
+	}
+	return &copy
+}
+
+func statusUpdatedAt(status *QuotaStatus) time.Time {
+	if status == nil {
+		return time.Time{}
+	}
+	updatedAt := status.ExceededAt
+	if status.CodexQuota != nil && status.CodexQuota.UpdatedAt.After(updatedAt) {
+		updatedAt = status.CodexQuota.UpdatedAt
+	}
+	if status.RateLimit != nil && status.RateLimit.UpdatedAt.After(updatedAt) {
+		updatedAt = status.RateLimit.UpdatedAt
+	}
+	return updatedAt
 }
 
 // parseCodexHeaders extracts Codex quota info from response headers

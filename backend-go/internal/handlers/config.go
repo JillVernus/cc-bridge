@@ -1172,7 +1172,8 @@ func GetResponsesChannelOAuthStatus(cfgManager *config.ConfigManager) gin.Handle
 		}
 
 		// Add quota/rate limit information
-		if quotaStatus := quota.GetManager().GetStatus(id); quotaStatus != nil {
+		// Use name-aware lookup to avoid stale quota data when channel indices are re-indexed.
+		if quotaStatus := quota.GetManager().GetStatusForChannel(id, upstream.Name); quotaStatus != nil {
 			quotaInfo := gin.H{}
 
 			// Codex-specific quota (primary/secondary windows)
