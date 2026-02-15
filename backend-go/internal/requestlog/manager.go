@@ -506,6 +506,17 @@ func isMissingColumnErr(err error, column string) bool {
 		strings.Contains(msg, "unknown column")
 }
 
+func isAnyMissingColumnErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "does not exist") ||
+		strings.Contains(msg, "no such column") ||
+		strings.Contains(msg, "no column") ||
+		strings.Contains(msg, "unknown column")
+}
+
 // Add inserts a new request log record
 func (m *Manager) Add(record *RequestLog) error {
 	m.mu.Lock()
@@ -581,16 +592,14 @@ func (m *Manager) Add(record *RequestLog) error {
 		record.FailoverInfo,
 		record.CreatedAt,
 	)
-	if err != nil && isMissingColumnErr(err, "channel_uid") {
+	if err != nil && isAnyMissingColumnErr(err) {
 		legacyQuery := `
 		INSERT INTO request_logs (
 			id, status, initial_time, complete_time, duration_ms,
-			provider, provider_name, model, response_model, reasoning_effort, input_tokens, output_tokens,
-			cache_creation_input_tokens, cache_read_input_tokens, total_tokens,
-			price, input_cost, output_cost, cache_creation_cost, cache_read_cost,
-			http_status, stream, channel_id, channel_name,
-			endpoint, client_id, session_id, api_key_id, error, upstream_error, failover_info, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			provider, model, input_tokens, output_tokens, total_tokens,
+			price, http_status, stream, channel_id, channel_name,
+			endpoint, error, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`
 		_, err = m.db.Exec(m.convertQuery(legacyQuery),
 			record.ID,
@@ -599,35 +608,21 @@ func (m *Manager) Add(record *RequestLog) error {
 			record.CompleteTime,
 			record.DurationMs,
 			record.Type,
-			record.ProviderName,
 			record.Model,
-			record.ResponseModel,
-			record.ReasoningEffort,
 			record.InputTokens,
 			record.OutputTokens,
-			record.CacheCreationInputTokens,
-			record.CacheReadInputTokens,
 			record.TotalTokens,
 			record.Price,
-			record.InputCost,
-			record.OutputCost,
-			record.CacheCreationCost,
-			record.CacheReadCost,
 			record.HTTPStatus,
 			record.Stream,
 			record.ChannelID,
 			record.ChannelName,
 			record.Endpoint,
-			record.ClientID,
-			record.SessionID,
-			apiKeyID,
 			record.Error,
-			record.UpstreamError,
-			record.FailoverInfo,
 			record.CreatedAt,
 		)
 		if err == nil {
-			log.Printf("⚠️ request_logs.channel_uid missing; inserted request log in legacy compatibility mode")
+			log.Printf("⚠️ request_logs schema drift detected; inserted request log in legacy compatibility mode")
 		}
 	}
 
@@ -724,25 +719,17 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 		record.FailoverInfo,
 		id,
 	)
-	if err != nil && isMissingColumnErr(err, "channel_uid") {
+	if err != nil && isAnyMissingColumnErr(err) {
 		legacyQuery := `
 		UPDATE request_logs SET
 			status = ?,
 			complete_time = ?,
 			duration_ms = ?,
 			provider = ?,
-			provider_name = ?,
-			response_model = ?,
 			input_tokens = ?,
 			output_tokens = ?,
-			cache_creation_input_tokens = ?,
-			cache_read_input_tokens = ?,
 			total_tokens = ?,
 			price = ?,
-			input_cost = ?,
-			output_cost = ?,
-			cache_creation_cost = ?,
-			cache_read_cost = ?,
 			http_status = ?,
 			channel_id = CASE
 				WHEN TRIM(COALESCE(?, '')) != '' THEN ?
@@ -762,18 +749,10 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 			record.CompleteTime,
 			record.DurationMs,
 			record.Type,
-			record.ProviderName,
-			record.ResponseModel,
 			record.InputTokens,
 			record.OutputTokens,
-			record.CacheCreationInputTokens,
-			record.CacheReadInputTokens,
 			record.TotalTokens,
 			record.Price,
-			record.InputCost,
-			record.OutputCost,
-			record.CacheCreationCost,
-			record.CacheReadCost,
 			record.HTTPStatus,
 			record.ChannelName,
 			record.ChannelID,
@@ -785,7 +764,7 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 			id,
 		)
 		if err == nil {
-			log.Printf("⚠️ request_logs.channel_uid missing; updated request log in legacy compatibility mode")
+			log.Printf("⚠️ request_logs schema drift detected; updated request log in legacy compatibility mode")
 		}
 	}
 
@@ -1139,7 +1118,7 @@ func (m *Manager) GetRecentChannelCalls(limitPerChannel int) ([]ChannelRecentCal
 		StatusError,
 		limitPerChannel,
 	)
-	if err != nil && isMissingColumnErr(err, "channel_uid") {
+	if err != nil && isAnyMissingColumnErr(err) {
 		legacyQuery := m.convertQuery(`
 			WITH ranked AS (
 				SELECT
@@ -1176,7 +1155,7 @@ func (m *Manager) GetRecentChannelCalls(limitPerChannel int) ([]ChannelRecentCal
 		)
 		if err == nil {
 			legacyMode = true
-			log.Printf("⚠️ request_logs.channel_uid missing; reading recent channel calls in legacy compatibility mode")
+			log.Printf("⚠️ request_logs schema drift detected; reading recent channel calls in legacy compatibility mode")
 		}
 	}
 	if err != nil {
