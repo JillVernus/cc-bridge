@@ -191,8 +191,13 @@ func main() {
 			return ""
 		})
 
-		// Restore recent API call slots from persisted request logs (for channel metrics UI)
-		seedRecentCallMetricsFromLogs(reqLogManager, channelScheduler, cfgManager)
+		// Restore recent API call slots from persisted request logs (for channel metrics UI).
+		// Run immediately, then retry once after startup settles (DB/config polling) to avoid cold-start races.
+		seedRecentCallMetricsFromLogs(reqLogManager, channelScheduler, cfgManager, false)
+		go func() {
+			time.Sleep(8 * time.Second)
+			seedRecentCallMetricsFromLogs(reqLogManager, channelScheduler, cfgManager, true)
+		}()
 
 		// 连接调度器与请求日志管理器（用于配额渠道暂停检查）
 		channelScheduler.SetSuspensionChecker(reqLogManager)
@@ -668,7 +673,7 @@ func main() {
 	}
 }
 
-func seedRecentCallMetricsFromLogs(reqLogManager *requestlog.Manager, channelScheduler *scheduler.ChannelScheduler, cfgManager *config.ConfigManager) {
+func seedRecentCallMetricsFromLogs(reqLogManager *requestlog.Manager, channelScheduler *scheduler.ChannelScheduler, cfgManager *config.ConfigManager, onlyFillEmpty bool) {
 	if reqLogManager == nil || channelScheduler == nil {
 		return
 	}
@@ -689,6 +694,9 @@ func seedRecentCallMetricsFromLogs(reqLogManager *requestlog.Manager, channelSch
 	nameRemapped := 0
 
 	var cfg config.Config
+	var messagesUpstreams []config.UpstreamConfig
+	var responsesUpstreams []config.UpstreamConfig
+	var geminiUpstreams []config.UpstreamConfig
 	var messagesIDToIndex map[string]int
 	var responsesIDToIndex map[string]int
 	var geminiIDToIndex map[string]int
@@ -700,15 +708,18 @@ func seedRecentCallMetricsFromLogs(reqLogManager *requestlog.Manager, channelSch
 	geminiCount := 0
 	if cfgManager != nil {
 		cfg = cfgManager.GetConfig()
-		messagesIDToIndex = buildChannelIDIndex(cfg.Upstream)
-		responsesIDToIndex = buildChannelIDIndex(cfg.ResponsesUpstream)
-		geminiIDToIndex = buildChannelIDIndex(cfg.GeminiUpstream)
-		messagesNameToIndex = buildUniqueChannelNameIndex(cfg.Upstream)
-		responsesNameToIndex = buildUniqueChannelNameIndex(cfg.ResponsesUpstream)
-		geminiNameToIndex = buildUniqueChannelNameIndex(cfg.GeminiUpstream)
-		messagesCount = len(cfg.Upstream)
-		responsesCount = len(cfg.ResponsesUpstream)
-		geminiCount = len(cfg.GeminiUpstream)
+		messagesUpstreams = cfg.Upstream
+		responsesUpstreams = cfg.ResponsesUpstream
+		geminiUpstreams = cfg.GeminiUpstream
+		messagesIDToIndex = buildChannelIDIndex(messagesUpstreams)
+		responsesIDToIndex = buildChannelIDIndex(responsesUpstreams)
+		geminiIDToIndex = buildChannelIDIndex(geminiUpstreams)
+		messagesNameToIndex = buildUniqueChannelNameIndex(messagesUpstreams)
+		responsesNameToIndex = buildUniqueChannelNameIndex(responsesUpstreams)
+		geminiNameToIndex = buildUniqueChannelNameIndex(geminiUpstreams)
+		messagesCount = len(messagesUpstreams)
+		responsesCount = len(responsesUpstreams)
+		geminiCount = len(geminiUpstreams)
 	}
 
 	for _, call := range recentCalls {
@@ -740,6 +751,22 @@ func seedRecentCallMetricsFromLogs(reqLogManager *requestlog.Manager, channelSch
 			Model:       call.Model,
 			ChannelName: call.ChannelName,
 		}
+		if mappedBy == "uid" || mappedBy == "name" {
+			switch call.Endpoint {
+			case "/v1/messages":
+				if targetIndex >= 0 && targetIndex < len(messagesUpstreams) {
+					restored.ChannelName = strings.TrimSpace(messagesUpstreams[targetIndex].Name)
+				}
+			case "/v1/responses":
+				if targetIndex >= 0 && targetIndex < len(responsesUpstreams) {
+					restored.ChannelName = strings.TrimSpace(responsesUpstreams[targetIndex].Name)
+				}
+			case "/v1/gemini":
+				if targetIndex >= 0 && targetIndex < len(geminiUpstreams) {
+					restored.ChannelName = strings.TrimSpace(geminiUpstreams[targetIndex].Name)
+				}
+			}
+		}
 		switch call.Endpoint {
 		case "/v1/messages":
 			messagesSeed[targetIndex] = append(messagesSeed[targetIndex], restored)
@@ -753,6 +780,12 @@ func seedRecentCallMetricsFromLogs(reqLogManager *requestlog.Manager, channelSch
 	seedMetrics := func(manager *metrics.MetricsManager, data map[int][]metrics.RecentCall) int {
 		seeded := 0
 		for channelID, calls := range data {
+			if onlyFillEmpty {
+				existing := manager.GetMetrics(channelID)
+				if existing != nil && len(existing.RecentCalls) > 0 {
+					continue
+				}
+			}
 			manager.SeedRecentCalls(channelID, calls)
 			seeded++
 		}
