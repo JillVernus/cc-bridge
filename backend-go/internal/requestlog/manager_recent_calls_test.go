@@ -180,6 +180,179 @@ func TestGetRecentChannelCalls(t *testing.T) {
 	}
 }
 
+func TestGetRecentChannelCalls_ChannelUIDGroupingAcrossIndexChanges(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "request_logs_uid.db")
+	manager, err := NewManager(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create manager: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = manager.Close()
+	})
+
+	base := time.Date(2026, 2, 16, 8, 0, 0, 0, time.UTC)
+	uid := "stable-channel-uid"
+
+	// Same stable channel UID but different historical channel indexes.
+	mustAddLog(t, manager, &RequestLog{
+		Status:       StatusCompleted,
+		InitialTime:  base.Add(1 * time.Second),
+		Type:         "claude",
+		ProviderName: "messages-changed",
+		Model:        "test-model",
+		HTTPStatus:   200,
+		Stream:       false,
+		ChannelID:    1,
+		ChannelUID:   uid,
+		ChannelName:  "messages-stable",
+		Endpoint:     "/v1/messages",
+	})
+	mustAddLog(t, manager, &RequestLog{
+		Status:       StatusError,
+		InitialTime:  base.Add(2 * time.Second),
+		Type:         "claude",
+		ProviderName: "messages-changed",
+		Model:        "test-model",
+		HTTPStatus:   503,
+		Stream:       false,
+		ChannelID:    5, // index changed after reorder
+		ChannelUID:   uid,
+		ChannelName:  "messages-stable",
+		Endpoint:     "/v1/messages",
+	})
+
+	calls, err := manager.GetRecentChannelCalls(20)
+	if err != nil {
+		t.Fatalf("GetRecentChannelCalls failed: %v", err)
+	}
+
+	var matched []ChannelRecentCall
+	for _, call := range calls {
+		if call.Endpoint == "/v1/messages" && call.ChannelUID == uid {
+			matched = append(matched, call)
+		}
+	}
+
+	if len(matched) != 2 {
+		t.Fatalf("expected both historical indices grouped under same uid, got %d records", len(matched))
+	}
+	if !matched[0].Success || matched[0].HTTPStatus != 200 {
+		t.Fatalf("unexpected first uid call: %+v", matched[0])
+	}
+	if matched[1].Success || matched[1].HTTPStatus != 503 {
+		t.Fatalf("unexpected second uid call: %+v", matched[1])
+	}
+}
+
+func TestAdd_ResolvesChannelUIDViaResolver(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "request_logs_resolver.db")
+	manager, err := NewManager(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create manager: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = manager.Close()
+	})
+
+	manager.SetChannelUIDResolver(func(endpoint string, channelIndex int, channelName string) string {
+		if endpoint == "/v1/messages" && channelIndex == 2 && channelName == "messages-2" {
+			return "msg-uid-2"
+		}
+		return ""
+	})
+
+	mustAddLog(t, manager, &RequestLog{
+		Status:       StatusCompleted,
+		InitialTime:  time.Date(2026, 2, 16, 9, 0, 0, 0, time.UTC),
+		Type:         "claude",
+		ProviderName: "messages-ch2",
+		Model:        "test-model",
+		HTTPStatus:   200,
+		Stream:       false,
+		ChannelID:    2,
+		ChannelName:  "messages-2",
+		Endpoint:     "/v1/messages",
+	})
+
+	calls, err := manager.GetRecentChannelCalls(20)
+	if err != nil {
+		t.Fatalf("GetRecentChannelCalls failed: %v", err)
+	}
+
+	found := false
+	for _, call := range calls {
+		if call.Endpoint == "/v1/messages" && call.ChannelID == 2 {
+			found = true
+			if call.ChannelUID != "msg-uid-2" {
+				t.Fatalf("expected resolved channel uid msg-uid-2, got %q", call.ChannelUID)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected restored call for messages#2")
+	}
+}
+
+func TestUpdate_PreservesResolvedChannelUIDWhenEndpointMissing(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "request_logs_update_uid.db")
+	manager, err := NewManager(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create manager: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = manager.Close()
+	})
+
+	manager.SetChannelUIDResolver(func(endpoint string, channelIndex int, channelName string) string {
+		if channelName == "messages-a" {
+			return "uid-messages-a"
+		}
+		return ""
+	})
+
+	base := time.Date(2026, 2, 16, 10, 0, 0, 0, time.UTC)
+	record := &RequestLog{
+		Status:       StatusPending,
+		InitialTime:  base,
+		Type:         "claude",
+		ProviderName: "messages-a",
+		Model:        "test-model",
+		Stream:       false,
+		Endpoint:     "/v1/messages",
+	}
+	if err := manager.Add(record); err != nil {
+		t.Fatalf("failed to add pending log: %v", err)
+	}
+
+	// Complete request with channel metadata but without endpoint.
+	// This matches real handler update paths and must still keep UID linkage.
+	update := &RequestLog{
+		Status:       StatusCompleted,
+		CompleteTime: base.Add(2 * time.Second),
+		DurationMs:   2000,
+		Type:         "claude",
+		ProviderName: "messages-a",
+		Model:        "test-model",
+		HTTPStatus:   200,
+		ChannelID:    3,
+		ChannelName:  "messages-a",
+	}
+	if err := manager.Update(record.ID, update); err != nil {
+		t.Fatalf("failed to update log: %v", err)
+	}
+
+	got, err := manager.GetByID(record.ID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	if got.ChannelUID != "uid-messages-a" {
+		t.Fatalf("expected channel uid to be resolved and preserved, got %q", got.ChannelUID)
+	}
+	if got.ChannelID != 3 {
+		t.Fatalf("expected channel id=3, got %d", got.ChannelID)
+	}
+}
+
 func mustAddLog(t *testing.T, manager *Manager, record *RequestLog) {
 	t.Helper()
 

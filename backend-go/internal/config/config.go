@@ -473,6 +473,37 @@ type ConfigManager struct {
 	disableFileWatcher    bool             // Disable file watcher when using database polling
 }
 
+func (cm *ConfigManager) ensureUniqueChannelNameLocked(name string, channelType string, excludeIndex int) error {
+	candidate := strings.ToLower(strings.TrimSpace(name))
+	if candidate == "" {
+		return fmt.Errorf("channel name is required")
+	}
+
+	check := func(upstreams []UpstreamConfig, typ string) error {
+		for i := range upstreams {
+			if typ == channelType && i == excludeIndex {
+				continue
+			}
+			other := strings.ToLower(strings.TrimSpace(upstreams[i].Name))
+			if other != "" && other == candidate {
+				return fmt.Errorf("duplicate channel name: %s", name)
+			}
+		}
+		return nil
+	}
+
+	if err := check(cm.config.Upstream, "messages"); err != nil {
+		return err
+	}
+	if err := check(cm.config.ResponsesUpstream, "responses"); err != nil {
+		return err
+	}
+	if err := check(cm.config.GeminiUpstream, "gemini"); err != nil {
+		return err
+	}
+	return nil
+}
+
 const (
 	maxBackups      = 10
 	keyRecoveryTime = 5 * time.Minute
@@ -1329,6 +1360,14 @@ func (cm *ConfigManager) AddUpstream(upstream UpstreamConfig) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
+	upstream.Name = strings.TrimSpace(upstream.Name)
+	if upstream.Name == "" {
+		return fmt.Errorf("channel name is required")
+	}
+	if err := cm.ensureUniqueChannelNameLocked(upstream.Name, "messages", -1); err != nil {
+		return err
+	}
+
 	// Generate unique ID if not provided
 	if upstream.ID == "" {
 		upstream.ID = generateChannelID()
@@ -1377,7 +1416,14 @@ func (cm *ConfigManager) UpdateUpstream(index int, updates UpstreamUpdate) (shou
 	upstream := &cm.config.Upstream[index]
 
 	if updates.Name != nil {
-		upstream.Name = *updates.Name
+		name := strings.TrimSpace(*updates.Name)
+		if name == "" {
+			return false, fmt.Errorf("channel name is required")
+		}
+		if err := cm.ensureUniqueChannelNameLocked(name, "messages", index); err != nil {
+			return false, err
+		}
+		upstream.Name = name
 	}
 	if updates.BaseURL != nil {
 		upstream.BaseURL = *updates.BaseURL
@@ -2123,6 +2169,14 @@ func (cm *ConfigManager) AddResponsesUpstream(upstream UpstreamConfig) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
+	upstream.Name = strings.TrimSpace(upstream.Name)
+	if upstream.Name == "" {
+		return fmt.Errorf("channel name is required")
+	}
+	if err := cm.ensureUniqueChannelNameLocked(upstream.Name, "responses", -1); err != nil {
+		return err
+	}
+
 	// Generate unique ID if not provided
 	if upstream.ID == "" {
 		upstream.ID = generateChannelID()
@@ -2164,7 +2218,14 @@ func (cm *ConfigManager) UpdateResponsesUpstream(index int, updates UpstreamUpda
 	upstream := &cm.config.ResponsesUpstream[index]
 
 	if updates.Name != nil {
-		upstream.Name = *updates.Name
+		name := strings.TrimSpace(*updates.Name)
+		if name == "" {
+			return false, fmt.Errorf("channel name is required")
+		}
+		if err := cm.ensureUniqueChannelNameLocked(name, "responses", index); err != nil {
+			return false, err
+		}
+		upstream.Name = name
 	}
 	if updates.BaseURL != nil {
 		upstream.BaseURL = *updates.BaseURL
@@ -2833,6 +2894,14 @@ func (cm *ConfigManager) AddGeminiUpstream(upstream UpstreamConfig) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
+	upstream.Name = strings.TrimSpace(upstream.Name)
+	if upstream.Name == "" {
+		return fmt.Errorf("channel name is required")
+	}
+	if err := cm.ensureUniqueChannelNameLocked(upstream.Name, "gemini", -1); err != nil {
+		return err
+	}
+
 	// Generate unique ID if not provided
 	if upstream.ID == "" {
 		upstream.ID = generateChannelID()
@@ -2874,7 +2943,14 @@ func (cm *ConfigManager) UpdateGeminiUpstream(index int, updates UpstreamUpdate)
 	upstream := &cm.config.GeminiUpstream[index]
 
 	if updates.Name != nil {
-		upstream.Name = *updates.Name
+		name := strings.TrimSpace(*updates.Name)
+		if name == "" {
+			return false, fmt.Errorf("channel name is required")
+		}
+		if err := cm.ensureUniqueChannelNameLocked(name, "gemini", index); err != nil {
+			return false, err
+		}
+		upstream.Name = name
 	}
 	if updates.BaseURL != nil {
 		upstream.BaseURL = *updates.BaseURL

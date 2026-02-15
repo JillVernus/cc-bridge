@@ -28,6 +28,7 @@ type LogCreatedPayload struct {
 	ProviderName    string    `json:"providerName"`
 	Model           string    `json:"model"`
 	ChannelID       int       `json:"channelId"`
+	ChannelUID      string    `json:"channelUid,omitempty"`
 	ChannelName     string    `json:"channelName"`
 	Endpoint        string    `json:"endpoint"`
 	Stream          bool      `json:"stream"`
@@ -46,6 +47,7 @@ type LogUpdatedPayload struct {
 	Type                     string  `json:"type"`         // claude, openai, gemini
 	ProviderName             string  `json:"providerName"` // channel name
 	ChannelID                int     `json:"channelId"`
+	ChannelUID               string  `json:"channelUid,omitempty"`
 	ChannelName              string  `json:"channelName"`
 	InputTokens              int     `json:"inputTokens"`
 	OutputTokens             int     `json:"outputTokens"`
@@ -87,6 +89,7 @@ func NewLogCreatedEvent(record *RequestLog) *LogEvent {
 			ProviderName:    record.ProviderName,
 			Model:           record.Model,
 			ChannelID:       record.ChannelID,
+			ChannelUID:      record.ChannelUID,
 			ChannelName:     record.ChannelName,
 			Endpoint:        record.Endpoint,
 			Stream:          record.Stream,
@@ -111,6 +114,7 @@ func NewLogUpdatedEvent(id string, record *RequestLog) *LogEvent {
 			Type:                     record.Type,
 			ProviderName:             record.ProviderName,
 			ChannelID:                record.ChannelID,
+			ChannelUID:               record.ChannelUID,
 			ChannelName:              record.ChannelName,
 			InputTokens:              record.InputTokens,
 			OutputTokens:             record.OutputTokens,

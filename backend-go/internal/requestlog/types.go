@@ -68,6 +68,7 @@ type RequestLog struct {
 	HTTPStatus    int       `json:"httpStatus"`
 	Stream        bool      `json:"stream"`
 	ChannelID     int       `json:"channelId"`
+	ChannelUID    string    `json:"channelUid,omitempty"`
 	ChannelName   string    `json:"channelName"`
 	Endpoint      string    `json:"endpoint"`            // /v1/messages or /v1/responses
 	ClientID      string    `json:"clientId,omitempty"`  // Client/machine identifier
@@ -163,6 +164,7 @@ type RequestLogListResponse struct {
 type ChannelRecentCall struct {
 	Endpoint    string    `json:"endpoint"`
 	ChannelID   int       `json:"channelId"`
+	ChannelUID  string    `json:"channelUid,omitempty"`
 	Success     bool      `json:"success"`
 	HTTPStatus  int       `json:"httpStatus"`
 	Model       string    `json:"model,omitempty"`

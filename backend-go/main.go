@@ -6,6 +6,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/JillVernus/cc-bridge/internal/aliases"
@@ -121,8 +122,77 @@ func main() {
 	}
 
 	if reqLogManager != nil {
+		// Prefer stable channel UID linkage for request logs.
+		// This ensures reorders do not break restore and analytics.
+		reqLogManager.SetChannelUIDResolver(func(endpoint string, index int, channelName string) string {
+			cfg := cfgManager.GetConfig()
+
+			findByName := func(upstreams []config.UpstreamConfig, normalizedName string) string {
+				matches := 0
+				resolvedUID := ""
+				for _, upstream := range upstreams {
+					if strings.ToLower(strings.TrimSpace(upstream.Name)) == normalizedName {
+						channelUID := strings.TrimSpace(upstream.ID)
+						if channelUID == "" {
+							continue
+						}
+						matches++
+						resolvedUID = channelUID
+					}
+				}
+				if matches == 1 {
+					return resolvedUID
+				}
+				return ""
+			}
+
+			normalizedName := strings.ToLower(strings.TrimSpace(channelName))
+			if normalizedName != "" {
+				switch endpoint {
+				case "/v1/messages":
+					if uid := findByName(cfg.Upstream, normalizedName); uid != "" {
+						return uid
+					}
+				case "/v1/responses":
+					if uid := findByName(cfg.ResponsesUpstream, normalizedName); uid != "" {
+						return uid
+					}
+				case "/v1/gemini":
+					if uid := findByName(cfg.GeminiUpstream, normalizedName); uid != "" {
+						return uid
+					}
+				default:
+					if uid := findByName(cfg.Upstream, normalizedName); uid != "" {
+						return uid
+					}
+					if uid := findByName(cfg.ResponsesUpstream, normalizedName); uid != "" {
+						return uid
+					}
+					if uid := findByName(cfg.GeminiUpstream, normalizedName); uid != "" {
+						return uid
+					}
+				}
+			}
+
+			var upstreams []config.UpstreamConfig
+			switch endpoint {
+			case "/v1/messages":
+				upstreams = cfg.Upstream
+			case "/v1/responses":
+				upstreams = cfg.ResponsesUpstream
+			case "/v1/gemini":
+				upstreams = cfg.GeminiUpstream
+			default:
+				return ""
+			}
+			if index >= 0 && index < len(upstreams) {
+				return strings.TrimSpace(upstreams[index].ID)
+			}
+			return ""
+		})
+
 		// Restore recent API call slots from persisted request logs (for channel metrics UI)
-		seedRecentCallMetricsFromLogs(reqLogManager, channelScheduler)
+		seedRecentCallMetricsFromLogs(reqLogManager, channelScheduler, cfgManager)
 
 		// 连接调度器与请求日志管理器（用于配额渠道暂停检查）
 		channelScheduler.SetSuspensionChecker(reqLogManager)
@@ -598,7 +668,7 @@ func main() {
 	}
 }
 
-func seedRecentCallMetricsFromLogs(reqLogManager *requestlog.Manager, channelScheduler *scheduler.ChannelScheduler) {
+func seedRecentCallMetricsFromLogs(reqLogManager *requestlog.Manager, channelScheduler *scheduler.ChannelScheduler, cfgManager *config.ConfigManager) {
 	if reqLogManager == nil || channelScheduler == nil {
 		return
 	}
@@ -615,8 +685,54 @@ func seedRecentCallMetricsFromLogs(reqLogManager *requestlog.Manager, channelSch
 	messagesSeed := make(map[int][]metrics.RecentCall)
 	responsesSeed := make(map[int][]metrics.RecentCall)
 	geminiSeed := make(map[int][]metrics.RecentCall)
+	uidRemapped := 0
+	nameRemapped := 0
+
+	var cfg config.Config
+	var messagesIDToIndex map[string]int
+	var responsesIDToIndex map[string]int
+	var geminiIDToIndex map[string]int
+	var messagesNameToIndex map[string]int
+	var responsesNameToIndex map[string]int
+	var geminiNameToIndex map[string]int
+	messagesCount := 0
+	responsesCount := 0
+	geminiCount := 0
+	if cfgManager != nil {
+		cfg = cfgManager.GetConfig()
+		messagesIDToIndex = buildChannelIDIndex(cfg.Upstream)
+		responsesIDToIndex = buildChannelIDIndex(cfg.ResponsesUpstream)
+		geminiIDToIndex = buildChannelIDIndex(cfg.GeminiUpstream)
+		messagesNameToIndex = buildUniqueChannelNameIndex(cfg.Upstream)
+		responsesNameToIndex = buildUniqueChannelNameIndex(cfg.ResponsesUpstream)
+		geminiNameToIndex = buildUniqueChannelNameIndex(cfg.GeminiUpstream)
+		messagesCount = len(cfg.Upstream)
+		responsesCount = len(cfg.ResponsesUpstream)
+		geminiCount = len(cfg.GeminiUpstream)
+	}
 
 	for _, call := range recentCalls {
+		targetIndex := -1
+		mappedBy := ""
+		switch call.Endpoint {
+		case "/v1/messages":
+			targetIndex, mappedBy = resolveSeedTargetIndex(call.ChannelUID, call.ChannelID, call.ChannelName, messagesIDToIndex, messagesNameToIndex, messagesCount)
+		case "/v1/responses":
+			targetIndex, mappedBy = resolveSeedTargetIndex(call.ChannelUID, call.ChannelID, call.ChannelName, responsesIDToIndex, responsesNameToIndex, responsesCount)
+		case "/v1/gemini":
+			targetIndex, mappedBy = resolveSeedTargetIndex(call.ChannelUID, call.ChannelID, call.ChannelName, geminiIDToIndex, geminiNameToIndex, geminiCount)
+		}
+		if targetIndex < 0 {
+			continue
+		}
+		if targetIndex != call.ChannelID {
+			if mappedBy == "uid" {
+				uidRemapped++
+			} else if mappedBy == "name" {
+				nameRemapped++
+			}
+		}
+
 		restored := metrics.RecentCall{
 			Success:     call.Success,
 			StatusCode:  call.HTTPStatus,
@@ -626,11 +742,11 @@ func seedRecentCallMetricsFromLogs(reqLogManager *requestlog.Manager, channelSch
 		}
 		switch call.Endpoint {
 		case "/v1/messages":
-			messagesSeed[call.ChannelID] = append(messagesSeed[call.ChannelID], restored)
+			messagesSeed[targetIndex] = append(messagesSeed[targetIndex], restored)
 		case "/v1/responses":
-			responsesSeed[call.ChannelID] = append(responsesSeed[call.ChannelID], restored)
+			responsesSeed[targetIndex] = append(responsesSeed[targetIndex], restored)
 		case "/v1/gemini":
-			geminiSeed[call.ChannelID] = append(geminiSeed[call.ChannelID], restored)
+			geminiSeed[targetIndex] = append(geminiSeed[targetIndex], restored)
 		}
 	}
 
@@ -650,5 +766,72 @@ func seedRecentCallMetricsFromLogs(reqLogManager *requestlog.Manager, channelSch
 	if messagesSeeded > 0 || responsesSeeded > 0 || geminiSeeded > 0 {
 		log.Printf("✅ 已恢复最近 API 调用槽位 (messages: %d, responses: %d, gemini: %d)",
 			messagesSeeded, responsesSeeded, geminiSeeded)
+		if uidRemapped > 0 || nameRemapped > 0 {
+			log.Printf("🔁 最近 API 调用槽位重映射完成 (by channelUid: %d, by channelName: %d)", uidRemapped, nameRemapped)
+		}
 	}
+}
+
+func buildChannelIDIndex(upstreams []config.UpstreamConfig) map[string]int {
+	idToIndex := make(map[string]int, len(upstreams))
+	for i, up := range upstreams {
+		channelID := strings.TrimSpace(up.ID)
+		if channelID == "" {
+			continue
+		}
+		idToIndex[channelID] = i
+	}
+	return idToIndex
+}
+
+func buildUniqueChannelNameIndex(upstreams []config.UpstreamConfig) map[string]int {
+	nameCount := make(map[string]int, len(upstreams))
+	for _, up := range upstreams {
+		name := strings.ToLower(strings.TrimSpace(up.Name))
+		if name == "" {
+			continue
+		}
+		nameCount[name]++
+	}
+
+	nameToIndex := make(map[string]int, len(upstreams))
+	for i, up := range upstreams {
+		name := strings.ToLower(strings.TrimSpace(up.Name))
+		if name == "" || nameCount[name] != 1 {
+			continue
+		}
+		nameToIndex[name] = i
+	}
+	return nameToIndex
+}
+
+// resolveSeedTargetIndex resolves historical channel index to current config index.
+// It prefers stable channel UID, then unique channel name, then channel index bounds check.
+// Returns (index, mappedBy) where mappedBy is one of: "uid", "name", "index", "".
+func resolveSeedTargetIndex(channelUID string, channelID int, channelName string, idToIndex map[string]int, nameToIndex map[string]int, channelCount int) (int, string) {
+	uid := strings.TrimSpace(channelUID)
+	if uid != "" {
+		if idx, ok := idToIndex[uid]; ok {
+			return idx, "uid"
+		}
+	}
+
+	name := strings.ToLower(strings.TrimSpace(channelName))
+	if name != "" {
+		if idx, ok := nameToIndex[name]; ok {
+			return idx, "name"
+		}
+	}
+
+	if channelCount > 0 {
+		if channelID >= 0 && channelID < channelCount {
+			return channelID, "index"
+		}
+		return -1, ""
+	}
+
+	if channelID >= 0 {
+		return channelID, "index"
+	}
+	return -1, ""
 }

@@ -16,6 +16,11 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// ChannelUIDResolver resolves channel context to a stable channel UID.
+// endpoint uses API path form (e.g. "/v1/messages", "/v1/responses", "/v1/gemini").
+// channelName may be empty if upstream is not selected yet.
+type ChannelUIDResolver func(endpoint string, channelIndex int, channelName string) string
+
 // Manager manages request log storage using SQLite
 type Manager struct {
 	db           *sql.DB
@@ -26,6 +31,7 @@ type Manager struct {
 	connStr      string           // PostgreSQL connection string (for LISTEN)
 	listenerCtx  context.Context
 	listenerStop context.CancelFunc
+	uidResolver  ChannelUIDResolver
 }
 
 // NewManager creates a new request log manager with SQLite storage
@@ -286,6 +292,61 @@ func (m *Manager) initSchema() error {
 		log.Printf("⚠️ Failed to create api_key_id index: %v", err)
 	}
 
+	// Migration: Add channel_uid column if it doesn't exist (stable channel linkage)
+	err = m.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('request_logs') WHERE name='channel_uid'`).Scan(&count)
+	if err != nil {
+		log.Printf("⚠️ Failed to check channel_uid column: %v", err)
+	} else if count == 0 {
+		_, err = m.db.Exec(`ALTER TABLE request_logs ADD COLUMN channel_uid TEXT`)
+		if err != nil {
+			log.Printf("⚠️ Failed to add channel_uid column: %v", err)
+		} else {
+			log.Printf("✅ Added channel_uid column to request_logs table")
+		}
+	}
+	// Ensure index exists (no-op if column missing)
+	if _, err := m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_request_logs_channel_uid ON request_logs(channel_uid)`); err != nil {
+		log.Printf("⚠️ Failed to create channel_uid index: %v", err)
+	}
+	// Best-effort backfill for historical rows (only when channels table exists).
+	var channelsTableExists int
+	if err := m.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='channels'`).Scan(&channelsTableExists); err == nil && channelsTableExists > 0 {
+		backfillQuery := `
+			UPDATE request_logs
+			SET channel_uid = (
+				SELECT c.channel_id
+				FROM channels c
+				WHERE c.channel_type = CASE
+					WHEN request_logs.endpoint = '/v1/responses' THEN 'responses'
+					WHEN request_logs.endpoint = '/v1/gemini' THEN 'gemini'
+					ELSE 'messages'
+				END
+				AND LOWER(c.name) = LOWER(request_logs.channel_name)
+				LIMIT 1
+			)
+			WHERE (channel_uid IS NULL OR TRIM(channel_uid) = '')
+			  AND channel_name IS NOT NULL
+			  AND TRIM(channel_name) != ''
+			  AND (
+				  SELECT COUNT(*)
+				  FROM channels c2
+				  WHERE c2.channel_type = CASE
+					  WHEN request_logs.endpoint = '/v1/responses' THEN 'responses'
+					  WHEN request_logs.endpoint = '/v1/gemini' THEN 'gemini'
+					  ELSE 'messages'
+				  END
+				  AND LOWER(c2.name) = LOWER(request_logs.channel_name)
+			  ) = 1
+		`
+		if result, err := m.db.Exec(backfillQuery); err == nil {
+			if affected, _ := result.RowsAffected(); affected > 0 {
+				log.Printf("✅ Backfilled channel_uid for %d historical request logs", affected)
+			}
+		} else {
+			log.Printf("⚠️ Failed to backfill channel_uid in request_logs: %v", err)
+		}
+	}
+
 	// Migration: Rename user_id to client_id (user_id was actually client/machine identifier)
 	err = m.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('request_logs') WHERE name='user_id'`).Scan(&count)
 	if err != nil {
@@ -391,10 +452,52 @@ func (m *Manager) initSchema() error {
 	return nil
 }
 
+// SetChannelUIDResolver configures stable channel UID resolution for request logs.
+func (m *Manager) SetChannelUIDResolver(resolver ChannelUIDResolver) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.uidResolver = resolver
+}
+
+func normalizeChannelContext(record *RequestLog) {
+	if record == nil {
+		return
+	}
+	record.ChannelUID = strings.TrimSpace(record.ChannelUID)
+	record.ChannelName = strings.TrimSpace(record.ChannelName)
+
+	// Treat zero-value channel index as "unknown" when no channel identity is provided.
+	if record.ChannelID == 0 && record.ChannelUID == "" && record.ChannelName == "" {
+		record.ChannelID = -1
+	}
+}
+
+func (m *Manager) resolveChannelUID(record *RequestLog) {
+	if record == nil {
+		return
+	}
+	if record.ChannelUID != "" {
+		return
+	}
+	if m.uidResolver == nil {
+		return
+	}
+	// Avoid resolving by index before a channel is actually selected.
+	if record.ChannelName == "" {
+		return
+	}
+	if channelUID := strings.TrimSpace(m.uidResolver(record.Endpoint, record.ChannelID, record.ChannelName)); channelUID != "" {
+		record.ChannelUID = channelUID
+	}
+}
+
 // Add inserts a new request log record
 func (m *Manager) Add(record *RequestLog) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	normalizeChannelContext(record)
+	m.resolveChannelUID(record)
 
 	if record.ID == "" {
 		record.ID = generateID()
@@ -415,9 +518,9 @@ func (m *Manager) Add(record *RequestLog) error {
 		provider, provider_name, model, response_model, reasoning_effort, input_tokens, output_tokens,
 		cache_creation_input_tokens, cache_read_input_tokens, total_tokens,
 		price, input_cost, output_cost, cache_creation_cost, cache_read_cost,
-		http_status, stream, channel_id, channel_name,
+		http_status, stream, channel_id, channel_uid, channel_name,
 		endpoint, client_id, session_id, api_key_id, error, upstream_error, failover_info, created_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	// Convert api_key_id to nullable value (nil = not set, 0 = master key)
@@ -452,6 +555,7 @@ func (m *Manager) Add(record *RequestLog) error {
 		record.HTTPStatus,
 		record.Stream,
 		record.ChannelID,
+		record.ChannelUID,
 		record.ChannelName,
 		record.Endpoint,
 		record.ClientID,
@@ -483,6 +587,9 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	normalizeChannelContext(record)
+	m.resolveChannelUID(record)
+
 	// Calculate total tokens
 	record.TotalTokens = record.InputTokens + record.OutputTokens
 
@@ -505,8 +612,18 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 		cache_creation_cost = ?,
 		cache_read_cost = ?,
 		http_status = ?,
-		channel_id = ?,
-		channel_name = ?,
+		channel_id = CASE
+			WHEN TRIM(COALESCE(?, '')) != '' OR TRIM(COALESCE(?, '')) != '' THEN ?
+			ELSE channel_id
+		END,
+		channel_uid = CASE
+			WHEN TRIM(COALESCE(?, '')) != '' THEN ?
+			ELSE channel_uid
+		END,
+		channel_name = CASE
+			WHEN TRIM(COALESCE(?, '')) != '' THEN ?
+			ELSE channel_name
+		END,
 		error = ?,
 		upstream_error = ?,
 		failover_info = ?
@@ -531,7 +648,12 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 		record.CacheCreationCost,
 		record.CacheReadCost,
 		record.HTTPStatus,
+		record.ChannelUID,
+		record.ChannelName,
 		record.ChannelID,
+		record.ChannelUID,
+		record.ChannelUID,
+		record.ChannelName,
 		record.ChannelName,
 		record.Error,
 		record.UpstreamError,
@@ -579,7 +701,7 @@ func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 			   r.input_tokens, r.output_tokens,
 			   r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
 			   r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
-			   r.http_status, r.stream, r.channel_id, r.channel_name,
+			   r.http_status, r.stream, r.channel_id, r.channel_uid, r.channel_name,
 			   r.endpoint, r.client_id, r.session_id, r.api_key_id, r.error, r.upstream_error, r.failover_info,
 			   CASE WHEN d.request_id IS NOT NULL THEN 1 ELSE 0 END as has_debug_data
 		FROM request_logs r
@@ -589,7 +711,7 @@ func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 
 	var r RequestLog
 	var channelID, apiKeyID sql.NullInt64
-	var channelName, endpoint, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr, status, providerName, responseModel, reasoningEffort sql.NullString
+	var channelUID, channelName, endpoint, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr, status, providerName, responseModel, reasoningEffort sql.NullString
 	var initialTime, completeTime sql.NullString
 	var hasDebugData int
 
@@ -599,7 +721,7 @@ func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 		&r.InputTokens, &r.OutputTokens,
 		&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 		&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
-		&r.HTTPStatus, &r.Stream, &channelID, &channelName,
+		&r.HTTPStatus, &r.Stream, &channelID, &channelUID, &channelName,
 		&endpoint, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr,
 		&hasDebugData,
 	)
@@ -629,6 +751,9 @@ func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 	}
 	if channelID.Valid {
 		r.ChannelID = int(channelID.Int64)
+	}
+	if channelUID.Valid {
+		r.ChannelUID = channelUID.String
 	}
 	if channelName.Valid {
 		r.ChannelName = channelName.String
@@ -728,7 +853,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 			   r.provider, r.provider_name, r.model, r.response_model, r.reasoning_effort, r.input_tokens, r.output_tokens,
 			   r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
 			   r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
-			   r.http_status, r.stream, r.channel_id, r.channel_name,
+			   r.http_status, r.stream, r.channel_id, r.channel_uid, r.channel_name,
 			   r.endpoint, r.client_id, r.session_id, r.api_key_id, r.error, r.upstream_error, r.failover_info, r.created_at,
 			   CASE WHEN d.request_id IS NOT NULL THEN 1 ELSE 0 END as has_debug_data
 		FROM request_logs r
@@ -750,7 +875,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 	for rows.Next() {
 		var r RequestLog
 		var channelID, apiKeyID sql.NullInt64
-		var channelName, endpoint, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr, status, providerName, responseModel, reasoningEffort sql.NullString
+		var channelUID, channelName, endpoint, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr, status, providerName, responseModel, reasoningEffort sql.NullString
 		var initialTime, completeTime, createdAt sql.NullString
 		var hasDebugData int
 
@@ -759,7 +884,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 			&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort, &r.InputTokens, &r.OutputTokens,
 			&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 			&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
-			&r.HTTPStatus, &r.Stream, &channelID, &channelName,
+			&r.HTTPStatus, &r.Stream, &channelID, &channelUID, &channelName,
 			&endpoint, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr, &createdAt,
 			&hasDebugData,
 		)
@@ -794,6 +919,9 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		}
 		if channelID.Valid {
 			r.ChannelID = int(channelID.Int64)
+		}
+		if channelUID.Valid {
+			r.ChannelUID = channelUID.String
 		}
 		if channelName.Valid {
 			r.ChannelName = channelName.String
@@ -848,26 +976,30 @@ func (m *Manager) GetRecentChannelCalls(limitPerChannel int) ([]ChannelRecentCal
 			SELECT
 				endpoint,
 				channel_id,
+				channel_uid,
 				status,
 				http_status,
 				model,
 				channel_name,
 				COALESCE(complete_time, initial_time, created_at) AS event_time,
+				COALESCE(NULLIF(TRIM(channel_uid), ''), '__idx_' || CAST(channel_id AS TEXT)) AS channel_key,
 				ROW_NUMBER() OVER (
-					PARTITION BY endpoint, channel_id
+					PARTITION BY endpoint, COALESCE(NULLIF(TRIM(channel_uid), ''), '__idx_' || CAST(channel_id AS TEXT))
 					ORDER BY COALESCE(complete_time, initial_time, created_at) DESC, id DESC
 				) AS rn
 			FROM request_logs
 			WHERE endpoint IN (?, ?, ?)
-				AND channel_id IS NOT NULL
-				AND channel_id >= 0
+				AND (
+					(channel_uid IS NOT NULL AND TRIM(channel_uid) != '')
+					OR (channel_id IS NOT NULL AND channel_id >= 0)
+				)
 				AND status IN (?, ?)
 		)
-		SELECT endpoint, channel_id, status, http_status, model, channel_name
+		SELECT endpoint, channel_id, channel_uid, status, http_status, model, channel_name
 			   , CAST(event_time AS TEXT) AS event_time
 		FROM ranked
 		WHERE rn <= ?
-		ORDER BY endpoint ASC, channel_id ASC, event_time ASC, rn DESC
+		ORDER BY endpoint ASC, channel_key ASC, event_time ASC, rn DESC
 	`)
 
 	rows, err := m.db.Query(query,
@@ -886,12 +1018,21 @@ func (m *Manager) GetRecentChannelCalls(limitPerChannel int) ([]ChannelRecentCal
 	recent := make([]ChannelRecentCall, 0)
 	for rows.Next() {
 		var call ChannelRecentCall
+		call.ChannelID = -1
 		var status string
+		var channelID sql.NullInt64
+		var channelUID sql.NullString
 		var model sql.NullString
 		var channelName sql.NullString
 		var eventTime sql.NullString
-		if err := rows.Scan(&call.Endpoint, &call.ChannelID, &status, &call.HTTPStatus, &model, &channelName, &eventTime); err != nil {
+		if err := rows.Scan(&call.Endpoint, &channelID, &channelUID, &status, &call.HTTPStatus, &model, &channelName, &eventTime); err != nil {
 			return nil, fmt.Errorf("failed to scan recent channel call: %w", err)
+		}
+		if channelID.Valid {
+			call.ChannelID = int(channelID.Int64)
+		}
+		if channelUID.Valid {
+			call.ChannelUID = channelUID.String
 		}
 		if call.HTTPStatus < 0 {
 			call.HTTPStatus = 0
@@ -1165,7 +1306,7 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 		SELECT id, initial_time, complete_time, duration_ms,
 			   provider, model, input_tokens, output_tokens,
 			   cache_creation_input_tokens, cache_read_input_tokens, total_tokens,
-			   price, http_status, stream, channel_id, channel_name,
+			   price, http_status, stream, channel_id, channel_uid, channel_name,
 			   endpoint, client_id, session_id, error, created_at
 		FROM request_logs
 		WHERE id = ?
@@ -1173,13 +1314,13 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 
 	var r RequestLog
 	var channelID sql.NullInt64
-	var channelName, endpoint, clientID, sessionID, errorStr sql.NullString
+	var channelUID, channelName, endpoint, clientID, sessionID, errorStr sql.NullString
 
 	err := m.db.QueryRow(query, id).Scan(
 		&r.ID, &r.InitialTime, &r.CompleteTime, &r.DurationMs,
 		&r.Type, &r.Model, &r.InputTokens, &r.OutputTokens,
 		&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
-		&r.Price, &r.HTTPStatus, &r.Stream, &channelID, &channelName,
+		&r.Price, &r.HTTPStatus, &r.Stream, &channelID, &channelUID, &channelName,
 		&endpoint, &clientID, &sessionID, &errorStr, &r.CreatedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -1191,6 +1332,9 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 
 	if channelID.Valid {
 		r.ChannelID = int(channelID.Int64)
+	}
+	if channelUID.Valid {
+		r.ChannelUID = channelUID.String
 	}
 	if channelName.Valid {
 		r.ChannelName = channelName.String

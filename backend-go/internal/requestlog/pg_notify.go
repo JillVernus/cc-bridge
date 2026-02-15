@@ -160,7 +160,7 @@ func (m *Manager) StopListener() {
 // getPartialRecordForSSE fetches minimal fields for log:created event
 func (m *Manager) getPartialRecordForSSE(id string) (*RequestLog, error) {
 	query := m.convertQuery(`
-		SELECT id, status, provider, model, channel_id, channel_name,
+		SELECT id, status, provider, model, channel_id, channel_uid, channel_name,
 		       endpoint, stream, client_id, session_id, reasoning_effort, initial_time
 		FROM request_logs
 		WHERE id = ?
@@ -168,10 +168,10 @@ func (m *Manager) getPartialRecordForSSE(id string) (*RequestLog, error) {
 
 	var r RequestLog
 	var channelID sql.NullInt64
-	var channelName, endpoint, clientID, sessionID, reasoningEffort sql.NullString
+	var channelUID, channelName, endpoint, clientID, sessionID, reasoningEffort sql.NullString
 
 	err := m.db.QueryRow(query, id).Scan(
-		&r.ID, &r.Status, &r.ProviderName, &r.Model, &channelID, &channelName,
+		&r.ID, &r.Status, &r.ProviderName, &r.Model, &channelID, &channelUID, &channelName,
 		&endpoint, &r.Stream, &clientID, &sessionID, &reasoningEffort, &r.InitialTime,
 	)
 
@@ -181,6 +181,9 @@ func (m *Manager) getPartialRecordForSSE(id string) (*RequestLog, error) {
 
 	if channelID.Valid {
 		r.ChannelID = int(channelID.Int64)
+	}
+	if channelUID.Valid {
+		r.ChannelUID = channelUID.String
 	}
 	if channelName.Valid {
 		r.ChannelName = channelName.String
