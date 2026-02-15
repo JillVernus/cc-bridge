@@ -85,20 +85,27 @@
               <div class="recent-calls-display">
                 <div class="recent-calls-blocks">
                   <template v-for="(call, callIndex) in getRecentCalls(element.index)" :key="`${element.index}-${callIndex}`">
-                    <v-tooltip v-if="call.state === 'failure'" location="top" :open-delay="120">
+                    <v-tooltip location="top" :open-delay="120">
                       <template #activator="{ props: tooltipProps }">
-                        <span v-bind="tooltipProps" class="recent-call-block is-failure" />
+                        <span
+                          v-bind="tooltipProps"
+                          class="recent-call-block"
+                          :class="{
+                            'is-success': call.state === 'success',
+                            'is-failure': call.state === 'failure',
+                            'is-unused': call.state === 'unused'
+                          }"
+                        />
                       </template>
-                      <span class="text-caption">{{ getRecentFailureTooltip(call) }}</span>
+                      <div class="text-caption recent-call-tooltip">
+                        <div
+                          v-for="(line, lineIndex) in getRecentCallTooltipLines(call, element.serviceType === 'composite')"
+                          :key="`${element.index}-${callIndex}-${lineIndex}`"
+                        >
+                          {{ line }}
+                        </div>
+                      </div>
                     </v-tooltip>
-                    <span
-                      v-else
-                      class="recent-call-block"
-                      :class="{
-                        'is-success': call.state === 'success',
-                        'is-unused': call.state === 'unused'
-                      }"
-                    />
                   </template>
                 </div>
                 <span class="recent-calls-rate">{{ getRecentSuccessRate(element.index) }}</span>
@@ -633,6 +640,8 @@ const schedulerStats = ref<{
   windowSize: number
 } | null>(null)
 const isLoadingMetrics = ref(false)
+const showGreyPlaceholder = ref(true)
+const metricsRefreshQueued = ref(false)
 const isSavingOrder = ref(false)
 const expandedChartChannelId = ref<number | null>(null) // 展开图表的渠道ID
 
@@ -805,13 +814,25 @@ const recentCallsLimit = 20
 type RecentCallSlot = {
   state: 'unused' | 'success' | 'failure'
   statusCode?: number
+  timestamp?: string
+  model?: string
+  channelName?: string
 }
 
 const getRecentCalls = (channelIndex: number): RecentCallSlot[] => {
+  if (showGreyPlaceholder.value) {
+    return Array.from({ length: recentCallsLimit }, () => ({
+      state: 'unused' as const
+    }))
+  }
+
   const recentCalls = getChannelMetrics(channelIndex)?.recentCalls ?? []
   const normalizedCalls: RecentCallSlot[] = recentCalls.slice(-recentCallsLimit).map((call: RecentCallStat) => ({
     state: call.success ? 'success' : 'failure',
-    statusCode: call.statusCode
+    statusCode: call.statusCode,
+    timestamp: call.timestamp,
+    model: call.model,
+    channelName: call.channelName
   }))
 
   if (normalizedCalls.length >= recentCallsLimit) {
@@ -832,11 +853,40 @@ const getRecentSuccessRate = (channelIndex: number): string => {
   return `${Math.round((successCount / recentCalls.length) * 100)}%`
 }
 
-const getRecentFailureTooltip = (call: RecentCallSlot): string => {
-  if (call.statusCode && call.statusCode > 0) {
-    return `HTTP ${call.statusCode}`
+const formatRecentCallTime = (timestamp?: string): string => {
+  if (!timestamp) return 'Time unavailable'
+  const parsed = new Date(timestamp)
+  if (Number.isNaN(parsed.getTime())) return 'Time unavailable'
+  return parsed.toLocaleString()
+}
+
+const getRecentCallStatusText = (call: RecentCallSlot): string => {
+  if (call.state === 'unused') {
+    return 'Not used yet'
   }
-  return 'HTTP error'
+
+  if (call.state === 'failure') {
+    if (call.statusCode && call.statusCode > 0) {
+      return `Failed (HTTP ${call.statusCode})`
+    }
+    return 'Failed (HTTP error)'
+  }
+
+  return 'Success'
+}
+
+const getRecentCallTooltipLines = (call: RecentCallSlot, isCompositeChannel: boolean): string[] => {
+  const lines = [
+    `Status: ${getRecentCallStatusText(call)}`,
+    `Time: ${formatRecentCallTime(call.timestamp)}`,
+    `Model: ${call.model?.trim() ? call.model : 'N/A'}`
+  ]
+
+  if (isCompositeChannel) {
+    lines.push(`Channel: ${call.channelName?.trim() ? call.channelName : 'N/A'}`)
+  }
+
+  return lines
 }
 
 // 获取配额条颜色 (based on used percent)
@@ -860,26 +910,39 @@ const getWebsiteUrl = (channel: Channel): string => {
 
 // 刷新指标
 const refreshMetrics = async () => {
+  if (isLoadingMetrics.value) {
+    metricsRefreshQueued.value = true
+    return
+  }
   isLoadingMetrics.value = true
+  const requestedType = props.channelType
   try {
     let metricsPromise
-    if (props.channelType === 'messages') {
+    if (requestedType === 'messages') {
       metricsPromise = api.getChannelMetrics()
-    } else if (props.channelType === 'responses') {
+    } else if (requestedType === 'responses') {
       metricsPromise = api.getResponsesChannelMetrics()
     } else {
       metricsPromise = api.getGeminiChannelMetrics()
     }
     const [metricsData, statsData] = await Promise.all([
       metricsPromise,
-      api.getSchedulerStats(props.channelType)
+      api.getSchedulerStats(requestedType)
     ])
+    if (requestedType !== props.channelType) {
+      return
+    }
     metrics.value = metricsData
     schedulerStats.value = statsData
+    showGreyPlaceholder.value = false
   } catch (error) {
     console.error('Failed to load metrics:', error)
   } finally {
     isLoadingMetrics.value = false
+    if (metricsRefreshQueued.value) {
+      metricsRefreshQueued.value = false
+      void refreshMetrics()
+    }
   }
 }
 
@@ -1010,6 +1073,11 @@ onMounted(() => {
 
 // Re-fetch quotas when tab changes
 watch(() => props.channelType, () => {
+  // Prevent briefly showing previous tab's metrics while new data is loading.
+  showGreyPlaceholder.value = true
+  metrics.value = []
+  schedulerStats.value = null
+  void refreshMetrics()
   fetchOAuthQuotas()
   fetchUsageQuotas()
 })
@@ -1183,6 +1251,7 @@ defineExpose({
   height: 6px;
   border-radius: 1px;
   background: rgba(var(--v-theme-on-surface), 0.22);
+  cursor: help;
 }
 
 .recent-call-block.is-unused {
@@ -1195,7 +1264,6 @@ defineExpose({
 
 .recent-call-block.is-failure {
   background: rgb(var(--v-theme-error));
-  cursor: help;
 }
 
 .recent-calls-rate {
@@ -1204,6 +1272,13 @@ defineExpose({
   min-width: 36px;
   text-align: right;
   color: rgba(var(--v-theme-on-surface), 0.8);
+}
+
+.recent-call-tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  white-space: nowrap;
 }
 
 /* Inline Quota Bar */

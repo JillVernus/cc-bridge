@@ -14,8 +14,11 @@ type RequestRecord struct {
 
 // RecentCall 最近调用结果（用于 UI 快速可视化）
 type RecentCall struct {
-	Success    bool `json:"success"`
-	StatusCode int  `json:"statusCode,omitempty"`
+	Success     bool      `json:"success"`
+	StatusCode  int       `json:"statusCode,omitempty"`
+	Timestamp   time.Time `json:"timestamp,omitempty"`
+	Model       string    `json:"model,omitempty"`
+	ChannelName string    `json:"channelName,omitempty"`
 }
 
 // ChannelMetrics 渠道指标
@@ -110,6 +113,11 @@ func (m *MetricsManager) RecordSuccess(channelIndex int) {
 
 // RecordSuccessWithStatus 记录成功请求（可选状态码）
 func (m *MetricsManager) RecordSuccessWithStatus(channelIndex int, statusCode int) {
+	m.RecordSuccessWithStatusDetail(channelIndex, statusCode, "", "")
+}
+
+// RecordSuccessWithStatusDetail 记录成功请求（可选状态码、模型和渠道名）
+func (m *MetricsManager) RecordSuccessWithStatusDetail(channelIndex int, statusCode int, model, channelName string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -134,7 +142,7 @@ func (m *MetricsManager) RecordSuccessWithStatus(channelIndex int, statusCode in
 	m.appendToHistory(metrics, now, true)
 
 	// 记录最近调用
-	m.appendRecentCall(metrics, true, statusCode)
+	m.appendRecentCall(metrics, true, statusCode, model, channelName)
 }
 
 // RecordFailure 记录失败请求
@@ -144,6 +152,11 @@ func (m *MetricsManager) RecordFailure(channelIndex int) {
 
 // RecordFailureWithStatus 记录失败请求（可选状态码）
 func (m *MetricsManager) RecordFailureWithStatus(channelIndex int, statusCode int) {
+	m.RecordFailureWithStatusDetail(channelIndex, statusCode, "", "")
+}
+
+// RecordFailureWithStatusDetail 记录失败请求（可选状态码、模型和渠道名）
+func (m *MetricsManager) RecordFailureWithStatusDetail(channelIndex int, statusCode int, model, channelName string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -168,7 +181,7 @@ func (m *MetricsManager) RecordFailureWithStatus(channelIndex int, statusCode in
 	m.appendToHistory(metrics, now, false)
 
 	// 记录最近调用
-	m.appendRecentCall(metrics, false, statusCode)
+	m.appendRecentCall(metrics, false, statusCode, model, channelName)
 }
 
 // isCircuitBroken 判断是否达到熔断条件（内部方法，调用前需持有锁）
@@ -225,17 +238,46 @@ func (m *MetricsManager) appendToHistory(metrics *ChannelMetrics, timestamp time
 }
 
 // appendRecentCall 记录最近调用结果（最多保留 recentCallsLimit 条）
-func (m *MetricsManager) appendRecentCall(metrics *ChannelMetrics, success bool, statusCode int) {
+func (m *MetricsManager) appendRecentCall(metrics *ChannelMetrics, success bool, statusCode int, model, channelName string) {
 	if statusCode < 0 {
 		statusCode = 0
 	}
 	metrics.RecentCalls = append(metrics.RecentCalls, RecentCall{
-		Success:    success,
-		StatusCode: statusCode,
+		Success:     success,
+		StatusCode:  statusCode,
+		Timestamp:   time.Now(),
+		Model:       model,
+		ChannelName: channelName,
 	})
 	if len(metrics.RecentCalls) > recentCallsLimit {
 		metrics.RecentCalls = metrics.RecentCalls[len(metrics.RecentCalls)-recentCallsLimit:]
 	}
+}
+
+// SeedRecentCalls seeds recent calls for a channel (used for startup restore).
+// This only restores visualization data and does not change scheduler counters.
+func (m *MetricsManager) SeedRecentCalls(channelIndex int, calls []RecentCall) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	metrics := m.getOrCreate(channelIndex)
+
+	if len(calls) == 0 {
+		metrics.RecentCalls = make([]RecentCall, 0, recentCallsLimit)
+		return
+	}
+	if len(calls) > recentCallsLimit {
+		calls = calls[len(calls)-recentCallsLimit:]
+	}
+
+	seeded := make([]RecentCall, len(calls))
+	copy(seeded, calls)
+	for i := range seeded {
+		if seeded[i].StatusCode < 0 {
+			seeded[i].StatusCode = 0
+		}
+	}
+	metrics.RecentCalls = seeded
 }
 
 // GetTimeWindowStats 获取指定时间窗口内的统计

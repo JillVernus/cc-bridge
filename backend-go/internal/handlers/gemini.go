@@ -258,6 +258,7 @@ func handleMultiChannelGemini(
 			if !result.Allowed {
 				log.Printf("🚫 [Channel Rate Limit/Gemini] Channel %d (%s): %v",
 					channelIndex, upstream.Name, result.Error)
+				channelScheduler.RecordGeminiFailureWithStatusDetail(channelIndex, 429, model, upstream.Name)
 				failedChannels[channelIndex] = true
 				lastError = result.Error
 				continue
@@ -275,9 +276,9 @@ func handleMultiChannelGemini(
 			// ActionNone/no-failover branches return handled=true with an error payload.
 			// Treat any such handled payload as failure so recent success stats stay accurate.
 			if failoverErr != nil {
-				channelScheduler.RecordGeminiFailureWithStatus(channelIndex, failoverErr.Status)
+				channelScheduler.RecordGeminiFailureWithStatusDetail(channelIndex, failoverErr.Status, model, upstream.Name)
 			} else {
-				channelScheduler.RecordGeminiSuccessWithStatus(channelIndex, 200)
+				channelScheduler.RecordGeminiSuccessWithStatusDetail(channelIndex, 200, model, upstream.Name)
 			}
 			return
 		}
@@ -287,7 +288,7 @@ func handleMultiChannelGemini(
 		if failoverErr != nil {
 			failureStatus = failoverErr.Status
 		}
-		channelScheduler.RecordGeminiFailureWithStatus(channelIndex, failureStatus)
+		channelScheduler.RecordGeminiFailureWithStatusDetail(channelIndex, failureStatus, model, upstream.Name)
 		failedChannels[channelIndex] = true
 
 		// Check if there are more channels to try
@@ -477,6 +478,24 @@ func handleSingleChannelGemini(
 		result := channelRateLimiter.Acquire(c.Request.Context(), upstream, "gemini")
 		if !result.Allowed {
 			log.Printf("🚫 [Channel Rate Limit/Gemini] Channel %d (%s): %v", upstream.Index, upstream.Name, result.Error)
+			channelScheduler.RecordGeminiFailureWithStatusDetail(upstream.Index, 429, model, upstream.Name)
+			if reqLogManager != nil && requestLogID != "" {
+				completeTime := time.Now()
+				record := &requestlog.RequestLog{
+					Status:       requestlog.StatusError,
+					CompleteTime: completeTime,
+					DurationMs:   completeTime.Sub(startTime).Milliseconds(),
+					Model:        model,
+					Type:         upstream.ServiceType,
+					ProviderName: upstream.Name,
+					HTTPStatus:   429,
+					ChannelID:    upstream.Index,
+					ChannelName:  upstream.Name,
+					Endpoint:     "/v1/gemini",
+					Error:        fmt.Sprintf("channel rate limit exceeded (%d RPM)", upstream.RateLimitRpm),
+				}
+				_ = reqLogManager.Update(requestLogID, record)
+			}
 			c.JSON(429, gin.H{
 				"error": gin.H{
 					"code":    429,
@@ -506,6 +525,30 @@ func handleSingleChannelGemini(
 		return
 	}
 
+	if success {
+		// ActionNone/no-failover branches return handled=true with an error payload.
+		// Treat any such handled payload as failure in metrics.
+		if failoverErr != nil {
+			failureStatus := failoverErr.Status
+			if failureStatus <= 0 {
+				failureStatus = 500
+			}
+			channelScheduler.RecordGeminiFailureWithStatusDetail(upstream.Index, failureStatus, model, upstream.Name)
+		} else {
+			channelScheduler.RecordGeminiSuccessWithStatusDetail(upstream.Index, 200, model, upstream.Name)
+		}
+		return
+	}
+
+	failureStatus := 503
+	if failoverErr != nil {
+		failureStatus = failoverErr.Status
+		if failureStatus == 0 {
+			failureStatus = 500
+		}
+	}
+	channelScheduler.RecordGeminiFailureWithStatusDetail(upstream.Index, failureStatus, model, upstream.Name)
+
 	if !success {
 		if failoverErr != nil {
 			status := failoverErr.Status
@@ -524,6 +567,7 @@ func handleSingleChannelGemini(
 					Model:         model,
 					ChannelID:     upstream.Index,
 					ChannelName:   upstream.Name,
+					Endpoint:      "/v1/gemini",
 					HTTPStatus:    status,
 					Error:         fmt.Sprintf("upstream returned status %d", status),
 					UpstreamError: string(failoverErr.Body),
@@ -546,6 +590,11 @@ func handleSingleChannelGemini(
 					CompleteTime: time.Now(),
 					DurationMs:   time.Since(startTime).Milliseconds(),
 					Model:        model,
+					Type:         upstream.ServiceType,
+					ProviderName: upstream.Name,
+					ChannelID:    upstream.Index,
+					ChannelName:  upstream.Name,
+					Endpoint:     "/v1/gemini",
 					HTTPStatus:   503,
 					Error:        "all API keys exhausted or unavailable",
 				}

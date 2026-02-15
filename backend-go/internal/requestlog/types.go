@@ -159,6 +159,17 @@ type RequestLogListResponse struct {
 	HasMore  bool         `json:"hasMore"`
 }
 
+// ChannelRecentCall is a compact call outcome used for channel metrics restore.
+type ChannelRecentCall struct {
+	Endpoint    string    `json:"endpoint"`
+	ChannelID   int       `json:"channelId"`
+	Success     bool      `json:"success"`
+	HTTPStatus  int       `json:"httpStatus"`
+	Model       string    `json:"model,omitempty"`
+	ChannelName string    `json:"channelName,omitempty"`
+	Timestamp   time.Time `json:"timestamp"`
+}
+
 // ActiveSession represents an active session with aggregated statistics
 type ActiveSession struct {
 	SessionID                string    `json:"sessionId"`

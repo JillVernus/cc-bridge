@@ -121,6 +121,8 @@ func main() {
 	}
 
 	if reqLogManager != nil {
+		// Restore recent API call slots from persisted request logs (for channel metrics UI)
+		seedRecentCallMetricsFromLogs(reqLogManager, channelScheduler)
 
 		// 连接调度器与请求日志管理器（用于配额渠道暂停检查）
 		channelScheduler.SetSuspensionChecker(reqLogManager)
@@ -593,5 +595,60 @@ func main() {
 
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("服务器启动失败: %v", err)
+	}
+}
+
+func seedRecentCallMetricsFromLogs(reqLogManager *requestlog.Manager, channelScheduler *scheduler.ChannelScheduler) {
+	if reqLogManager == nil || channelScheduler == nil {
+		return
+	}
+
+	recentCalls, err := reqLogManager.GetRecentChannelCalls(20)
+	if err != nil {
+		log.Printf("⚠️ 恢复最近 API 调用槽位失败: %v", err)
+		return
+	}
+	if len(recentCalls) == 0 {
+		return
+	}
+
+	messagesSeed := make(map[int][]metrics.RecentCall)
+	responsesSeed := make(map[int][]metrics.RecentCall)
+	geminiSeed := make(map[int][]metrics.RecentCall)
+
+	for _, call := range recentCalls {
+		restored := metrics.RecentCall{
+			Success:     call.Success,
+			StatusCode:  call.HTTPStatus,
+			Timestamp:   call.Timestamp,
+			Model:       call.Model,
+			ChannelName: call.ChannelName,
+		}
+		switch call.Endpoint {
+		case "/v1/messages":
+			messagesSeed[call.ChannelID] = append(messagesSeed[call.ChannelID], restored)
+		case "/v1/responses":
+			responsesSeed[call.ChannelID] = append(responsesSeed[call.ChannelID], restored)
+		case "/v1/gemini":
+			geminiSeed[call.ChannelID] = append(geminiSeed[call.ChannelID], restored)
+		}
+	}
+
+	seedMetrics := func(manager *metrics.MetricsManager, data map[int][]metrics.RecentCall) int {
+		seeded := 0
+		for channelID, calls := range data {
+			manager.SeedRecentCalls(channelID, calls)
+			seeded++
+		}
+		return seeded
+	}
+
+	messagesSeeded := seedMetrics(channelScheduler.GetMessagesMetricsManager(), messagesSeed)
+	responsesSeeded := seedMetrics(channelScheduler.GetResponsesMetricsManager(), responsesSeed)
+	geminiSeeded := seedMetrics(channelScheduler.GetGeminiMetricsManager(), geminiSeed)
+
+	if messagesSeeded > 0 || responsesSeeded > 0 || geminiSeeded > 0 {
+		log.Printf("✅ 已恢复最近 API 调用槽位 (messages: %d, responses: %d, gemini: %d)",
+			messagesSeeded, responsesSeeded, geminiSeeded)
 	}
 }

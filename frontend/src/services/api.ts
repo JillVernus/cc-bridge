@@ -46,6 +46,9 @@ export interface TimeWindowStats {
 export interface RecentCallStat {
   success: boolean
   statusCode?: number
+  timestamp?: string
+  model?: string
+  channelName?: string
 }
 
 export interface ChannelMetrics {

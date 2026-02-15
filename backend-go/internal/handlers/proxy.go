@@ -150,7 +150,7 @@ func ProxyHandlerWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.ConfigM
 			handleMultiChannelProxy(c, envCfg, cfgManager, channelScheduler, bodyBytes, claudeReq, userID, sessionID, apiKeyID, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker, channelRateLimiter)
 		} else {
 			// 单渠道模式：使用现有逻辑
-			handleSingleChannelProxy(c, envCfg, cfgManager, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker, userID, sessionID, apiKeyID, channelRateLimiter)
+			handleSingleChannelProxy(c, envCfg, cfgManager, channelScheduler, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker, userID, sessionID, apiKeyID, channelRateLimiter)
 		}
 	})
 }
@@ -303,6 +303,10 @@ func handleMultiChannelProxy(
 
 		upstream := selection.Upstream
 		channelIndex := selection.ChannelIndex
+		metricsModel := claudeReq.Model
+		if selection.ResolvedModel != "" {
+			metricsModel = selection.ResolvedModel
+		}
 
 		if shouldLogInfo {
 			if selection.CompositeUpstream != nil {
@@ -328,6 +332,7 @@ func handleMultiChannelProxy(
 					log.Printf("🚫 [Channel Rate Limit] Channel %d (%s): %v",
 						channelIndex, upstream.Name, result.Error)
 				}
+				channelScheduler.RecordFailureWithStatusDetail(channelIndex, false, 429, metricsModel, upstream.Name)
 				// Mark channel as failed for this request and try next channel
 				failedChannels[channelIndex] = true
 				lastError = result.Error
@@ -347,9 +352,9 @@ func handleMultiChannelProxy(
 			// ActionNone/no-failover branches return handled=true with an error payload.
 			// Treat any such handled payload as failure in channel metrics.
 			if failoverErr != nil {
-				channelScheduler.RecordFailureWithStatus(channelIndex, false, failoverErr.Status)
+				channelScheduler.RecordFailureWithStatusDetail(channelIndex, false, failoverErr.Status, metricsModel, upstream.Name)
 			} else {
-				channelScheduler.RecordSuccessWithStatus(channelIndex, false, 200)
+				channelScheduler.RecordSuccessWithStatusDetail(channelIndex, false, 200, metricsModel, upstream.Name)
 				// For composite channels, set affinity to the composite channel (not the resolved target)
 				// This ensures subsequent requests still go through composite routing logic
 				affinityIndex := channelIndex
@@ -366,7 +371,7 @@ func handleMultiChannelProxy(
 		if failoverErr != nil {
 			failureStatus = failoverErr.Status
 		}
-		channelScheduler.RecordFailureWithStatus(channelIndex, false, failureStatus)
+		channelScheduler.RecordFailureWithStatusDetail(channelIndex, false, failureStatus, metricsModel, upstream.Name)
 		failedChannels[channelIndex] = true
 
 		// For composite channels, check if there are more in the failover chain
@@ -1112,6 +1117,7 @@ func handleSingleChannelProxy(
 	c *gin.Context,
 	envCfg *config.EnvConfig,
 	cfgManager *config.ConfigManager,
+	channelScheduler *scheduler.ChannelScheduler,
 	bodyBytes []byte,
 	claudeReq types.ClaudeRequest,
 	startTime time.Time,
@@ -1163,6 +1169,7 @@ func handleSingleChannelProxy(
 	}
 
 	// Resolve composite channel to target channel
+	metricsModel := claudeReq.Model
 	if config.IsCompositeChannel(upstream) {
 		cfg := cfgManager.GetConfig()
 		targetChannelID, targetIndex, resolvedModel, found := config.ResolveCompositeMapping(upstream, claudeReq.Model, cfg.Upstream)
@@ -1184,6 +1191,16 @@ func handleSingleChannelProxy(
 		log.Printf("🔀 [Single-Channel Composite] '%s' → target [%d] '%s' for model '%s' (resolved: '%s')",
 			upstream.Name, targetIndex, targetUpstream.Name, claudeReq.Model, resolvedModel)
 		upstream = &targetUpstream
+		if resolvedModel != "" {
+			metricsModel = resolvedModel
+		}
+	}
+
+	recordSingleSuccess := func(statusCode int) {
+		channelScheduler.RecordSuccessWithStatusDetail(upstream.Index, false, statusCode, metricsModel, upstream.Name)
+	}
+	recordSingleFailure := func(statusCode int) {
+		channelScheduler.RecordFailureWithStatusDetail(upstream.Index, false, statusCode, metricsModel, upstream.Name)
 	}
 
 	// Check per-channel rate limit (if configured)
@@ -1191,6 +1208,24 @@ func handleSingleChannelProxy(
 		result := channelRateLimiter.Acquire(c.Request.Context(), upstream, "messages")
 		if !result.Allowed {
 			log.Printf("🚫 [Channel Rate Limit] Channel %d (%s): %v", upstream.Index, upstream.Name, result.Error)
+			channelScheduler.RecordFailureWithStatusDetail(upstream.Index, false, 429, metricsModel, upstream.Name)
+			if reqLogManager != nil && requestLogID != "" {
+				completeTime := time.Now()
+				record := &requestlog.RequestLog{
+					Status:       requestlog.StatusError,
+					CompleteTime: completeTime,
+					DurationMs:   completeTime.Sub(startTime).Milliseconds(),
+					Model:        claudeReq.Model,
+					Type:         upstream.ServiceType,
+					ProviderName: upstream.Name,
+					HTTPStatus:   429,
+					ChannelID:    upstream.Index,
+					ChannelName:  upstream.Name,
+					Endpoint:     "/v1/messages",
+					Error:        fmt.Sprintf("channel rate limit exceeded (%d RPM)", upstream.RateLimitRpm),
+				}
+				_ = reqLogManager.Update(requestLogID, record)
+			}
 			c.JSON(429, gin.H{
 				"error":   "Too Many Requests",
 				"message": fmt.Sprintf("Channel rate limit exceeded (%d RPM)", upstream.RateLimitRpm),
@@ -1481,6 +1516,7 @@ func handleSingleChannelProxy(
 						_ = reqLogManager.Update(currentRequestLogID, record)
 					}
 					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+					recordSingleFailure(resp.StatusCode)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
 					return
 
@@ -1507,6 +1543,7 @@ func handleSingleChannelProxy(
 						_ = reqLogManager.Update(currentRequestLogID, record)
 					}
 					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+					recordSingleFailure(resp.StatusCode)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
 					return
 				}
@@ -1657,6 +1694,7 @@ func handleSingleChannelProxy(
 						_ = reqLogManager.Update(currentRequestLogID, record)
 					}
 					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+					recordSingleFailure(resp.StatusCode)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
 					return
 
@@ -1696,6 +1734,7 @@ func handleSingleChannelProxy(
 						_ = reqLogManager.Update(currentRequestLogID, record)
 					}
 					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+					recordSingleFailure(resp.StatusCode)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
 					return
 				}
@@ -1726,6 +1765,7 @@ func handleSingleChannelProxy(
 					_ = reqLogManager.Update(currentRequestLogID, record)
 				}
 				SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+				recordSingleFailure(resp.StatusCode)
 				c.Data(resp.StatusCode, "application/json", respBodyBytes)
 				return
 			}
@@ -1744,8 +1784,10 @@ func handleSingleChannelProxy(
 		}
 
 		if claudeReq.Stream {
+			recordSingleSuccess(resp.StatusCode)
 			handleStreamResponse(c, resp, provider, envCfg, cfgManager, currentStartTime, upstream, reqLogManager, currentRequestLogID, claudeReq.Model, usageManager)
 		} else {
+			recordSingleSuccess(resp.StatusCode)
 			handleNormalResponse(c, resp, provider, envCfg, cfgManager, currentStartTime, upstream, reqLogManager, currentRequestLogID, claudeReq.Model, usageManager)
 		}
 		return
@@ -1776,6 +1818,9 @@ func handleSingleChannelProxy(
 			Type:          upstream.ServiceType,
 			ProviderName:  upstream.Name,
 			HTTPStatus:    httpStatus,
+			ChannelID:     upstream.Index,
+			ChannelName:   upstream.Name,
+			Endpoint:      "/v1/messages",
 			Error:         errMsg,
 			UpstreamError: upstreamErr,
 			FailoverInfo:  failoverInfo,
@@ -1788,6 +1833,7 @@ func handleSingleChannelProxy(
 		if status == 0 {
 			status = 500
 		}
+		recordSingleFailure(status)
 		SaveErrorDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, status, lastFailoverError.Body)
 		var errBody map[string]interface{}
 		if err := json.Unmarshal(lastFailoverError.Body, &errBody); err == nil {
@@ -1796,6 +1842,7 @@ func handleSingleChannelProxy(
 			c.JSON(status, gin.H{"error": string(lastFailoverError.Body)})
 		}
 	} else {
+		recordSingleFailure(500)
 		errMsg := "unknown error"
 		if lastError != nil {
 			errMsg = lastError.Error()

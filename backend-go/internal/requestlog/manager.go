@@ -830,6 +830,91 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 	}, nil
 }
 
+// GetRecentChannelCalls returns the latest call outcomes per (endpoint, channel).
+// Results are ordered oldest -> newest within each channel to preserve UI slot order.
+func (m *Manager) GetRecentChannelCalls(limitPerChannel int) ([]ChannelRecentCall, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if limitPerChannel <= 0 {
+		limitPerChannel = 20
+	}
+	if limitPerChannel > 100 {
+		limitPerChannel = 100
+	}
+
+	query := m.convertQuery(`
+		WITH ranked AS (
+			SELECT
+				endpoint,
+				channel_id,
+				status,
+				http_status,
+				model,
+				channel_name,
+				COALESCE(complete_time, initial_time, created_at) AS event_time,
+				ROW_NUMBER() OVER (
+					PARTITION BY endpoint, channel_id
+					ORDER BY COALESCE(complete_time, initial_time, created_at) DESC, id DESC
+				) AS rn
+			FROM request_logs
+			WHERE endpoint IN (?, ?, ?)
+				AND channel_id IS NOT NULL
+				AND channel_id >= 0
+				AND status IN (?, ?)
+		)
+		SELECT endpoint, channel_id, status, http_status, model, channel_name
+			   , CAST(event_time AS TEXT) AS event_time
+		FROM ranked
+		WHERE rn <= ?
+		ORDER BY endpoint ASC, channel_id ASC, event_time ASC, rn DESC
+	`)
+
+	rows, err := m.db.Query(query,
+		"/v1/messages",
+		"/v1/responses",
+		"/v1/gemini",
+		StatusCompleted,
+		StatusError,
+		limitPerChannel,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query recent channel calls: %w", err)
+	}
+	defer rows.Close()
+
+	recent := make([]ChannelRecentCall, 0)
+	for rows.Next() {
+		var call ChannelRecentCall
+		var status string
+		var model sql.NullString
+		var channelName sql.NullString
+		var eventTime sql.NullString
+		if err := rows.Scan(&call.Endpoint, &call.ChannelID, &status, &call.HTTPStatus, &model, &channelName, &eventTime); err != nil {
+			return nil, fmt.Errorf("failed to scan recent channel call: %w", err)
+		}
+		if call.HTTPStatus < 0 {
+			call.HTTPStatus = 0
+		}
+		call.Success = status == StatusCompleted
+		if model.Valid {
+			call.Model = model.String
+		}
+		if channelName.Valid {
+			call.ChannelName = channelName.String
+		}
+		if eventTime.Valid && eventTime.String != "" {
+			call.Timestamp = parseTimeString(eventTime.String)
+		}
+		recent = append(recent, call)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed while reading recent channel calls: %w", err)
+	}
+
+	return recent, nil
+}
+
 // GetStats retrieves aggregated statistics
 func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 	m.mu.RLock()
@@ -2629,6 +2714,10 @@ func parseTimeString(s string) time.Time {
 		"2006-01-02T15:04:05.999999999-07:00",
 		"2006-01-02T15:04:05-07:00",
 		"2006-01-02T15:04:05Z",
+		"2006-01-02 15:04:05.999999999-07:00",
+		"2006-01-02 15:04:05.999999999-07",
+		"2006-01-02 15:04:05-07:00",
+		"2006-01-02 15:04:05-07",
 		"2006-01-02 15:04:05",
 	}
 	for _, format := range formats {

@@ -217,7 +217,7 @@ func ResponsesHandlerWithAPIKey(
 			handleMultiChannelResponses(c, envCfg, cfgManager, channelScheduler, sessionManager, bodyBytes, responsesReq, userID, sessionID, apiKeyID, reasoningEffort, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker, channelRateLimiter)
 		} else {
 			// 单渠道模式：使用现有逻辑
-			handleSingleChannelResponses(c, envCfg, cfgManager, sessionManager, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker, userID, sessionID, apiKeyID, channelRateLimiter)
+			handleSingleChannelResponses(c, envCfg, cfgManager, channelScheduler, sessionManager, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker, userID, sessionID, apiKeyID, channelRateLimiter)
 		}
 	})
 }
@@ -337,6 +337,10 @@ func handleMultiChannelResponses(
 
 		upstream := selection.Upstream
 		channelIndex := selection.ChannelIndex
+		metricsModel := responsesReq.Model
+		if selection.ResolvedModel != "" {
+			metricsModel = selection.ResolvedModel
+		}
 
 		if shouldLogInfo {
 			if selection.CompositeUpstream != nil {
@@ -362,6 +366,7 @@ func handleMultiChannelResponses(
 					log.Printf("🚫 [Channel Rate Limit/Responses] Channel %d (%s): %v",
 						channelIndex, upstream.Name, result.Error)
 				}
+				channelScheduler.RecordFailureWithStatusDetail(channelIndex, true, 429, metricsModel, upstream.Name)
 				// Mark channel as failed for this request and try next channel
 				failedChannels[channelIndex] = true
 				lastError = result.Error
@@ -380,9 +385,9 @@ func handleMultiChannelResponses(
 			// ActionNone/no-failover branches return handled=true with an error payload.
 			// Treat any such handled payload as failure so recent success stats stay accurate.
 			if failoverErr != nil {
-				channelScheduler.RecordFailureWithStatus(channelIndex, true, failoverErr.Status)
+				channelScheduler.RecordFailureWithStatusDetail(channelIndex, true, failoverErr.Status, metricsModel, upstream.Name)
 			} else {
-				channelScheduler.RecordSuccessWithStatus(channelIndex, true, 200)
+				channelScheduler.RecordSuccessWithStatusDetail(channelIndex, true, 200, metricsModel, upstream.Name)
 				// For composite channels, set affinity to the composite channel (not the resolved target)
 				// This ensures subsequent requests still go through composite routing logic
 				affinityIndex := channelIndex
@@ -399,7 +404,7 @@ func handleMultiChannelResponses(
 		if failoverErr != nil {
 			failureStatus = failoverErr.Status
 		}
-		channelScheduler.RecordFailureWithStatus(channelIndex, true, failureStatus)
+		channelScheduler.RecordFailureWithStatusDetail(channelIndex, true, failureStatus, metricsModel, upstream.Name)
 		failedChannels[channelIndex] = true
 
 		// For composite channels, check if there are more in the failover chain
@@ -1312,6 +1317,7 @@ func handleSingleChannelResponses(
 	c *gin.Context,
 	envCfg *config.EnvConfig,
 	cfgManager *config.ConfigManager,
+	channelScheduler *scheduler.ChannelScheduler,
 	sessionManager *session.SessionManager,
 	bodyBytes []byte,
 	responsesReq types.ResponsesRequest,
@@ -1359,6 +1365,24 @@ func handleSingleChannelResponses(
 		result := channelRateLimiter.Acquire(c.Request.Context(), upstream, "responses")
 		if !result.Allowed {
 			log.Printf("🚫 [Channel Rate Limit/Responses] Channel %d (%s): %v", upstream.Index, upstream.Name, result.Error)
+			channelScheduler.RecordFailureWithStatusDetail(upstream.Index, true, 429, responsesReq.Model, upstream.Name)
+			if reqLogManager != nil && requestLogID != "" {
+				completeTime := time.Now()
+				record := &requestlog.RequestLog{
+					Status:       requestlog.StatusError,
+					CompleteTime: completeTime,
+					DurationMs:   completeTime.Sub(startTime).Milliseconds(),
+					Model:        responsesReq.Model,
+					Type:         upstream.ServiceType,
+					ProviderName: upstream.Name,
+					HTTPStatus:   429,
+					ChannelID:    upstream.Index,
+					ChannelName:  upstream.Name,
+					Endpoint:     "/v1/responses",
+					Error:        fmt.Sprintf("channel rate limit exceeded (%d RPM)", upstream.RateLimitRpm),
+				}
+				_ = reqLogManager.Update(requestLogID, record)
+			}
 			c.JSON(429, gin.H{
 				"error":   "Too Many Requests",
 				"message": fmt.Sprintf("Channel rate limit exceeded (%d RPM)", upstream.RateLimitRpm),
@@ -1379,6 +1403,7 @@ func handleSingleChannelResponses(
 			if status == 0 {
 				status = 500
 			}
+			channelScheduler.RecordFailureWithStatusDetail(upstream.Index, true, status, responsesReq.Model, upstream.Name)
 			SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, status, failoverErr.Body)
 			var errBody map[string]interface{}
 			if err := json.Unmarshal(failoverErr.Body, &errBody); err == nil {
@@ -1386,6 +1411,10 @@ func handleSingleChannelResponses(
 			} else {
 				c.JSON(status, gin.H{"error": string(failoverErr.Body)})
 			}
+		} else if success {
+			channelScheduler.RecordSuccessWithStatusDetail(upstream.Index, true, 200, responsesReq.Model, upstream.Name)
+		} else {
+			channelScheduler.RecordFailureWithStatusDetail(upstream.Index, true, 500, responsesReq.Model, upstream.Name)
 		}
 		return
 	}
@@ -1400,6 +1429,7 @@ func handleSingleChannelResponses(
 	}
 
 	// Resolve composite channel to target channel
+	metricsModel := responsesReq.Model
 	if config.IsCompositeChannel(upstream) {
 		cfg := cfgManager.GetConfig()
 		targetChannelID, targetIndex, resolvedModel, found := config.ResolveCompositeMapping(upstream, responsesReq.Model, cfg.ResponsesUpstream)
@@ -1421,6 +1451,16 @@ func handleSingleChannelResponses(
 		log.Printf("🔀 [Single-Channel Composite] '%s' → target [%d] '%s' for model '%s' (resolved: '%s')",
 			upstream.Name, targetIndex, targetUpstream.Name, responsesReq.Model, resolvedModel)
 		upstream = &targetUpstream
+		if resolvedModel != "" {
+			metricsModel = resolvedModel
+		}
+	}
+
+	recordSingleSuccess := func(statusCode int) {
+		channelScheduler.RecordSuccessWithStatusDetail(upstream.Index, true, statusCode, metricsModel, upstream.Name)
+	}
+	recordSingleFailure := func(statusCode int) {
+		channelScheduler.RecordFailureWithStatusDetail(upstream.Index, true, statusCode, metricsModel, upstream.Name)
 	}
 
 	provider := &providers.ResponsesProvider{SessionManager: sessionManager}
@@ -1645,6 +1685,7 @@ func handleSingleChannelResponses(
 						_ = reqLogManager.Update(currentRequestLogID, record)
 					}
 					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+					recordSingleFailure(resp.StatusCode)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
 					return
 
@@ -1671,6 +1712,7 @@ func handleSingleChannelResponses(
 						_ = reqLogManager.Update(currentRequestLogID, record)
 					}
 					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+					recordSingleFailure(resp.StatusCode)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
 					return
 				}
@@ -1820,6 +1862,7 @@ func handleSingleChannelResponses(
 						_ = reqLogManager.Update(currentRequestLogID, record)
 					}
 					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+					recordSingleFailure(resp.StatusCode)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
 					return
 
@@ -1860,6 +1903,7 @@ func handleSingleChannelResponses(
 						}
 					}
 					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+					recordSingleFailure(resp.StatusCode)
 					c.Data(resp.StatusCode, "application/json", respBodyBytes)
 					return
 				}
@@ -1891,6 +1935,7 @@ func handleSingleChannelResponses(
 					}
 				}
 				SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
+				recordSingleFailure(resp.StatusCode)
 				c.Data(resp.StatusCode, "application/json", respBodyBytes)
 				return
 			}
@@ -1909,17 +1954,52 @@ func handleSingleChannelResponses(
 			failoverTracker.ResetOnSuccess(upstream.Index, apiKey)
 		}
 
+		recordSingleSuccess(resp.StatusCode)
 		handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, currentStartTime, &responsesReq, bodyBytes, reqLogManager, currentRequestLogID, usageManager)
 		return
 	}
 
 	log.Printf("💥 所有 Responses API密钥都失败了")
 
+	if reqLogManager != nil && currentRequestLogID != "" {
+		httpStatus := 500
+		errMsg := "all Responses API keys are unavailable"
+		upstreamErr := ""
+		failoverInfo := ""
+		if lastFailoverError != nil {
+			if lastFailoverError.Status > 0 {
+				httpStatus = lastFailoverError.Status
+			}
+			upstreamErr = string(lastFailoverError.Body)
+			failoverInfo = lastFailoverError.FailoverInfo
+		}
+		if lastError != nil {
+			errMsg = lastError.Error()
+		}
+		record := &requestlog.RequestLog{
+			Status:        requestlog.StatusError,
+			CompleteTime:  time.Now(),
+			DurationMs:    time.Since(currentStartTime).Milliseconds(),
+			Model:         responsesReq.Model,
+			Type:          upstream.ServiceType,
+			ProviderName:  upstream.Name,
+			HTTPStatus:    httpStatus,
+			ChannelID:     upstream.Index,
+			ChannelName:   upstream.Name,
+			Endpoint:      "/v1/responses",
+			Error:         errMsg,
+			UpstreamError: upstreamErr,
+			FailoverInfo:  failoverInfo,
+		}
+		_ = reqLogManager.Update(currentRequestLogID, record)
+	}
+
 	if lastFailoverError != nil {
 		status := lastFailoverError.Status
 		if status == 0 {
 			status = 500
 		}
+		recordSingleFailure(status)
 		SaveErrorDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, status, lastFailoverError.Body)
 		var errBody map[string]interface{}
 		if err := json.Unmarshal(lastFailoverError.Body, &errBody); err == nil {
@@ -1928,6 +2008,7 @@ func handleSingleChannelResponses(
 			c.JSON(status, gin.H{"error": string(lastFailoverError.Body)})
 		}
 	} else {
+		recordSingleFailure(500)
 		errMsg := "unknown error"
 		if lastError != nil {
 			errMsg = lastError.Error()
