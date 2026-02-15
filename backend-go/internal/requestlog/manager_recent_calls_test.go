@@ -1,10 +1,13 @@
 package requestlog
 
 import (
+	"database/sql"
 	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/JillVernus/cc-bridge/internal/database"
 )
 
 func TestGetRecentChannelCalls(t *testing.T) {
@@ -350,6 +353,93 @@ func TestUpdate_PreservesResolvedChannelUIDWhenEndpointMissing(t *testing.T) {
 	}
 	if got.ChannelID != 3 {
 		t.Fatalf("expected channel id=3, got %d", got.ChannelID)
+	}
+}
+
+func TestLegacySchemaWithoutChannelUID_Compatibility(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legacy_request_logs.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("failed to open legacy sqlite db: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+
+	schema := `
+	CREATE TABLE request_logs (
+		id TEXT PRIMARY KEY,
+		status TEXT DEFAULT 'completed',
+		initial_time DATETIME NOT NULL,
+		complete_time DATETIME,
+		duration_ms INTEGER DEFAULT 0,
+		provider TEXT NOT NULL,
+		provider_name TEXT,
+		model TEXT NOT NULL,
+		response_model TEXT,
+		reasoning_effort TEXT,
+		input_tokens INTEGER DEFAULT 0,
+		output_tokens INTEGER DEFAULT 0,
+		cache_creation_input_tokens INTEGER DEFAULT 0,
+		cache_read_input_tokens INTEGER DEFAULT 0,
+		total_tokens INTEGER DEFAULT 0,
+		price REAL DEFAULT 0,
+		input_cost REAL DEFAULT 0,
+		output_cost REAL DEFAULT 0,
+		cache_creation_cost REAL DEFAULT 0,
+		cache_read_cost REAL DEFAULT 0,
+		http_status INTEGER DEFAULT 0,
+		stream BOOLEAN NOT NULL,
+		channel_id INTEGER,
+		channel_name TEXT,
+		endpoint TEXT,
+		client_id TEXT,
+		session_id TEXT,
+		api_key_id INTEGER,
+		error TEXT,
+		upstream_error TEXT,
+		failover_info TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	`
+	if _, err := db.Exec(schema); err != nil {
+		t.Fatalf("failed to create legacy request_logs schema: %v", err)
+	}
+
+	manager := &Manager{
+		db:          db,
+		dialect:     database.DialectSQLite,
+		broadcaster: NewBroadcaster(),
+	}
+
+	base := time.Date(2026, 2, 16, 11, 0, 0, 0, time.UTC)
+	record := &RequestLog{
+		Status:       StatusCompleted,
+		InitialTime:  base,
+		CompleteTime: base.Add(1 * time.Second),
+		DurationMs:   1000,
+		Type:         "responses",
+		ProviderName: "responses-legacy",
+		Model:        "gpt-5",
+		HTTPStatus:   200,
+		Stream:       false,
+		ChannelID:    2,
+		ChannelName:  "responses-2",
+		Endpoint:     "/v1/responses",
+	}
+	if err := manager.Add(record); err != nil {
+		t.Fatalf("expected legacy Add fallback to succeed, got error: %v", err)
+	}
+
+	calls, err := manager.GetRecentChannelCalls(20)
+	if err != nil {
+		t.Fatalf("expected legacy GetRecentChannelCalls fallback to succeed, got error: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 recent call, got %d", len(calls))
+	}
+	if calls[0].Endpoint != "/v1/responses" || calls[0].ChannelID != 2 || !calls[0].Success {
+		t.Fatalf("unexpected restored legacy call: %+v", calls[0])
 	}
 }
 

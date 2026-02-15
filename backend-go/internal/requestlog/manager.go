@@ -491,6 +491,21 @@ func (m *Manager) resolveChannelUID(record *RequestLog) {
 	}
 }
 
+func isMissingColumnErr(err error, column string) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	col := strings.ToLower(strings.TrimSpace(column))
+	if col == "" || !strings.Contains(msg, col) {
+		return false
+	}
+	return strings.Contains(msg, "does not exist") ||
+		strings.Contains(msg, "no such column") ||
+		strings.Contains(msg, "no column") ||
+		strings.Contains(msg, "unknown column")
+}
+
 // Add inserts a new request log record
 func (m *Manager) Add(record *RequestLog) error {
 	m.mu.Lock()
@@ -566,6 +581,55 @@ func (m *Manager) Add(record *RequestLog) error {
 		record.FailoverInfo,
 		record.CreatedAt,
 	)
+	if err != nil && isMissingColumnErr(err, "channel_uid") {
+		legacyQuery := `
+		INSERT INTO request_logs (
+			id, status, initial_time, complete_time, duration_ms,
+			provider, provider_name, model, response_model, reasoning_effort, input_tokens, output_tokens,
+			cache_creation_input_tokens, cache_read_input_tokens, total_tokens,
+			price, input_cost, output_cost, cache_creation_cost, cache_read_cost,
+			http_status, stream, channel_id, channel_name,
+			endpoint, client_id, session_id, api_key_id, error, upstream_error, failover_info, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`
+		_, err = m.db.Exec(m.convertQuery(legacyQuery),
+			record.ID,
+			record.Status,
+			record.InitialTime,
+			record.CompleteTime,
+			record.DurationMs,
+			record.Type,
+			record.ProviderName,
+			record.Model,
+			record.ResponseModel,
+			record.ReasoningEffort,
+			record.InputTokens,
+			record.OutputTokens,
+			record.CacheCreationInputTokens,
+			record.CacheReadInputTokens,
+			record.TotalTokens,
+			record.Price,
+			record.InputCost,
+			record.OutputCost,
+			record.CacheCreationCost,
+			record.CacheReadCost,
+			record.HTTPStatus,
+			record.Stream,
+			record.ChannelID,
+			record.ChannelName,
+			record.Endpoint,
+			record.ClientID,
+			record.SessionID,
+			apiKeyID,
+			record.Error,
+			record.UpstreamError,
+			record.FailoverInfo,
+			record.CreatedAt,
+		)
+		if err == nil {
+			log.Printf("⚠️ request_logs.channel_uid missing; inserted request log in legacy compatibility mode")
+		}
+	}
 
 	if err != nil {
 		return fmt.Errorf("failed to insert request log: %w", err)
@@ -660,6 +724,70 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 		record.FailoverInfo,
 		id,
 	)
+	if err != nil && isMissingColumnErr(err, "channel_uid") {
+		legacyQuery := `
+		UPDATE request_logs SET
+			status = ?,
+			complete_time = ?,
+			duration_ms = ?,
+			provider = ?,
+			provider_name = ?,
+			response_model = ?,
+			input_tokens = ?,
+			output_tokens = ?,
+			cache_creation_input_tokens = ?,
+			cache_read_input_tokens = ?,
+			total_tokens = ?,
+			price = ?,
+			input_cost = ?,
+			output_cost = ?,
+			cache_creation_cost = ?,
+			cache_read_cost = ?,
+			http_status = ?,
+			channel_id = CASE
+				WHEN TRIM(COALESCE(?, '')) != '' THEN ?
+				ELSE channel_id
+			END,
+			channel_name = CASE
+				WHEN TRIM(COALESCE(?, '')) != '' THEN ?
+				ELSE channel_name
+			END,
+			error = ?,
+			upstream_error = ?,
+			failover_info = ?
+		WHERE id = ?
+		`
+		result, err = m.db.Exec(m.convertQuery(legacyQuery),
+			record.Status,
+			record.CompleteTime,
+			record.DurationMs,
+			record.Type,
+			record.ProviderName,
+			record.ResponseModel,
+			record.InputTokens,
+			record.OutputTokens,
+			record.CacheCreationInputTokens,
+			record.CacheReadInputTokens,
+			record.TotalTokens,
+			record.Price,
+			record.InputCost,
+			record.OutputCost,
+			record.CacheCreationCost,
+			record.CacheReadCost,
+			record.HTTPStatus,
+			record.ChannelName,
+			record.ChannelID,
+			record.ChannelName,
+			record.ChannelName,
+			record.Error,
+			record.UpstreamError,
+			record.FailoverInfo,
+			id,
+		)
+		if err == nil {
+			log.Printf("⚠️ request_logs.channel_uid missing; updated request log in legacy compatibility mode")
+		}
+	}
 
 	if err != nil {
 		return fmt.Errorf("failed to update request log: %w", err)
@@ -1002,6 +1130,7 @@ func (m *Manager) GetRecentChannelCalls(limitPerChannel int) ([]ChannelRecentCal
 		ORDER BY endpoint ASC, channel_key ASC, event_time ASC, rn DESC
 	`)
 
+	legacyMode := false
 	rows, err := m.db.Query(query,
 		"/v1/messages",
 		"/v1/responses",
@@ -1010,6 +1139,46 @@ func (m *Manager) GetRecentChannelCalls(limitPerChannel int) ([]ChannelRecentCal
 		StatusError,
 		limitPerChannel,
 	)
+	if err != nil && isMissingColumnErr(err, "channel_uid") {
+		legacyQuery := m.convertQuery(`
+			WITH ranked AS (
+				SELECT
+					endpoint,
+					channel_id,
+					status,
+					http_status,
+					model,
+					channel_name,
+					COALESCE(complete_time, initial_time, created_at) AS event_time,
+					ROW_NUMBER() OVER (
+						PARTITION BY endpoint, channel_id
+						ORDER BY COALESCE(complete_time, initial_time, created_at) DESC, id DESC
+					) AS rn
+				FROM request_logs
+				WHERE endpoint IN (?, ?, ?)
+					AND channel_id IS NOT NULL
+					AND channel_id >= 0
+					AND status IN (?, ?)
+			)
+			SELECT endpoint, channel_id, status, http_status, model, channel_name
+				   , CAST(event_time AS TEXT) AS event_time
+			FROM ranked
+			WHERE rn <= ?
+			ORDER BY endpoint ASC, channel_id ASC, event_time ASC, rn DESC
+		`)
+		rows, err = m.db.Query(legacyQuery,
+			"/v1/messages",
+			"/v1/responses",
+			"/v1/gemini",
+			StatusCompleted,
+			StatusError,
+			limitPerChannel,
+		)
+		if err == nil {
+			legacyMode = true
+			log.Printf("⚠️ request_logs.channel_uid missing; reading recent channel calls in legacy compatibility mode")
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query recent channel calls: %w", err)
 	}
@@ -1025,8 +1194,14 @@ func (m *Manager) GetRecentChannelCalls(limitPerChannel int) ([]ChannelRecentCal
 		var model sql.NullString
 		var channelName sql.NullString
 		var eventTime sql.NullString
-		if err := rows.Scan(&call.Endpoint, &channelID, &channelUID, &status, &call.HTTPStatus, &model, &channelName, &eventTime); err != nil {
-			return nil, fmt.Errorf("failed to scan recent channel call: %w", err)
+		if legacyMode {
+			if err := rows.Scan(&call.Endpoint, &channelID, &status, &call.HTTPStatus, &model, &channelName, &eventTime); err != nil {
+				return nil, fmt.Errorf("failed to scan recent channel call (legacy): %w", err)
+			}
+		} else {
+			if err := rows.Scan(&call.Endpoint, &channelID, &channelUID, &status, &call.HTTPStatus, &model, &channelName, &eventTime); err != nil {
+				return nil, fmt.Errorf("failed to scan recent channel call: %w", err)
+			}
 		}
 		if channelID.Valid {
 			call.ChannelID = int(channelID.Int64)
