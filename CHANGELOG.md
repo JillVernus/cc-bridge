@@ -4,6 +4,19 @@
 
 ---
 
+## [v1.3.199] - 2026-02-15
+
+### ✨ 新功能
+
+- **User-Agent 回退配置与自动捕获**:
+  - 新增 `/api/config/user-agent` 管理 API，支持管理员查看/编辑 Messages 与 Responses 的回退 UA。
+  - 新增 WebUI 设置面板，可直接编辑两类 UA，并显示最近一次自动捕获时间。
+  - 当入站 UA 符合 `claude-cli/*`（Messages）或 `codex_cli_rs/*`（Responses）时，继续透传；若版本号高于已存储值则自动更新并记录时间。
+  - 当入站 UA 缺失或不符合格式时，使用已存储的最新 UA 作为回退值。
+  - 配置在 JSON 与数据库存储模式下均持久化（`settings.user_agent`）。
+
+---
+
 ## [v1.3.197] - 2026-02-14
 
 ### ✨ 新功能

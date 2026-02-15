@@ -830,6 +830,21 @@ class ApiService {
     })
   }
 
+  // ============== User-Agent 配置 API ==============
+
+  // 获取 User-Agent 配置
+  async getUserAgentConfig(): Promise<UserAgentConfig> {
+    return this.request('/config/user-agent')
+  }
+
+  // 更新 User-Agent 配置
+  async updateUserAgentConfig(config: Partial<UserAgentConfig>): Promise<UserAgentConfig> {
+    return this.request('/config/user-agent', {
+      method: 'PUT',
+      body: JSON.stringify(config)
+    })
+  }
+
   // 获取请求的调试日志
   async getDebugLog(requestId: string): Promise<DebugLogEntry> {
     return this.request(`/logs/${encodeURIComponent(requestId)}/debug`)
@@ -1250,6 +1265,16 @@ export interface DebugLogConfig {
   enabled: boolean
   retentionHours: number
   maxBodySize: number
+}
+
+export interface UserAgentEndpointConfig {
+  latest: string
+  lastCapturedAt?: string
+}
+
+export interface UserAgentConfig {
+  messages: UserAgentEndpointConfig
+  responses: UserAgentEndpointConfig
 }
 
 // Debug Log Entry

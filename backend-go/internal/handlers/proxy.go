@@ -652,6 +652,7 @@ func tryChannelWithAllKeys(
 			failedKeys[apiKey] = true
 			continue
 		}
+		applyMessagesUserAgentPolicy(c, cfgManager, upstream, providerReq)
 
 		// 发送请求
 		resp, err := sendRequest(providerReq, upstream, envCfg, claudeReq.Stream)
@@ -1231,6 +1232,7 @@ func handleSingleChannelProxy(
 			continue
 		}
 		lastOriginalBodyBytes = originalBodyBytes
+		applyMessagesUserAgentPolicy(c, cfgManager, upstream, providerReq)
 
 		// 请求日志记录
 		if envCfg.EnableRequestLogs {

@@ -447,6 +447,9 @@ type Config struct {
 
 	// 故障转移阈值配置
 	Failover FailoverConfig `json:"failover,omitempty"`
+
+	// User-Agent 回退与自动捕获配置
+	UserAgent UserAgentConfig `json:"userAgent,omitempty"`
 }
 
 // FailedKey 失败密钥记录
@@ -521,6 +524,7 @@ func (cm *ConfigManager) loadConfig() error {
 			ResponsesLoadBalance:     "failover",
 			GeminiUpstream:           []UpstreamConfig{},
 			GeminiLoadBalance:        "failover",
+			UserAgent:                GetDefaultUserAgentConfig(),
 		}
 
 		// 确保目录存在
@@ -651,6 +655,16 @@ func (cm *ConfigManager) loadConfig() error {
 					}
 				}
 			}
+		}
+	}
+
+	// User-Agent 配置迁移：为旧配置填充默认值
+	userAgentChanged := normalizeUserAgentConfig(&cm.config.UserAgent)
+	if userAgentChanged {
+		log.Printf("检测到缺失/无效的 User-Agent 配置，正在写入默认值...")
+		if err := cm.saveConfigLocked(cm.config); err != nil {
+			log.Printf("保存 User-Agent 配置迁移失败: %v", err)
+			return err
 		}
 	}
 

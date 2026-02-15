@@ -499,6 +499,10 @@ func main() {
 		apiGroup.GET("/config/debug-log", handlers.GetDebugLogConfig(cfgManager))
 		apiGroup.PUT("/config/debug-log", handlers.UpdateDebugLogConfig(cfgManager))
 
+		// User-Agent 配置 API
+		apiGroup.GET("/config/user-agent", handlers.GetUserAgentConfig(cfgManager))
+		apiGroup.PUT("/config/user-agent", handlers.UpdateUserAgentConfig(cfgManager))
+
 		// 故障转移配置 API
 		apiGroup.GET("/config/failover", handlers.GetFailoverConfig(cfgManager))
 		apiGroup.PUT("/config/failover", handlers.UpdateFailoverConfig(cfgManager))

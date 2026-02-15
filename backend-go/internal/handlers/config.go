@@ -1299,6 +1299,47 @@ func UpdateDebugLogConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	}
 }
 
+// GetUserAgentConfig 获取 User-Agent 回退/捕获配置
+func GetUserAgentConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.JSON(http.StatusOK, cfgManager.GetUserAgentConfig())
+	}
+}
+
+// UpdateUserAgentConfig 更新 User-Agent 回退配置（管理员可编辑）
+func UpdateUserAgentConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Messages *struct {
+				Latest *string `json:"latest"`
+			} `json:"messages"`
+			Responses *struct {
+				Latest *string `json:"latest"`
+			} `json:"responses"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		cfg := cfgManager.GetUserAgentConfig()
+		if req.Messages != nil && req.Messages.Latest != nil {
+			cfg.Messages.Latest = strings.TrimSpace(*req.Messages.Latest)
+		}
+		if req.Responses != nil && req.Responses.Latest != nil {
+			cfg.Responses.Latest = strings.TrimSpace(*req.Responses.Latest)
+		}
+
+		if err := cfgManager.UpdateUserAgentConfig(cfg); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, cfgManager.GetUserAgentConfig())
+	}
+}
+
 // GetFailoverConfig 获取故障转移配置
 func GetFailoverConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {

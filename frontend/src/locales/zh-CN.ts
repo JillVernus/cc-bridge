@@ -52,6 +52,7 @@ export default {
     pricingSettings: '定价设置',
     rateLimitSettings: '速率限制设置',
     debugLogSettings: '调试日志设置',
+    userAgentSettings: 'User-Agent 设置',
     failoverSettings: '故障转移设置',
     logout: '注销',
     loggedOut: '已安全注销'
@@ -867,6 +868,23 @@ export default {
     purgeFailed: '清除调试日志失败',
     loadFailed: '加载调试日志配置失败',
     saveFailed: '保存调试日志配置失败'
+  },
+
+  // User-Agent 设置
+  userAgent: {
+    title: 'User-Agent 设置',
+    description: '管理员可编辑回退 User-Agent。客户端传入合法 CLI UA 时透传；若版本更高会自动捕获并保存。',
+    messagesTitle: 'Messages 端点 (/v1/messages)',
+    responsesTitle: 'Responses 端点 (/v1/responses)',
+    latestUserAgent: '回退 / 最新 User-Agent',
+    lastCapturedAt: '最后捕获时间',
+    notCaptured: '尚未捕获',
+    messagesPlaceholder: 'claude-cli/2.1.12 (external, cli)',
+    responsesPlaceholder: 'codex_cli_rs/0.73.0 (Linux; x86_64)',
+    messagesInvalid: '必须以 claude-cli/ 开头并包含数字版本号',
+    responsesInvalid: '必须以 codex_cli_rs/ 开头并包含数字版本号',
+    loadFailed: '加载 User-Agent 配置失败',
+    saveFailed: '保存 User-Agent 配置失败'
   },
 
   // 故障转移设置

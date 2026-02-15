@@ -94,6 +94,12 @@
               </template>
               <v-list-item-title>{{ t('app.debugLogSettings') }}</v-list-item-title>
             </v-list-item>
+            <v-list-item @click="showUserAgentSettings = true">
+              <template #prepend>
+                <v-icon size="small">mdi-account-box-outline</v-icon>
+              </template>
+              <v-list-item-title>{{ t('app.userAgentSettings') }}</v-list-item-title>
+            </v-list-item>
             <v-list-item @click="showFailoverSettings = true">
               <template #prepend>
                 <v-icon size="small">mdi-swap-horizontal</v-icon>
@@ -494,6 +500,9 @@
     <!-- 调试日志设置对话框 -->
     <DebugLogSettings v-model="showDebugLogSettings" />
 
+    <!-- User-Agent 设置对话框 -->
+    <UserAgentSettings v-model="showUserAgentSettings" />
+
     <!-- 故障转移设置对话框 -->
     <FailoverSettings v-model="showFailoverSettings" />
 
@@ -626,6 +635,7 @@ import PricingSettings from './components/PricingSettings.vue'
 import ModelAliasSettings from './components/ModelAliasSettings.vue'
 import RateLimitSettings from './components/RateLimitSettings.vue'
 import DebugLogSettings from './components/DebugLogSettings.vue'
+import UserAgentSettings from './components/UserAgentSettings.vue'
 import FailoverSettings from './components/FailoverSettings.vue'
 import GlobalStatsChart from './components/GlobalStatsChart.vue'
 import { useAppTheme } from './composables/useTheme'
@@ -673,6 +683,7 @@ const showPricingSettings = ref(false) // 定价设置对话框
 const showModelAliasSettings = ref(false) // 模型别名设置对话框
 const showRateLimitSettings = ref(false) // 速率限制设置对话框
 const showDebugLogSettings = ref(false) // 调试日志设置对话框
+const showUserAgentSettings = ref(false) // User-Agent 设置对话框
 const showFailoverSettings = ref(false) // 故障转移设置对话框
 const showBackupRestore = ref(false) // 备份恢复对话框
 const showGlobalStatsChart = ref(false) // 全局统计图表显示状态
@@ -1326,6 +1337,7 @@ const handleKeydown = (event: KeyboardEvent) => {
     showModelAliasSettings.value = false
     showRateLimitSettings.value = false
     showDebugLogSettings.value = false
+    showUserAgentSettings.value = false
     showFailoverSettings.value = false
     showBackupRestore.value = false
     showRestoreConfirm.value = false

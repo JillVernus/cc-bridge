@@ -52,6 +52,7 @@ export default {
     pricingSettings: 'Pricing Settings',
     rateLimitSettings: 'Rate Limit Settings',
     debugLogSettings: 'Debug Log Settings',
+    userAgentSettings: 'User-Agent Settings',
     failoverSettings: 'Failover Settings',
     logout: 'Logout',
     loggedOut: 'Logged out safely'
@@ -879,6 +880,24 @@ export default {
     purgeFailed: 'Failed to purge debug logs',
     loadFailed: 'Failed to load debug log configuration',
     saveFailed: 'Failed to save debug log configuration'
+  },
+
+  // User-Agent Settings
+  userAgent: {
+    title: 'User-Agent Settings',
+    description:
+      'Admin can edit fallback User-Agent values. Valid incoming CLI UA is forwarded as-is; newer versions are auto-captured.',
+    messagesTitle: 'Messages Endpoint (/v1/messages)',
+    responsesTitle: 'Responses Endpoint (/v1/responses)',
+    latestUserAgent: 'Fallback / Latest User-Agent',
+    lastCapturedAt: 'Last captured at',
+    notCaptured: 'Not captured yet',
+    messagesPlaceholder: 'claude-cli/2.1.12 (external, cli)',
+    responsesPlaceholder: 'codex_cli_rs/0.73.0 (Linux; x86_64)',
+    messagesInvalid: 'Must start with claude-cli/ and include numeric version',
+    responsesInvalid: 'Must start with codex_cli_rs/ and include numeric version',
+    loadFailed: 'Failed to load User-Agent configuration',
+    saveFailed: 'Failed to save User-Agent configuration'
   },
 
   // Failover Settings

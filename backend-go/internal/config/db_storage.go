@@ -94,6 +94,7 @@ func (s *DBConfigStorage) MigrateFromJSONIfNeeded(jsonPath string) error {
 	settings := map[string]string{
 		"messages_load_balance":  config.LoadBalance,
 		"responses_load_balance": config.ResponsesLoadBalance,
+		"gemini_load_balance":    config.GeminiLoadBalance,
 	}
 
 	// Migrate debug log config
@@ -103,6 +104,10 @@ func (s *DBConfigStorage) MigrateFromJSONIfNeeded(jsonPath string) error {
 	// Migrate failover config
 	failoverConfig, _ := json.Marshal(config.Failover)
 	settings["failover"] = string(failoverConfig)
+
+	// Migrate user-agent config
+	userAgentConfig, _ := json.Marshal(config.UserAgent)
+	settings["user_agent"] = string(userAgentConfig)
 
 	for key, value := range settings {
 		if value == "" {
@@ -242,6 +247,8 @@ func (s *DBConfigStorage) LoadConfigFromDB() (*Config, error) {
 			json.Unmarshal([]byte(value), &config.DebugLog)
 		case "failover":
 			json.Unmarshal([]byte(value), &config.Failover)
+		case "user_agent":
+			json.Unmarshal([]byte(value), &config.UserAgent)
 		}
 	}
 
@@ -262,6 +269,9 @@ func (s *DBConfigStorage) LoadConfigFromDB() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to load gemini channels: %w", err)
 	}
+
+	// Ensure defaults are present for missing/legacy records.
+	normalizeUserAgentConfig(&config.UserAgent)
 
 	return config, nil
 }
@@ -447,6 +457,9 @@ func (s *DBConfigStorage) SaveConfigToDB(config *Config) error {
 
 	failoverConfig, _ := json.Marshal(config.Failover)
 	settings["failover"] = string(failoverConfig)
+
+	userAgentConfig, _ := json.Marshal(config.UserAgent)
+	settings["user_agent"] = string(userAgentConfig)
 
 	for key, value := range settings {
 		var query string

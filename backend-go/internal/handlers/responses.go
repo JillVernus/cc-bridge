@@ -690,6 +690,7 @@ func tryResponsesChannelWithAllKeys(
 			failedKeys[apiKey] = true
 			continue
 		}
+		applyResponsesUserAgentPolicy(c, cfgManager, upstream, providerReq)
 
 		resp, err := sendResponsesRequest(providerReq, upstream, envCfg, responsesReq.Stream)
 		if err != nil {
@@ -1142,7 +1143,7 @@ func tryResponsesChannelWithOAuth(
 	}
 
 	// 构建 OAuth 请求
-	providerReq, err := buildCodexOAuthRequest(c, upstream, bodyBytes, responsesReq, accessToken, accountID)
+	providerReq, err := buildCodexOAuthRequest(c, cfgManager, upstream, bodyBytes, responsesReq, accessToken, accountID)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to build OAuth request: %s", err.Error())
 		log.Printf("⚠️ [OAuth] 构建请求失败: %v", err)
@@ -1220,6 +1221,7 @@ func tryResponsesChannelWithOAuth(
 // buildCodexOAuthRequest 构建 Codex OAuth API 请求
 func buildCodexOAuthRequest(
 	c *gin.Context,
+	cfgManager *config.ConfigManager,
 	upstream *config.UpstreamConfig,
 	bodyBytes []byte,
 	responsesReq types.ResponsesRequest,
@@ -1255,7 +1257,7 @@ func buildCodexOAuthRequest(
 	headerInput := utils.CodexOAuthHeadersInput{
 		AccessToken:    accessToken,
 		AccountID:      accountID,
-		UserAgent:      c.GetHeader("User-Agent"),
+		UserAgent:      resolveResponsesUserAgentForOAuth(c, cfgManager),
 		ConversationID: c.GetHeader("Conversation_id"),
 		SessionID:      c.GetHeader("Session_id"),
 		Originator:     c.GetHeader("Originator"),
@@ -1441,6 +1443,7 @@ func handleSingleChannelResponses(
 			continue
 		}
 		lastOriginalBodyBytes = originalBodyBytes
+		applyResponsesUserAgentPolicy(c, cfgManager, upstream, providerReq)
 
 		if envCfg.EnableRequestLogs {
 			log.Printf("📥 收到 Responses 请求: %s %s", c.Request.Method, c.Request.URL.Path)
