@@ -376,7 +376,7 @@ func main() {
 		apiGroup.POST("/channels/:id/promotion", handlers.SetChannelPromotion(cfgManager))
 		apiGroup.GET("/channels/:id/test-mapping", handlers.TestCompositeMapping(cfgManager))
 		apiGroup.GET("/channels/:id/models", handlers.FetchUpstreamModels(cfgManager))
-		apiGroup.GET("/channels/metrics", handlers.GetChannelMetrics(messagesMetricsManager))
+		apiGroup.GET("/channels/metrics", handlers.GetChannelMetrics(messagesMetricsManager, cfgManager))
 		apiGroup.GET("/channels/scheduler/stats", handlers.GetSchedulerStats(channelScheduler))
 
 		// Responses 渠道管理
@@ -400,7 +400,7 @@ func main() {
 		apiGroup.PATCH("/responses/channels/:id/status", handlers.SetResponsesChannelStatus(cfgManager))
 		apiGroup.POST("/responses/channels/:id/resume", handlers.ResumeChannel(channelScheduler, true))
 		apiGroup.POST("/responses/channels/:id/promotion", handlers.SetResponsesChannelPromotion(cfgManager))
-		apiGroup.GET("/responses/channels/metrics", handlers.GetResponsesChannelMetrics(responsesMetricsManager))
+		apiGroup.GET("/responses/channels/metrics", handlers.GetResponsesChannelMetrics(responsesMetricsManager, cfgManager))
 		apiGroup.GET("/responses/channels/:id/oauth/status", handlers.GetResponsesChannelOAuthStatus(cfgManager))
 		apiGroup.GET("/responses/channels/:id/models", handlers.FetchResponsesUpstreamModels(cfgManager))
 
@@ -413,7 +413,7 @@ func main() {
 		apiGroup.DELETE("/gemini/channels/:id/keys/index/:keyIndex", handlers.DeleteGeminiApiKeyByIndex(cfgManager))
 		apiGroup.POST("/gemini/channels/reorder", handlers.ReorderGeminiChannels(cfgManager))
 		apiGroup.PATCH("/gemini/channels/:id/status", handlers.SetGeminiChannelStatus(cfgManager))
-		apiGroup.GET("/gemini/channels/metrics", handlers.GetGeminiChannelMetrics(channelScheduler.GetGeminiMetricsManager()))
+		apiGroup.GET("/gemini/channels/metrics", handlers.GetGeminiChannelMetrics(channelScheduler.GetGeminiMetricsManager(), cfgManager))
 		apiGroup.GET("/gemini/channels/:id/models", handlers.FetchGeminiUpstreamModels(cfgManager))
 		apiGroup.PUT("/gemini/loadbalance", handlers.UpdateGeminiLoadBalance(cfgManager))
 

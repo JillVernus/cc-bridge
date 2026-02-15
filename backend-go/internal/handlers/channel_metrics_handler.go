@@ -5,14 +5,38 @@ import (
 	"strings"
 	"time"
 
+	configpkg "github.com/JillVernus/cc-bridge/internal/config"
 	"github.com/JillVernus/cc-bridge/internal/metrics"
 	"github.com/JillVernus/cc-bridge/internal/scheduler"
 	"github.com/gin-gonic/gin"
 )
 
+type metricsChannelType string
+
+const (
+	metricsChannelTypeMessages  metricsChannelType = "messages"
+	metricsChannelTypeResponses metricsChannelType = "responses"
+	metricsChannelTypeGemini    metricsChannelType = "gemini"
+)
+
 // GetChannelMetrics 获取渠道指标
-func GetChannelMetrics(metricsManager *metrics.MetricsManager) gin.HandlerFunc {
+func GetChannelMetrics(metricsManager *metrics.MetricsManager, cfgManager *configpkg.ConfigManager) gin.HandlerFunc {
+	return getChannelMetricsByType(metricsManager, cfgManager, metricsChannelTypeMessages)
+}
+
+// GetResponsesChannelMetrics 获取 Responses 渠道指标
+func GetResponsesChannelMetrics(metricsManager *metrics.MetricsManager, cfgManager *configpkg.ConfigManager) gin.HandlerFunc {
+	return getChannelMetricsByType(metricsManager, cfgManager, metricsChannelTypeResponses)
+}
+
+// GetGeminiChannelMetrics 获取 Gemini 渠道指标
+func GetGeminiChannelMetrics(metricsManager *metrics.MetricsManager, cfgManager *configpkg.ConfigManager) gin.HandlerFunc {
+	return getChannelMetricsByType(metricsManager, cfgManager, metricsChannelTypeGemini)
+}
+
+func getChannelMetricsByType(metricsManager *metrics.MetricsManager, cfgManager *configpkg.ConfigManager, channelType metricsChannelType) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		reconcileMetricsWithConfig(metricsManager, cfgManager, channelType)
 		allMetrics := metricsManager.GetAllMetrics()
 
 		// 转换为 API 响应格式
@@ -57,10 +81,29 @@ func GetChannelMetrics(metricsManager *metrics.MetricsManager) gin.HandlerFunc {
 	}
 }
 
-// GetResponsesChannelMetrics 获取 Responses 渠道指标
-// 传入 Responses 专用的 MetricsManager 实例
-func GetResponsesChannelMetrics(metricsManager *metrics.MetricsManager) gin.HandlerFunc {
-	return GetChannelMetrics(metricsManager)
+func reconcileMetricsWithConfig(metricsManager *metrics.MetricsManager, cfgManager *configpkg.ConfigManager, channelType metricsChannelType) {
+	if metricsManager == nil || cfgManager == nil {
+		return
+	}
+
+	cfg := cfgManager.GetConfig()
+	var upstreams []configpkg.UpstreamConfig
+	switch channelType {
+	case metricsChannelTypeResponses:
+		upstreams = cfg.ResponsesUpstream
+	case metricsChannelTypeGemini:
+		upstreams = cfg.GeminiUpstream
+	default:
+		upstreams = cfg.Upstream
+	}
+
+	for i := range upstreams {
+		metricsManager.ReconcileChannelIdentity(
+			i,
+			strings.TrimSpace(upstreams[i].ID),
+			strings.TrimSpace(upstreams[i].Name),
+		)
+	}
 }
 
 // ResumeChannel 恢复熔断渠道（重置错误计数）

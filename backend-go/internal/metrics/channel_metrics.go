@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"log"
+	"strings"
 	"sync"
 	"time"
 )
@@ -36,6 +37,9 @@ type ChannelMetrics struct {
 	recentResults []bool // true=success, false=failure
 	// 带时间戳的请求记录（用于分时段统计，保留24小时）
 	requestHistory []RequestRecord
+	// 渠道身份（用于检测索引复用导致的指标串位）
+	boundChannelName string
+	boundChannelID   string
 }
 
 // TimeWindowStats 分时段统计
@@ -184,6 +188,72 @@ func (m *MetricsManager) RecordFailureWithStatusDetail(channelIndex int, statusC
 	m.appendRecentCall(metrics, false, statusCode, model, channelName)
 }
 
+// ReconcileChannelIdentity 将索引指标与当前配置中的渠道身份（ID/名称）对齐。
+// 当同一索引绑定到不同渠道时，重置该索引指标以避免历史数据串位。
+func (m *MetricsManager) ReconcileChannelIdentity(channelIndex int, expectedChannelID, expectedChannelName string) {
+	expectedID := strings.TrimSpace(expectedChannelID)
+	expected := strings.TrimSpace(expectedChannelName)
+	if expectedID == "" && expected == "" {
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	metrics, exists := m.metrics[channelIndex]
+	if !exists {
+		return
+	}
+
+	currentID := strings.TrimSpace(metrics.boundChannelID)
+	if expectedID != "" && currentID != "" {
+		if currentID != expectedID {
+			log.Printf("🔄 渠道 [%d] 指标身份变化: id=%q -> id=%q，重置指标避免索引复用污染", channelIndex, currentID, expectedID)
+			m.metrics[channelIndex] = &ChannelMetrics{
+				ChannelIndex:     channelIndex,
+				recentResults:    make([]bool, 0, m.windowSize),
+				RecentCalls:      make([]RecentCall, 0, recentCallsLimit),
+				boundChannelName: expected,
+				boundChannelID:   expectedID,
+			}
+			return
+		}
+
+		metrics.boundChannelID = expectedID
+		if expected != "" {
+			metrics.boundChannelName = expected
+		}
+		return
+	}
+
+	current := strings.TrimSpace(metrics.boundChannelName)
+	if current == "" {
+		current = inferRecentChannelName(metrics.RecentCalls)
+	}
+	if current == "" {
+		metrics.boundChannelID = expectedID
+		if expected != "" {
+			metrics.boundChannelName = expected
+		}
+		return
+	}
+
+	if strings.EqualFold(current, expected) {
+		metrics.boundChannelID = expectedID
+		metrics.boundChannelName = expected
+		return
+	}
+
+	log.Printf("🔄 渠道 [%d] 指标身份变化: %q -> %q，重置指标避免索引复用污染", channelIndex, current, expected)
+	m.metrics[channelIndex] = &ChannelMetrics{
+		ChannelIndex:     channelIndex,
+		recentResults:    make([]bool, 0, m.windowSize),
+		RecentCalls:      make([]RecentCall, 0, recentCallsLimit),
+		boundChannelName: expected,
+		boundChannelID:   expectedID,
+	}
+}
+
 // isCircuitBroken 判断是否达到熔断条件（内部方法，调用前需持有锁）
 func (m *MetricsManager) isCircuitBroken(metrics *ChannelMetrics) bool {
 	minRequests := m.windowSize / 2
@@ -242,12 +312,16 @@ func (m *MetricsManager) appendRecentCall(metrics *ChannelMetrics, success bool,
 	if statusCode < 0 {
 		statusCode = 0
 	}
+	normalizedChannelName := strings.TrimSpace(channelName)
+	if normalizedChannelName != "" {
+		metrics.boundChannelName = normalizedChannelName
+	}
 	metrics.RecentCalls = append(metrics.RecentCalls, RecentCall{
 		Success:     success,
 		StatusCode:  statusCode,
 		Timestamp:   time.Now(),
 		Model:       model,
-		ChannelName: channelName,
+		ChannelName: normalizedChannelName,
 	})
 	if len(metrics.RecentCalls) > recentCallsLimit {
 		metrics.RecentCalls = metrics.RecentCalls[len(metrics.RecentCalls)-recentCallsLimit:]
@@ -264,6 +338,8 @@ func (m *MetricsManager) SeedRecentCalls(channelIndex int, calls []RecentCall) {
 
 	if len(calls) == 0 {
 		metrics.RecentCalls = make([]RecentCall, 0, recentCallsLimit)
+		metrics.boundChannelName = ""
+		metrics.boundChannelID = ""
 		return
 	}
 	if len(calls) > recentCallsLimit {
@@ -276,8 +352,21 @@ func (m *MetricsManager) SeedRecentCalls(channelIndex int, calls []RecentCall) {
 		if seeded[i].StatusCode < 0 {
 			seeded[i].StatusCode = 0
 		}
+		seeded[i].ChannelName = strings.TrimSpace(seeded[i].ChannelName)
 	}
 	metrics.RecentCalls = seeded
+	metrics.boundChannelName = inferRecentChannelName(seeded)
+	metrics.boundChannelID = ""
+}
+
+func inferRecentChannelName(calls []RecentCall) string {
+	for i := len(calls) - 1; i >= 0; i-- {
+		channelName := strings.TrimSpace(calls[i].ChannelName)
+		if channelName != "" {
+			return channelName
+		}
+	}
+	return ""
 }
 
 // GetTimeWindowStats 获取指定时间窗口内的统计

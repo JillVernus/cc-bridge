@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/JillVernus/cc-bridge/internal/config"
-	"github.com/JillVernus/cc-bridge/internal/metrics"
 	"github.com/JillVernus/cc-bridge/internal/middleware"
 	"github.com/JillVernus/cc-bridge/internal/scheduler"
 	"github.com/gin-gonic/gin"
@@ -323,9 +322,4 @@ func ReorderGeminiChannels(cfgManager *config.ConfigManager) gin.HandlerFunc {
 
 		c.JSON(200, gin.H{"message": "Channels reordered successfully"})
 	}
-}
-
-// GetGeminiChannelMetrics 获取 Gemini 渠道指标
-func GetGeminiChannelMetrics(metricsManager *metrics.MetricsManager) gin.HandlerFunc {
-	return GetChannelMetrics(metricsManager)
 }
