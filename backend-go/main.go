@@ -788,24 +788,30 @@ func seedRecentCallMetricsFromLogs(reqLogManager *requestlog.Manager, channelSch
 		}
 	}
 
-	seedMetrics := func(manager *metrics.MetricsManager, data map[int][]metrics.RecentCall) int {
+	seedMetrics := func(manager *metrics.MetricsManager, upstreams []config.UpstreamConfig, data map[int][]metrics.RecentCall) int {
 		seeded := 0
-		for channelID, calls := range data {
+		for channelIndex, calls := range data {
 			if onlyFillEmpty {
-				existing := manager.GetMetrics(channelID)
+				existing := manager.GetMetrics(channelIndex)
 				if existing != nil && len(existing.RecentCalls) > 0 {
 					continue
 				}
 			}
-			manager.SeedRecentCalls(channelID, calls)
+			channelUID := ""
+			channelName := ""
+			if channelIndex >= 0 && channelIndex < len(upstreams) {
+				channelUID = strings.TrimSpace(upstreams[channelIndex].ID)
+				channelName = strings.TrimSpace(upstreams[channelIndex].Name)
+			}
+			manager.SeedRecentCallsByIdentity(channelIndex, channelUID, channelName, calls)
 			seeded++
 		}
 		return seeded
 	}
 
-	messagesSeeded := seedMetrics(channelScheduler.GetMessagesMetricsManager(), messagesSeed)
-	responsesSeeded := seedMetrics(channelScheduler.GetResponsesMetricsManager(), responsesSeed)
-	geminiSeeded := seedMetrics(channelScheduler.GetGeminiMetricsManager(), geminiSeed)
+	messagesSeeded := seedMetrics(channelScheduler.GetMessagesMetricsManager(), messagesUpstreams, messagesSeed)
+	responsesSeeded := seedMetrics(channelScheduler.GetResponsesMetricsManager(), responsesUpstreams, responsesSeed)
+	geminiSeeded := seedMetrics(channelScheduler.GetGeminiMetricsManager(), geminiUpstreams, geminiSeed)
 
 	if messagesSeeded > 0 || responsesSeeded > 0 || geminiSeeded > 0 {
 		log.Printf("✅ 已恢复最近 API 调用槽位 (messages: %d, responses: %d, gemini: %d)",

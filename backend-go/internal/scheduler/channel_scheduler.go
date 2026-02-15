@@ -159,7 +159,7 @@ func (s *ChannelScheduler) SelectChannel(
 		// 检查是否被暂停
 		if suspended, until, reason := s.isChannelSuspended(promotedChannel.Index, isResponses); suspended {
 			log.Printf("⏸️ 促销渠道 [%d] %s 被暂停 (原因: %s, 恢复: %s)", promotedChannel.Index, promotedChannel.Name, reason, until.Format(time.RFC3339))
-		} else if !useCircuitBreaker || metricsManager.IsChannelHealthy(promotedChannel.Index) {
+		} else if !useCircuitBreaker || metricsManager.IsChannelHealthyByIdentity(promotedChannel.Index, promotedChannel.ID) {
 			// 促销渠道存在且未失败，检查是否健康（仅当电路断路器启用时）
 			upstream := s.getUpstreamByIndex(promotedChannel.Index, isResponses)
 			if s.upstreamHasCredentials(upstream, isResponses) {
@@ -201,7 +201,7 @@ func (s *ChannelScheduler) SelectChannel(
 						continue
 					}
 					// 检查渠道是否健康（仅当电路断路器启用时）
-					if !useCircuitBreaker || metricsManager.IsChannelHealthy(preferredIdx) {
+					if !useCircuitBreaker || metricsManager.IsChannelHealthyByIdentity(preferredIdx, ch.ID) {
 						upstream := s.getUpstreamByIndex(preferredIdx, isResponses)
 						if upstream != nil {
 							log.Printf("🎯 Trace亲和选择渠道: [%d] %s (user: %s)", preferredIdx, upstream.Name, maskUserID(userID))
@@ -238,9 +238,9 @@ func (s *ChannelScheduler) SelectChannel(
 		}
 
 		// 跳过失败率过高的渠道（已熔断或即将熔断）- 仅当电路断路器启用时
-		if useCircuitBreaker && !metricsManager.IsChannelHealthy(ch.Index) {
+		if useCircuitBreaker && !metricsManager.IsChannelHealthyByIdentity(ch.Index, ch.ID) {
 			log.Printf("⚠️ 跳过不健康渠道: [%d] %s (失败率: %.1f%%)",
-				ch.Index, ch.Name, metricsManager.CalculateFailureRate(ch.Index)*100)
+				ch.Index, ch.Name, metricsManager.CalculateFailureRateByIdentity(ch.Index, ch.ID)*100)
 			continue
 		}
 
@@ -598,7 +598,7 @@ func (s *ChannelScheduler) isTargetChannelAvailable(
 	}
 
 	// Check circuit breaker health (skip for composite failover chain targets)
-	if !skipStatusCheck && useCircuitBreaker && !metricsManager.IsChannelHealthy(targetIndex) {
+	if !skipStatusCheck && useCircuitBreaker && !metricsManager.IsChannelHealthyByIdentity(targetIndex, strings.TrimSpace(target.ID)) {
 		return false
 	}
 
@@ -646,7 +646,7 @@ func (s *ChannelScheduler) selectFallbackChannel(
 			continue
 		}
 
-		failureRate := metricsManager.CalculateFailureRate(ch.Index)
+		failureRate := metricsManager.CalculateFailureRateByIdentity(ch.Index, ch.ID)
 		if failureRate < bestFailureRate {
 			bestFailureRate = failureRate
 			bestChannel = ch
@@ -748,6 +748,22 @@ func (s *ChannelScheduler) getUpstreamByIndex(index int, isResponses bool) *conf
 	return nil
 }
 
+func (s *ChannelScheduler) getChannelIdentityByIndex(index int, isResponses bool) (string, string) {
+	upstream := s.getUpstreamByIndex(index, isResponses)
+	if upstream == nil {
+		return "", ""
+	}
+	return strings.TrimSpace(upstream.ID), strings.TrimSpace(upstream.Name)
+}
+
+func (s *ChannelScheduler) getGeminiChannelIdentityByIndex(index int) (string, string) {
+	upstream := s.getGeminiUpstreamByIndex(index)
+	if upstream == nil {
+		return "", ""
+	}
+	return strings.TrimSpace(upstream.ID), strings.TrimSpace(upstream.Name)
+}
+
 // RecordSuccess 记录渠道成功
 func (s *ChannelScheduler) RecordSuccess(channelIndex int, isResponses bool) {
 	s.RecordSuccessWithStatus(channelIndex, isResponses, 0)
@@ -760,7 +776,12 @@ func (s *ChannelScheduler) RecordSuccessWithStatus(channelIndex int, isResponses
 
 // RecordSuccessWithStatusDetail 记录渠道成功（可选状态码、模型和渠道名）
 func (s *ChannelScheduler) RecordSuccessWithStatusDetail(channelIndex int, isResponses bool, statusCode int, model, channelName string, routedChannelName ...string) {
-	s.getMetricsManager(isResponses).RecordSuccessWithStatusDetail(channelIndex, statusCode, model, channelName, routedChannelName...)
+	channelID, fallbackName := s.getChannelIdentityByIndex(channelIndex, isResponses)
+	ownerName := strings.TrimSpace(channelName)
+	if ownerName == "" {
+		ownerName = fallbackName
+	}
+	s.getMetricsManager(isResponses).RecordSuccessWithStatusDetailByIdentity(channelIndex, channelID, statusCode, model, ownerName, routedChannelName...)
 }
 
 // RecordFailure 记录渠道失败
@@ -775,7 +796,12 @@ func (s *ChannelScheduler) RecordFailureWithStatus(channelIndex int, isResponses
 
 // RecordFailureWithStatusDetail 记录渠道失败（可选状态码、模型和渠道名）
 func (s *ChannelScheduler) RecordFailureWithStatusDetail(channelIndex int, isResponses bool, statusCode int, model, channelName string, routedChannelName ...string) {
-	s.getMetricsManager(isResponses).RecordFailureWithStatusDetail(channelIndex, statusCode, model, channelName, routedChannelName...)
+	channelID, fallbackName := s.getChannelIdentityByIndex(channelIndex, isResponses)
+	ownerName := strings.TrimSpace(channelName)
+	if ownerName == "" {
+		ownerName = fallbackName
+	}
+	s.getMetricsManager(isResponses).RecordFailureWithStatusDetailByIdentity(channelIndex, channelID, statusCode, model, ownerName, routedChannelName...)
 }
 
 // SetTraceAffinity 设置 Trace 亲和
@@ -809,6 +835,11 @@ func (s *ChannelScheduler) GetTraceAffinityManager() *session.TraceAffinityManag
 
 // ResetChannelMetrics 重置渠道指标（用于恢复熔断）
 func (s *ChannelScheduler) ResetChannelMetrics(channelIndex int, isResponses bool) {
+	channelID, _ := s.getChannelIdentityByIndex(channelIndex, isResponses)
+	if channelID != "" {
+		s.getMetricsManager(isResponses).ResetByIdentity(channelIndex, channelID)
+		return
+	}
 	s.getMetricsManager(isResponses).Reset(channelIndex)
 }
 
@@ -899,7 +930,7 @@ func (s *ChannelScheduler) SelectGeminiChannel(
 			continue
 		}
 		// Check if healthy (circuit breaker)
-		if !s.geminiMetricsManager.IsChannelHealthy(ch.Index) {
+		if !s.geminiMetricsManager.IsChannelHealthyByIdentity(ch.Index, ch.ID) {
 			continue
 		}
 		upstream := s.getGeminiUpstreamByIndex(ch.Index)
@@ -1009,7 +1040,12 @@ func (s *ChannelScheduler) RecordGeminiSuccessWithStatus(channelIndex int, statu
 
 // RecordGeminiSuccessWithStatusDetail records success for Gemini channel (optional status code/model/channel name)
 func (s *ChannelScheduler) RecordGeminiSuccessWithStatusDetail(channelIndex int, statusCode int, model, channelName string, routedChannelName ...string) {
-	s.geminiMetricsManager.RecordSuccessWithStatusDetail(channelIndex, statusCode, model, channelName, routedChannelName...)
+	channelID, fallbackName := s.getGeminiChannelIdentityByIndex(channelIndex)
+	ownerName := strings.TrimSpace(channelName)
+	if ownerName == "" {
+		ownerName = fallbackName
+	}
+	s.geminiMetricsManager.RecordSuccessWithStatusDetailByIdentity(channelIndex, channelID, statusCode, model, ownerName, routedChannelName...)
 }
 
 // RecordGeminiFailure records failure for Gemini channel
@@ -1024,11 +1060,21 @@ func (s *ChannelScheduler) RecordGeminiFailureWithStatus(channelIndex int, statu
 
 // RecordGeminiFailureWithStatusDetail records failure for Gemini channel (optional status code/model/channel name)
 func (s *ChannelScheduler) RecordGeminiFailureWithStatusDetail(channelIndex int, statusCode int, model, channelName string, routedChannelName ...string) {
-	s.geminiMetricsManager.RecordFailureWithStatusDetail(channelIndex, statusCode, model, channelName, routedChannelName...)
+	channelID, fallbackName := s.getGeminiChannelIdentityByIndex(channelIndex)
+	ownerName := strings.TrimSpace(channelName)
+	if ownerName == "" {
+		ownerName = fallbackName
+	}
+	s.geminiMetricsManager.RecordFailureWithStatusDetailByIdentity(channelIndex, channelID, statusCode, model, ownerName, routedChannelName...)
 }
 
 // ResetGeminiChannelMetrics resets metrics for a Gemini channel
 func (s *ChannelScheduler) ResetGeminiChannelMetrics(channelIndex int) {
+	channelID, _ := s.getGeminiChannelIdentityByIndex(channelIndex)
+	if channelID != "" {
+		s.geminiMetricsManager.ResetByIdentity(channelIndex, channelID)
+		return
+	}
 	s.geminiMetricsManager.Reset(channelIndex)
 }
 

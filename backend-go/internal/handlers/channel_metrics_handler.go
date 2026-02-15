@@ -97,13 +97,15 @@ func reconcileMetricsWithConfig(metricsManager *metrics.MetricsManager, cfgManag
 		upstreams = cfg.Upstream
 	}
 
+	expectations := make([]metrics.ChannelIdentityExpectation, 0, len(upstreams))
 	for i := range upstreams {
-		metricsManager.ReconcileChannelIdentity(
-			i,
-			strings.TrimSpace(upstreams[i].ID),
-			strings.TrimSpace(upstreams[i].Name),
-		)
+		expectations = append(expectations, metrics.ChannelIdentityExpectation{
+			ChannelIndex: i,
+			ChannelID:    strings.TrimSpace(upstreams[i].ID),
+			ChannelName:  strings.TrimSpace(upstreams[i].Name),
+		})
 	}
+	metricsManager.ReconcileChannelIdentities(expectations)
 }
 
 // ResumeChannel 恢复熔断渠道（重置错误计数）

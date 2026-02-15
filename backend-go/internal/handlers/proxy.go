@@ -190,6 +190,19 @@ func parseClaudeCodeUserID(compoundUserID string) (userID string, sessionID stri
 	return userID, sessionID
 }
 
+func resolveRequestLogChannelContext(selection *scheduler.SelectionResult, fallback *config.UpstreamConfig) (int, string) {
+	if selection != nil && selection.CompositeUpstream != nil && selection.CompositeChannelIndex >= 0 {
+		return selection.CompositeChannelIndex, strings.TrimSpace(selection.CompositeUpstream.Name)
+	}
+	if selection != nil && selection.Upstream != nil {
+		return selection.ChannelIndex, strings.TrimSpace(selection.Upstream.Name)
+	}
+	if fallback != nil {
+		return fallback.Index, strings.TrimSpace(fallback.Name)
+	}
+	return -1, ""
+}
+
 // handleMultiChannelProxy handles multi-channel proxy requests with failover support.
 // When a channel fails and there are more channels to try, it logs the failed attempt
 // with StatusFailover and creates a new pending log for the next attempt.
@@ -231,8 +244,10 @@ func handleMultiChannelProxy(
 		var selection *scheduler.SelectionResult
 		var err error
 
-		// Check if we're continuing a composite failover chain
-		if currentSelection != nil && currentSelection.CompositeUpstream != nil && len(currentSelection.FailoverChain) > 0 {
+		// Check if we're continuing a composite failover chain.
+		// Always delegate to GetNextCompositeFailover for sticky composite behavior;
+		// it returns an error when the chain is exhausted.
+		if currentSelection != nil && currentSelection.CompositeUpstream != nil {
 			// Try next in composite failover chain
 			selection, err = channelScheduler.GetNextCompositeFailover(currentSelection, false, failedChannels, nil, false)
 			if err != nil {
@@ -261,11 +276,14 @@ func handleMultiChannelProxy(
 						UpstreamError: upstreamErr,
 						FailoverInfo:  failoverInfo,
 					}
+					logChannelIndex, logChannelName := resolveRequestLogChannelContext(currentSelection, lastFailedUpstream)
+					if logChannelIndex >= 0 || logChannelName != "" {
+						record.ChannelID = logChannelIndex
+						record.ChannelName = logChannelName
+					}
 					if lastFailedUpstream != nil {
 						record.Type = lastFailedUpstream.ServiceType
 						record.ProviderName = lastFailedUpstream.Name
-						record.ChannelID = lastFailedUpstream.Index
-						record.ChannelName = lastFailedUpstream.Name
 					}
 					_ = reqLogManager.Update(requestLogID, record)
 				}
@@ -315,6 +333,8 @@ func handleMultiChannelProxy(
 			metricsChannelName = selection.CompositeUpstream.Name
 			metricsRoutedChannelName = upstream.Name
 		}
+		logChannelIndex := metricsChannelIndex
+		logChannelName := strings.TrimSpace(metricsChannelName)
 
 		if shouldLogInfo {
 			if selection.CompositeUpstream != nil {
@@ -344,6 +364,7 @@ func handleMultiChannelProxy(
 				// Mark channel as failed for this request and try next channel
 				failedChannels[channelIndex] = true
 				lastError = result.Error
+				lastFailedUpstream = upstream
 				continue
 			}
 			if result.Queued {
@@ -353,8 +374,29 @@ func handleMultiChannelProxy(
 		}
 
 		// Try all keys for this channel
-		success, failoverErr, updatedLogID := tryChannelWithAllKeys(c, envCfg, cfgManager, upstream, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID, usageManager, failoverTracker, clientID, sessionID, apiKeyID)
+		success, failoverErr, updatedLogID := tryChannelWithAllKeys(
+			c,
+			envCfg,
+			cfgManager,
+			upstream,
+			bodyBytes,
+			claudeReq,
+			startTime,
+			reqLogManager,
+			requestLogID,
+			usageManager,
+			failoverTracker,
+			logChannelIndex,
+			logChannelName,
+			clientID,
+			sessionID,
+			apiKeyID,
+		)
 		requestLogID = updatedLogID // Update requestLogID in case it was changed during retry_wait
+
+		if c.Request.Context().Err() != nil {
+			return
+		}
 
 		if success {
 			// ActionNone/no-failover branches return handled=true with an error payload.
@@ -420,8 +462,8 @@ func handleMultiChannelProxy(
 					Type:          upstream.ServiceType,
 					ProviderName:  upstream.Name,
 					Model:         claudeReq.Model,
-					ChannelID:     channelIndex,
-					ChannelName:   upstream.Name,
+					ChannelID:     logChannelIndex,
+					ChannelName:   logChannelName,
 					HTTPStatus:    httpStatus,
 					Error:         errorMsg,
 					UpstreamError: upstreamErr,
@@ -438,6 +480,8 @@ func handleMultiChannelProxy(
 					Model:       claudeReq.Model,
 					Stream:      claudeReq.Stream,
 					Endpoint:    "/v1/messages",
+					ChannelID:   logChannelIndex,
+					ChannelName: logChannelName,
 					ClientID:    clientID,
 					SessionID:   sessionID,
 					APIKeyID:    apiKeyID,
@@ -455,9 +499,9 @@ func handleMultiChannelProxy(
 
 			if failoverErr != nil {
 				lastFailoverError = failoverErr
-				lastError = fmt.Errorf("channel [%d] %s failed", channelIndex, upstream.Name)
-				lastFailedUpstream = upstream
 			}
+			lastError = fmt.Errorf("channel [%d] %s failed", channelIndex, upstream.Name)
+			lastFailedUpstream = upstream
 			continue // Continue loop - composite failover will be handled at top
 		}
 
@@ -494,8 +538,8 @@ func handleMultiChannelProxy(
 					Type:          upstream.ServiceType,
 					ProviderName:  upstream.Name,
 					Model:         claudeReq.Model,
-					ChannelID:     channelIndex,
-					ChannelName:   upstream.Name,
+					ChannelID:     logChannelIndex,
+					ChannelName:   logChannelName,
 					HTTPStatus:    httpStatus,
 					Error:         errorMsg,
 					UpstreamError: upstreamErr,
@@ -512,6 +556,8 @@ func handleMultiChannelProxy(
 					Model:       claudeReq.Model,
 					Stream:      claudeReq.Stream,
 					Endpoint:    "/v1/messages",
+					ChannelID:   logChannelIndex,
+					ChannelName: logChannelName,
 					ClientID:    clientID,
 					SessionID:   sessionID,
 					APIKeyID:    apiKeyID,
@@ -529,9 +575,9 @@ func handleMultiChannelProxy(
 
 		if failoverErr != nil {
 			lastFailoverError = failoverErr
-			lastError = fmt.Errorf("channel [%d] %s failed", channelIndex, upstream.Name)
-			lastFailedUpstream = upstream
 		}
+		lastError = fmt.Errorf("channel [%d] %s failed", channelIndex, upstream.Name)
+		lastFailedUpstream = upstream
 	}
 
 	// All channels failed
@@ -551,6 +597,9 @@ func handleMultiChannelProxy(
 		if lastError != nil {
 			errMsg = lastError.Error()
 		}
+		if lastError != nil && errors.Is(lastError, scheduler.ErrNoAllowedChannels) {
+			httpStatus = 403
+		}
 		record := &requestlog.RequestLog{
 			Status:        requestlog.StatusError,
 			CompleteTime:  time.Now(),
@@ -561,11 +610,14 @@ func handleMultiChannelProxy(
 			UpstreamError: upstreamErr,
 			FailoverInfo:  failoverInfo,
 		}
+		logChannelIndex, logChannelName := resolveRequestLogChannelContext(currentSelection, lastFailedUpstream)
+		if logChannelIndex >= 0 || logChannelName != "" {
+			record.ChannelID = logChannelIndex
+			record.ChannelName = logChannelName
+		}
 		if lastFailedUpstream != nil {
 			record.Type = lastFailedUpstream.ServiceType
 			record.ProviderName = lastFailedUpstream.Name
-			record.ChannelID = lastFailedUpstream.Index
-			record.ChannelName = lastFailedUpstream.Name
 		}
 		_ = reqLogManager.Update(requestLogID, record)
 	}
@@ -623,6 +675,8 @@ func tryChannelWithAllKeys(
 	requestLogID string,
 	usageManager *quota.UsageManager,
 	failoverTracker *config.FailoverTracker,
+	logChannelIndex int,
+	logChannelName string,
 	clientID string,
 	sessionID string,
 	apiKeyID *int64,
@@ -638,6 +692,12 @@ func tryChannelWithAllKeys(
 	provider := providers.GetProvider(upstream.ServiceType)
 	if provider == nil {
 		return false, nil, requestLogID
+	}
+	if strings.TrimSpace(logChannelName) == "" {
+		logChannelName = strings.TrimSpace(upstream.Name)
+	}
+	if logChannelIndex < 0 {
+		logChannelIndex = upstream.Index
 	}
 
 	maxRetries := len(upstream.APIKeys)
@@ -690,6 +750,24 @@ func tryChannelWithAllKeys(
 		// 发送请求
 		resp, err := sendRequest(providerReq, upstream, envCfg, claudeReq.Stream)
 		if err != nil {
+			if c.Request.Context().Err() != nil {
+				if reqLogManager != nil && currentRequestLogID != "" {
+					completeTime := time.Now()
+					record := &requestlog.RequestLog{
+						Status:       requestlog.StatusError,
+						CompleteTime: completeTime,
+						DurationMs:   completeTime.Sub(currentStartTime).Milliseconds(),
+						Type:         upstream.ServiceType,
+						ProviderName: upstream.Name,
+						HTTPStatus:   499,
+						ChannelID:    logChannelIndex,
+						ChannelName:  logChannelName,
+						Error:        "client disconnected during upstream request",
+					}
+					_ = reqLogManager.Update(currentRequestLogID, record)
+				}
+				return false, nil, currentRequestLogID
+			}
 			failedKeys[apiKey] = true
 			cfgManager.MarkKeyAsFailed(apiKey)
 			log.Printf("⚠️ API密钥失败: %v", err)
@@ -773,8 +851,8 @@ func tryChannelWithAllKeys(
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
 							HTTPStatus:    resp.StatusCode,
-							ChannelID:     upstream.Index,
-							ChannelName:   upstream.Name,
+							ChannelID:     logChannelIndex,
+							ChannelName:   logChannelName,
 							Error:         fmt.Sprintf("429 %s - retrying after %v", decision.Reason, decision.Wait),
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  failoverInfo,
@@ -793,6 +871,8 @@ func tryChannelWithAllKeys(
 							Model:       claudeReq.Model,
 							Stream:      claudeReq.Stream,
 							Endpoint:    "/v1/messages",
+							ChannelID:   logChannelIndex,
+							ChannelName: logChannelName,
 							ClientID:    clientID,
 							SessionID:   sessionID,
 							APIKeyID:    apiKeyID,
@@ -823,6 +903,21 @@ func tryChannelWithAllKeys(
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
+						if reqLogManager != nil && currentRequestLogID != "" {
+							completeTime := time.Now()
+							record := &requestlog.RequestLog{
+								Status:       requestlog.StatusError,
+								CompleteTime: completeTime,
+								DurationMs:   completeTime.Sub(currentStartTime).Milliseconds(),
+								Type:         upstream.ServiceType,
+								ProviderName: upstream.Name,
+								HTTPStatus:   499,
+								ChannelID:    logChannelIndex,
+								ChannelName:  logChannelName,
+								Error:        "client disconnected during retry wait",
+							}
+							_ = reqLogManager.Update(currentRequestLogID, record)
+						}
 						return false, nil, currentRequestLogID
 					}
 
@@ -891,8 +986,8 @@ func tryChannelWithAllKeys(
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
 							HTTPStatus:    resp.StatusCode,
-							ChannelID:     upstream.Index,
-							ChannelName:   upstream.Name,
+							ChannelID:     logChannelIndex,
+							ChannelName:   logChannelName,
 							Error:         fmt.Sprintf("429 %s (returning error)", decision.Reason),
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, decision.Reason),
@@ -935,8 +1030,8 @@ func tryChannelWithAllKeys(
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
 							HTTPStatus:    resp.StatusCode,
-							ChannelID:     upstream.Index,
-							ChannelName:   upstream.Name,
+							ChannelID:     logChannelIndex,
+							ChannelName:   logChannelName,
 							Error:         fmt.Sprintf("%d %s - retrying after %v", resp.StatusCode, decision.Reason, decision.Wait),
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  failoverInfo,
@@ -955,6 +1050,8 @@ func tryChannelWithAllKeys(
 							Model:       claudeReq.Model,
 							Stream:      claudeReq.Stream,
 							Endpoint:    "/v1/messages",
+							ChannelID:   logChannelIndex,
+							ChannelName: logChannelName,
 							ClientID:    clientID,
 							SessionID:   sessionID,
 							APIKeyID:    apiKeyID,
@@ -985,6 +1082,21 @@ func tryChannelWithAllKeys(
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
+						if reqLogManager != nil && currentRequestLogID != "" {
+							completeTime := time.Now()
+							record := &requestlog.RequestLog{
+								Status:       requestlog.StatusError,
+								CompleteTime: completeTime,
+								DurationMs:   completeTime.Sub(currentStartTime).Milliseconds(),
+								Type:         upstream.ServiceType,
+								ProviderName: upstream.Name,
+								HTTPStatus:   499,
+								ChannelID:    logChannelIndex,
+								ChannelName:  logChannelName,
+								Error:        "client disconnected during retry wait",
+							}
+							_ = reqLogManager.Update(currentRequestLogID, record)
+						}
 						return false, nil, currentRequestLogID
 					}
 
@@ -1057,8 +1169,8 @@ func tryChannelWithAllKeys(
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
 							HTTPStatus:    resp.StatusCode,
-							ChannelID:     upstream.Index,
-							ChannelName:   upstream.Name,
+							ChannelID:     logChannelIndex,
+							ChannelName:   logChannelName,
 							Error:         fmt.Sprintf("upstream returned status %d", resp.StatusCode),
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, ""),
@@ -1088,8 +1200,8 @@ func tryChannelWithAllKeys(
 						Type:          upstream.ServiceType,
 						ProviderName:  upstream.Name,
 						HTTPStatus:    resp.StatusCode,
-						ChannelID:     upstream.Index,
-						ChannelName:   upstream.Name,
+						ChannelID:     logChannelIndex,
+						ChannelName:   logChannelName,
 						Error:         fmt.Sprintf("upstream returned status %d", resp.StatusCode),
 						UpstreamError: string(respBodyBytes),
 						FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, "", requestlog.FailoverActionReturnErr, ""),
@@ -1121,9 +1233,9 @@ func tryChannelWithAllKeys(
 		}
 
 		if claudeReq.Stream {
-			handleStreamResponse(c, resp, provider, envCfg, cfgManager, currentStartTime, upstream, reqLogManager, currentRequestLogID, claudeReq.Model, usageManager)
+			handleStreamResponse(c, resp, provider, envCfg, cfgManager, currentStartTime, upstream, reqLogManager, currentRequestLogID, claudeReq.Model, usageManager, logChannelIndex, logChannelName)
 		} else {
-			handleNormalResponse(c, resp, provider, envCfg, cfgManager, currentStartTime, upstream, reqLogManager, currentRequestLogID, claudeReq.Model, usageManager)
+			handleNormalResponse(c, resp, provider, envCfg, cfgManager, currentStartTime, upstream, reqLogManager, currentRequestLogID, claudeReq.Model, usageManager, logChannelIndex, logChannelName)
 		}
 		return true, nil, currentRequestLogID
 	}
@@ -1150,9 +1262,39 @@ func handleSingleChannelProxy(
 	apiKeyID *int64,
 	channelRateLimiter *middleware.ChannelRateLimiter,
 ) {
+	finalizePendingWithError := func(status int, errMsg string, channel *config.UpstreamConfig, channelIndex *int, channelName string) {
+		if reqLogManager == nil || requestLogID == "" {
+			return
+		}
+		completeTime := time.Now()
+		record := &requestlog.RequestLog{
+			Status:       requestlog.StatusError,
+			CompleteTime: completeTime,
+			DurationMs:   completeTime.Sub(startTime).Milliseconds(),
+			Model:        claudeReq.Model,
+			Endpoint:     "/v1/messages",
+			HTTPStatus:   status,
+			Error:        errMsg,
+		}
+		if channel != nil {
+			record.Type = channel.ServiceType
+			record.ProviderName = channel.Name
+		}
+		if channelIndex != nil {
+			record.ChannelID = *channelIndex
+		}
+		if trimmed := strings.TrimSpace(channelName); trimmed != "" {
+			record.ChannelName = trimmed
+		} else if channel != nil {
+			record.ChannelName = channel.Name
+		}
+		_ = reqLogManager.Update(requestLogID, record)
+	}
+
 	// 获取当前上游配置
 	upstream, err := cfgManager.GetCurrentUpstream()
 	if err != nil {
+		finalizePendingWithError(503, "No channels configured. Please add a channel in the admin UI.", nil, nil, "")
 		c.JSON(503, gin.H{
 			"error": "No channels configured. Please add a channel in the admin UI.",
 			"code":  "NO_UPSTREAM",
@@ -1170,6 +1312,8 @@ func handleSingleChannelProxy(
 			}
 		}
 		if !allowed {
+			channelIndex := upstream.Index
+			finalizePendingWithError(403, fmt.Sprintf("Channel %s not allowed for this API key", upstream.Name), upstream, &channelIndex, upstream.Name)
 			c.JSON(403, gin.H{
 				"error": fmt.Sprintf("Channel %s not allowed for this API key", upstream.Name),
 				"code":  "CHANNEL_NOT_ALLOWED",
@@ -1180,6 +1324,8 @@ func handleSingleChannelProxy(
 
 	// Composite channels don't have API keys - they route to other channels
 	if len(upstream.APIKeys) == 0 && !config.IsCompositeChannel(upstream) {
+		channelIndex := upstream.Index
+		finalizePendingWithError(503, fmt.Sprintf("Current channel \"%s\" has no API keys configured", upstream.Name), upstream, &channelIndex, upstream.Name)
 		c.JSON(503, gin.H{
 			"error": fmt.Sprintf("Current channel \"%s\" has no API keys configured", upstream.Name),
 			"code":  "NO_API_KEYS",
@@ -1198,6 +1344,8 @@ func handleSingleChannelProxy(
 		cfg := cfgManager.GetConfig()
 		targetChannelID, targetIndex, resolvedModel, found := config.ResolveCompositeMapping(upstream, claudeReq.Model, cfg.Upstream)
 		if !found {
+			channelIndex := upstream.Index
+			finalizePendingWithError(400, fmt.Sprintf("Composite channel '%s' has no mapping for model '%s'", upstream.Name, claudeReq.Model), upstream, &channelIndex, upstream.Name)
 			c.JSON(400, gin.H{
 				"error": fmt.Sprintf("Composite channel '%s' has no mapping for model '%s'", upstream.Name, claudeReq.Model),
 				"code":  "NO_COMPOSITE_MAPPING",
@@ -1205,6 +1353,8 @@ func handleSingleChannelProxy(
 			return
 		}
 		if targetIndex < 0 || targetIndex >= len(cfg.Upstream) {
+			channelIndex := upstream.Index
+			finalizePendingWithError(503, fmt.Sprintf("Composite channel '%s' target channel ID '%s' not found", upstream.Name, targetChannelID), upstream, &channelIndex, upstream.Name)
 			c.JSON(503, gin.H{
 				"error": fmt.Sprintf("Composite channel '%s' target channel ID '%s' not found", upstream.Name, targetChannelID),
 				"code":  "COMPOSITE_TARGET_NOT_FOUND",
@@ -1222,6 +1372,8 @@ func handleSingleChannelProxy(
 			metricsModel = resolvedModel
 		}
 	}
+	logChannelIndex := metricsChannelIndex
+	logChannelName := strings.TrimSpace(metricsChannelName)
 
 	recordSingleSuccess := func(statusCode int) {
 		channelScheduler.RecordSuccessWithStatusDetail(metricsChannelIndex, false, statusCode, metricsModel, metricsChannelName, metricsRoutedChannelName)
@@ -1246,8 +1398,8 @@ func handleSingleChannelProxy(
 					Type:         upstream.ServiceType,
 					ProviderName: upstream.Name,
 					HTTPStatus:   429,
-					ChannelID:    upstream.Index,
-					ChannelName:  upstream.Name,
+					ChannelID:    logChannelIndex,
+					ChannelName:  logChannelName,
 					Endpoint:     "/v1/messages",
 					Error:        fmt.Sprintf("channel rate limit exceeded (%d RPM)", upstream.RateLimitRpm),
 				}
@@ -1268,6 +1420,8 @@ func handleSingleChannelProxy(
 	// 获取提供商
 	provider := providers.GetProvider(upstream.ServiceType)
 	if provider == nil {
+		channelIndex := logChannelIndex
+		finalizePendingWithError(400, "Unsupported service type", upstream, &channelIndex, logChannelName)
 		c.JSON(400, gin.H{"error": "Unsupported service type"})
 		return
 	}
@@ -1357,6 +1511,11 @@ func handleSingleChannelProxy(
 		// 发送请求
 		resp, err := sendRequest(providerReq, upstream, envCfg, claudeReq.Stream)
 		if err != nil {
+			if c.Request.Context().Err() != nil {
+				channelIndex := logChannelIndex
+				finalizePendingWithError(499, "client disconnected during upstream request", upstream, &channelIndex, logChannelName)
+				return
+			}
 			lastError = err
 			failedKeys[apiKey] = true
 			cfgManager.MarkKeyAsFailed(apiKey)
@@ -1440,8 +1599,8 @@ func handleSingleChannelProxy(
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
 							HTTPStatus:    resp.StatusCode,
-							ChannelID:     upstream.Index,
-							ChannelName:   upstream.Name,
+							ChannelID:     logChannelIndex,
+							ChannelName:   logChannelName,
 							Error:         fmt.Sprintf("429 %s - retrying after %v", decision.Reason, decision.Wait),
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  failoverInfo,
@@ -1460,6 +1619,8 @@ func handleSingleChannelProxy(
 							Model:       claudeReq.Model,
 							Stream:      claudeReq.Stream,
 							Endpoint:    "/v1/messages",
+							ChannelID:   logChannelIndex,
+							ChannelName: logChannelName,
 							ClientID:    clientID,
 							SessionID:   sessionID,
 							APIKeyID:    apiKeyID,
@@ -1479,6 +1640,8 @@ func handleSingleChannelProxy(
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
+						channelIndex := logChannelIndex
+						finalizePendingWithError(499, "client disconnected during retry wait", upstream, &channelIndex, logChannelName)
 						return
 					}
 
@@ -1534,8 +1697,8 @@ func handleSingleChannelProxy(
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
 							HTTPStatus:    resp.StatusCode,
-							ChannelID:     upstream.Index,
-							ChannelName:   upstream.Name,
+							ChannelID:     logChannelIndex,
+							ChannelName:   logChannelName,
 							Error:         fmt.Sprintf("429 %s (channel suspended)", decision.Reason),
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionSuspended, "no fallback"),
@@ -1561,8 +1724,8 @@ func handleSingleChannelProxy(
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
 							HTTPStatus:    resp.StatusCode,
-							ChannelID:     upstream.Index,
-							ChannelName:   upstream.Name,
+							ChannelID:     logChannelIndex,
+							ChannelName:   logChannelName,
 							Error:         fmt.Sprintf("429 %s (returning error)", decision.Reason),
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, decision.Reason),
@@ -1598,8 +1761,8 @@ func handleSingleChannelProxy(
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
 							HTTPStatus:    resp.StatusCode,
-							ChannelID:     upstream.Index,
-							ChannelName:   upstream.Name,
+							ChannelID:     logChannelIndex,
+							ChannelName:   logChannelName,
 							Error:         fmt.Sprintf("%d %s - retrying after %v", resp.StatusCode, decision.Reason, decision.Wait),
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  failoverInfo,
@@ -1618,6 +1781,8 @@ func handleSingleChannelProxy(
 							Model:       claudeReq.Model,
 							Stream:      claudeReq.Stream,
 							Endpoint:    "/v1/messages",
+							ChannelID:   logChannelIndex,
+							ChannelName: logChannelName,
 							ClientID:    clientID,
 							SessionID:   sessionID,
 							APIKeyID:    apiKeyID,
@@ -1648,6 +1813,8 @@ func handleSingleChannelProxy(
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
+						channelIndex := logChannelIndex
+						finalizePendingWithError(499, "client disconnected during retry wait", upstream, &channelIndex, logChannelName)
 						return
 					}
 
@@ -1712,8 +1879,8 @@ func handleSingleChannelProxy(
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
 							HTTPStatus:    resp.StatusCode,
-							ChannelID:     upstream.Index,
-							ChannelName:   upstream.Name,
+							ChannelID:     logChannelIndex,
+							ChannelName:   logChannelName,
 							Error:         fmt.Sprintf("%d %s - channel suspended", resp.StatusCode, decision.Reason),
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionSuspended, ""),
@@ -1752,8 +1919,8 @@ func handleSingleChannelProxy(
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
 							HTTPStatus:    resp.StatusCode,
-							ChannelID:     upstream.Index,
-							ChannelName:   upstream.Name,
+							ChannelID:     logChannelIndex,
+							ChannelName:   logChannelName,
 							Error:         fmt.Sprintf("upstream returned status %d", resp.StatusCode),
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, ""),
@@ -1783,8 +1950,8 @@ func handleSingleChannelProxy(
 						Type:          upstream.ServiceType,
 						ProviderName:  upstream.Name,
 						HTTPStatus:    resp.StatusCode,
-						ChannelID:     upstream.Index,
-						ChannelName:   upstream.Name,
+						ChannelID:     logChannelIndex,
+						ChannelName:   logChannelName,
 						Error:         fmt.Sprintf("upstream returned status %d", resp.StatusCode),
 						UpstreamError: string(respBodyBytes),
 						FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, "", requestlog.FailoverActionReturnErr, ""),
@@ -1812,10 +1979,10 @@ func handleSingleChannelProxy(
 
 		if claudeReq.Stream {
 			recordSingleSuccess(resp.StatusCode)
-			handleStreamResponse(c, resp, provider, envCfg, cfgManager, currentStartTime, upstream, reqLogManager, currentRequestLogID, claudeReq.Model, usageManager)
+			handleStreamResponse(c, resp, provider, envCfg, cfgManager, currentStartTime, upstream, reqLogManager, currentRequestLogID, claudeReq.Model, usageManager, logChannelIndex, logChannelName)
 		} else {
 			recordSingleSuccess(resp.StatusCode)
-			handleNormalResponse(c, resp, provider, envCfg, cfgManager, currentStartTime, upstream, reqLogManager, currentRequestLogID, claudeReq.Model, usageManager)
+			handleNormalResponse(c, resp, provider, envCfg, cfgManager, currentStartTime, upstream, reqLogManager, currentRequestLogID, claudeReq.Model, usageManager, logChannelIndex, logChannelName)
 		}
 		return
 	}
@@ -1845,8 +2012,8 @@ func handleSingleChannelProxy(
 			Type:          upstream.ServiceType,
 			ProviderName:  upstream.Name,
 			HTTPStatus:    httpStatus,
-			ChannelID:     upstream.Index,
-			ChannelName:   upstream.Name,
+			ChannelID:     logChannelIndex,
+			ChannelName:   logChannelName,
 			Endpoint:      "/v1/messages",
 			Error:         errMsg,
 			UpstreamError: upstreamErr,
@@ -1962,7 +2129,21 @@ func trackMessagesUsage(usageManager *quota.UsageManager, upstream *config.Upstr
 }
 
 // handleNormalResponse 处理非流式响应
-func handleNormalResponse(c *gin.Context, resp *http.Response, provider providers.Provider, envCfg *config.EnvConfig, cfgManager *config.ConfigManager, startTime time.Time, upstream *config.UpstreamConfig, reqLogManager *requestlog.Manager, requestLogID string, requestModel string, usageManager *quota.UsageManager) {
+func handleNormalResponse(
+	c *gin.Context,
+	resp *http.Response,
+	provider providers.Provider,
+	envCfg *config.EnvConfig,
+	cfgManager *config.ConfigManager,
+	startTime time.Time,
+	upstream *config.UpstreamConfig,
+	reqLogManager *requestlog.Manager,
+	requestLogID string,
+	requestModel string,
+	usageManager *quota.UsageManager,
+	logChannelIndex int,
+	logChannelName string,
+) {
 	defer resp.Body.Close()
 
 	bodyBytes, err := io.ReadAll(resp.Body)
@@ -2068,8 +2249,8 @@ func handleNormalResponse(c *gin.Context, resp *http.Response, provider provider
 			ProviderName:  upstream.Name,
 			ResponseModel: responseModel,
 			HTTPStatus:    resp.StatusCode,
-			ChannelID:     upstream.Index,
-			ChannelName:   upstream.Name,
+			ChannelID:     logChannelIndex,
+			ChannelName:   logChannelName,
 		}
 
 		if usage != nil {
@@ -2120,7 +2301,21 @@ func handleNormalResponse(c *gin.Context, resp *http.Response, provider provider
 }
 
 // handleStreamResponse 处理流式响应
-func handleStreamResponse(c *gin.Context, resp *http.Response, provider providers.Provider, envCfg *config.EnvConfig, cfgManager *config.ConfigManager, startTime time.Time, upstream *config.UpstreamConfig, reqLogManager *requestlog.Manager, requestLogID string, requestModel string, usageManager *quota.UsageManager) {
+func handleStreamResponse(
+	c *gin.Context,
+	resp *http.Response,
+	provider providers.Provider,
+	envCfg *config.EnvConfig,
+	cfgManager *config.ConfigManager,
+	startTime time.Time,
+	upstream *config.UpstreamConfig,
+	reqLogManager *requestlog.Manager,
+	requestLogID string,
+	requestModel string,
+	usageManager *quota.UsageManager,
+	logChannelIndex int,
+	logChannelName string,
+) {
 	defer resp.Body.Close()
 
 	// Check if upstream returned a non-SSE response (e.g., JSON error with HTTP 200)
@@ -2170,8 +2365,8 @@ func handleStreamResponse(c *gin.Context, resp *http.Response, provider provider
 				Type:          upstream.ServiceType,
 				ProviderName:  upstream.Name,
 				HTTPStatus:    resp.StatusCode,
-				ChannelID:     upstream.Index,
-				ChannelName:   upstream.Name,
+				ChannelID:     logChannelIndex,
+				ChannelName:   logChannelName,
 				Error:         errorMsg,
 				UpstreamError: string(bodyBytes),
 			}
@@ -2281,8 +2476,8 @@ func handleStreamResponse(c *gin.Context, resp *http.Response, provider provider
 						ProviderName:  upstream.Name,
 						ResponseModel: responseModel,
 						HTTPStatus:    resp.StatusCode,
-						ChannelID:     upstream.Index,
-						ChannelName:   upstream.Name,
+						ChannelID:     logChannelIndex,
+						ChannelName:   logChannelName,
 					}
 
 					if usage != nil {
@@ -2392,8 +2587,8 @@ func handleStreamResponse(c *gin.Context, resp *http.Response, provider provider
 						Type:         upstream.ServiceType,
 						ProviderName: upstream.Name,
 						HTTPStatus:   resp.StatusCode,
-						ChannelID:    upstream.Index,
-						ChannelName:  upstream.Name,
+						ChannelID:    logChannelIndex,
+						ChannelName:  logChannelName,
 						Error:        err.Error(),
 					}
 					_ = reqLogManager.Update(requestLogID, record)

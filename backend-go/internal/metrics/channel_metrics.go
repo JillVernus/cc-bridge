@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"log"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -51,22 +52,32 @@ type TimeWindowStats struct {
 	SuccessRate  float64 `json:"successRate"`
 }
 
+// ChannelIdentityExpectation describes expected channel identity at a given index.
+type ChannelIdentityExpectation struct {
+	ChannelIndex int
+	ChannelID    string
+	ChannelName  string
+}
+
 // MetricsManager 指标管理器
 type MetricsManager struct {
 	mu                  sync.RWMutex
-	metrics             map[int]*ChannelMetrics // key: channelIndex
-	windowSize          int                     // 滑动窗口大小
-	failureThreshold    float64                 // 失败率阈值
-	circuitRecoveryTime time.Duration           // 熔断恢复时间
-	stopCh              chan struct{}           // 用于停止清理 goroutine
+	metrics             map[int]*ChannelMetrics    // runtime view keyed by channelIndex
+	metricsByIdentity   map[string]*ChannelMetrics // primary storage keyed by channel UID (fallback: legacy index key)
+	windowSize          int                        // 滑动窗口大小
+	failureThreshold    float64                    // 失败率阈值
+	circuitRecoveryTime time.Duration              // 熔断恢复时间
+	stopCh              chan struct{}              // 用于停止清理 goroutine
 }
 
 const recentCallsLimit = 20
+const legacyIndexIdentityPrefix = "__idx__:"
 
 // NewMetricsManager 创建指标管理器
 func NewMetricsManager() *MetricsManager {
 	m := &MetricsManager{
 		metrics:             make(map[int]*ChannelMetrics),
+		metricsByIdentity:   make(map[string]*ChannelMetrics),
 		windowSize:          10,               // 默认基于最近 10 次请求计算失败率
 		failureThreshold:    0.5,              // 默认 50% 失败率阈值
 		circuitRecoveryTime: 15 * time.Minute, // 默认 15 分钟自动恢复
@@ -87,6 +98,7 @@ func NewMetricsManagerWithConfig(windowSize int, failureThreshold float64) *Metr
 	}
 	m := &MetricsManager{
 		metrics:             make(map[int]*ChannelMetrics),
+		metricsByIdentity:   make(map[string]*ChannelMetrics),
 		windowSize:          windowSize,
 		failureThreshold:    failureThreshold,
 		circuitRecoveryTime: 15 * time.Minute,
@@ -97,18 +109,86 @@ func NewMetricsManagerWithConfig(windowSize int, failureThreshold float64) *Metr
 	return m
 }
 
-// getOrCreate 获取或创建渠道指标
-func (m *MetricsManager) getOrCreate(channelIndex int) *ChannelMetrics {
-	if metrics, exists := m.metrics[channelIndex]; exists {
-		return metrics
+func legacyIdentityKey(channelIndex int) string {
+	return legacyIndexIdentityPrefix + strconv.Itoa(channelIndex)
+}
+
+func identityKey(channelIndex int, channelID string) string {
+	normalizedID := strings.TrimSpace(channelID)
+	if normalizedID != "" {
+		return normalizedID
 	}
-	metrics := &ChannelMetrics{
-		ChannelIndex:  channelIndex,
-		recentResults: make([]bool, 0, m.windowSize),
-		RecentCalls:   make([]RecentCall, 0, recentCallsLimit),
+	return legacyIdentityKey(channelIndex)
+}
+
+func (m *MetricsManager) getOrCreateByIdentityLocked(channelIndex int, channelID, channelName string) *ChannelMetrics {
+	key := identityKey(channelIndex, channelID)
+	normalizedID := strings.TrimSpace(channelID)
+	normalizedName := strings.TrimSpace(channelName)
+
+	metrics, exists := m.metricsByIdentity[key]
+	if !exists && normalizedID != "" {
+		// Migrate legacy index-keyed bucket to stable UID key once identity is available.
+		legacyKey := legacyIdentityKey(channelIndex)
+		if legacy, ok := m.metricsByIdentity[legacyKey]; ok {
+			legacyBoundID := strings.TrimSpace(legacy.boundChannelID)
+			// Guard against stale legacy aliases from previous index reuse.
+			// Only migrate when legacy bucket is unbound or already bound to the same UID.
+			if legacyBoundID == "" || legacyBoundID == normalizedID {
+				delete(m.metricsByIdentity, legacyKey)
+				m.metricsByIdentity[key] = legacy
+				metrics = legacy
+				exists = true
+			}
+		}
+	}
+	if !exists {
+		metrics = &ChannelMetrics{
+			ChannelIndex:  channelIndex,
+			recentResults: make([]bool, 0, m.windowSize),
+			RecentCalls:   make([]RecentCall, 0, recentCallsLimit),
+		}
+		m.metricsByIdentity[key] = metrics
+	}
+
+	previousIndex := metrics.ChannelIndex
+	if previousIndex != channelIndex {
+		if bound, ok := m.metrics[previousIndex]; ok && bound == metrics {
+			delete(m.metrics, previousIndex)
+		}
+	}
+	metrics.ChannelIndex = channelIndex
+	if normalizedID != "" {
+		metrics.boundChannelID = normalizedID
+	}
+	if normalizedName != "" {
+		metrics.boundChannelName = normalizedName
 	}
 	m.metrics[channelIndex] = metrics
 	return metrics
+}
+
+func (m *MetricsManager) getByIdentityLocked(channelIndex int, channelID string) *ChannelMetrics {
+	if metrics, exists := m.metrics[channelIndex]; exists {
+		if channelID == "" || strings.TrimSpace(metrics.boundChannelID) == strings.TrimSpace(channelID) {
+			return metrics
+		}
+	}
+	key := identityKey(channelIndex, channelID)
+	if metrics, exists := m.metricsByIdentity[key]; exists {
+		return metrics
+	}
+	if channelID != "" {
+		if metrics, exists := m.metricsByIdentity[strings.TrimSpace(channelID)]; exists {
+			return metrics
+		}
+	}
+	return nil
+}
+
+// getOrCreate 获取或创建渠道指标（兼容旧索引调用）
+func (m *MetricsManager) getOrCreate(channelIndex int) *ChannelMetrics {
+	return m.getOrCreateByIdentityLocked(channelIndex, "", "")
 }
 
 // RecordSuccess 记录成功请求
@@ -123,10 +203,15 @@ func (m *MetricsManager) RecordSuccessWithStatus(channelIndex int, statusCode in
 
 // RecordSuccessWithStatusDetail 记录成功请求（可选状态码、模型和渠道名）
 func (m *MetricsManager) RecordSuccessWithStatusDetail(channelIndex int, statusCode int, model, channelName string, routedChannelName ...string) {
+	m.RecordSuccessWithStatusDetailByIdentity(channelIndex, "", statusCode, model, channelName, routedChannelName...)
+}
+
+// RecordSuccessWithStatusDetailByIdentity records success using stable channel identity.
+func (m *MetricsManager) RecordSuccessWithStatusDetailByIdentity(channelIndex int, channelID string, statusCode int, model, channelName string, routedChannelName ...string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	metrics := m.getOrCreate(channelIndex)
+	metrics := m.getOrCreateByIdentityLocked(channelIndex, channelID, channelName)
 	metrics.RequestCount++
 	metrics.SuccessCount++
 	metrics.ConsecutiveFailures = 0
@@ -166,10 +251,15 @@ func (m *MetricsManager) RecordFailureWithStatus(channelIndex int, statusCode in
 
 // RecordFailureWithStatusDetail 记录失败请求（可选状态码、模型和渠道名）
 func (m *MetricsManager) RecordFailureWithStatusDetail(channelIndex int, statusCode int, model, channelName string, routedChannelName ...string) {
+	m.RecordFailureWithStatusDetailByIdentity(channelIndex, "", statusCode, model, channelName, routedChannelName...)
+}
+
+// RecordFailureWithStatusDetailByIdentity records failure using stable channel identity.
+func (m *MetricsManager) RecordFailureWithStatusDetailByIdentity(channelIndex int, channelID string, statusCode int, model, channelName string, routedChannelName ...string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	metrics := m.getOrCreate(channelIndex)
+	metrics := m.getOrCreateByIdentityLocked(channelIndex, channelID, channelName)
 	metrics.RequestCount++
 	metrics.FailureCount++
 	metrics.ConsecutiveFailures++
@@ -200,66 +290,175 @@ func (m *MetricsManager) RecordFailureWithStatusDetail(channelIndex int, statusC
 // ReconcileChannelIdentity 将索引指标与当前配置中的渠道身份（ID/名称）对齐。
 // 当同一索引绑定到不同渠道时，重置该索引指标以避免历史数据串位。
 func (m *MetricsManager) ReconcileChannelIdentity(channelIndex int, expectedChannelID, expectedChannelName string) {
-	expectedID := strings.TrimSpace(expectedChannelID)
-	expected := strings.TrimSpace(expectedChannelName)
-	if expectedID == "" && expected == "" {
+	// Keep backward compatibility for single-index reconcile callers (tests/legacy paths):
+	// preserve existing index view expectations and only override the target index.
+	m.mu.RLock()
+	expectations := make([]ChannelIdentityExpectation, 0, len(m.metrics)+1)
+	expectations = append(expectations, ChannelIdentityExpectation{
+		ChannelIndex: channelIndex,
+		ChannelID:    expectedChannelID,
+		ChannelName:  expectedChannelName,
+	})
+	for idx, metrics := range m.metrics {
+		if idx == channelIndex || metrics == nil {
+			continue
+		}
+		channelName := strings.TrimSpace(metrics.boundChannelName)
+		if channelName == "" {
+			channelName = inferRecentChannelName(metrics.RecentCalls)
+		}
+		expectations = append(expectations, ChannelIdentityExpectation{
+			ChannelIndex: idx,
+			ChannelID:    strings.TrimSpace(metrics.boundChannelID),
+			ChannelName:  channelName,
+		})
+	}
+	m.mu.RUnlock()
+
+	m.ReconcileChannelIdentities(expectations)
+}
+
+// ReconcileChannelIdentities performs a batch remap by stable channel identity.
+// It preserves existing metrics on reorder/insert by remapping old index buckets
+// to their new indices via channel ID first, then channel name fallback.
+func (m *MetricsManager) ReconcileChannelIdentities(expected []ChannelIdentityExpectation) {
+	if len(expected) == 0 {
 		return
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	metrics, exists := m.metrics[channelIndex]
-	if !exists {
-		return
-	}
-
-	currentID := strings.TrimSpace(metrics.boundChannelID)
-	if expectedID != "" && currentID != "" {
-		if currentID != expectedID {
-			log.Printf("🔄 渠道 [%d] 指标身份变化: id=%q -> id=%q，重置指标避免索引复用污染", channelIndex, currentID, expectedID)
-			m.metrics[channelIndex] = &ChannelMetrics{
-				ChannelIndex:     channelIndex,
-				recentResults:    make([]bool, 0, m.windowSize),
-				RecentCalls:      make([]RecentCall, 0, recentCallsLimit),
-				boundChannelName: expected,
-				boundChannelID:   expectedID,
+	existingByID := make(map[string]*ChannelMetrics, len(m.metricsByIdentity))
+	existingByName := make(map[string][]*ChannelMetrics, len(m.metricsByIdentity))
+	pointerKey := make(map[*ChannelMetrics]string, len(m.metricsByIdentity))
+	for key, metrics := range m.metricsByIdentity {
+		if metrics == nil || key == "" {
+			continue
+		}
+		pointerKey[metrics] = key
+		channelID := strings.TrimSpace(metrics.boundChannelID)
+		if channelID != "" {
+			if _, exists := existingByID[channelID]; !exists {
+				existingByID[channelID] = metrics
 			}
-			return
 		}
 
-		metrics.boundChannelID = expectedID
-		if expected != "" {
-			metrics.boundChannelName = expected
+		channelName := strings.TrimSpace(metrics.boundChannelName)
+		if channelName == "" {
+			channelName = inferRecentChannelName(metrics.RecentCalls)
 		}
-		return
-	}
-
-	current := strings.TrimSpace(metrics.boundChannelName)
-	if current == "" {
-		current = inferRecentChannelName(metrics.RecentCalls)
-	}
-	if current == "" {
-		metrics.boundChannelID = expectedID
-		if expected != "" {
-			metrics.boundChannelName = expected
+		normalizedName := strings.ToLower(strings.TrimSpace(channelName))
+		if normalizedName != "" {
+			existingByName[normalizedName] = append(existingByName[normalizedName], metrics)
 		}
-		return
 	}
 
-	if strings.EqualFold(current, expected) {
-		metrics.boundChannelID = expectedID
-		metrics.boundChannelName = expected
-		return
+	assigned := make(map[*ChannelMetrics]bool, len(m.metricsByIdentity))
+	indexView := make(map[int]*ChannelMetrics, len(expected))
+	nextIdentity := make(map[string]*ChannelMetrics, len(expected))
+	remappedByID := 0
+	remappedByName := 0
+	reboundLegacy := 0
+
+	for _, exp := range expected {
+		channelIndex := exp.ChannelIndex
+		expectedID := strings.TrimSpace(exp.ChannelID)
+		expectedName := strings.TrimSpace(exp.ChannelName)
+
+		var candidate *ChannelMetrics
+		candidateKey := ""
+
+		// Fast path: existing index binding already matches expected identity.
+		if current := m.metrics[channelIndex]; current != nil && !assigned[current] {
+			currentID := strings.TrimSpace(current.boundChannelID)
+			if expectedID != "" && currentID != "" && currentID == expectedID {
+				candidate = current
+				candidateKey = pointerKey[current]
+			} else if expectedID == "" {
+				currentName := strings.TrimSpace(current.boundChannelName)
+				if currentName == "" {
+					currentName = inferRecentChannelName(current.RecentCalls)
+				}
+				if strings.EqualFold(currentName, expectedName) {
+					candidate = current
+					candidateKey = pointerKey[current]
+				}
+			}
+		}
+
+		// Primary remap: stable channel ID.
+		if candidate == nil && expectedID != "" {
+			if byID, ok := m.metricsByIdentity[expectedID]; ok && !assigned[byID] {
+				candidate = byID
+				candidateKey = expectedID
+				remappedByID++
+			} else if byID, ok := existingByID[expectedID]; ok && !assigned[byID] {
+				candidate = byID
+				candidateKey = pointerKey[byID]
+				remappedByID++
+			}
+		}
+
+		// Secondary remap: unique name fallback (legacy/no-id buckets).
+		if candidate == nil && expectedName != "" {
+			normalizedName := strings.ToLower(expectedName)
+			for _, byName := range existingByName[normalizedName] {
+				if assigned[byName] {
+					continue
+				}
+				candidate = byName
+				candidateKey = pointerKey[byName]
+				remappedByName++
+				break
+			}
+		}
+
+		// Legacy index-key fallback (only for channels without stable ID).
+		if candidate == nil && expectedID == "" {
+			legacyKey := legacyIdentityKey(channelIndex)
+			if legacy, ok := m.metricsByIdentity[legacyKey]; ok && !assigned[legacy] {
+				candidate = legacy
+				candidateKey = legacyKey
+			}
+		}
+
+		// No historical metrics for this channel yet.
+		if candidate == nil {
+			continue
+		}
+
+		candidate.ChannelIndex = channelIndex
+		if expectedID != "" {
+			candidate.boundChannelID = expectedID
+		}
+		if expectedName != "" {
+			candidate.boundChannelName = expectedName
+		}
+
+		if expectedID != "" {
+			if candidateKey != "" && candidateKey != expectedID {
+				reboundLegacy++
+			}
+			nextIdentity[expectedID] = candidate
+		} else {
+			nextIdentity[legacyIdentityKey(channelIndex)] = candidate
+		}
+
+		indexView[channelIndex] = candidate
+		assigned[candidate] = true
 	}
 
-	log.Printf("🔄 渠道 [%d] 指标身份变化: %q -> %q，重置指标避免索引复用污染", channelIndex, current, expected)
-	m.metrics[channelIndex] = &ChannelMetrics{
-		ChannelIndex:     channelIndex,
-		recentResults:    make([]bool, 0, m.windowSize),
-		RecentCalls:      make([]RecentCall, 0, recentCallsLimit),
-		boundChannelName: expected,
-		boundChannelID:   expectedID,
+	m.metrics = indexView
+	m.metricsByIdentity = nextIdentity
+
+	if remappedByID > 0 || remappedByName > 0 || reboundLegacy > 0 {
+		log.Printf(
+			"🔁 渠道指标重映射完成 (by channelID: %d, by channelName: %d, rebound: %d)",
+			remappedByID,
+			remappedByName,
+			reboundLegacy,
+		)
 	}
 }
 
@@ -345,15 +544,22 @@ func (m *MetricsManager) appendRecentCall(metrics *ChannelMetrics, success bool,
 // SeedRecentCalls seeds recent calls for a channel (used for startup restore).
 // This only restores visualization data and does not change scheduler counters.
 func (m *MetricsManager) SeedRecentCalls(channelIndex int, calls []RecentCall) {
+	m.SeedRecentCallsByIdentity(channelIndex, "", "", calls)
+}
+
+// SeedRecentCallsByIdentity seeds recent calls with stable channel identity.
+func (m *MetricsManager) SeedRecentCallsByIdentity(channelIndex int, channelID, channelName string, calls []RecentCall) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	metrics := m.getOrCreate(channelIndex)
+	metrics := m.getOrCreateByIdentityLocked(channelIndex, channelID, channelName)
 
 	if len(calls) == 0 {
 		metrics.RecentCalls = make([]RecentCall, 0, recentCallsLimit)
-		metrics.boundChannelName = ""
-		metrics.boundChannelID = ""
+		if strings.TrimSpace(channelName) != "" {
+			metrics.boundChannelName = strings.TrimSpace(channelName)
+		}
+		metrics.boundChannelID = strings.TrimSpace(channelID)
 		return
 	}
 	if len(calls) > recentCallsLimit {
@@ -373,8 +579,12 @@ func (m *MetricsManager) SeedRecentCalls(channelIndex int, calls []RecentCall) {
 		}
 	}
 	metrics.RecentCalls = seeded
-	metrics.boundChannelName = inferRecentChannelName(seeded)
-	metrics.boundChannelID = ""
+	if strings.TrimSpace(channelName) != "" {
+		metrics.boundChannelName = strings.TrimSpace(channelName)
+	} else {
+		metrics.boundChannelName = inferRecentChannelName(seeded)
+	}
+	metrics.boundChannelID = strings.TrimSpace(channelID)
 }
 
 func inferRecentChannelName(calls []RecentCall) string {
@@ -502,6 +712,35 @@ func (m *MetricsManager) CalculateFailureRate(channelIndex int) float64 {
 	return float64(failures) / float64(len(metrics.recentResults))
 }
 
+// CalculateFailureRateByIdentity calculates failure rate using stable channel identity.
+func (m *MetricsManager) CalculateFailureRateByIdentity(channelIndex int, channelID string) float64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	metrics := m.getByIdentityLocked(channelIndex, channelID)
+	if metrics == nil || len(metrics.recentResults) == 0 {
+		return 0
+	}
+
+	// Keep current index view updated for compatibility endpoints.
+	previousIndex := metrics.ChannelIndex
+	if previousIndex != channelIndex {
+		if bound, ok := m.metrics[previousIndex]; ok && bound == metrics {
+			delete(m.metrics, previousIndex)
+		}
+	}
+	m.metrics[channelIndex] = metrics
+	metrics.ChannelIndex = channelIndex
+
+	failures := 0
+	for _, success := range metrics.recentResults {
+		if !success {
+			failures++
+		}
+	}
+	return float64(failures) / float64(len(metrics.recentResults))
+}
+
 // CalculateSuccessRate 计算渠道成功率（基于滑动窗口）
 func (m *MetricsManager) CalculateSuccessRate(channelIndex int) float64 {
 	return 1 - m.CalculateFailureRate(channelIndex)
@@ -510,6 +749,11 @@ func (m *MetricsManager) CalculateSuccessRate(channelIndex int) float64 {
 // IsChannelHealthy 判断渠道是否健康（失败率低于阈值）
 func (m *MetricsManager) IsChannelHealthy(channelIndex int) bool {
 	return m.CalculateFailureRate(channelIndex) < m.failureThreshold
+}
+
+// IsChannelHealthyByIdentity checks health by stable channel identity.
+func (m *MetricsManager) IsChannelHealthyByIdentity(channelIndex int, channelID string) bool {
+	return m.CalculateFailureRateByIdentity(channelIndex, channelID) < m.failureThreshold
 }
 
 // ShouldSuspend 判断是否应该熔断（失败率达到阈值）
@@ -545,12 +789,36 @@ func (m *MetricsManager) Reset(channelIndex int) {
 	}
 }
 
+// ResetByIdentity resets channel metrics by stable identity.
+func (m *MetricsManager) ResetByIdentity(channelIndex int, channelID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	metrics := m.getByIdentityLocked(channelIndex, channelID)
+	if metrics == nil {
+		return
+	}
+	metrics.ConsecutiveFailures = 0
+	metrics.recentResults = make([]bool, 0, m.windowSize)
+	metrics.CircuitBrokenAt = nil
+	previousIndex := metrics.ChannelIndex
+	if previousIndex != channelIndex {
+		if bound, ok := m.metrics[previousIndex]; ok && bound == metrics {
+			delete(m.metrics, previousIndex)
+		}
+	}
+	metrics.ChannelIndex = channelIndex
+	m.metrics[channelIndex] = metrics
+	log.Printf("🔄 渠道 [%d] 指标已手动重置", channelIndex)
+}
+
 // ResetAll 重置所有渠道指标
 func (m *MetricsManager) ResetAll() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	m.metrics = make(map[int]*ChannelMetrics)
+	m.metricsByIdentity = make(map[string]*ChannelMetrics)
 }
 
 // Stop 停止后台清理任务
@@ -579,7 +847,7 @@ func (m *MetricsManager) recoverExpiredCircuitBreakers() {
 	defer m.mu.Unlock()
 
 	now := time.Now()
-	for idx, metrics := range m.metrics {
+	for _, metrics := range m.metricsByIdentity {
 		if metrics.CircuitBrokenAt != nil {
 			elapsed := now.Sub(*metrics.CircuitBrokenAt)
 			if elapsed > m.circuitRecoveryTime {
@@ -587,7 +855,7 @@ func (m *MetricsManager) recoverExpiredCircuitBreakers() {
 				metrics.ConsecutiveFailures = 0
 				metrics.recentResults = make([]bool, 0, m.windowSize)
 				metrics.CircuitBrokenAt = nil
-				log.Printf("✅ 渠道 [%d] 熔断自动恢复（已超过 %v）", idx, m.circuitRecoveryTime)
+				log.Printf("✅ 渠道 [%d] 熔断自动恢复（已超过 %v）", metrics.ChannelIndex, m.circuitRecoveryTime)
 			}
 		}
 	}

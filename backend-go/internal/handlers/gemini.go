@@ -207,6 +207,21 @@ func trackGeminiUsage(usageManager *quota.UsageManager, upstream *config.Upstrea
 	}
 }
 
+func resolveGeminiRequestLogChannelContext(selection *scheduler.SelectionResult, fallback *config.UpstreamConfig) (int, string) {
+	if selection != nil {
+		if selection.CompositeUpstream != nil && selection.CompositeChannelIndex >= 0 {
+			return selection.CompositeChannelIndex, strings.TrimSpace(selection.CompositeUpstream.Name)
+		}
+		if selection.Upstream != nil {
+			return selection.ChannelIndex, strings.TrimSpace(selection.Upstream.Name)
+		}
+	}
+	if fallback != nil {
+		return fallback.Index, strings.TrimSpace(fallback.Name)
+	}
+	return -1, ""
+}
+
 // handleMultiChannelGemini handles multi-channel Gemini requests with failover
 func handleMultiChannelGemini(
 	c *gin.Context,
@@ -232,6 +247,9 @@ func handleMultiChannelGemini(
 		Body         []byte
 		FailoverInfo string
 	}
+	var lastFailedUpstream *config.UpstreamConfig
+	lastFailedLogChannelIndex := -1
+	lastFailedLogChannelName := ""
 
 	maxChannelAttempts := channelScheduler.GetActiveGeminiChannelCount()
 	shouldLogInfo := envCfg.ShouldLog("info")
@@ -246,6 +264,13 @@ func handleMultiChannelGemini(
 
 		upstream := selection.Upstream
 		channelIndex := selection.ChannelIndex
+		logChannelIndex, logChannelName := resolveGeminiRequestLogChannelContext(selection, upstream)
+		if logChannelIndex < 0 {
+			logChannelIndex = channelIndex
+		}
+		if strings.TrimSpace(logChannelName) == "" {
+			logChannelName = strings.TrimSpace(upstream.Name)
+		}
 
 		if shouldLogInfo {
 			log.Printf("🎯 [Multi-Channel/Gemini] Selected channel: [%d] %s (reason: %s, attempt %d/%d)",
@@ -258,14 +283,17 @@ func handleMultiChannelGemini(
 			if !result.Allowed {
 				log.Printf("🚫 [Channel Rate Limit/Gemini] Channel %d (%s): %v",
 					channelIndex, upstream.Name, result.Error)
-				channelScheduler.RecordGeminiFailureWithStatusDetail(channelIndex, 429, model, upstream.Name)
+				channelScheduler.RecordGeminiFailureWithStatusDetail(logChannelIndex, 429, model, logChannelName)
 				failedChannels[channelIndex] = true
 				lastError = result.Error
+				lastFailedUpstream = upstream
+				lastFailedLogChannelIndex = logChannelIndex
+				lastFailedLogChannelName = logChannelName
 				continue
 			}
 		}
 
-		success, failoverErr := tryGeminiChannel(c, envCfg, cfgManager, upstream, bodyBytes, model, isStreaming, &startTime, reqLogManager, &requestLogID, usageManager, failoverTracker, apiKeyID)
+		success, failoverErr := tryGeminiChannel(c, envCfg, cfgManager, upstream, bodyBytes, model, isStreaming, &startTime, reqLogManager, &requestLogID, usageManager, failoverTracker, apiKeyID, logChannelIndex, logChannelName)
 
 		// Client disconnected
 		if c.Request.Context().Err() != nil {
@@ -287,9 +315,9 @@ func handleMultiChannelGemini(
 				if failureStatus < http.StatusBadRequest {
 					failureStatus = http.StatusInternalServerError
 				}
-				channelScheduler.RecordGeminiFailureWithStatusDetail(channelIndex, failureStatus, model, upstream.Name)
+				channelScheduler.RecordGeminiFailureWithStatusDetail(logChannelIndex, failureStatus, model, logChannelName)
 			} else {
-				channelScheduler.RecordGeminiSuccessWithStatusDetail(channelIndex, handledStatus, model, upstream.Name)
+				channelScheduler.RecordGeminiSuccessWithStatusDetail(logChannelIndex, handledStatus, model, logChannelName)
 			}
 			return
 		}
@@ -299,7 +327,7 @@ func handleMultiChannelGemini(
 		if failoverErr != nil {
 			failureStatus = failoverErr.Status
 		}
-		channelScheduler.RecordGeminiFailureWithStatusDetail(channelIndex, failureStatus, model, upstream.Name)
+		channelScheduler.RecordGeminiFailureWithStatusDetail(logChannelIndex, failureStatus, model, logChannelName)
 		failedChannels[channelIndex] = true
 
 		// Check if there are more channels to try
@@ -325,8 +353,8 @@ func handleMultiChannelGemini(
 					Type:          upstream.ServiceType,
 					ProviderName:  upstream.Name,
 					Model:         model,
-					ChannelID:     channelIndex,
-					ChannelName:   upstream.Name,
+					ChannelID:     logChannelIndex,
+					ChannelName:   logChannelName,
 					HTTPStatus:    httpStatus,
 					Error:         fmt.Sprintf("failover to next channel (%d/%d)", channelAttempt+1, maxChannelAttempts),
 					UpstreamError: upstreamErr,
@@ -343,6 +371,8 @@ func handleMultiChannelGemini(
 					Model:       model,
 					Stream:      isStreaming,
 					Endpoint:    "/v1/gemini",
+					ChannelID:   logChannelIndex,
+					ChannelName: logChannelName,
 					APIKeyID:    apiKeyID,
 				}
 				if err := reqLogManager.Add(newPendingLog); err != nil {
@@ -358,8 +388,11 @@ func handleMultiChannelGemini(
 
 		if failoverErr != nil {
 			lastFailoverError = failoverErr
-			lastError = fmt.Errorf("channel [%d] %s failed", channelIndex, upstream.Name)
 		}
+		lastError = fmt.Errorf("channel [%d] %s failed", channelIndex, upstream.Name)
+		lastFailedUpstream = upstream
+		lastFailedLogChannelIndex = logChannelIndex
+		lastFailedLogChannelName = logChannelName
 	}
 
 	// All channels failed
@@ -379,6 +412,9 @@ func handleMultiChannelGemini(
 		if lastError != nil {
 			errMsg = lastError.Error()
 		}
+		if lastError != nil && errors.Is(lastError, scheduler.ErrNoAllowedChannels) {
+			httpStatus = 403
+		}
 		record := &requestlog.RequestLog{
 			Status:        requestlog.StatusError,
 			CompleteTime:  time.Now(),
@@ -388,6 +424,16 @@ func handleMultiChannelGemini(
 			Error:         errMsg,
 			UpstreamError: upstreamErr,
 			FailoverInfo:  failoverInfo,
+		}
+		if lastFailedUpstream != nil {
+			record.Type = lastFailedUpstream.ServiceType
+			record.ProviderName = lastFailedUpstream.Name
+		}
+		if lastFailedLogChannelIndex >= 0 {
+			record.ChannelID = lastFailedLogChannelIndex
+		}
+		if lastFailedLogChannelName != "" {
+			record.ChannelName = lastFailedLogChannelName
 		}
 		_ = reqLogManager.Update(requestLogID, record)
 	}
@@ -450,9 +496,39 @@ func handleSingleChannelGemini(
 	channelRateLimiter *middleware.ChannelRateLimiter,
 	apiKeyID *int64,
 ) {
+	finalizePendingWithError := func(status int, errMsg string, channel *config.UpstreamConfig, channelIndex *int, channelName string) {
+		if reqLogManager == nil || requestLogID == "" {
+			return
+		}
+		completeTime := time.Now()
+		record := &requestlog.RequestLog{
+			Status:       requestlog.StatusError,
+			CompleteTime: completeTime,
+			DurationMs:   completeTime.Sub(startTime).Milliseconds(),
+			Model:        model,
+			Endpoint:     "/v1/gemini",
+			HTTPStatus:   status,
+			Error:        errMsg,
+		}
+		if channel != nil {
+			record.Type = channel.ServiceType
+			record.ProviderName = channel.Name
+		}
+		if channelIndex != nil {
+			record.ChannelID = *channelIndex
+		}
+		if trimmed := strings.TrimSpace(channelName); trimmed != "" {
+			record.ChannelName = trimmed
+		} else if channel != nil {
+			record.ChannelName = channel.Name
+		}
+		_ = reqLogManager.Update(requestLogID, record)
+	}
+
 	// Get Gemini upstream from GeminiUpstream channel list
 	upstream, err := cfgManager.GetCurrentGeminiUpstream()
 	if err != nil {
+		finalizePendingWithError(503, "No Gemini channel configured. Please add a Gemini channel in the Gemini tab.", nil, nil, "")
 		c.JSON(503, gin.H{
 			"error": gin.H{
 				"code":    503,
@@ -473,6 +549,8 @@ func handleSingleChannelGemini(
 			}
 		}
 		if !allowed {
+			channelIndex := upstream.Index
+			finalizePendingWithError(403, fmt.Sprintf("Channel %s not allowed for this API key", upstream.Name), upstream, &channelIndex, upstream.Name)
 			c.JSON(403, gin.H{
 				"error": gin.H{
 					"code":    403,
@@ -485,6 +563,9 @@ func handleSingleChannelGemini(
 	}
 
 	// Check per-channel rate limit
+	logChannelIndex := upstream.Index
+	logChannelName := upstream.Name
+
 	if channelRateLimiter != nil && upstream.RateLimitRpm > 0 {
 		result := channelRateLimiter.Acquire(c.Request.Context(), upstream, "gemini")
 		if !result.Allowed {
@@ -500,8 +581,8 @@ func handleSingleChannelGemini(
 					Type:         upstream.ServiceType,
 					ProviderName: upstream.Name,
 					HTTPStatus:   429,
-					ChannelID:    upstream.Index,
-					ChannelName:  upstream.Name,
+					ChannelID:    logChannelIndex,
+					ChannelName:  logChannelName,
 					Endpoint:     "/v1/gemini",
 					Error:        fmt.Sprintf("channel rate limit exceeded (%d RPM)", upstream.RateLimitRpm),
 				}
@@ -519,6 +600,8 @@ func handleSingleChannelGemini(
 	}
 
 	if len(upstream.APIKeys) == 0 {
+		channelIndex := upstream.Index
+		finalizePendingWithError(503, fmt.Sprintf("Gemini channel \"%s\" has no API keys configured", upstream.Name), upstream, &channelIndex, upstream.Name)
 		c.JSON(503, gin.H{
 			"error": gin.H{
 				"code":    503,
@@ -529,7 +612,7 @@ func handleSingleChannelGemini(
 		return
 	}
 
-	success, failoverErr := tryGeminiChannel(c, envCfg, cfgManager, upstream, bodyBytes, model, isStreaming, &startTime, reqLogManager, &requestLogID, usageManager, failoverTracker, apiKeyID)
+	success, failoverErr := tryGeminiChannel(c, envCfg, cfgManager, upstream, bodyBytes, model, isStreaming, &startTime, reqLogManager, &requestLogID, usageManager, failoverTracker, apiKeyID, logChannelIndex, logChannelName)
 
 	// Client disconnected
 	if c.Request.Context().Err() != nil {
@@ -583,8 +666,8 @@ func handleSingleChannelGemini(
 					Type:          upstream.ServiceType,
 					ProviderName:  upstream.Name,
 					Model:         model,
-					ChannelID:     upstream.Index,
-					ChannelName:   upstream.Name,
+					ChannelID:     logChannelIndex,
+					ChannelName:   logChannelName,
 					Endpoint:      "/v1/gemini",
 					HTTPStatus:    status,
 					Error:         fmt.Sprintf("upstream returned status %d", status),
@@ -610,8 +693,8 @@ func handleSingleChannelGemini(
 					Model:        model,
 					Type:         upstream.ServiceType,
 					ProviderName: upstream.Name,
-					ChannelID:    upstream.Index,
-					ChannelName:  upstream.Name,
+					ChannelID:    logChannelIndex,
+					ChannelName:  logChannelName,
 					Endpoint:     "/v1/gemini",
 					HTTPStatus:   503,
 					Error:        "all API keys exhausted or unavailable",
@@ -644,11 +727,20 @@ func tryGeminiChannel(
 	usageManager *quota.UsageManager,
 	failoverTracker *config.FailoverTracker,
 	apiKeyID *int64,
+	logChannelIndex int,
+	logChannelName string,
 ) (bool, *struct {
 	Status       int
 	Body         []byte
 	FailoverInfo string
 }) {
+	if strings.TrimSpace(logChannelName) == "" {
+		logChannelName = strings.TrimSpace(upstream.Name)
+	}
+	if logChannelIndex < 0 {
+		logChannelIndex = upstream.Index
+	}
+
 	if len(upstream.APIKeys) == 0 {
 		return false, nil
 	}
@@ -701,6 +793,24 @@ func tryGeminiChannel(
 
 		resp, err := sendGeminiRequest(providerReq, upstream, envCfg, isStreaming)
 		if err != nil {
+			if c.Request.Context().Err() != nil {
+				if reqLogManager != nil && currentRequestLogID != "" {
+					completeTime := time.Now()
+					record := &requestlog.RequestLog{
+						Status:       requestlog.StatusError,
+						CompleteTime: completeTime,
+						DurationMs:   completeTime.Sub(currentStartTime).Milliseconds(),
+						Type:         upstream.ServiceType,
+						ProviderName: upstream.Name,
+						HTTPStatus:   499,
+						ChannelID:    logChannelIndex,
+						ChannelName:  logChannelName,
+						Error:        "client disconnected during upstream request",
+					}
+					_ = reqLogManager.Update(currentRequestLogID, record)
+				}
+				return false, nil
+			}
 			failedKeys[apiKey] = true
 			cfgManager.MarkKeyAsFailed(apiKey)
 			log.Printf("⚠️ [Gemini] API密钥失败: %v", err)
@@ -735,8 +845,8 @@ func tryGeminiChannel(
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
 							HTTPStatus:    resp.StatusCode,
-							ChannelID:     upstream.Index,
-							ChannelName:   upstream.Name,
+							ChannelID:     logChannelIndex,
+							ChannelName:   logChannelName,
 							Error:         fmt.Sprintf("429 %s - retrying after %v", decision.Reason, decision.Wait),
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  failoverInfo,
@@ -754,6 +864,8 @@ func tryGeminiChannel(
 							Model:       model,
 							Stream:      isStreaming,
 							Endpoint:    "/v1/gemini",
+							ChannelID:   logChannelIndex,
+							ChannelName: logChannelName,
 							APIKeyID:    apiKeyID,
 						}
 						if err := reqLogManager.Add(newPendingLog); err != nil {
@@ -786,6 +898,21 @@ func tryGeminiChannel(
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
+						if reqLogManager != nil && currentRequestLogID != "" {
+							completeTime := time.Now()
+							record := &requestlog.RequestLog{
+								Status:       requestlog.StatusError,
+								CompleteTime: completeTime,
+								DurationMs:   completeTime.Sub(currentStartTime).Milliseconds(),
+								Type:         upstream.ServiceType,
+								ProviderName: upstream.Name,
+								HTTPStatus:   499,
+								ChannelID:    logChannelIndex,
+								ChannelName:  logChannelName,
+								Error:        "client disconnected during retry wait",
+							}
+							_ = reqLogManager.Update(currentRequestLogID, record)
+						}
 						return false, nil
 					}
 
@@ -852,8 +979,8 @@ func tryGeminiChannel(
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
 							HTTPStatus:    resp.StatusCode,
-							ChannelID:     upstream.Index,
-							ChannelName:   upstream.Name,
+							ChannelID:     logChannelIndex,
+							ChannelName:   logChannelName,
 							Error:         fmt.Sprintf("429 %s (returning error)", decision.Reason),
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, decision.Reason),
@@ -896,8 +1023,8 @@ func tryGeminiChannel(
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
 							HTTPStatus:    resp.StatusCode,
-							ChannelID:     upstream.Index,
-							ChannelName:   upstream.Name,
+							ChannelID:     logChannelIndex,
+							ChannelName:   logChannelName,
 							Error:         fmt.Sprintf("%d %s - retrying after %v", resp.StatusCode, decision.Reason, decision.Wait),
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  failoverInfo,
@@ -915,7 +1042,9 @@ func tryGeminiChannel(
 							InitialTime: time.Now(),
 							Model:       model,
 							Stream:      isStreaming,
-							Endpoint:    c.Request.URL.Path,
+							Endpoint:    "/v1/gemini",
+							ChannelID:   logChannelIndex,
+							ChannelName: logChannelName,
 							APIKeyID:    apiKeyID,
 						}
 						if err := reqLogManager.Add(newPendingLog); err != nil {
@@ -923,6 +1052,8 @@ func tryGeminiChannel(
 						} else {
 							currentRequestLogID = newPendingLog.ID
 							*requestLogID = newPendingLog.ID
+							currentStartTime = newPendingLog.InitialTime
+							*startTime = newPendingLog.InitialTime
 						}
 					}
 
@@ -945,6 +1076,21 @@ func tryGeminiChannel(
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
+						if reqLogManager != nil && currentRequestLogID != "" {
+							completeTime := time.Now()
+							record := &requestlog.RequestLog{
+								Status:       requestlog.StatusError,
+								CompleteTime: completeTime,
+								DurationMs:   completeTime.Sub(currentStartTime).Milliseconds(),
+								Type:         upstream.ServiceType,
+								ProviderName: upstream.Name,
+								HTTPStatus:   499,
+								ChannelID:    logChannelIndex,
+								ChannelName:  logChannelName,
+								Error:        "client disconnected during retry wait",
+							}
+							_ = reqLogManager.Update(currentRequestLogID, record)
+						}
 						return false, nil
 					}
 
@@ -1019,8 +1165,8 @@ func tryGeminiChannel(
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
 							HTTPStatus:    resp.StatusCode,
-							ChannelID:     upstream.Index,
-							ChannelName:   upstream.Name,
+							ChannelID:     logChannelIndex,
+							ChannelName:   logChannelName,
 							Error:         fmt.Sprintf("upstream returned status %d", resp.StatusCode),
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, ""),
@@ -1050,8 +1196,8 @@ func tryGeminiChannel(
 						Type:          upstream.ServiceType,
 						ProviderName:  upstream.Name,
 						HTTPStatus:    resp.StatusCode,
-						ChannelID:     upstream.Index,
-						ChannelName:   upstream.Name,
+						ChannelID:     logChannelIndex,
+						ChannelName:   logChannelName,
 						Error:         fmt.Sprintf("upstream returned status %d", resp.StatusCode),
 						UpstreamError: string(respBodyBytes),
 						FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, "", requestlog.FailoverActionReturnErr, ""),
@@ -1078,13 +1224,16 @@ func tryGeminiChannel(
 			}
 		}
 
-		// Reset error counters on success
+		// Success - handle response
+		handledErr := handleGeminiSuccess(c, resp, upstream, envCfg, cfgManager, isStreaming, currentStartTime, model, reqLogManager, currentRequestLogID, usageManager, logChannelIndex, logChannelName)
+		if handledErr != nil {
+			return true, handledErr
+		}
+
+		// Reset error counters only after response handling fully completes.
 		if failoverTracker != nil {
 			failoverTracker.ResetOnSuccess(upstream.Index, apiKey)
 		}
-
-		// Success - handle response
-		handleGeminiSuccess(c, resp, upstream, envCfg, cfgManager, isStreaming, currentStartTime, model, reqLogManager, currentRequestLogID, usageManager)
 		return true, nil
 	}
 
@@ -1127,7 +1276,20 @@ func handleGeminiSuccess(
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
 	usageManager *quota.UsageManager,
-) {
+	logChannelIndex int,
+	logChannelName string,
+) *struct {
+	Status       int
+	Body         []byte
+	FailoverInfo string
+} {
+	if strings.TrimSpace(logChannelName) == "" {
+		logChannelName = strings.TrimSpace(upstream.Name)
+	}
+	if logChannelIndex < 0 {
+		logChannelIndex = upstream.Index
+	}
+
 	defer resp.Body.Close()
 
 	if isStreaming {
@@ -1174,7 +1336,9 @@ func handleGeminiSuccess(
 		}
 
 		copyBuf := make([]byte, 32*1024)
+		var streamCopyErr error
 		if _, err := io.CopyBuffer(fw, streamReader, copyBuf); err != nil {
+			streamCopyErr = err
 			log.Printf("⚠️ Gemini 流式响应传输错误: %v", err)
 		}
 
@@ -1193,15 +1357,29 @@ func handleGeminiSuccess(
 
 		// Update request log
 		if reqLogManager != nil && requestLogID != "" {
+			recordStatus := requestlog.StatusCompleted
+			recordHTTPStatus := resp.StatusCode
+			recordError := ""
+			if c.Request.Context().Err() != nil {
+				recordStatus = requestlog.StatusError
+				recordHTTPStatus = 499
+				recordError = "client disconnected during streaming response"
+			} else if streamCopyErr != nil {
+				recordStatus = requestlog.StatusError
+				recordHTTPStatus = 500
+				recordError = streamCopyErr.Error()
+			}
+
 			record := &requestlog.RequestLog{
-				Status:       requestlog.StatusCompleted,
+				Status:       recordStatus,
 				CompleteTime: completeTime,
 				DurationMs:   durationMs,
 				Type:         upstream.ServiceType,
 				ProviderName: upstream.Name,
-				HTTPStatus:   resp.StatusCode,
-				ChannelID:    upstream.Index,
-				ChannelName:  upstream.Name,
+				HTTPStatus:   recordHTTPStatus,
+				ChannelID:    logChannelIndex,
+				ChannelName:  logChannelName,
+				Error:        recordError,
 			}
 
 			if usage != nil {
@@ -1256,7 +1434,9 @@ func handleGeminiSuccess(
 				log.Printf("⚠️ 请求日志更新失败: %v", err)
 			}
 
-			trackGeminiUsage(usageManager, upstream, model, record.Price)
+			if recordStatus == requestlog.StatusCompleted {
+				trackGeminiUsage(usageManager, upstream, model, record.Price)
+			}
 
 			var debugBody []byte
 			if debugCapture != nil {
@@ -1264,12 +1444,25 @@ func handleGeminiSuccess(
 			}
 			SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, debugBody)
 		}
-		return
+		if streamCopyErr != nil && c.Request.Context().Err() == nil {
+			errMsg := fmt.Sprintf("stream transfer failed: %v", streamCopyErr)
+			return &struct {
+				Status       int
+				Body         []byte
+				FailoverInfo string
+			}{
+				Status:       http.StatusInternalServerError,
+				Body:         []byte(errMsg),
+				FailoverInfo: requestlog.FormatFailoverInfo(http.StatusInternalServerError, "stream_transfer_error", requestlog.FailoverActionReturnErr, ""),
+			}
+		}
+		return nil
 	}
 
 	// Non-streaming response
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
+		errMsg := fmt.Sprintf("failed to read response body: %v", err)
 		// Update request log with error status
 		if reqLogManager != nil && requestLogID != "" {
 			record := &requestlog.RequestLog{
@@ -1279,14 +1472,22 @@ func handleGeminiSuccess(
 				Type:         upstream.ServiceType,
 				ProviderName: upstream.Name,
 				HTTPStatus:   500,
-				ChannelID:    upstream.Index,
-				ChannelName:  upstream.Name,
-				Error:        fmt.Sprintf("failed to read response body: %v", err),
+				ChannelID:    logChannelIndex,
+				ChannelName:  logChannelName,
+				Error:        errMsg,
 			}
 			_ = reqLogManager.Update(requestLogID, record)
 		}
 		c.JSON(500, gin.H{"error": gin.H{"message": "Failed to read response"}})
-		return
+		return &struct {
+			Status       int
+			Body         []byte
+			FailoverInfo string
+		}{
+			Status:       http.StatusInternalServerError,
+			Body:         []byte(errMsg),
+			FailoverInfo: requestlog.FormatFailoverInfo(http.StatusInternalServerError, "response_read_error", requestlog.FailoverActionReturnErr, ""),
+		}
 	}
 
 	completeTime := time.Now()
@@ -1308,8 +1509,8 @@ func handleGeminiSuccess(
 			Type:         upstream.ServiceType,
 			ProviderName: upstream.Name,
 			HTTPStatus:   resp.StatusCode,
-			ChannelID:    upstream.Index,
-			ChannelName:  upstream.Name,
+			ChannelID:    logChannelIndex,
+			ChannelName:  logChannelName,
 		}
 
 		if usage != nil {
@@ -1374,6 +1575,7 @@ func handleGeminiSuccess(
 
 	// Return response directly (passthrough)
 	c.Data(resp.StatusCode, "application/json", bodyBytes)
+	return nil
 }
 
 // GeminiUsage represents Gemini API usage metadata
