@@ -1,10 +1,14 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/JillVernus/cc-bridge/internal/middleware"
+	"github.com/JillVernus/cc-bridge/internal/pricing"
 	"github.com/JillVernus/cc-bridge/internal/requestlog"
 	"github.com/gin-gonic/gin"
 )
@@ -17,6 +21,345 @@ type RequestLogHandler struct {
 // NewRequestLogHandler 创建请求日志处理器
 func NewRequestLogHandler(manager *requestlog.Manager) *RequestLogHandler {
 	return &RequestLogHandler{manager: manager}
+}
+
+const (
+	hookRequestIDMaxLen     = 200
+	hookModelMaxLen         = 200
+	hookEndpointMaxLen      = 200
+	hookClientSessionMaxLen = 200
+	hookErrorMaxLen         = 2000
+)
+
+type anthropicHookLogIngestRequest struct {
+	RequestID                string  `json:"requestId"`
+	Status                   string  `json:"status"`
+	InitialTime              string  `json:"initialTime"`
+	CompleteTime             string  `json:"completeTime"`
+	DurationMs               *int64  `json:"durationMs"`
+	Model                    string  `json:"model"`
+	ResponseModel            string  `json:"responseModel"`
+	ReasoningEffort          string  `json:"reasoningEffort"`
+	Stream                   *bool   `json:"stream"`
+	InputTokens              int     `json:"inputTokens"`
+	OutputTokens             int     `json:"outputTokens"`
+	CacheCreationInputTokens int     `json:"cacheCreationInputTokens"`
+	CacheReadInputTokens     int     `json:"cacheReadInputTokens"`
+	Price                    float64 `json:"price"`
+	InputCost                float64 `json:"inputCost"`
+	OutputCost               float64 `json:"outputCost"`
+	CacheCreationCost        float64 `json:"cacheCreationCost"`
+	CacheReadCost            float64 `json:"cacheReadCost"`
+	HTTPStatus               *int    `json:"httpStatus"`
+	Endpoint                 string  `json:"endpoint"`
+	ClientID                 string  `json:"clientId"`
+	SessionID                string  `json:"sessionId"`
+	Error                    string  `json:"error"`
+	UpstreamError            string  `json:"upstreamError"`
+}
+
+// IngestAnthropicHookLog ingests Anthropic OAuth hook log payload into request logs.
+// POST /api/logs/hooks/anthropic
+func (h *RequestLogHandler) IngestAnthropicHookLog(c *gin.Context) {
+	var req anthropicHookLogIngestRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: " + err.Error()})
+		return
+	}
+
+	requestID := strings.TrimSpace(req.RequestID)
+	if requestID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "requestId is required"})
+		return
+	}
+	if len(requestID) > hookRequestIDMaxLen {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("requestId too long (max %d)", hookRequestIDMaxLen)})
+		return
+	}
+
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "model is required"})
+		return
+	}
+	if len(model) > hookModelMaxLen {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("model too long (max %d)", hookModelMaxLen)})
+		return
+	}
+
+	status := strings.TrimSpace(req.Status)
+	if status == "" {
+		status = requestlog.StatusCompleted
+	}
+	if !isValidHookRequestStatus(status) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "status must be one of: pending, completed, error, timeout, failover, retry_wait"})
+		return
+	}
+
+	if req.InputTokens < 0 || req.OutputTokens < 0 || req.CacheCreationInputTokens < 0 || req.CacheReadInputTokens < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "token fields must be >= 0"})
+		return
+	}
+	if req.Price < 0 || req.InputCost < 0 || req.OutputCost < 0 || req.CacheCreationCost < 0 || req.CacheReadCost < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cost fields must be >= 0"})
+		return
+	}
+
+	now := time.Now()
+	initialTime := now
+	if strings.TrimSpace(req.InitialTime) != "" {
+		t, err := parseHookTime(req.InitialTime)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "initialTime must be RFC3339"})
+			return
+		}
+		initialTime = t
+	}
+
+	completeTime := time.Time{}
+	if strings.TrimSpace(req.CompleteTime) != "" {
+		t, err := parseHookTime(req.CompleteTime)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "completeTime must be RFC3339"})
+			return
+		}
+		completeTime = t
+	}
+	if status != requestlog.StatusPending && completeTime.IsZero() {
+		completeTime = now
+	}
+
+	durationMs := int64(0)
+	if req.DurationMs != nil {
+		if *req.DurationMs < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "durationMs must be >= 0"})
+			return
+		}
+		durationMs = *req.DurationMs
+	} else if !completeTime.IsZero() {
+		durationMs = completeTime.Sub(initialTime).Milliseconds()
+		if durationMs < 0 {
+			durationMs = 0
+		}
+	}
+
+	httpStatus := defaultHookHTTPStatus(status)
+	if req.HTTPStatus != nil {
+		if *req.HTTPStatus < 0 || *req.HTTPStatus > 999 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "httpStatus must be between 0 and 999"})
+			return
+		}
+		httpStatus = *req.HTTPStatus
+	}
+
+	// Normalize pending records to keep lifecycle semantics consistent with native logs:
+	// pending entries should not carry completion time, duration, or HTTP status.
+	if status == requestlog.StatusPending {
+		completeTime = time.Time{}
+		durationMs = 0
+		httpStatus = 0
+	}
+
+	stream := false
+	if req.Stream != nil {
+		stream = *req.Stream
+	}
+
+	endpoint := trimToMax(strings.TrimSpace(req.Endpoint), hookEndpointMaxLen)
+	if endpoint == "" {
+		endpoint = "/v1/messages"
+	}
+
+	clientID := trimToMax(strings.TrimSpace(req.ClientID), hookClientSessionMaxLen)
+	sessionID := trimToMax(strings.TrimSpace(req.SessionID), hookClientSessionMaxLen)
+	responseModel := trimToMax(strings.TrimSpace(req.ResponseModel), hookModelMaxLen)
+	reasoningEffort := trimToMax(strings.TrimSpace(req.ReasoningEffort), 32)
+	errMsg := trimToMax(strings.TrimSpace(req.Error), hookErrorMaxLen)
+	upstreamErr := trimToMax(strings.TrimSpace(req.UpstreamError), hookErrorMaxLen)
+	apiKeyID := getHookIngestAPIKeyID(c)
+
+	price := req.Price
+	inputCost := req.InputCost
+	outputCost := req.OutputCost
+	cacheCreationCost := req.CacheCreationCost
+	cacheReadCost := req.CacheReadCost
+
+	// Auto-calculate pricing when hook payload does not provide any cost values.
+	if shouldAutoCalculateHookCost(req) {
+		pricingModel := responseModel
+		if pricingModel == "" {
+			pricingModel = model
+		} else if pm := pricing.GetManager(); pm != nil && !pm.HasPricing(pricingModel) && model != "" {
+			pricingModel = model
+		}
+
+		if pm := pricing.GetManager(); pm != nil && pricingModel != "" {
+			breakdown := pm.CalculateCostWithBreakdown(
+				pricingModel,
+				req.InputTokens,
+				req.OutputTokens,
+				req.CacheCreationInputTokens,
+				req.CacheReadInputTokens,
+				nil,
+			)
+			price = breakdown.TotalCost
+			inputCost = breakdown.InputCost
+			outputCost = breakdown.OutputCost
+			cacheCreationCost = breakdown.CacheCreationCost
+			cacheReadCost = breakdown.CacheReadCost
+		}
+	}
+
+	record := &requestlog.RequestLog{
+		ID:                       requestID,
+		Status:                   status,
+		InitialTime:              initialTime,
+		CompleteTime:             completeTime,
+		DurationMs:               durationMs,
+		Type:                     "claude",
+		ProviderName:             "anthropic-oauth",
+		Model:                    model,
+		ResponseModel:            responseModel,
+		ReasoningEffort:          reasoningEffort,
+		InputTokens:              req.InputTokens,
+		OutputTokens:             req.OutputTokens,
+		CacheCreationInputTokens: req.CacheCreationInputTokens,
+		CacheReadInputTokens:     req.CacheReadInputTokens,
+		Price:                    price,
+		InputCost:                inputCost,
+		OutputCost:               outputCost,
+		CacheCreationCost:        cacheCreationCost,
+		CacheReadCost:            cacheReadCost,
+		HTTPStatus:               httpStatus,
+		Stream:                   stream,
+		ChannelID:                1,
+		ChannelUID:               "oauth:default",
+		ChannelName:              "Anthropic OAuth",
+		Endpoint:                 endpoint,
+		ClientID:                 clientID,
+		SessionID:                sessionID,
+		APIKeyID:                 apiKeyID,
+		Error:                    errMsg,
+		UpstreamError:            upstreamErr,
+		FailoverInfo:             "",
+		CreatedAt:                initialTime,
+	}
+
+	if err := h.manager.Add(record); err != nil {
+		if isDuplicateRequestLogIDError(err) {
+			c.JSON(http.StatusOK, gin.H{"id": requestID, "created": false})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":      record.ID,
+		"created": true,
+	})
+}
+
+func isValidHookRequestStatus(status string) bool {
+	switch status {
+	case requestlog.StatusPending,
+		requestlog.StatusCompleted,
+		requestlog.StatusError,
+		requestlog.StatusTimeout,
+		requestlog.StatusFailover,
+		requestlog.StatusRetryWait:
+		return true
+	default:
+		return false
+	}
+}
+
+func parseHookTime(value string) (time.Time, error) {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return time.Time{}, fmt.Errorf("empty time")
+	}
+	if t, err := time.Parse(time.RFC3339Nano, v); err == nil {
+		return t, nil
+	}
+	return time.Parse(time.RFC3339, v)
+}
+
+func shouldAutoCalculateHookCost(req anthropicHookLogIngestRequest) bool {
+	return req.Price == 0 &&
+		req.InputCost == 0 &&
+		req.OutputCost == 0 &&
+		req.CacheCreationCost == 0 &&
+		req.CacheReadCost == 0
+}
+
+func getHookIngestAPIKeyID(c *gin.Context) *int64 {
+	if c == nil {
+		return nil
+	}
+
+	raw, exists := c.Get(middleware.ContextKeyAPIKeyID)
+	if !exists || raw == nil {
+		return nil
+	}
+
+	var id int64
+	switch v := raw.(type) {
+	case int64:
+		id = v
+	case int32:
+		id = int64(v)
+	case int:
+		id = int64(v)
+	case uint64:
+		if v > uint64(^uint64(0)>>1) {
+			return nil
+		}
+		id = int64(v)
+	case uint32:
+		id = int64(v)
+	case uint:
+		if uint64(v) > uint64(^uint64(0)>>1) {
+			return nil
+		}
+		id = int64(v)
+	default:
+		return nil
+	}
+
+	return &id
+}
+
+func defaultHookHTTPStatus(status string) int {
+	switch status {
+	case requestlog.StatusCompleted:
+		return http.StatusOK
+	case requestlog.StatusTimeout:
+		return http.StatusRequestTimeout
+	case requestlog.StatusError:
+		return 599
+	case requestlog.StatusPending:
+		return 0
+	default:
+		return 0
+	}
+}
+
+func isDuplicateRequestLogIDError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unique constraint") ||
+		strings.Contains(msg, "duplicate key") ||
+		strings.Contains(msg, "request_logs_pkey")
+}
+
+func trimToMax(value string, max int) string {
+	if max <= 0 || len(value) <= max {
+		return value
+	}
+	return value[:max]
 }
 
 // GetLogs 获取请求日志列表

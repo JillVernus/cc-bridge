@@ -7,16 +7,36 @@ export type SSEEventType = 'log:created' | 'log:updated' | 'log:debugdata' | 'lo
 export interface LogCreatedPayload {
   id: string
   status: string
+  durationMs?: number
+  httpStatus?: number
+  type?: string
   providerName: string
   model: string
+  responseModel?: string
   channelId: number
   channelName: string
   endpoint: string
   stream: boolean
+  inputTokens?: number
+  outputTokens?: number
+  cacheCreationInputTokens?: number
+  cacheReadInputTokens?: number
+  totalTokens?: number
+  price?: number
+  inputCost?: number
+  outputCost?: number
+  cacheCreationCost?: number
+  cacheReadCost?: number
+  apiKeyId?: number
+  hasDebugData?: boolean
   clientId?: string
   sessionId?: string
   reasoningEffort?: string
+  error?: string
+  upstreamError?: string
+  failoverInfo?: string
   initialTime: string
+  completeTime?: string
 }
 
 export interface LogUpdatedPayload {

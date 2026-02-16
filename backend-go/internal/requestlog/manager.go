@@ -1470,7 +1470,7 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 	var channelID sql.NullInt64
 	var channelUID, channelName, endpoint, clientID, sessionID, errorStr sql.NullString
 
-	err := m.db.QueryRow(query, id).Scan(
+	err := m.db.QueryRow(m.convertQuery(query), id).Scan(
 		&r.ID, &r.InitialTime, &r.CompleteTime, &r.DurationMs,
 		&r.Type, &r.Model, &r.InputTokens, &r.OutputTokens,
 		&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
@@ -1721,7 +1721,7 @@ func (m *Manager) GetAlias(userID string) (*UserAlias, error) {
 	var ua UserAlias
 	var createdAt, updatedAt string
 
-	err := m.db.QueryRow(query, userID).Scan(&ua.UserID, &ua.Alias, &createdAt, &updatedAt)
+	err := m.db.QueryRow(m.convertQuery(query), userID).Scan(&ua.UserID, &ua.Alias, &createdAt, &updatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

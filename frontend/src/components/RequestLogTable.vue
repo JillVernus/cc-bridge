@@ -2222,30 +2222,46 @@ const saveSSEEnabled = () => {
 
 // SSE event handlers
 const handleLogCreated = (payload: LogCreatedPayload) => {
+  const inputTokens = payload.inputTokens ?? 0
+  const outputTokens = payload.outputTokens ?? 0
+  const cacheCreationInputTokens = payload.cacheCreationInputTokens ?? 0
+  const cacheReadInputTokens = payload.cacheReadInputTokens ?? 0
+  const totalTokens = payload.totalTokens ?? (inputTokens + outputTokens)
+
   // Add new log to the beginning of the list
   const newLog: RequestLog = {
     id: payload.id,
     status: payload.status as 'pending' | 'completed' | 'error' | 'timeout',
     initialTime: payload.initialTime,
-    completeTime: '',
-    durationMs: 0,
-    type: '',
+    completeTime: payload.completeTime || '',
+    durationMs: payload.durationMs ?? 0,
+    type: payload.type || '',
     providerName: payload.providerName,
     model: payload.model,
+    responseModel: payload.responseModel,
     reasoningEffort: payload.reasoningEffort,
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheCreationInputTokens: 0,
-    cacheReadInputTokens: 0,
-    totalTokens: 0,
-    price: 0,
-    httpStatus: 0,
+    inputTokens,
+    outputTokens,
+    cacheCreationInputTokens,
+    cacheReadInputTokens,
+    totalTokens,
+    price: payload.price ?? 0,
+    inputCost: payload.inputCost ?? 0,
+    outputCost: payload.outputCost ?? 0,
+    cacheCreationCost: payload.cacheCreationCost ?? 0,
+    cacheReadCost: payload.cacheReadCost ?? 0,
+    httpStatus: payload.httpStatus ?? 0,
     stream: payload.stream,
     channelId: payload.channelId,
     channelName: payload.channelName,
     endpoint: payload.endpoint,
+    apiKeyId: payload.apiKeyId,
+    hasDebugData: payload.hasDebugData ?? false,
     clientId: payload.clientId,
     sessionId: payload.sessionId,
+    error: payload.error,
+    upstreamError: payload.upstreamError,
+    failoverInfo: payload.failoverInfo,
     createdAt: payload.initialTime
   }
 

@@ -160,25 +160,62 @@ func (m *Manager) StopListener() {
 // getPartialRecordForSSE fetches minimal fields for log:created event
 func (m *Manager) getPartialRecordForSSE(id string) (*RequestLog, error) {
 	query := m.convertQuery(`
-		SELECT id, status, provider, model, channel_id, channel_uid, channel_name,
-		       endpoint, stream, client_id, session_id, reasoning_effort, initial_time
-		FROM request_logs
-		WHERE id = ?
+		SELECT r.id, r.status, r.provider, r.provider_name, r.model, r.response_model,
+		       r.duration_ms, r.http_status, r.input_tokens, r.output_tokens,
+		       r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
+		       r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
+		       r.api_key_id, r.error, r.upstream_error, r.failover_info, r.complete_time,
+		       r.channel_id, r.channel_uid, r.channel_name, r.endpoint, r.stream,
+		       r.client_id, r.session_id, r.reasoning_effort, r.initial_time,
+		       CASE WHEN d.request_id IS NOT NULL THEN 1 ELSE 0 END as has_debug_data
+		FROM request_logs r
+		LEFT JOIN request_debug_logs d ON r.id = d.request_id
+		WHERE r.id = ?
 	`)
 
 	var r RequestLog
-	var channelID sql.NullInt64
+	var hasDebugData int
+	var channelID, apiKeyID sql.NullInt64
+	var completeTime sql.NullTime
+	var providerName, model, responseModel sql.NullString
 	var channelUID, channelName, endpoint, clientID, sessionID, reasoningEffort sql.NullString
+	var errorStr, upstreamErrorStr, failoverInfoStr sql.NullString
 
 	err := m.db.QueryRow(query, id).Scan(
-		&r.ID, &r.Status, &r.ProviderName, &r.Model, &channelID, &channelUID, &channelName,
-		&endpoint, &r.Stream, &clientID, &sessionID, &reasoningEffort, &r.InitialTime,
+		&r.ID, &r.Status, &r.Type, &providerName, &model, &responseModel,
+		&r.DurationMs, &r.HTTPStatus, &r.InputTokens, &r.OutputTokens,
+		&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
+		&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
+		&apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr, &completeTime,
+		&channelID, &channelUID, &channelName, &endpoint, &r.Stream,
+		&clientID, &sessionID, &reasoningEffort, &r.InitialTime,
+		&hasDebugData,
 	)
 
 	if err != nil {
 		return nil, err
 	}
 
+	r.HasDebugData = hasDebugData == 1
+
+	if providerName.Valid {
+		r.ProviderName = providerName.String
+	} else {
+		r.ProviderName = r.Type
+	}
+	if model.Valid {
+		r.Model = model.String
+	}
+	if responseModel.Valid {
+		r.ResponseModel = responseModel.String
+	}
+	if completeTime.Valid {
+		r.CompleteTime = completeTime.Time
+	}
+	if apiKeyID.Valid {
+		value := apiKeyID.Int64
+		r.APIKeyID = &value
+	}
 	if channelID.Valid {
 		r.ChannelID = int(channelID.Int64)
 	}
@@ -199,6 +236,15 @@ func (m *Manager) getPartialRecordForSSE(id string) (*RequestLog, error) {
 	}
 	if reasoningEffort.Valid {
 		r.ReasoningEffort = reasoningEffort.String
+	}
+	if errorStr.Valid {
+		r.Error = errorStr.String
+	}
+	if upstreamErrorStr.Valid {
+		r.UpstreamError = upstreamErrorStr.String
+	}
+	if failoverInfoStr.Valid {
+		r.FailoverInfo = failoverInfoStr.String
 	}
 
 	return &r, nil

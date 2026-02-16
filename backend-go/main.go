@@ -514,6 +514,7 @@ func main() {
 		if reqLogManager != nil {
 			reqLogHandler := handlers.NewRequestLogHandler(reqLogManager)
 			apiGroup.GET("/logs", reqLogHandler.GetLogs)
+			apiGroup.POST("/logs/hooks/anthropic", reqLogHandler.IngestAnthropicHookLog)
 			apiGroup.GET("/logs/stream", reqLogHandler.StreamLogs) // SSE real-time updates
 			apiGroup.GET("/logs/stats", reqLogHandler.GetStats)
 			apiGroup.GET("/logs/stats/history", reqLogHandler.GetStatsHistory)
