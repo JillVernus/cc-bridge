@@ -4,6 +4,35 @@
 
 ---
 
+## [v1.4.0] - 2026-02-16
+
+### ✨ 新功能
+
+- **HTTPS 正向代理 (Forward Proxy)**:
+  - 新增独立端口 (:3001) 的 HTTPS 正向代理，支持订阅模式 (OAuth) 下的 Claude Code 请求日志捕获。
+  - 通过 TLS MITM 拦截配置域名 (默认 `api.anthropic.com`)，解析 SSE 流提取精确的 token 指标。
+  - 非拦截域名走盲隧道 (blind tunnel)，零修改透传。
+  - 自动生成 CA 证书，支持下载安装到客户端。
+  - 复用 `StreamSynthesizer` 进行流式指标提取，与正常代理模式使用完全相同的解析逻辑。
+  - 两阶段请求日志：请求发起即显示 pending，响应完成后更新为 completed。
+  - 支持 SSE 流式和 JSON 非流式 Anthropic 响应的指标提取。
+  - 从请求体提取 client ID 和 session ID（支持 Claude Code 的复合 `metadata.user_id` 格式）。
+  - 调试日志集成：支持请求/响应头和 body 的捕获与存储。
+  - 前端设置面板：支持启用/禁用拦截、管理拦截域名、下载 CA 证书。
+  - 请求日志表格中正向代理条目显示盾牌图标 (`mdi-shield-lock-outline`)。
+  - 环境变量配置：`FORWARD_PROXY_ENABLED`、`FORWARD_PROXY_PORT`、`FORWARD_PROXY_INTERCEPT_DOMAINS`、`FORWARD_PROXY_CERT_DIR`。
+  - 运行时配置持久化为 `forward-proxy.json`，支持 API 热更新。
+
+### 🐛 修复
+
+- **正向代理 hop-by-hop 头部泄漏**: 修复 HTTP forward 路径中 `Connection` 和 `Proxy-Connection` 头部未从原始请求对象清除的问题，导致调试日志中出现多余头部。
+
+### ✅ 测试
+
+- `go test ./internal/forwardproxy/... -v`
+
+---
+
 ## [v1.3.208] - 2026-02-16
 
 ### 🐛 修复

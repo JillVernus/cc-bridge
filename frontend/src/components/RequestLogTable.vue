@@ -888,6 +888,12 @@
                   <v-icon v-else-if="item.type === 'openai' || item.type === 'codex' || item.type === 'responses'" start size="14" icon="custom:codex" class="provider-icon mr-1" />
                   <v-icon v-else-if="item.type === 'gemini'" start size="14" icon="custom:gemini" class="provider-icon mr-1" />
                   {{ item.providerName || item.type }}
+                  <v-tooltip v-if="item.channelId === 0" location="top">
+                    <template v-slot:activator="{ props: fwdProps }">
+                      <v-icon v-bind="fwdProps" size="12" class="ml-1" color="grey">mdi-shield-lock-outline</v-icon>
+                    </template>
+                    {{ t('forwardProxy.title') }}
+                  </v-tooltip>
                 </v-chip>
                 <span v-if="item.model" class="stacked-secondary">
                   {{ item.model }}
@@ -897,7 +903,7 @@
               </div>
             </template>
             <div class="stacked-tooltip">
-              <div><strong>{{ t('requestLog.channel') }}:</strong> {{ item.providerName || item.type }}</div>
+              <div><strong>{{ t('requestLog.channel') }}:</strong> {{ item.providerName || item.type }}<span v-if="item.channelId === 0"> ({{ t('forwardProxy.title') }})</span></div>
               <div><strong>{{ t('requestLog.model') }}:</strong> {{ item.model }}</div>
               <div v-if="item.reasoningEffort"><strong>{{ t('requestLog.reasoningEffort') }}</strong> {{ item.reasoningEffort }}</div>
               <div v-if="item.responseModel && item.responseModel !== item.model">
@@ -911,6 +917,12 @@
             <v-icon v-else-if="item.type === 'openai' || item.type === 'codex' || item.type === 'responses'" start size="14" icon="custom:codex" class="provider-icon mr-1" />
             <v-icon v-else-if="item.type === 'gemini'" start size="14" icon="custom:gemini" class="provider-icon mr-1" />
             {{ item.providerName || item.type }}
+            <v-tooltip v-if="item.channelId === 0" location="top">
+              <template v-slot:activator="{ props: fwdProps }">
+                <v-icon v-bind="fwdProps" size="12" class="ml-1" color="grey">mdi-shield-lock-outline</v-icon>
+              </template>
+              {{ t('forwardProxy.title') }}
+            </v-tooltip>
           </v-chip>
         </template>
 

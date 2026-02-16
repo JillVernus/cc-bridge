@@ -1011,5 +1011,27 @@ export default {
     upstreamError: 'Upstream Error',
     parse: 'Parse',
     parsed: 'Parsed'
+  },
+
+  // Forward Proxy
+  forwardProxy: {
+    title: 'Forward Proxy',
+    notRunning: 'Forward proxy is not running. Set FORWARD_PROXY_ENABLED=true in .env and restart.',
+    interceptEnabled: 'Intercept Enabled',
+    interceptDisabled: 'Intercept Disabled',
+    enableDescription: 'When enabled, intercepted domains will have their traffic parsed for request logging.',
+    interceptDomains: 'Intercept Domains',
+    domainPlaceholder: 'e.g. api.anthropic.com',
+    addDomain: 'Add Domain',
+    domainsDescription: 'Domains to intercept via TLS MITM. All other domains pass through as blind tunnels.',
+    caCertSection: 'CA Certificate',
+    caCertDescription: 'Download the CA certificate and install it on clients that use this proxy. Required for HTTPS interception to work without certificate errors.',
+    downloadCACert: 'Download CA Certificate',
+    certDownloaded: 'CA certificate downloaded',
+    certDownloadFailed: 'Failed to download CA certificate',
+    usageTitle: 'Usage',
+    usageNote: 'Set HTTPS_PROXY environment variable to route traffic through this proxy. Install the CA certificate on the client system.',
+    loadFailed: 'Failed to load forward proxy config',
+    saveFailed: 'Failed to save forward proxy config'
   }
 }

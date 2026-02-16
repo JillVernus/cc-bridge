@@ -12,6 +12,7 @@ import (
 	"github.com/JillVernus/cc-bridge/internal/aliases"
 	"github.com/JillVernus/cc-bridge/internal/apikey"
 	"github.com/JillVernus/cc-bridge/internal/config"
+	"github.com/JillVernus/cc-bridge/internal/forwardproxy"
 	"github.com/JillVernus/cc-bridge/internal/handlers"
 	"github.com/JillVernus/cc-bridge/internal/logger"
 	"github.com/JillVernus/cc-bridge/internal/metrics"
@@ -344,6 +345,32 @@ func main() {
 		log.Printf("✅ 速率限制配置管理器已初始化")
 	}
 
+	// 初始化正向代理 (Forward Proxy)
+	var fpServer *forwardproxy.Server
+	if envCfg.ForwardProxyEnabled {
+		fpServer, err = forwardproxy.NewServer(forwardproxy.ServerConfig{
+			Port:              envCfg.ForwardProxyPort,
+			BindAddress:       envCfg.ForwardProxyBindAddress,
+			CertDir:           envCfg.ForwardProxyCertDir,
+			ConfigDir:         ".config",
+			InterceptDomains:  envCfg.ForwardProxyInterceptDomains,
+			Enabled:           true,
+			RequestLogManager: reqLogManager,
+			ConfigManager:     &fpConfigAdapter{cfgManager},
+		})
+		if err != nil {
+			log.Printf("⚠️ Forward proxy initialization failed: %v", err)
+			fpServer = nil
+		} else {
+			go func() {
+				log.Printf("✅ Forward proxy listening on :%d", envCfg.ForwardProxyPort)
+				if err := fpServer.ListenAndServe(); err != nil {
+					log.Printf("⚠️ Forward proxy error: %v", err)
+				}
+			}()
+		}
+	}
+
 	// 设置 Gin 模式
 	if envCfg.IsProduction() {
 		gin.SetMode(gin.ReleaseMode)
@@ -602,6 +629,11 @@ func main() {
 		apiGroup.GET("/config/backups", handlers.ListBackups())
 		apiGroup.POST("/config/restore/:filename", handlers.RestoreBackup(cfgManager))
 		apiGroup.DELETE("/config/backups/:filename", handlers.DeleteBackup())
+
+		// Forward Proxy 配置 API
+		apiGroup.GET("/forward-proxy/config", handlers.GetForwardProxyConfig(fpServer))
+		apiGroup.PUT("/forward-proxy/config", handlers.UpdateForwardProxyConfig(fpServer))
+		apiGroup.GET("/forward-proxy/ca-cert", handlers.DownloadForwardProxyCACert(fpServer))
 	}
 
 	// 代理端点 - 统一入口（带 API 速率限制）
@@ -674,6 +706,9 @@ func main() {
 	fmt.Printf("📋 Codex Responses: POST /v1/responses\n")
 	fmt.Printf("💚 健康检查: GET %s\n", envCfg.HealthCheckPath)
 	fmt.Printf("📊 环境: %s\n", envCfg.Env)
+	if fpServer != nil {
+		fmt.Printf("🔀 Forward Proxy: http://localhost:%d (MITM intercept enabled)\n", envCfg.ForwardProxyPort)
+	}
 	// 检查是否使用默认密码，给予提示
 	if envCfg.ProxyAccessKey == "your-proxy-access-key" {
 		fmt.Printf("🔑 访问密钥: your-proxy-access-key (默认值，建议通过 .env 文件修改)\n")
@@ -683,6 +718,20 @@ func main() {
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("服务器启动失败: %v", err)
 	}
+}
+
+// fpConfigAdapter adapts config.ConfigManager to forwardproxy.ConfigProvider.
+type fpConfigAdapter struct {
+	cm *config.ConfigManager
+}
+
+func (a *fpConfigAdapter) IsDebugLogEnabled() bool {
+	return a.cm.GetDebugLogConfig().Enabled
+}
+
+func (a *fpConfigAdapter) GetDebugLogMaxBodySize() int {
+	cfg := a.cm.GetDebugLogConfig()
+	return cfg.GetMaxBodySize()
 }
 
 func seedRecentCallMetricsFromLogs(reqLogManager *requestlog.Manager, channelScheduler *scheduler.ChannelScheduler, cfgManager *config.ConfigManager, onlyFillEmpty bool) {

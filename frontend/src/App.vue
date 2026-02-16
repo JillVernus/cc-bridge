@@ -106,6 +106,12 @@
               </template>
               <v-list-item-title>{{ t('app.failoverSettings') }}</v-list-item-title>
             </v-list-item>
+            <v-list-item @click="showForwardProxySettings = true">
+              <template #prepend>
+                <v-icon size="small">mdi-shield-lock-outline</v-icon>
+              </template>
+              <v-list-item-title>{{ t('forwardProxy.title') }}</v-list-item-title>
+            </v-list-item>
             <v-list-item @click="openBackupRestore">
               <template #prepend>
                 <v-icon size="small">mdi-backup-restore</v-icon>
@@ -506,6 +512,9 @@
     <!-- 故障转移设置对话框 -->
     <FailoverSettings v-model="showFailoverSettings" />
 
+    <!-- 正向代理设置对话框 -->
+    <ForwardProxySettings v-model="showForwardProxySettings" />
+
     <!-- 备份恢复对话框 -->
     <v-dialog v-model="showBackupRestore" max-width="600">
       <v-card class="modal-card">
@@ -637,6 +646,7 @@ import RateLimitSettings from './components/RateLimitSettings.vue'
 import DebugLogSettings from './components/DebugLogSettings.vue'
 import UserAgentSettings from './components/UserAgentSettings.vue'
 import FailoverSettings from './components/FailoverSettings.vue'
+import ForwardProxySettings from './components/ForwardProxySettings.vue'
 import GlobalStatsChart from './components/GlobalStatsChart.vue'
 import { useAppTheme } from './composables/useTheme'
 import { useLocale } from './composables/useLocale'
@@ -685,6 +695,7 @@ const showRateLimitSettings = ref(false) // 速率限制设置对话框
 const showDebugLogSettings = ref(false) // 调试日志设置对话框
 const showUserAgentSettings = ref(false) // User-Agent 设置对话框
 const showFailoverSettings = ref(false) // 故障转移设置对话框
+const showForwardProxySettings = ref(false) // 正向代理设置对话框
 const showBackupRestore = ref(false) // 备份恢复对话框
 const showGlobalStatsChart = ref(false) // 全局统计图表显示状态
 
@@ -1339,6 +1350,7 @@ const handleKeydown = (event: KeyboardEvent) => {
     showDebugLogSettings.value = false
     showUserAgentSettings.value = false
     showFailoverSettings.value = false
+    showForwardProxySettings.value = false
     showBackupRestore.value = false
     showRestoreConfirm.value = false
     return

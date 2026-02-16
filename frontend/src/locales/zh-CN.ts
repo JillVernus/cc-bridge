@@ -995,5 +995,27 @@ export default {
     upstreamError: '上游错误',
     parse: '解析',
     parsed: '已解析'
+  },
+
+  // Forward Proxy
+  forwardProxy: {
+    title: '正向代理',
+    notRunning: '正向代理未运行。请在 .env 中设置 FORWARD_PROXY_ENABLED=true 并重启。',
+    interceptEnabled: '拦截已启用',
+    interceptDisabled: '拦截已禁用',
+    enableDescription: '启用后，拦截域名的流量将被解析并记录请求日志。',
+    interceptDomains: '拦截域名',
+    domainPlaceholder: '例如 api.anthropic.com',
+    addDomain: '添加域名',
+    domainsDescription: '通过 TLS MITM 拦截的域名。其他域名将通过盲隧道直接转发。',
+    caCertSection: 'CA 证书',
+    caCertDescription: '下载 CA 证书并安装到使用此代理的客户端。HTTPS 拦截需要安装此证书以避免证书错误。',
+    downloadCACert: '下载 CA 证书',
+    certDownloaded: 'CA 证书已下载',
+    certDownloadFailed: '下载 CA 证书失败',
+    usageTitle: '使用说明',
+    usageNote: '设置 HTTPS_PROXY 环境变量来将流量路由通过此代理。请在客户端系统上安装 CA 证书。',
+    loadFailed: '加载正向代理配置失败',
+    saveFailed: '保存正向代理配置失败'
   }
 }

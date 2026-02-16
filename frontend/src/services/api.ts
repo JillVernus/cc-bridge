@@ -1102,6 +1102,35 @@ class ApiService {
       method: 'POST'
     })
   }
+
+  // ============== Forward Proxy API ==============
+
+  // Get forward proxy configuration
+  async getForwardProxyConfig(): Promise<ForwardProxyConfig> {
+    return this.request('/forward-proxy/config')
+  }
+
+  // Update forward proxy configuration
+  async updateForwardProxyConfig(config: Partial<ForwardProxyConfig>): Promise<ForwardProxyConfig> {
+    return this.request('/forward-proxy/config', {
+      method: 'PUT',
+      body: JSON.stringify(config)
+    })
+  }
+
+  // Download CA certificate (returns blob URL for download)
+  async downloadForwardProxyCACert(): Promise<Blob> {
+    const baseUrl = API_BASE
+    const headers: Record<string, string> = { 'Accept': 'application/x-pem-file' }
+    if (this.apiKey) {
+      headers['x-api-key'] = this.apiKey
+    }
+    const response = await fetch(`${baseUrl}/forward-proxy/ca-cert`, { headers })
+    if (!response.ok) {
+      throw new Error(`Failed to download CA certificate: ${response.statusText}`)
+    }
+    return response.blob()
+  }
 }
 
 // 请求日志类型
@@ -1457,6 +1486,14 @@ export interface FailoverConfig {
   genericResourceWaitSeconds?: number
   modelCooldownExtraSeconds?: number
   modelCooldownMaxWaitSeconds?: number
+}
+
+// Forward Proxy Configuration
+export interface ForwardProxyConfig {
+  enabled: boolean
+  interceptDomains: string[]
+  running: boolean
+  port: number
 }
 
 export const api = new ApiService()

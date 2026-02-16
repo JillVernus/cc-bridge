@@ -42,6 +42,12 @@ type EnvConfig struct {
 	DatabaseURL        string // SQLite path or PostgreSQL connection string
 	ConfigPollInterval int    // Config polling interval in seconds (for database backend)
 	SkipMigration      bool   // Skip data migration checks on startup (for faster restarts)
+	// Forward proxy configuration
+	ForwardProxyEnabled          bool     // FORWARD_PROXY_ENABLED, default: true (set "false" to disable)
+	ForwardProxyPort             int      // FORWARD_PROXY_PORT, default: 3001
+	ForwardProxyBindAddress      string   // FORWARD_PROXY_BIND, default: "0.0.0.0"
+	ForwardProxyInterceptDomains []string // FORWARD_PROXY_INTERCEPT_DOMAINS, default: "api.anthropic.com"
+	ForwardProxyCertDir          string   // FORWARD_PROXY_CERT_DIR, default: ".config/certs"
 }
 
 // NewEnvConfig 创建环境配置
@@ -90,6 +96,12 @@ func NewEnvConfig() *EnvConfig {
 		DatabaseURL:        getEnv("DATABASE_URL", ""),                  // Connection string
 		ConfigPollInterval: getEnvAsInt("CONFIG_POLL_INTERVAL", 5),      // seconds
 		SkipMigration:      getEnv("SKIP_MIGRATION", "false") == "true", // Skip migration checks
+		// Forward proxy configuration
+		ForwardProxyEnabled:          getEnv("FORWARD_PROXY_ENABLED", "true") != "false",
+		ForwardProxyPort:             getEnvAsInt("FORWARD_PROXY_PORT", 3001),
+		ForwardProxyBindAddress:      getEnv("FORWARD_PROXY_BIND", "0.0.0.0"),
+		ForwardProxyInterceptDomains: parseCommaSeparated(getEnv("FORWARD_PROXY_INTERCEPT_DOMAINS", "api.anthropic.com")),
+		ForwardProxyCertDir:          getEnv("FORWARD_PROXY_CERT_DIR", ".config/certs"),
 	}
 }
 
@@ -170,6 +182,25 @@ func parseTrustedProxies(value string) []string {
 		}
 	}
 
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+// parseCommaSeparated parses a comma-separated string into a slice of trimmed non-empty strings.
+func parseCommaSeparated(value string) []string {
+	if value == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
 	if len(result) == 0 {
 		return nil
 	}
