@@ -2518,18 +2518,11 @@ func handleResponsesSuccess(
 				pricingModel = originalReq.Model
 			}
 
-			recordStatus := requestlog.StatusCompleted
-			recordHTTPStatus := resp.StatusCode
-			recordError := ""
-			if c.Request.Context().Err() != nil {
-				recordStatus = requestlog.StatusError
-				recordHTTPStatus = 499
-				recordError = "client disconnected during streaming response"
-			} else if streamWriteErr != nil {
-				recordStatus = requestlog.StatusError
-				recordHTTPStatus = 500
-				recordError = streamWriteErr.Error()
-			}
+			recordStatus, recordHTTPStatus, recordError := classifyStreamingRequestLogOutcome(
+				resp.StatusCode,
+				c.Request.Context().Err(),
+				streamWriteErr,
+			)
 
 			record := &requestlog.RequestLog{
 				Status:        recordStatus,

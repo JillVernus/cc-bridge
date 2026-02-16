@@ -1357,18 +1357,11 @@ func handleGeminiSuccess(
 
 		// Update request log
 		if reqLogManager != nil && requestLogID != "" {
-			recordStatus := requestlog.StatusCompleted
-			recordHTTPStatus := resp.StatusCode
-			recordError := ""
-			if c.Request.Context().Err() != nil {
-				recordStatus = requestlog.StatusError
-				recordHTTPStatus = 499
-				recordError = "client disconnected during streaming response"
-			} else if streamCopyErr != nil {
-				recordStatus = requestlog.StatusError
-				recordHTTPStatus = 500
-				recordError = streamCopyErr.Error()
-			}
+			recordStatus, recordHTTPStatus, recordError := classifyStreamingRequestLogOutcome(
+				resp.StatusCode,
+				c.Request.Context().Err(),
+				streamCopyErr,
+			)
 
 			record := &requestlog.RequestLog{
 				Status:       recordStatus,

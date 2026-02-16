@@ -4,6 +4,22 @@
 
 ---
 
+## [v1.3.208] - 2026-02-16
+
+### 🐛 修复
+
+- **流式请求日志 499 误判**:
+  - 修复 Responses / Gemini 流式完成后，仅因请求上下文取消而被记录为 `499 client disconnected` 的问题。
+  - 调整流式结果判定：真实客户端断连（`broken pipe` / `connection reset` / `ctx canceled + stream error`）记为 `499`；其他传输错误记为 `500`；正常完成保持 `completed`。
+  - 新增统一的流式状态判定逻辑，避免多处重复分支导致行为不一致。
+
+### ✅ 测试
+
+- `go test ./internal/handlers -run TestClassifyStreamingRequestLogOutcome -count=1 -timeout 60s`
+- `go test ./internal/handlers -count=1 -timeout 60s`
+
+---
+
 ## [v1.3.205] - 2026-02-15
 
 ### 🐛 修复
