@@ -468,7 +468,7 @@ func main() {
 	{
 		// 渠道管理 (兼容前端 /api/channels 路由)
 		apiGroup.GET("/channels", handlers.GetUpstreams(cfgManager))
-		apiGroup.GET("/messages/channels/current", handlers.GetCurrentMessagesChannel(cfgManager, channelScheduler))
+		apiGroup.GET("/messages/channels/current", handlers.GetCurrentMessagesChannel(cfgManager))
 		apiGroup.POST("/channels", handlers.AddUpstream(cfgManager))
 		apiGroup.PUT("/channels/:id", handlers.UpdateUpstream(cfgManager, channelScheduler))
 		apiGroup.DELETE("/channels/:id", handlers.DeleteUpstream(cfgManager, channelRateLimiter))

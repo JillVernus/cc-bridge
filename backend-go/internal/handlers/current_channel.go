@@ -5,25 +5,20 @@ import (
 	"net/http"
 
 	"github.com/JillVernus/cc-bridge/internal/config"
-	"github.com/JillVernus/cc-bridge/internal/scheduler"
 	"github.com/gin-gonic/gin"
 )
 
 // GetCurrentMessagesChannel returns the current Claude(Messages) channel name.
 // - Normal channel: returns its own name
 // - Composite channel: returns the mapped target channel name for model pattern "opus"
-func GetCurrentMessagesChannel(cfgManager *config.ConfigManager, sch *scheduler.ChannelScheduler) gin.HandlerFunc {
+//
+// Note: We intentionally skip the multi-channel mode check here.
+// Composite channels list their targets as separate upstream entries, which makes
+// IsMultiChannelMode return true even when there is logically one primary channel.
+// GetCurrentUpstream returns the first active (primary) channel, which is the
+// correct answer for both single-channel and composite setups.
+func GetCurrentMessagesChannel(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// In multi-channel mode, channel selection is dynamic per request.
-		// No single fixed "current" channel exists.
-		if sch != nil && sch.IsMultiChannelMode(false) {
-			c.JSON(http.StatusConflict, gin.H{
-				"error": "Current channel is dynamic in multi-channel mode",
-				"code":  "MULTI_CHANNEL_MODE",
-			})
-			return
-		}
-
 		upstream, err := cfgManager.GetCurrentUpstream()
 		if err != nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{

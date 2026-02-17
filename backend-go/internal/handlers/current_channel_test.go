@@ -9,9 +9,6 @@ import (
 	"testing"
 
 	"github.com/JillVernus/cc-bridge/internal/config"
-	"github.com/JillVernus/cc-bridge/internal/metrics"
-	"github.com/JillVernus/cc-bridge/internal/scheduler"
-	"github.com/JillVernus/cc-bridge/internal/session"
 	"github.com/gin-gonic/gin"
 )
 
@@ -62,7 +59,7 @@ func TestGetCurrentMessagesChannel_NormalChannel(t *testing.T) {
 	cfgManager := createTestConfigManager(t, cfg)
 
 	r := gin.New()
-	r.GET("/api/messages/channels/current", GetCurrentMessagesChannel(cfgManager, nil))
+	r.GET("/api/messages/channels/current", GetCurrentMessagesChannel(cfgManager))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/messages/channels/current", nil)
 	w := httptest.NewRecorder()
@@ -133,7 +130,7 @@ func TestGetCurrentMessagesChannel_CompositeResolvesOpusTarget(t *testing.T) {
 	cfgManager := createTestConfigManager(t, cfg)
 
 	r := gin.New()
-	r.GET("/api/messages/channels/current", GetCurrentMessagesChannel(cfgManager, nil))
+	r.GET("/api/messages/channels/current", GetCurrentMessagesChannel(cfgManager))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/messages/channels/current", nil)
 	w := httptest.NewRecorder()
@@ -170,7 +167,7 @@ func TestGetCurrentMessagesChannel_NoChannels(t *testing.T) {
 	})
 
 	r := gin.New()
-	r.GET("/api/messages/channels/current", GetCurrentMessagesChannel(cfgManager, nil))
+	r.GET("/api/messages/channels/current", GetCurrentMessagesChannel(cfgManager))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/messages/channels/current", nil)
 	w := httptest.NewRecorder()
@@ -181,7 +178,10 @@ func TestGetCurrentMessagesChannel_NoChannels(t *testing.T) {
 	}
 }
 
-func TestGetCurrentMessagesChannel_MultiChannelMode(t *testing.T) {
+// When multiple non-composite channels exist, the endpoint returns the first
+// active channel (the primary). This is intentional — the hook only needs to
+// know if the primary channel is "Run AnyTime".
+func TestGetCurrentMessagesChannel_MultipleChannels_ReturnsFirst(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cfg := config.Config{
@@ -211,18 +211,25 @@ func TestGetCurrentMessagesChannel_MultiChannelMode(t *testing.T) {
 	}
 	cfgManager := createTestConfigManager(t, cfg)
 
-	traceAffinity := session.NewTraceAffinityManager()
-	t.Cleanup(traceAffinity.Stop)
-	sch := scheduler.NewChannelScheduler(cfgManager, metrics.NewMetricsManager(), metrics.NewMetricsManager(), traceAffinity)
-
 	r := gin.New()
-	r.GET("/api/messages/channels/current", GetCurrentMessagesChannel(cfgManager, sch))
+	r.GET("/api/messages/channels/current", GetCurrentMessagesChannel(cfgManager))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/messages/channels/current", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusConflict {
-		t.Fatalf("expected status 409, got %d, body=%s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		ChannelName string `json:"channelName"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if resp.ChannelName != "Channel-1" {
+		t.Fatalf("expected channelName=Channel-1, got %q", resp.ChannelName)
 	}
 }
