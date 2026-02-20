@@ -83,11 +83,11 @@
             <div class="mb-3">
               <div class="d-flex justify-space-between text-caption mb-1">
                 <span>{{ t('oauth.primaryWindow') }} ({{ formatWindowDuration(oauthStatus.quota.codex_quota.primary_window_minutes) }})</span>
-                <span>{{ t('oauth.availablePercent', { percent: 100 - oauthStatus.quota.codex_quota.primary_used_percent }) }}</span>
+                <span>{{ t('oauth.availablePercent', { percent: primaryRemainingPercent }) }}</span>
               </div>
               <v-progress-linear
-                :model-value="100 - oauthStatus.quota.codex_quota.primary_used_percent"
-                :color="getRemainingColor(oauthStatus.quota.codex_quota.primary_used_percent)"
+                :model-value="primaryRemainingPercent"
+                :color="getRemainingColor(primaryUsedPercent)"
                 height="8"
                 rounded
               />
@@ -100,11 +100,11 @@
             <div class="mb-3">
               <div class="d-flex justify-space-between text-caption mb-1">
                 <span>{{ t('oauth.secondaryWindow') }} ({{ formatWindowDuration(oauthStatus.quota.codex_quota.secondary_window_minutes) }})</span>
-                <span>{{ t('oauth.availablePercent', { percent: 100 - oauthStatus.quota.codex_quota.secondary_used_percent }) }}</span>
+                <span>{{ t('oauth.availablePercent', { percent: secondaryRemainingPercent }) }}</span>
               </div>
               <v-progress-linear
-                :model-value="100 - oauthStatus.quota.codex_quota.secondary_used_percent"
-                :color="getRemainingColor(oauthStatus.quota.codex_quota.secondary_used_percent)"
+                :model-value="secondaryRemainingPercent"
+                :color="getRemainingColor(secondaryUsedPercent)"
                 height="8"
                 rounded
               />
@@ -266,9 +266,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import api, { type OAuthStatusResponse } from '../services/api'
+import api, { type OAuthStatusResponse, type CodexQuotaInfo } from '../services/api'
 
 const { t } = useI18n()
 
@@ -289,6 +289,83 @@ const dialogVisible = computed({
 const loading = ref(false)
 const error = ref<string | null>(null)
 const oauthStatus = ref<OAuthStatusResponse | null>(null)
+const quotaClock = ref(Date.now())
+let quotaResetTimer: ReturnType<typeof setTimeout> | null = null
+
+const clearQuotaResetTimer = () => {
+  if (quotaResetTimer) {
+    clearTimeout(quotaResetTimer)
+    quotaResetTimer = null
+  }
+}
+
+const parseResetTimestamp = (resetAt?: string): number | null => {
+  if (!resetAt) return null
+  const timestamp = Date.parse(resetAt)
+  if (!Number.isFinite(timestamp)) return null
+  return timestamp
+}
+
+const clampPercent = (percent: number): number => {
+  return Math.min(100, Math.max(0, percent))
+}
+
+const getEffectiveUsedPercent = (usedPercent: number, resetAt?: string): number => {
+  const resetTimestamp = parseResetTimestamp(resetAt)
+  if (resetTimestamp !== null && quotaClock.value >= resetTimestamp) {
+    return 0
+  }
+  return clampPercent(usedPercent)
+}
+
+const codexQuota = computed(() => oauthStatus.value?.quota?.codex_quota)
+
+const primaryUsedPercent = computed(() => {
+  const quota = codexQuota.value
+  if (!quota) return 0
+  return getEffectiveUsedPercent(quota.primary_used_percent, quota.primary_reset_at)
+})
+
+const primaryRemainingPercent = computed(() => {
+  return 100 - primaryUsedPercent.value
+})
+
+const secondaryUsedPercent = computed(() => {
+  const quota = codexQuota.value
+  if (!quota) return 0
+  return getEffectiveUsedPercent(quota.secondary_used_percent, quota.secondary_reset_at)
+})
+
+const secondaryRemainingPercent = computed(() => {
+  return 100 - secondaryUsedPercent.value
+})
+
+const getNextQuotaResetTimestamp = (quota?: CodexQuotaInfo): number | null => {
+  if (!quota) return null
+
+  const now = Date.now()
+  const candidates = [
+    parseResetTimestamp(quota.primary_reset_at),
+    parseResetTimestamp(quota.secondary_reset_at)
+  ].filter((timestamp): timestamp is number => timestamp !== null && timestamp > now)
+
+  if (candidates.length === 0) return null
+  return Math.min(...candidates)
+}
+
+const scheduleQuotaAutoReset = () => {
+  clearQuotaResetTimer()
+
+  if (!props.modelValue) return
+  const nextReset = getNextQuotaResetTimestamp(codexQuota.value)
+  if (nextReset === null) return
+
+  const delay = Math.max(0, nextReset - Date.now()) + 50
+  quotaResetTimer = setTimeout(() => {
+    quotaClock.value = Date.now()
+    scheduleQuotaAutoReset()
+  }, delay)
+}
 
 const tokenStatusColor = computed(() => {
   switch (oauthStatus.value?.tokenStatus) {
@@ -380,8 +457,11 @@ const loadStatus = async () => {
 
   try {
     oauthStatus.value = await api.getResponsesChannelOAuthStatus(props.channelId)
+    quotaClock.value = Date.now()
+    scheduleQuotaAutoReset()
   } catch (err) {
     error.value = err instanceof Error ? err.message : t('oauth.loadError')
+    clearQuotaResetTimer()
   } finally {
     loading.value = false
   }
@@ -398,13 +478,19 @@ const close = () => {
 watch(() => props.modelValue, (newVal) => {
   if (newVal && props.channelId !== null) {
     loadStatus()
+    return
   }
+  clearQuotaResetTimer()
 })
 
 watch(() => props.channelId, () => {
   if (props.modelValue && props.channelId !== null) {
     loadStatus()
   }
+})
+
+onUnmounted(() => {
+  clearQuotaResetTimer()
 })
 </script>
 

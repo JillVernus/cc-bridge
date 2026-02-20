@@ -241,12 +241,12 @@
                             <div
                               class="quota-bar"
                               :style="{
-                                width: `${100 - getChannelQuota(element)!.codex_quota!.primary_used_percent}%`,
-                                backgroundColor: getQuotaBarColor(getChannelQuota(element)!.codex_quota!.primary_used_percent)
+                                width: `${getOAuthWindowRemainingPercent(element, 'primary')}%`,
+                                backgroundColor: getQuotaBarColor(getOAuthWindowUsedPercent(element, 'primary'))
                               }"
                             />
                           </div>
-                          <span class="quota-text">{{ 100 - getChannelQuota(element)!.codex_quota!.primary_used_percent }}%</span>
+                          <span class="quota-text">{{ getOAuthWindowRemainingPercent(element, 'primary') }}%</span>
                         </div>
                         <!-- 7d quota bar -->
                         <div class="oauth-quota-row">
@@ -255,12 +255,12 @@
                             <div
                               class="quota-bar"
                               :style="{
-                                width: `${100 - getChannelQuota(element)!.codex_quota!.secondary_used_percent}%`,
-                                backgroundColor: getQuotaBarColor(getChannelQuota(element)!.codex_quota!.secondary_used_percent)
+                                width: `${getOAuthWindowRemainingPercent(element, 'secondary')}%`,
+                                backgroundColor: getQuotaBarColor(getOAuthWindowUsedPercent(element, 'secondary'))
                               }"
                             />
                           </div>
-                          <span class="quota-text">{{ 100 - getChannelQuota(element)!.codex_quota!.secondary_used_percent }}%</span>
+                          <span class="quota-text">{{ getOAuthWindowRemainingPercent(element, 'secondary') }}%</span>
                         </div>
                       </template>
                       <span v-else class="text-caption text-medium-emphasis">--</span>
@@ -271,11 +271,11 @@
                       <div class="text-caption font-weight-bold mb-1">{{ t('oauth.usageQuota') }}</div>
                       <div class="quota-tooltip-row">
                         <span>{{ t('oauth.primaryWindow') }}:</span>
-                        <span>{{ 100 - getChannelQuota(element)!.codex_quota!.primary_used_percent }}% {{ t('orchestration.quotaRemaining') }}</span>
+                        <span>{{ getOAuthWindowRemainingPercent(element, 'primary') }}% {{ t('orchestration.quotaRemaining') }}</span>
                       </div>
                       <div class="quota-tooltip-row">
                         <span>{{ t('oauth.secondaryWindow') }}:</span>
-                        <span>{{ 100 - getChannelQuota(element)!.codex_quota!.secondary_used_percent }}% {{ t('orchestration.quotaRemaining') }}</span>
+                        <span>{{ getOAuthWindowRemainingPercent(element, 'secondary') }}% {{ t('orchestration.quotaRemaining') }}</span>
                       </div>
                       <div class="text-caption text-medium-emphasis mt-1">{{ t('orchestration.clickForDetails') }}</div>
                     </template>
@@ -604,10 +604,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import draggable from 'vuedraggable'
-import { api, type Channel, type ChannelMetrics, type ChannelStatus, type RecentCallStat, type QuotaInfo, type ChannelUsageStatus } from '../services/api'
+import { api, type Channel, type ChannelMetrics, type ChannelStatus, type RecentCallStat, type QuotaInfo, type ChannelUsageStatus, type CodexQuotaInfo } from '../services/api'
 import ChannelStatusBadge from './ChannelStatusBadge.vue'
 import ChannelStatsChart from './ChannelStatsChart.vue'
 import OAuthStatusDialog from './OAuthStatusDialog.vue'
@@ -651,6 +651,84 @@ const oauthStatusChannelId = ref<number | null>(null)
 
 // Quota data for OAuth channels (keyed by stable channel id when available)
 const channelQuotas = ref<Record<string, QuotaInfo>>({})
+const oauthQuotaClock = ref(Date.now())
+let oauthQuotaResetTimer: ReturnType<typeof setTimeout> | null = null
+
+const clearOAuthQuotaResetTimer = () => {
+  if (oauthQuotaResetTimer) {
+    clearTimeout(oauthQuotaResetTimer)
+    oauthQuotaResetTimer = null
+  }
+}
+
+const parseResetTimestamp = (resetAt?: string): number | null => {
+  if (!resetAt) return null
+  const timestamp = Date.parse(resetAt)
+  if (!Number.isFinite(timestamp)) return null
+  return timestamp
+}
+
+const clampPercent = (percent: number): number => {
+  return Math.min(100, Math.max(0, percent))
+}
+
+const getEffectiveUsedPercent = (usedPercent: number, resetAt?: string): number => {
+  const resetTimestamp = parseResetTimestamp(resetAt)
+  if (resetTimestamp !== null && oauthQuotaClock.value >= resetTimestamp) {
+    return 0
+  }
+  return clampPercent(usedPercent)
+}
+
+const getOAuthWindowUsedPercent = (channel: Channel, window: 'primary' | 'secondary'): number => {
+  const codexQuota = getChannelQuota(channel)?.codex_quota
+  if (!codexQuota) return 0
+
+  if (window === 'primary') {
+    return getEffectiveUsedPercent(codexQuota.primary_used_percent, codexQuota.primary_reset_at)
+  }
+  return getEffectiveUsedPercent(codexQuota.secondary_used_percent, codexQuota.secondary_reset_at)
+}
+
+const getOAuthWindowRemainingPercent = (channel: Channel, window: 'primary' | 'secondary'): number => {
+  return 100 - getOAuthWindowUsedPercent(channel, window)
+}
+
+const getNextOAuthResetTimestamp = (codexQuota?: CodexQuotaInfo): number | null => {
+  if (!codexQuota) return null
+
+  const now = Date.now()
+  const candidates = [
+    parseResetTimestamp(codexQuota.primary_reset_at),
+    parseResetTimestamp(codexQuota.secondary_reset_at)
+  ].filter((timestamp): timestamp is number => timestamp !== null && timestamp > now)
+
+  if (candidates.length === 0) return null
+  return Math.min(...candidates)
+}
+
+const scheduleOAuthQuotaAutoReset = () => {
+  clearOAuthQuotaResetTimer()
+
+  if (props.channelType !== 'responses') return
+
+  let nearestReset: number | null = null
+  for (const quotaInfo of Object.values(channelQuotas.value)) {
+    const nextReset = getNextOAuthResetTimestamp(quotaInfo.codex_quota)
+    if (nextReset === null) continue
+    if (nearestReset === null || nextReset < nearestReset) {
+      nearestReset = nextReset
+    }
+  }
+
+  if (nearestReset === null) return
+
+  const delay = Math.max(0, nearestReset - Date.now()) + 50
+  oauthQuotaResetTimer = setTimeout(() => {
+    oauthQuotaClock.value = Date.now()
+    scheduleOAuthQuotaAutoReset()
+  }, delay)
+}
 
 const getQuotaKey = (channel: Channel): string => {
   if (channel.id && channel.id.trim().length > 0) {
@@ -669,12 +747,16 @@ const fetchOAuthQuotas = async () => {
   // Only fetch for responses channels with openai-oauth service type
   if (props.channelType !== 'responses') {
     channelQuotas.value = {}
+    oauthQuotaClock.value = Date.now()
+    scheduleOAuthQuotaAutoReset()
     return
   }
 
   const oauthChannels = props.channels.filter(ch => ch.serviceType === 'openai-oauth')
   if (oauthChannels.length === 0) {
     channelQuotas.value = {}
+    oauthQuotaClock.value = Date.now()
+    scheduleOAuthQuotaAutoReset()
     return
   }
 
@@ -701,6 +783,8 @@ const fetchOAuthQuotas = async () => {
     }
   }
   channelQuotas.value = newQuotas
+  oauthQuotaClock.value = Date.now()
+  scheduleOAuthQuotaAutoReset()
 }
 
 // User-configured usage quotas (keyed by channel index)
@@ -1085,6 +1169,10 @@ onMounted(() => {
   refreshMetrics()
   fetchOAuthQuotas()
   fetchUsageQuotas()
+})
+
+onUnmounted(() => {
+  clearOAuthQuotaResetTimer()
 })
 
 // Re-fetch quotas when tab changes
