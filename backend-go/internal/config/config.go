@@ -516,27 +516,28 @@ func (cm *ConfigManager) ensureUniqueChannelNameLocked(name string, channelType 
 		return fmt.Errorf("channel name is required")
 	}
 
-	check := func(upstreams []UpstreamConfig, typ string) error {
-		for i := range upstreams {
-			if typ == channelType && i == excludeIndex {
-				continue
-			}
-			other := strings.ToLower(strings.TrimSpace(upstreams[i].Name))
-			if other != "" && other == candidate {
-				return fmt.Errorf("duplicate channel name: %s", name)
-			}
-		}
-		return nil
+	// Only check within the same channel type — seed restore and migration
+	// already scope name lookups by type, so cross-type uniqueness is unnecessary.
+	var upstreams []UpstreamConfig
+	switch channelType {
+	case "messages":
+		upstreams = cm.config.Upstream
+	case "responses":
+		upstreams = cm.config.ResponsesUpstream
+	case "gemini":
+		upstreams = cm.config.GeminiUpstream
+	default:
+		return fmt.Errorf("unknown channel type: %s", channelType)
 	}
 
-	if err := check(cm.config.Upstream, "messages"); err != nil {
-		return err
-	}
-	if err := check(cm.config.ResponsesUpstream, "responses"); err != nil {
-		return err
-	}
-	if err := check(cm.config.GeminiUpstream, "gemini"); err != nil {
-		return err
+	for i := range upstreams {
+		if i == excludeIndex {
+			continue
+		}
+		other := strings.ToLower(strings.TrimSpace(upstreams[i].Name))
+		if other != "" && other == candidate {
+			return fmt.Errorf("duplicate channel name: %s", name)
+		}
 	}
 	return nil
 }
