@@ -160,10 +160,18 @@ function parseRequest(obj: Record<string, unknown>): ParsedResult {
   const tools: string[] = []
 
   if (obj.model) params.push({ label: 'model', value: String(obj.model) })
+  if (obj.max_output_tokens != null) params.push({ label: 'max_output_tokens', value: String(obj.max_output_tokens) })
   if (obj.max_tokens) params.push({ label: 'max_tokens', value: String(obj.max_tokens) })
   if (obj.temperature != null) params.push({ label: 'temperature', value: String(obj.temperature) })
   if (obj.top_p != null) params.push({ label: 'top_p', value: String(obj.top_p) })
   if (obj.stream != null) params.push({ label: 'stream', value: String(obj.stream) })
+  if (obj.previous_response_id) params.push({ label: 'previous_response_id', value: String(obj.previous_response_id) })
+  if (obj.store != null) params.push({ label: 'store', value: String(obj.store) })
+
+  // Responses API format: instructions as system prompt
+  if (typeof obj.instructions === 'string' && obj.instructions.trim()) {
+    system = obj.instructions
+  }
 
   // System prompt - Claude format (string or array)
   if (obj.system) {
@@ -187,6 +195,40 @@ function parseRequest(obj: Record<string, unknown>): ParsedResult {
     }
   }
 
+  // Responses API format: input can be string or item array
+  if (obj.input != null) {
+    if (typeof obj.input === 'string') {
+      messages.push({ role: 'user', content: obj.input })
+    } else if (Array.isArray(obj.input)) {
+      for (const rawItem of obj.input as Array<Record<string, unknown>>) {
+        const itemType = String(rawItem.type || 'message')
+        if (itemType === 'message') {
+          const role = String(rawItem.role || 'user')
+          const content = extractContent(rawItem.content)
+          if (content) messages.push({ role, content })
+          continue
+        }
+        if (itemType === 'function_call' || itemType === 'tool_call') {
+          const name = String(rawItem.name || 'unknown')
+          const args = formatJSONish(rawItem.arguments ?? rawItem.input ?? {})
+          messages.push({ role: 'assistant', content: `[${itemType}] ${name}\n${args}` })
+          continue
+        }
+        if (itemType === 'function_call_output' || itemType === 'tool_result') {
+          const callID = String(rawItem.call_id || rawItem.tool_use_id || '')
+          const output = extractContent(rawItem.output ?? rawItem.content)
+          const prefix = callID ? `[${itemType} ${callID}]` : `[${itemType}]`
+          messages.push({ role: 'tool', content: output ? `${prefix}\n${output}` : prefix })
+          continue
+        }
+        const content = extractContent(rawItem.content)
+        if (content) {
+          messages.push({ role: 'user', content: `[${itemType}]\n${content}` })
+        }
+      }
+    }
+  }
+
   // Tools
   if (Array.isArray(obj.tools)) {
     for (const tool of obj.tools as Array<Record<string, unknown>>) {
@@ -201,30 +243,39 @@ function parseRequest(obj: Record<string, unknown>): ParsedResult {
 }
 
 function parseResponse(obj: Record<string, unknown>): ParsedResult {
+  const responseObj =
+    obj.response && typeof obj.response === 'object'
+      ? obj.response as Record<string, unknown>
+      : obj
+
   const params: Param[] = []
   let content = ''
   const toolUse: ToolUse[] = []
 
-  if (obj.model) params.push({ label: 'model', value: String(obj.model) })
-  if (obj.stop_reason) params.push({ label: 'stop_reason', value: String(obj.stop_reason) })
-  if (obj.finish_reason) params.push({ label: 'finish_reason', value: String(obj.finish_reason) })
+  if (responseObj.model) params.push({ label: 'model', value: String(responseObj.model) })
+  if (responseObj.status) params.push({ label: 'status', value: String(responseObj.status) })
+  if (responseObj.stop_reason) params.push({ label: 'stop_reason', value: String(responseObj.stop_reason) })
+  if (responseObj.finish_reason) params.push({ label: 'finish_reason', value: String(responseObj.finish_reason) })
 
   // Usage
-  const usage = obj.usage as Record<string, unknown> | undefined
+  const usage = responseObj.usage as Record<string, unknown> | undefined
   if (usage) {
     const parts: string[] = []
     if (usage.input_tokens != null) parts.push(`${usage.input_tokens} in`)
     if (usage.prompt_tokens != null) parts.push(`${usage.prompt_tokens} in`)
     if (usage.output_tokens != null) parts.push(`${usage.output_tokens} out`)
     if (usage.completion_tokens != null) parts.push(`${usage.completion_tokens} out`)
+    if (usage.total_tokens != null) parts.push(`${usage.total_tokens} total`)
     if (usage.cache_read_input_tokens) parts.push(`${usage.cache_read_input_tokens} cache`)
+    const inputDetails = usage.input_tokens_details as Record<string, unknown> | undefined
+    if (inputDetails?.cached_tokens != null) parts.push(`${inputDetails.cached_tokens} cache`)
     if (parts.length) params.push({ label: 'tokens', value: parts.join(' / ') })
   }
 
   // Claude format content blocks
-  if (Array.isArray(obj.content)) {
+  if (Array.isArray(responseObj.content)) {
     const textParts: string[] = []
-    for (const block of obj.content as Array<Record<string, unknown>>) {
+    for (const block of responseObj.content as Array<Record<string, unknown>>) {
       if (block.type === 'text') {
         textParts.push(String(block.text || ''))
       } else if (block.type === 'tool_use') {
@@ -238,9 +289,9 @@ function parseResponse(obj: Record<string, unknown>): ParsedResult {
   }
 
   // OpenAI format choices
-  if (Array.isArray(obj.choices)) {
+  if (Array.isArray(responseObj.choices)) {
     const textParts: string[] = []
-    for (const choice of obj.choices as Array<Record<string, unknown>>) {
+    for (const choice of responseObj.choices as Array<Record<string, unknown>>) {
       const msg = choice.message as Record<string, unknown> | undefined
       if (msg?.content) textParts.push(String(msg.content))
       // Tool calls
@@ -258,19 +309,40 @@ function parseResponse(obj: Record<string, unknown>): ParsedResult {
   }
 
   // Codex Responses API format
-  if (Array.isArray(obj.output)) {
+  if (Array.isArray(responseObj.output)) {
     const textParts: string[] = []
-    for (const item of obj.output as Array<Record<string, unknown>>) {
-      if (item.type === 'message') {
-        const msgContent = item.content
-        if (Array.isArray(msgContent)) {
-          for (const block of msgContent as Array<Record<string, unknown>>) {
-            if (block.type === 'output_text') textParts.push(String(block.text || ''))
-          }
+    for (const item of responseObj.output as Array<Record<string, unknown>>) {
+      const itemType = String(item.type || '')
+      if (itemType === 'message') {
+        textParts.push(extractContent(item.content))
+        continue
+      }
+      if (itemType === 'reasoning') {
+        const summary = item.summary
+        if (Array.isArray(summary)) {
+          const joined = (summary as Array<Record<string, unknown>>)
+            .map(part => String(part.text || ''))
+            .filter(Boolean)
+            .join('\n')
+          if (joined) textParts.push(`[reasoning]\n${joined}`)
         }
+        continue
+      }
+      if (itemType === 'function_call' || itemType === 'tool_call') {
+        toolUse.push({
+          name: String(item.name || 'unknown'),
+          input: formatJSONish(item.arguments ?? item.input ?? {})
+        })
+        continue
+      }
+      if (itemType === 'function_call_output' || itemType === 'tool_result') {
+        const output = extractContent(item.output ?? item.content)
+        const callID = String(item.call_id || item.tool_use_id || '')
+        const prefix = callID ? `[${itemType} ${callID}]` : `[${itemType}]`
+        textParts.push(output ? `${prefix}\n${output}` : prefix)
       }
     }
-    if (textParts.length) content = textParts.join('\n')
+    if (textParts.length) content = textParts.filter(Boolean).join('\n')
   }
 
   return { params, system: '', messages: [], tools: [], content, toolUse }
@@ -279,13 +351,18 @@ function parseResponse(obj: Record<string, unknown>): ParsedResult {
 function parseSSEResponse(raw: string): ParsedResult {
   const params: Param[] = []
   const textParts: string[] = []
+  const reasoningParts: string[] = []
   const toolUse: ToolUse[] = []
   let model = ''
   let stopReason = ''
   let usage: Record<string, unknown> | null = null
+  let hasCodexTextDelta = false
 
   // Accumulate tool_use input JSON fragments by index
   const toolInputBuffers: Map<number, { name: string; jsonParts: string[] }> = new Map()
+  // Accumulate Codex Responses function call args by item id
+  const codexToolCalls: Map<string, { name: string; argParts: string[] }> = new Map()
+  const finalizedCodexToolItemIDs = new Set<string>()
 
   const lines = raw.split('\n')
   for (const line of lines) {
@@ -327,6 +404,66 @@ function parseSSEResponse(raw: string): ParsedResult {
         if (msg?.usage) usage = msg.usage as Record<string, unknown>
       }
 
+      // Codex Responses SSE events
+      if (evtType === 'response.output_text.delta') {
+        const deltaText = evt.delta
+        if (deltaText != null) {
+          hasCodexTextDelta = true
+          textParts.push(String(deltaText))
+        }
+      } else if (evtType === 'response.reasoning_summary_text.delta') {
+        const reasoningText = evt.text
+        if (reasoningText != null) reasoningParts.push(String(reasoningText))
+      } else if (evtType === 'response.output_item.added' || evtType === 'response.output_item.done') {
+        const item = evt.item as Record<string, unknown> | undefined
+        const itemType = String(item?.type || '')
+        if (itemType === 'function_call' || itemType === 'tool_call') {
+          const itemID = String(item?.id || evt.item_id || '')
+          const current = itemID ? codexToolCalls.get(itemID) : undefined
+          const name = String(item?.name || current?.name || 'unknown')
+          const args = item?.arguments
+
+          if (evtType === 'response.output_item.done') {
+            let input = ''
+            const argsText = args == null ? '' : String(args)
+            if (argsText.trim() !== '') {
+              input = formatJSONish(argsText)
+            } else if (current && current.argParts.length) {
+              input = formatJSONish(current.argParts.join(''))
+            } else {
+              input = '{}'
+            }
+            toolUse.push({ name, input })
+            if (itemID) finalizedCodexToolItemIDs.add(itemID)
+          } else if (itemID) {
+            const bucket = current || { name, argParts: [] }
+            bucket.name = name
+            if (args != null && String(args) !== '') bucket.argParts.push(String(args))
+            codexToolCalls.set(itemID, bucket)
+          }
+        } else if (itemType === 'message' && evtType === 'response.output_item.done' && !hasCodexTextDelta) {
+          const msgText = extractContent(item?.content)
+          if (msgText) textParts.push(msgText)
+        }
+      } else if (evtType === 'response.function_call_arguments.delta' || evtType === 'response.function_call_arguments.done') {
+        const itemID = String(evt.item_id || '')
+        if (itemID) {
+          const bucket = codexToolCalls.get(itemID) || { name: 'unknown', argParts: [] }
+          const fragment = evtType === 'response.function_call_arguments.done' ? evt.arguments : evt.delta
+          if (fragment != null && String(fragment) !== '') bucket.argParts.push(String(fragment))
+          codexToolCalls.set(itemID, bucket)
+        }
+      } else if (evtType === 'response.completed') {
+        const response = evt.response as Record<string, unknown> | undefined
+        if (response?.model) model = String(response.model)
+        if (response?.usage) usage = response.usage as Record<string, unknown>
+        if (Array.isArray(response?.output) && textParts.length === 0 && toolUse.length === 0 && reasoningParts.length === 0) {
+          const parsedResponse = parseResponse({ response })
+          if (parsedResponse.content) textParts.push(parsedResponse.content)
+          if (parsedResponse.toolUse.length) toolUse.push(...parsedResponse.toolUse)
+        }
+      }
+
       // OpenAI SSE format
       if (Array.isArray(evt.choices)) {
         for (const choice of evt.choices as Array<Record<string, unknown>>) {
@@ -346,6 +483,11 @@ function parseSSEResponse(raw: string): ParsedResult {
     try { input = JSON.stringify(JSON.parse(input), null, 2) } catch { /* keep raw */ }
     toolUse.push({ name: buf.name, input })
   }
+  for (const [itemID, bucket] of codexToolCalls.entries()) {
+    if (finalizedCodexToolItemIDs.has(itemID)) continue
+    if (!bucket.argParts.length) continue
+    toolUse.push({ name: bucket.name, input: formatJSONish(bucket.argParts.join('')) })
+  }
 
   if (model) params.push({ label: 'model', value: model })
   if (stopReason) params.push({ label: 'stop_reason', value: stopReason })
@@ -353,8 +495,20 @@ function parseSSEResponse(raw: string): ParsedResult {
     const parts: string[] = []
     if (usage.input_tokens != null) parts.push(`${usage.input_tokens} in`)
     if (usage.output_tokens != null) parts.push(`${usage.output_tokens} out`)
+    if (usage.total_tokens != null) parts.push(`${usage.total_tokens} total`)
     if (usage.cache_read_input_tokens) parts.push(`${usage.cache_read_input_tokens} cache`)
+    const inputDetails = usage.input_tokens_details as Record<string, unknown> | undefined
+    if (inputDetails?.cached_tokens != null) parts.push(`${inputDetails.cached_tokens} cache`)
     if (parts.length) params.push({ label: 'tokens', value: parts.join(' / ') })
+  }
+
+  const contentSections: string[] = []
+  if (reasoningParts.length) {
+    contentSections.push(`[reasoning]\n${reasoningParts.join('')}`)
+  }
+  const mainText = textParts.join('')
+  if (mainText) {
+    contentSections.push(mainText)
   }
 
   return {
@@ -362,7 +516,7 @@ function parseSSEResponse(raw: string): ParsedResult {
     system: '',
     messages: [],
     tools: [],
-    content: textParts.join(''),
+    content: contentSections.join('\n\n'),
     toolUse
   }
 }
@@ -373,6 +527,9 @@ function extractContent(content: unknown): string {
     return content
       .map((b: Record<string, unknown>) => {
         if (b.type === 'text') return String(b.text || '')
+        if (b.type === 'input_text') return String(b.text || '')
+        if (b.type === 'output_text') return String(b.text || '')
+        if (b.type === 'refusal') return `[refusal] ${String(b.refusal || '')}`.trim()
         if (b.type === 'image') return '[image]'
         if (b.type === 'image_url') return '[image]'
         if (b.type === 'tool_result') {
@@ -392,6 +549,27 @@ function extractContent(content: unknown): string {
   }
   if (content && typeof content === 'object') return JSON.stringify(content, null, 2)
   return String(content ?? '')
+}
+
+function formatJSONish(value: unknown): string {
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return '{}'
+    try {
+      return JSON.stringify(JSON.parse(trimmed), null, 2)
+    } catch {
+      return value
+    }
+  }
+  if (value == null) return '{}'
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value, null, 2)
+    } catch {
+      return String(value)
+    }
+  }
+  return String(value)
 }
 </script>
 

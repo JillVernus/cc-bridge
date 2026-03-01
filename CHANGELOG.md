@@ -4,6 +4,23 @@
 
 ---
 
+## [v1.5.1] - 2026-03-01
+
+### 🐛 修复
+
+- **请求日志渠道图标修复**:
+  - 修复 Codex OAuth 渠道在关闭 Forward Proxy 时仍错误显示盾牌图标的问题。
+  - 盾牌图标判定改为基于 Forward Proxy 专用标识（`channelUid=subscription:forward-proxy`），避免将普通 `channelId=0` 渠道误判为 Forward Proxy。
+  - 修复 `openai-oauth` 类型渠道未显示 OpenAI 图标的问题，统一按 OpenAI 家族类型显示 OpenAI/Codex 图标。
+
+- **Debug 请求/响应体解析增强（Codex Responses）**:
+  - 解析器新增对 Responses 请求体 `input`（字符串/数组）与 `instructions` 的结构化展示。
+  - 解析器新增对 Responses 响应 `output` 多类型项的解析：`message`、`reasoning`、`function_call`、`function_call_output`。
+  - 增强 Responses SSE 事件解析，支持 `response.output_text.delta`、`response.output_item.*`、`response.function_call_arguments.*`、`response.completed`。
+  - 修复工具调用参数流式拼接边界问题，保留重复工具调用，并优化 reasoning 与最终回答文本的分段展示。
+
+---
+
 ## [v1.5.0] - 2026-03-01
 
 ### ✨ 新功能

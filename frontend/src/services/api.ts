@@ -1228,6 +1228,7 @@ export interface RequestLog {
   httpStatus: number
   stream: boolean
   channelId: number
+  channelUid?: string
   channelName: string
   endpoint: string
   clientId?: string

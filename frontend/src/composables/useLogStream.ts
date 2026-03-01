@@ -14,6 +14,7 @@ export interface LogCreatedPayload {
   model: string
   responseModel?: string
   channelId: number
+  channelUid?: string
   channelName: string
   endpoint: string
   stream: boolean
@@ -47,6 +48,7 @@ export interface LogUpdatedPayload {
   type: string
   providerName: string
   channelId: number
+  channelUid?: string
   channelName: string
   inputTokens: number
   outputTokens: number

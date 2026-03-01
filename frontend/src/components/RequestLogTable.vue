@@ -885,10 +885,10 @@
               <div v-bind="props" class="stacked-cell">
                 <v-chip size="x-small" variant="text" class="provider-chip">
                   <v-icon v-if="item.type === 'claude'" start size="14" icon="custom:claude" class="provider-icon mr-1" />
-                  <v-icon v-else-if="item.type === 'openai' || item.type === 'codex' || item.type === 'responses'" start size="14" icon="custom:codex" class="provider-icon mr-1" />
+                  <v-icon v-else-if="isOpenAIFamilyType(item.type)" start size="14" icon="custom:codex" class="provider-icon mr-1" />
                   <v-icon v-else-if="item.type === 'gemini'" start size="14" icon="custom:gemini" class="provider-icon mr-1" />
                   {{ item.providerName || item.type }}
-                  <v-tooltip v-if="item.channelId === 0" location="top">
+                  <v-tooltip v-if="isForwardProxyLog(item)" location="top">
                     <template v-slot:activator="{ props: fwdProps }">
                       <v-icon v-bind="fwdProps" size="12" class="ml-1" color="grey">mdi-shield-lock-outline</v-icon>
                     </template>
@@ -903,7 +903,7 @@
               </div>
             </template>
             <div class="stacked-tooltip">
-              <div><strong>{{ t('requestLog.channel') }}:</strong> {{ item.providerName || item.type }}<span v-if="item.channelId === 0"> ({{ t('forwardProxy.title') }})</span></div>
+              <div><strong>{{ t('requestLog.channel') }}:</strong> {{ item.providerName || item.type }}<span v-if="isForwardProxyLog(item)"> ({{ t('forwardProxy.title') }})</span></div>
               <div><strong>{{ t('requestLog.model') }}:</strong> {{ item.model }}</div>
               <div v-if="item.reasoningEffort"><strong>{{ t('requestLog.reasoningEffort') }}</strong> {{ item.reasoningEffort }}</div>
               <div v-if="item.responseModel && item.responseModel !== item.model">
@@ -914,10 +914,10 @@
           <!-- Expanded: Channel only -->
           <v-chip v-else size="x-small" variant="text" class="provider-chip">
             <v-icon v-if="item.type === 'claude'" start size="14" icon="custom:claude" class="provider-icon mr-1" />
-            <v-icon v-else-if="item.type === 'openai' || item.type === 'codex' || item.type === 'responses'" start size="14" icon="custom:codex" class="provider-icon mr-1" />
+            <v-icon v-else-if="isOpenAIFamilyType(item.type)" start size="14" icon="custom:codex" class="provider-icon mr-1" />
             <v-icon v-else-if="item.type === 'gemini'" start size="14" icon="custom:gemini" class="provider-icon mr-1" />
             {{ item.providerName || item.type }}
-            <v-tooltip v-if="item.channelId === 0" location="top">
+            <v-tooltip v-if="isForwardProxyLog(item)" location="top">
               <template v-slot:activator="{ props: fwdProps }">
                 <v-icon v-bind="fwdProps" size="12" class="ml-1" color="grey">mdi-shield-lock-outline</v-icon>
               </template>
@@ -2265,6 +2265,7 @@ const handleLogCreated = (payload: LogCreatedPayload) => {
     httpStatus: payload.httpStatus ?? 0,
     stream: payload.stream,
     channelId: payload.channelId,
+    channelUid: payload.channelUid,
     channelName: payload.channelName,
     endpoint: payload.endpoint,
     apiKeyId: payload.apiKeyId,
@@ -2339,6 +2340,7 @@ const handleLogUpdated = (payload: LogUpdatedPayload) => {
     updated.type = payload.type
     updated.providerName = payload.providerName
     updated.channelId = payload.channelId
+    updated.channelUid = payload.channelUid ?? oldLog.channelUid
     updated.channelName = payload.channelName
     updated.inputTokens = payload.inputTokens
     updated.outputTokens = payload.outputTokens
@@ -2581,6 +2583,26 @@ const isStacked = (primaryKey: string): boolean => {
   if (mode === 'stacked') return true
   if (mode === 'responsive') return viewportWidth.value <= 960
   return false
+}
+
+const FORWARD_PROXY_CHANNEL_UID = 'subscription:forward-proxy'
+const FORWARD_PROXY_CHANNEL_NAME = 'Subscription (Forward Proxy)'
+const OPENAI_FAMILY_TYPES = new Set([
+  'openai',
+  'openaiold',
+  'openai_chat',
+  'openai-oauth',
+  'codex',
+  'responses',
+])
+
+const isOpenAIFamilyType = (type: string): boolean => OPENAI_FAMILY_TYPES.has(type)
+
+const isForwardProxyLog = (item: RequestLog): boolean => {
+  if (item.channelUid) {
+    return item.channelUid === FORWARD_PROXY_CHANNEL_UID
+  }
+  return item.channelId === 0 && item.channelName === FORWARD_PROXY_CHANNEL_NAME
 }
 
 // Returns true if a secondary column should be hidden from headers
