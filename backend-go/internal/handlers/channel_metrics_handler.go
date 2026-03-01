@@ -132,7 +132,7 @@ func ResumeChannel(sch *scheduler.ChannelScheduler, isResponses bool) gin.Handle
 // GetSchedulerStats 获取调度器统计信息
 func GetSchedulerStats(sch *scheduler.ChannelScheduler) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 获取 type 参数: messages (default), responses, gemini
+		// 获取 type 参数: messages (default), responses, gemini, chat
 		channelType := strings.ToLower(c.Query("type"))
 
 		// 根据类型选择对应的指标管理器
@@ -149,6 +149,10 @@ func GetSchedulerStats(sch *scheduler.ChannelScheduler) gin.HandlerFunc {
 			metricsManager = sch.GetGeminiMetricsManager()
 			isMultiChannel = sch.IsGeminiMultiChannelMode()
 			activeCount = sch.GetActiveGeminiChannelCount()
+		case "chat":
+			metricsManager = sch.GetChatMetricsManager()
+			isMultiChannel = sch.IsChatMultiChannelMode()
+			activeCount = sch.GetActiveChatChannelCount()
 		default:
 			metricsManager = sch.GetMessagesMetricsManager()
 			isMultiChannel = sch.IsMultiChannelMode(false)

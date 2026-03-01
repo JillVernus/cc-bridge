@@ -25,10 +25,11 @@ type APIKey struct {
 	LastUsedAt   *time.Time `json:"lastUsedAt,omitempty"`
 
 	// Permission fields (nil/empty = unrestricted)
-	AllowedEndpoints      []string `json:"allowedEndpoints,omitempty"`      // ["messages"], ["responses"], ["gemini"], ["messages_current_channel"], or any combination
+	AllowedEndpoints      []string `json:"allowedEndpoints,omitempty"`      // ["messages"], ["responses"], ["gemini"], ["chat"], ["messages_current_channel"], or any combination
 	AllowedChannelsMsg    []string `json:"allowedChannelsMsg,omitempty"`    // stable channel IDs for /v1/messages
 	AllowedChannelsResp   []string `json:"allowedChannelsResp,omitempty"`   // stable channel IDs for /v1/responses
 	AllowedChannelsGemini []string `json:"allowedChannelsGemini,omitempty"` // stable channel IDs for /v1/gemini (GeminiUpstream)
+	AllowedChannelsChat   []string `json:"allowedChannelsChat,omitempty"`   // stable channel IDs for /v1/chat/completions (ChatUpstream)
 	AllowedModels         []string `json:"allowedModels,omitempty"`         // glob patterns: ["claude-sonnet-*"]
 }
 
@@ -44,6 +45,7 @@ type CreateAPIKeyRequest struct {
 	AllowedChannelsMsg    []string `json:"allowedChannelsMsg,omitempty"`
 	AllowedChannelsResp   []string `json:"allowedChannelsResp,omitempty"`
 	AllowedChannelsGemini []string `json:"allowedChannelsGemini,omitempty"`
+	AllowedChannelsChat   []string `json:"allowedChannelsChat,omitempty"`
 	AllowedModels         []string `json:"allowedModels,omitempty"`
 }
 
@@ -65,6 +67,7 @@ type UpdateAPIKeyRequest struct {
 	AllowedChannelsMsg    *[]string `json:"allowedChannelsMsg,omitempty"`
 	AllowedChannelsResp   *[]string `json:"allowedChannelsResp,omitempty"`
 	AllowedChannelsGemini *[]string `json:"allowedChannelsGemini,omitempty"`
+	AllowedChannelsChat   *[]string `json:"allowedChannelsChat,omitempty"`
 	AllowedModels         *[]string `json:"allowedModels,omitempty"`
 }
 
@@ -95,5 +98,6 @@ type ValidatedKey struct {
 	AllowedChannelsMsg    []string
 	AllowedChannelsResp   []string
 	AllowedChannelsGemini []string
+	AllowedChannelsChat   []string
 	AllowedModels         []string
 }

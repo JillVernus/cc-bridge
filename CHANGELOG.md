@@ -4,6 +4,34 @@
 
 ---
 
+## [v1.5.0] - 2026-03-01
+
+### ✨ 新功能
+
+- **OpenAI Chat Completions 入口端点** (`/v1/chat/completions`):
+  - 新增第 4 类入口 API，接收 OpenAI Chat Completions 格式请求。
+  - 支持路由到 Claude/OpenAI/Gemini 上游，自动进行协议转换。
+  - 完整支持 tool calling，包括 `tool_choice` 参数。
+  - 支持 `reasoning_effort` 参数映射到 Claude 的 thinking 模式。
+  - 独立的 `ChatUpstream` 渠道池，与 Messages/Responses/Gemini 分离。
+  - 前端新增 "Chat" 标签页，使用 OpenAI 图标。
+
+- **API Key 权限扩展**:
+  - 新增 `chat` 端点权限。
+  - 新增 `allowedChannelsChat` 字段用于渠道级别权限控制。
+
+### 📁 新增文件
+
+- `backend-go/internal/types/chat_types.go` - OpenAI Chat Completions 类型定义
+- `backend-go/internal/converters/chat_to_claude.go` - Chat → Claude 转换器
+- `backend-go/internal/converters/claude_to_chat.go` - Claude → Chat 转换器
+- `backend-go/internal/converters/chat_to_gemini.go` - Chat ↔ Gemini 转换器
+- `backend-go/internal/handlers/chat_completions.go` - 主处理器
+- `backend-go/internal/handlers/chat_config.go` - CRUD API
+- `frontend/src/assets/openai.svg` - OpenAI 图标
+
+---
+
 ## [v1.4.3] - 2026-02-27
 
 ### 🔧 改进

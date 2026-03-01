@@ -530,6 +530,18 @@ func main() {
 		apiGroup.GET("/gemini/channels/:id/models", handlers.FetchGeminiUpstreamModels(cfgManager))
 		apiGroup.PUT("/gemini/loadbalance", handlers.UpdateGeminiLoadBalance(cfgManager))
 
+		// Chat (OpenAI Chat Completions) 渠道管理
+		apiGroup.GET("/chat/channels", handlers.GetChatUpstreams(cfgManager))
+		apiGroup.POST("/chat/channels", handlers.AddChatUpstream(cfgManager))
+		apiGroup.PUT("/chat/channels/:id", handlers.UpdateChatUpstream(cfgManager, channelScheduler))
+		apiGroup.DELETE("/chat/channels/:id", handlers.DeleteChatUpstream(cfgManager, channelRateLimiter))
+		apiGroup.POST("/chat/channels/:id/keys", handlers.AddChatApiKey(cfgManager))
+		apiGroup.DELETE("/chat/channels/:id/keys/index/:keyIndex", handlers.DeleteChatApiKeyByIndex(cfgManager))
+		apiGroup.POST("/chat/channels/reorder", handlers.ReorderChatChannels(cfgManager))
+		apiGroup.PATCH("/chat/channels/:id/status", handlers.SetChatChannelStatus(cfgManager))
+		apiGroup.GET("/chat/channels/metrics", handlers.GetChatChannelMetrics(cfgManager, channelScheduler))
+		apiGroup.PUT("/chat/loadbalance", handlers.SetChatLoadBalance(cfgManager))
+
 		// 负载均衡
 		apiGroup.PUT("/loadbalance", handlers.UpdateLoadBalance(cfgManager))
 
@@ -650,6 +662,7 @@ func main() {
 		v1Group.POST("/models/*action", handlers.GeminiHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker, channelRateLimiter))
 		v1Group.POST("/messages", handlers.ProxyHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker, channelRateLimiter))
 		v1Group.POST("/responses", handlers.ResponsesHandlerWithAPIKey(envCfg, cfgManager, sessionManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker, channelRateLimiter))
+		v1Group.POST("/chat/completions", handlers.ChatCompletionsHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker, channelRateLimiter))
 
 		// Gemini incoming endpoint (passthrough mode)
 		// Route: POST /v1/gemini/models/{model}:{action}
@@ -751,6 +764,7 @@ func seedRecentCallMetricsFromLogs(reqLogManager *requestlog.Manager, channelSch
 	messagesSeed := make(map[int][]metrics.RecentCall)
 	responsesSeed := make(map[int][]metrics.RecentCall)
 	geminiSeed := make(map[int][]metrics.RecentCall)
+	chatSeed := make(map[int][]metrics.RecentCall)
 	uidRemapped := 0
 	nameRemapped := 0
 
@@ -758,29 +772,37 @@ func seedRecentCallMetricsFromLogs(reqLogManager *requestlog.Manager, channelSch
 	var messagesUpstreams []config.UpstreamConfig
 	var responsesUpstreams []config.UpstreamConfig
 	var geminiUpstreams []config.UpstreamConfig
+	var chatUpstreams []config.UpstreamConfig
 	var messagesIDToIndex map[string]int
 	var responsesIDToIndex map[string]int
 	var geminiIDToIndex map[string]int
+	var chatIDToIndex map[string]int
 	var messagesNameToIndex map[string]int
 	var responsesNameToIndex map[string]int
 	var geminiNameToIndex map[string]int
+	var chatNameToIndex map[string]int
 	messagesCount := 0
 	responsesCount := 0
 	geminiCount := 0
+	chatCount := 0
 	if cfgManager != nil {
 		cfg = cfgManager.GetConfig()
 		messagesUpstreams = cfg.Upstream
 		responsesUpstreams = cfg.ResponsesUpstream
 		geminiUpstreams = cfg.GeminiUpstream
+		chatUpstreams = cfg.ChatUpstream
 		messagesIDToIndex = buildChannelIDIndex(messagesUpstreams)
 		responsesIDToIndex = buildChannelIDIndex(responsesUpstreams)
 		geminiIDToIndex = buildChannelIDIndex(geminiUpstreams)
+		chatIDToIndex = buildChannelIDIndex(chatUpstreams)
 		messagesNameToIndex = buildUniqueChannelNameIndex(messagesUpstreams)
 		responsesNameToIndex = buildUniqueChannelNameIndex(responsesUpstreams)
 		geminiNameToIndex = buildUniqueChannelNameIndex(geminiUpstreams)
+		chatNameToIndex = buildUniqueChannelNameIndex(chatUpstreams)
 		messagesCount = len(messagesUpstreams)
 		responsesCount = len(responsesUpstreams)
 		geminiCount = len(geminiUpstreams)
+		chatCount = len(chatUpstreams)
 	}
 
 	for _, call := range recentCalls {
@@ -793,6 +815,8 @@ func seedRecentCallMetricsFromLogs(reqLogManager *requestlog.Manager, channelSch
 			targetIndex, mappedBy = resolveSeedTargetIndex(call.ChannelUID, call.ChannelID, call.ChannelName, responsesIDToIndex, responsesNameToIndex, responsesCount)
 		case "/v1/gemini":
 			targetIndex, mappedBy = resolveSeedTargetIndex(call.ChannelUID, call.ChannelID, call.ChannelName, geminiIDToIndex, geminiNameToIndex, geminiCount)
+		case "/v1/chat/completions":
+			targetIndex, mappedBy = resolveSeedTargetIndex(call.ChannelUID, call.ChannelID, call.ChannelName, chatIDToIndex, chatNameToIndex, chatCount)
 		}
 		if targetIndex < 0 {
 			continue
@@ -826,6 +850,10 @@ func seedRecentCallMetricsFromLogs(reqLogManager *requestlog.Manager, channelSch
 				if targetIndex >= 0 && targetIndex < len(geminiUpstreams) {
 					restored.ChannelName = strings.TrimSpace(geminiUpstreams[targetIndex].Name)
 				}
+			case "/v1/chat/completions":
+				if targetIndex >= 0 && targetIndex < len(chatUpstreams) {
+					restored.ChannelName = strings.TrimSpace(chatUpstreams[targetIndex].Name)
+				}
 			}
 		}
 		switch call.Endpoint {
@@ -835,6 +863,8 @@ func seedRecentCallMetricsFromLogs(reqLogManager *requestlog.Manager, channelSch
 			responsesSeed[targetIndex] = append(responsesSeed[targetIndex], restored)
 		case "/v1/gemini":
 			geminiSeed[targetIndex] = append(geminiSeed[targetIndex], restored)
+		case "/v1/chat/completions":
+			chatSeed[targetIndex] = append(chatSeed[targetIndex], restored)
 		}
 	}
 
@@ -862,10 +892,11 @@ func seedRecentCallMetricsFromLogs(reqLogManager *requestlog.Manager, channelSch
 	messagesSeeded := seedMetrics(channelScheduler.GetMessagesMetricsManager(), messagesUpstreams, messagesSeed)
 	responsesSeeded := seedMetrics(channelScheduler.GetResponsesMetricsManager(), responsesUpstreams, responsesSeed)
 	geminiSeeded := seedMetrics(channelScheduler.GetGeminiMetricsManager(), geminiUpstreams, geminiSeed)
+	chatSeeded := seedMetrics(channelScheduler.GetChatMetricsManager(), chatUpstreams, chatSeed)
 
-	if messagesSeeded > 0 || responsesSeeded > 0 || geminiSeeded > 0 {
-		log.Printf("✅ 已恢复最近 API 调用槽位 (messages: %d, responses: %d, gemini: %d)",
-			messagesSeeded, responsesSeeded, geminiSeeded)
+	if messagesSeeded > 0 || responsesSeeded > 0 || geminiSeeded > 0 || chatSeeded > 0 {
+		log.Printf("✅ 已恢复最近 API 调用槽位 (messages: %d, responses: %d, gemini: %d, chat: %d)",
+			messagesSeeded, responsesSeeded, geminiSeeded, chatSeeded)
 		if uidRemapped > 0 || nameRemapped > 0 {
 			log.Printf("🔁 最近 API 调用槽位重映射完成 (by channelUid: %d, by channelName: %d)", uidRemapped, nameRemapped)
 		}

@@ -13,12 +13,14 @@ import '@mdi/font/css/materialdesignicons.css'
 import claudeSvg from '@/assets/claude.svg?raw'
 import codexSvg from '@/assets/codex.svg?raw'
 import geminiSvg from '@/assets/gemini.svg?raw'
+import openaiSvg from '@/assets/openai.svg?raw'
 
 // 自定义图标集
 const customSvgIcons: Record<string, string> = {
   claude: claudeSvg,
   codex: codexSvg,
-  gemini: geminiSvg
+  gemini: geminiSvg,
+  openai: openaiSvg
 }
 
 const custom: IconSet = {

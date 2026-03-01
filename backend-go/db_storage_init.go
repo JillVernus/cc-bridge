@@ -243,6 +243,7 @@ func ensureAPIKeysColumns(db database.DB) {
 		{"allowed_channels_msg", "TEXT"},
 		{"allowed_channels_resp", "TEXT"},
 		{"allowed_channels_gemini", "TEXT"},
+		{"allowed_channels_chat", "TEXT"},
 		{"allowed_models", "TEXT"},
 	}
 

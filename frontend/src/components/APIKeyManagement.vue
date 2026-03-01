@@ -204,7 +204,8 @@
               :items="[
                 { title: t('apiKeys.endpointMessages'), value: 'messages' },
                 { title: t('apiKeys.endpointResponses'), value: 'responses' },
-                { title: t('apiKeys.endpointGemini'), value: 'gemini' }
+                { title: t('apiKeys.endpointGemini'), value: 'gemini' },
+                { title: t('apiKeys.endpointChat'), value: 'chat' }
               ]"
               multiple
               chips
@@ -258,6 +259,20 @@
               :label="t('apiKeys.allowedChannelsGemini')"
               :hint="t('apiKeys.allowedChannelsGeminiHint')"
               :items="geminiChannels.map(c => ({ title: `[${c.index}] ${c.name}`, value: c.id }))"
+              multiple
+              chips
+              closable-chips
+              clearable
+              persistent-hint
+              class="mt-2"
+            />
+
+            <!-- Allowed Channels (Chat) -->
+            <v-select
+              v-model="form.allowedChannelsChat"
+              :label="t('apiKeys.allowedChannelsChat')"
+              :hint="t('apiKeys.allowedChannelsChatHint')"
+              :items="chatChannels.map(c => ({ title: `[${c.index}] ${c.name}`, value: c.id }))"
               multiple
               chips
               closable-chips
@@ -370,6 +385,7 @@ const deleting = ref(false)
 const messagesChannels = ref<Channel[]>([])
 const responsesChannels = ref<Channel[]>([])
 const geminiChannels = ref<Channel[]>([])
+const chatChannels = ref<Channel[]>([])
 
 // Dialog state
 const dialogOpen = ref(false)
@@ -398,6 +414,7 @@ const form = ref<FormState>({
   allowedChannelsMsg: [],
   allowedChannelsResp: [],
   allowedChannelsGemini: [],
+  allowedChannelsChat: [],
   allowedModels: [],
   allowedModelsText: ''
 })
@@ -450,14 +467,16 @@ const loadKeys = async () => {
 
 const loadChannels = async () => {
   try {
-    const [msgResp, respResp, gemResp] = await Promise.all([
+    const [msgResp, respResp, gemResp, chatResp] = await Promise.all([
       api.getChannels(),
       api.getResponsesChannels(),
-      api.getGeminiChannels()
+      api.getGeminiChannels(),
+      api.getChatChannels()
     ])
     messagesChannels.value = msgResp.channels || []
     responsesChannels.value = respResp.channels || []
     geminiChannels.value = gemResp.channels || []
+    chatChannels.value = chatResp.channels || []
   } catch (error) {
     console.error('Failed to load channels:', error)
   }
@@ -474,6 +493,7 @@ const openCreateDialog = () => {
     allowedChannelsMsg: [],
     allowedChannelsResp: [],
     allowedChannelsGemini: [],
+    allowedChannelsChat: [],
     allowedModels: [],
     allowedModelsText: ''
   }
@@ -491,6 +511,7 @@ const openEditDialog = (key: APIKey) => {
     allowedChannelsMsg: key.allowedChannelsMsg || [],
     allowedChannelsResp: key.allowedChannelsResp || [],
     allowedChannelsGemini: key.allowedChannelsGemini || [],
+    allowedChannelsChat: key.allowedChannelsChat || [],
     allowedModels: key.allowedModels || [],
     allowedModelsText: (key.allowedModels || []).join('\n')
   }
@@ -517,6 +538,7 @@ const saveKey = async () => {
         allowedChannelsMsg: form.value.allowedChannelsMsg,
         allowedChannelsResp: form.value.allowedChannelsResp,
         allowedChannelsGemini: form.value.allowedChannelsGemini,
+        allowedChannelsChat: form.value.allowedChannelsChat,
         allowedModels: allowedModels
       })
       showSnackbar(t('apiKeys.updateSuccess'), 'success')

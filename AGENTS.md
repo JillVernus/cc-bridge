@@ -1,34 +1,87 @@
-# Repository Guidelines
+# PROJECT KNOWLEDGE BASE
 
-## Project Structure & Module Organization
-- `backend-go/`: Go service (Gin), embeds built frontend, commands via `Makefile`; Go packages live under `internal/`.
-- `frontend/`: web UI (Vite + Vue 3). Built assets are embedded by the Go build.
-- Config and docs: `.env.example` in `backend-go/`, env guidance in `ENVIRONMENT.md`, architecture notes in `ARCHITECTURE.md`, dev flow in `DEVELOPMENT.md`.
+**Generated:** 2026-03-01 | **Commit:** fe7c23e | **Branch:** main
 
-## Build, Test, and Development Commands
-- Go backend: `cd backend-go && make dev` (hot reload with Air), `make build` (release binary), `make run` (go run), `make clean`.
-- Go testing: `cd backend-go && make test` (all packages), `make test-cover` (+ coverage artifacts).
-- Frontend: `cd frontend && bun install && bun run dev` (dev server), `bun run build` (production build).
-- Full build: `make run` (from root, builds frontend + runs backend).
-- Docker: `docker-compose up -d` uses `Dockerfile`/`Dockerfile_China`; keep `.env` aligned first.
+## OVERVIEW
 
-## Coding Style & Naming Conventions
-- Go: run `go fmt ./...`; prefer idiomatic Go naming (MixedCaps for exports, lowerCamel for locals); keep packages small and purpose-driven.
-- JS/TS: follow Prettier defaults (`bunx prettier .` if needed), TypeScript strictness from `tsconfig.json`.
-- Files: configs use `.env`/`.json`; avoid committing environment files; keep secrets out of VCS.
+CC-Bridge: Multi-provider AI proxy with OpenAI/Claude protocol conversion. Go 1.22 backend (Gin) + Vue 3 frontend (Vuetify). Single-binary deployment with embedded frontend.
 
-## Testing Guidelines
-- Default to Go tests; place new tests alongside code under `backend-go/internal/...` with `_test.go` suffix.
-- Aim to cover new handlers/middleware and upstream error paths; prefer table-driven tests and `httptest` utilities.
-- Use `make test-cover` to confirm regressions and inspect coverage (`coverage.html`).
-- For JS/TS additions, mirror existing test locations (none today—add lightweight unit tests if adding logic-heavy modules).
+## STRUCTURE
 
-## Commit & Pull Request Guidelines
-- Commits follow conventional prefixes seen in history (`feat:`, `fix:`, etc.); keep messages imperative and scoped.
-- PRs: describe intent, key changes, and risk; link issues; note breaking changes; include run/test commands executed.
-- UI changes: attach before/after screenshots or brief clip; backend behavior changes: include sample requests/responses when relevant.
+```
+cc-bridge/
+├── backend-go/           # Go service (see backend-go/AGENTS.md)
+│   └── internal/         # handlers/, providers/, converters/, config/, middleware/
+├── frontend/             # Vue 3 + Vuetify (see frontend/AGENTS.md)
+│   └── src/components/   # 19 Vue SFCs
+├── docs/                 # Implementation plans (yyyyMMdd-NN format)
+├── .config/              # Runtime: config.json, request_logs.db
+└── VERSION               # Single source of truth for version
+```
 
-## Security & Configuration Tips
-- Copy `backend-go/.env.example` to `.env` and set a strong `PROXY_ACCESS_KEY`; never commit populated `.env`.
-- Review `ENV` vs runtime modes (development vs production) and ensure ports/keys match deployment target.
-- Limit access logs and response logs in production when handling sensitive data; rotate keys stored in `.config/` appropriately.
+## WHERE TO LOOK
+
+| Task | Location | Notes |
+|------|----------|-------|
+| Add new upstream provider | `backend-go/internal/providers/` | Implement `Provider` interface |
+| Add protocol converter | `backend-go/internal/converters/` | Implement `ResponsesConverter` interface |
+| Add API endpoint | `backend-go/internal/handlers/` | Register in main.go routes |
+| Add middleware | `backend-go/internal/middleware/` | Chain in main.go |
+| Add Vue component | `frontend/src/components/` | Use Vuetify + Composition API |
+| Channel scheduling logic | `backend-go/internal/scheduler/` | Priority, circuit breaker, affinity |
+| Request logging | `backend-go/internal/requestlog/` | SQLite persistence |
+| API key management | `backend-go/internal/apikey/` | Permissions, quotas |
+
+## CONVENTIONS
+
+### Go Backend
+- `go fmt ./...` before commit
+- Table-driven tests with `t.Run()` subtests
+- Tests co-located: `*_test.go` alongside source
+- Handlers return `gin.HandlerFunc`
+- Config hot-reload via fsnotify (no restart needed)
+
+### Frontend
+- Prettier: no semicolons, single quotes, no trailing commas, 120 width
+- Vue 3 Composition API + `<script setup>`
+- Vuetify 3 components, Tailwind utilities
+- Bun package manager (`bun.lock`)
+
+### Versioning
+- Update `VERSION` file (root) — auto-injected into builds
+- Update `CHANGELOG.md` with conventional commit style
+
+## ANTI-PATTERNS (THIS PROJECT)
+
+- **NEVER** commit `.env` files (use `.env.example`)
+- **NEVER** use default `PROXY_ACCESS_KEY` in production
+- **DEPRECATED**: `ALLOW_INSECURE_DEPRECATED_KEY_PATH_ENDPOINTS` — keys in URL path
+- **AVOID**: CLAUDE.md files in source dirs (AI context, not docs)
+
+## COMMANDS
+
+```bash
+# Development
+cd backend-go && make dev     # Hot-reload (Air)
+cd frontend && bun run dev    # Vite dev server
+
+# Build
+make build                    # Full production build
+cd backend-go && make build   # Go binary with embedded frontend
+
+# Test
+cd backend-go && make test       # All tests
+cd backend-go && make test-cover # Coverage report (coverage.html)
+
+# Format
+go fmt ./...                  # Go
+bunx prettier .               # Frontend
+```
+
+## NOTES
+
+- Frontend embedded in Go binary via `//go:embed all:frontend/dist`
+- Config changes auto-reload; env changes need restart
+- Three API pools: Messages (`/v1/messages`), Responses (`/v1/responses`), Gemini (`/v1/gemini`)
+- Circuit breaker: 50% failure rate over 10 requests triggers 15min cooldown
+- Trace affinity: same user prefers same channel for 30min

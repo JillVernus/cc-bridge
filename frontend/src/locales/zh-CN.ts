@@ -635,7 +635,8 @@ export default {
       all: '全部',
       messages: 'Claude',
       responses: 'Codex',
-      gemini: 'Gemini'
+      gemini: 'Gemini',
+      chat: 'Chat'
     },
     view: {
       traffic: '流量',
@@ -742,6 +743,7 @@ export default {
     endpointMessages: 'Messages API (/v1/messages)',
     endpointResponses: 'Responses API (/v1/responses)',
     endpointGemini: 'Gemini API (/v1/gemini)',
+    endpointChat: 'Chat API (/v1/chat/completions)',
     endpointMessagesCurrentChannel: 'Messages 当前渠道 API (/api/messages/channels/current)',
     endpointMessagesCurrentChannelHint: '允许此密钥调用 /api/messages/channels/current',
     allowedModels: '允许的模型',
@@ -752,6 +754,8 @@ export default {
     allowedChannelsRespHint: '选择此密钥可用于 Responses API 的渠道',
     allowedChannelsGemini: '允许的渠道 (Gemini)',
     allowedChannelsGeminiHint: '选择此密钥可用于 Gemini API 的渠道',
+    allowedChannelsChat: '允许的渠道 (Chat)',
+    allowedChannelsChatHint: '选择此密钥可用于 Chat Completions API 的渠道',
     allChannels: '全部渠道',
     allModels: '全部模型',
     allEndpoints: '全部端点',

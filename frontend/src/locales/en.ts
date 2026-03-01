@@ -644,7 +644,8 @@ export default {
       all: 'All',
       messages: 'Claude',
       responses: 'Codex',
-      gemini: 'Gemini'
+      gemini: 'Gemini',
+      chat: 'Chat'
     },
     view: {
       traffic: 'Traffic',
@@ -751,6 +752,7 @@ export default {
     endpointMessages: 'Messages API (/v1/messages)',
     endpointResponses: 'Responses API (/v1/responses)',
     endpointGemini: 'Gemini API (/v1/gemini)',
+    endpointChat: 'Chat API (/v1/chat/completions)',
     endpointMessagesCurrentChannel: 'Messages Current Channel API (/api/messages/channels/current)',
     endpointMessagesCurrentChannelHint: 'Allow this key to call /api/messages/channels/current',
     allowedModels: 'Allowed Models',
@@ -761,6 +763,8 @@ export default {
     allowedChannelsRespHint: 'Select channels this key can use for Responses API',
     allowedChannelsGemini: 'Allowed Channels (Gemini)',
     allowedChannelsGeminiHint: 'Select channels this key can use for Gemini API',
+    allowedChannelsChat: 'Allowed Channels (Chat)',
+    allowedChannelsChatHint: 'Select channels this key can use for Chat Completions API',
     allChannels: 'All Channels',
     allModels: 'All Models',
     allEndpoints: 'All Endpoints',

@@ -97,6 +97,7 @@ func (m *Manager) initSchema() error {
 		"allowed_channels_msg TEXT",
 		"allowed_channels_resp TEXT",
 		"allowed_channels_gemini TEXT",
+		"allowed_channels_chat TEXT",
 		"allowed_models TEXT",
 	}
 	for _, col := range permissionColumns {
@@ -125,7 +126,7 @@ func (m *Manager) refreshCache() error {
 
 	query := `
 		SELECT id, name, key_hash, is_admin, rate_limit_rpm,
-			   allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_channels_gemini, allowed_models
+			   allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_channels_gemini, allowed_channels_chat, allowed_models
 		FROM api_keys
 		WHERE status = ?
 	`
@@ -141,10 +142,10 @@ func (m *Manager) refreshCache() error {
 		var name, keyHash string
 		var isAdmin bool
 		var rateLimitRPM int
-		var allowedEndpoints, allowedChannelsMsg, allowedChannelsResp, allowedChannelsGemini, allowedModels sql.NullString
+		var allowedEndpoints, allowedChannelsMsg, allowedChannelsResp, allowedChannelsGemini, allowedChannelsChat, allowedModels sql.NullString
 
 		if err := rows.Scan(&id, &name, &keyHash, &isAdmin, &rateLimitRPM,
-			&allowedEndpoints, &allowedChannelsMsg, &allowedChannelsResp, &allowedChannelsGemini, &allowedModels); err != nil {
+			&allowedEndpoints, &allowedChannelsMsg, &allowedChannelsResp, &allowedChannelsGemini, &allowedChannelsChat, &allowedModels); err != nil {
 			return err
 		}
 		newCache[keyHash] = &ValidatedKey{
@@ -156,6 +157,7 @@ func (m *Manager) refreshCache() error {
 			AllowedChannelsMsg:    m.unmarshalChannelIDs(allowedChannelsMsg, "messages"),
 			AllowedChannelsResp:   m.unmarshalChannelIDs(allowedChannelsResp, "responses"),
 			AllowedChannelsGemini: m.unmarshalChannelIDs(allowedChannelsGemini, "gemini"),
+			AllowedChannelsChat:   m.unmarshalChannelIDs(allowedChannelsChat, "chat"),
 			AllowedModels:         unmarshalStringSlice(allowedModels),
 		}
 	}
@@ -207,6 +209,7 @@ func (m *Manager) Create(req *CreateAPIKeyRequest) (*CreateAPIKeyResponse, error
 	allowedChannelsMsg := marshalJSONNullable(req.AllowedChannelsMsg)
 	allowedChannelsResp := marshalJSONNullable(req.AllowedChannelsResp)
 	allowedChannelsGemini := marshalJSONNullable(req.AllowedChannelsGemini)
+	allowedChannelsChat := marshalJSONNullable(req.AllowedChannelsChat)
 	allowedModels := marshalJSONNullable(req.AllowedModels)
 
 	var id int64
@@ -215,24 +218,24 @@ func (m *Manager) Create(req *CreateAPIKeyRequest) (*CreateAPIKeyResponse, error
 		// PostgreSQL doesn't support LastInsertId(), use RETURNING instead
 		query := `
 			INSERT INTO api_keys (name, key_hash, key_prefix, description, status, is_admin, rate_limit_rpm,
-				allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_channels_gemini, allowed_models,
+				allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_channels_gemini, allowed_channels_chat, allowed_models,
 				created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 			RETURNING id
 		`
 		err = m.db.QueryRow(query, req.Name, keyHash, keyPrefixStr, req.Description, StatusActive, req.IsAdmin, req.RateLimitRPM,
-			allowedEndpoints, allowedChannelsMsg, allowedChannelsResp, allowedChannelsGemini, allowedModels, now, now).Scan(&id)
+			allowedEndpoints, allowedChannelsMsg, allowedChannelsResp, allowedChannelsGemini, allowedChannelsChat, allowedModels, now, now).Scan(&id)
 		if err != nil {
 			return nil, fmt.Errorf("failed to insert API key: %w", err)
 		}
 	} else {
 		result, err := m.db.Exec(`
 			INSERT INTO api_keys (name, key_hash, key_prefix, description, status, is_admin, rate_limit_rpm,
-				allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_channels_gemini, allowed_models,
+				allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_channels_gemini, allowed_channels_chat, allowed_models,
 				created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, req.Name, keyHash, keyPrefixStr, req.Description, StatusActive, req.IsAdmin, req.RateLimitRPM,
-			allowedEndpoints, allowedChannelsMsg, allowedChannelsResp, allowedChannelsGemini, allowedModels, now, now)
+			allowedEndpoints, allowedChannelsMsg, allowedChannelsResp, allowedChannelsGemini, allowedChannelsChat, allowedModels, now, now)
 		if err != nil {
 			return nil, fmt.Errorf("failed to insert API key: %w", err)
 		}
@@ -254,6 +257,7 @@ func (m *Manager) Create(req *CreateAPIKeyRequest) (*CreateAPIKeyResponse, error
 		AllowedChannelsMsg:    req.AllowedChannelsMsg,
 		AllowedChannelsResp:   req.AllowedChannelsResp,
 		AllowedChannelsGemini: req.AllowedChannelsGemini,
+		AllowedChannelsChat:   req.AllowedChannelsChat,
 		AllowedModels:         req.AllowedModels,
 	}
 	m.mu.Unlock()
@@ -271,6 +275,7 @@ func (m *Manager) Create(req *CreateAPIKeyRequest) (*CreateAPIKeyResponse, error
 			AllowedChannelsMsg:    req.AllowedChannelsMsg,
 			AllowedChannelsResp:   req.AllowedChannelsResp,
 			AllowedChannelsGemini: req.AllowedChannelsGemini,
+			AllowedChannelsChat:   req.AllowedChannelsChat,
 			AllowedModels:         req.AllowedModels,
 			CreatedAt:             now,
 			UpdatedAt:             now,
@@ -285,16 +290,16 @@ func (m *Manager) GetByID(id int64) (*APIKey, error) {
 	var createdAt, updatedAt string
 	var lastUsedAt sql.NullString
 	var description sql.NullString
-	var allowedEndpoints, allowedChannelsMsg, allowedChannelsResp, allowedChannelsGemini, allowedModels sql.NullString
+	var allowedEndpoints, allowedChannelsMsg, allowedChannelsResp, allowedChannelsGemini, allowedChannelsChat, allowedModels sql.NullString
 
 	err := m.db.QueryRow(m.convertQuery(`
 		SELECT id, name, key_prefix, description, status, is_admin, rate_limit_rpm,
-			   allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_channels_gemini, allowed_models,
+			   allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_channels_gemini, allowed_channels_chat, allowed_models,
 			   created_at, updated_at, last_used_at
 		FROM api_keys
 		WHERE id = ?
 	`), id).Scan(&key.ID, &key.Name, &key.KeyPrefix, &description, &key.Status, &key.IsAdmin, &key.RateLimitRPM,
-		&allowedEndpoints, &allowedChannelsMsg, &allowedChannelsResp, &allowedChannelsGemini, &allowedModels,
+		&allowedEndpoints, &allowedChannelsMsg, &allowedChannelsResp, &allowedChannelsGemini, &allowedChannelsChat, &allowedModels,
 		&createdAt, &updatedAt, &lastUsedAt)
 
 	if err == sql.ErrNoRows {
@@ -319,6 +324,7 @@ func (m *Manager) GetByID(id int64) (*APIKey, error) {
 	key.AllowedChannelsMsg = m.unmarshalChannelIDs(allowedChannelsMsg, "messages")
 	key.AllowedChannelsResp = m.unmarshalChannelIDs(allowedChannelsResp, "responses")
 	key.AllowedChannelsGemini = m.unmarshalChannelIDs(allowedChannelsGemini, "gemini")
+	key.AllowedChannelsChat = m.unmarshalChannelIDs(allowedChannelsChat, "chat")
 	key.AllowedModels = unmarshalStringSlice(allowedModels)
 
 	return &key, nil
@@ -359,7 +365,7 @@ func (m *Manager) List(filter *APIKeyFilter) (*APIKeyListResponse, error) {
 	// Get records
 	query := m.convertQuery(fmt.Sprintf(`
 		SELECT id, name, key_prefix, description, status, is_admin, rate_limit_rpm,
-			   allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_channels_gemini, allowed_models,
+			   allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_channels_gemini, allowed_channels_chat, allowed_models,
 			   created_at, updated_at, last_used_at
 		FROM api_keys
 		%s
@@ -381,10 +387,10 @@ func (m *Manager) List(filter *APIKeyFilter) (*APIKeyListResponse, error) {
 		var createdAt, updatedAt string
 		var lastUsedAt sql.NullString
 		var description sql.NullString
-		var allowedEndpoints, allowedChannelsMsg, allowedChannelsResp, allowedChannelsGemini, allowedModels sql.NullString
+		var allowedEndpoints, allowedChannelsMsg, allowedChannelsResp, allowedChannelsGemini, allowedChannelsChat, allowedModels sql.NullString
 
 		err := rows.Scan(&key.ID, &key.Name, &key.KeyPrefix, &description, &key.Status, &key.IsAdmin, &key.RateLimitRPM,
-			&allowedEndpoints, &allowedChannelsMsg, &allowedChannelsResp, &allowedChannelsGemini, &allowedModels,
+			&allowedEndpoints, &allowedChannelsMsg, &allowedChannelsResp, &allowedChannelsGemini, &allowedChannelsChat, &allowedModels,
 			&createdAt, &updatedAt, &lastUsedAt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan API key: %w", err)
@@ -405,6 +411,7 @@ func (m *Manager) List(filter *APIKeyFilter) (*APIKeyListResponse, error) {
 		key.AllowedChannelsMsg = m.unmarshalChannelIDs(allowedChannelsMsg, "messages")
 		key.AllowedChannelsResp = m.unmarshalChannelIDs(allowedChannelsResp, "responses")
 		key.AllowedChannelsGemini = m.unmarshalChannelIDs(allowedChannelsGemini, "gemini")
+		key.AllowedChannelsChat = m.unmarshalChannelIDs(allowedChannelsChat, "chat")
 		key.AllowedModels = unmarshalStringSlice(allowedModels)
 
 		keys = append(keys, key)
@@ -456,6 +463,11 @@ func (m *Manager) Update(id int64, req *UpdateAPIKeyRequest) (*APIKey, error) {
 	if req.AllowedChannelsGemini != nil {
 		updates = append(updates, "allowed_channels_gemini = ?")
 		args = append(args, marshalJSONNullable(*req.AllowedChannelsGemini))
+		permissionsChanged = true
+	}
+	if req.AllowedChannelsChat != nil {
+		updates = append(updates, "allowed_channels_chat = ?")
+		args = append(args, marshalJSONNullable(*req.AllowedChannelsChat))
 		permissionsChanged = true
 	}
 	if req.AllowedModels != nil {
@@ -614,15 +626,15 @@ func (m *Manager) Validate(key string) *ValidatedKey {
 	var name, status string
 	var isAdmin bool
 	var rateLimitRPM int
-	var allowedEndpoints, allowedChannelsMsg, allowedChannelsResp, allowedChannelsGemini, allowedModels sql.NullString
+	var allowedEndpoints, allowedChannelsMsg, allowedChannelsResp, allowedChannelsGemini, allowedChannelsChat, allowedModels sql.NullString
 
 	err := m.db.QueryRow(m.convertQuery(`
 		SELECT id, name, status, is_admin, rate_limit_rpm,
-			   allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_channels_gemini, allowed_models
+			   allowed_endpoints, allowed_channels_msg, allowed_channels_resp, allowed_channels_gemini, allowed_channels_chat, allowed_models
 		FROM api_keys
 		WHERE key_hash = ?
 	`), keyHash).Scan(&id, &name, &status, &isAdmin, &rateLimitRPM,
-		&allowedEndpoints, &allowedChannelsMsg, &allowedChannelsResp, &allowedChannelsGemini, &allowedModels)
+		&allowedEndpoints, &allowedChannelsMsg, &allowedChannelsResp, &allowedChannelsGemini, &allowedChannelsChat, &allowedModels)
 
 	if err != nil || status != StatusActive {
 		return nil
@@ -637,6 +649,7 @@ func (m *Manager) Validate(key string) *ValidatedKey {
 		AllowedChannelsMsg:    m.unmarshalChannelIDs(allowedChannelsMsg, "messages"),
 		AllowedChannelsResp:   m.unmarshalChannelIDs(allowedChannelsResp, "responses"),
 		AllowedChannelsGemini: m.unmarshalChannelIDs(allowedChannelsGemini, "gemini"),
+		AllowedChannelsChat:   m.unmarshalChannelIDs(allowedChannelsChat, "chat"),
 		AllowedModels:         unmarshalStringSlice(allowedModels),
 	}
 

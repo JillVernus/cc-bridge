@@ -84,7 +84,7 @@ const { t } = useI18n()
 // Props
 const props = defineProps<{
   channelId: number
-  channelType: 'messages' | 'responses' | 'gemini'
+  channelType: 'messages' | 'responses' | 'gemini' | 'chat'
 }>()
 
 // Emits
@@ -323,7 +323,9 @@ const refreshData = async (isAutoRefresh = false) => {
         ? '/v1/responses'
         : props.channelType === 'gemini'
           ? '/v1/gemini'
-          : '/v1/messages'
+          : props.channelType === 'chat'
+            ? '/v1/chat/completions'
+            : '/v1/messages'
     const newData = await api.getChannelStatsHistory(props.channelId, selectedDuration.value, endpoint)
 
     // Check if we can use updateSeries for smooth update

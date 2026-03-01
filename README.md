@@ -29,6 +29,13 @@ Then visit http://localhost:3000 and enter your key.
 
 ### Core Features
 - **All-in-One**: Backend + Frontend in single container (replaces Nginx)
+- **Quad API**: Claude Messages (`/v1/messages`) + Codex Responses (`/v1/responses`) + Gemini (`/v1/gemini`) + OpenAI Chat (`/v1/chat/completions`)
+- **Protocol Conversion**: Auto-convert between Claude/OpenAI/Gemini formats
+- **Multi-Provider**: OpenAI, Claude, Gemini, and compatible APIs
+- **Smart Scheduling**: Priority routing, health checks, auto circuit-breaker
+- **Load Balancing**: Round-robin, random, failover strategies
+- **Hot Reload**: Config changes apply without restart
+- **All-in-One**: Backend + Frontend in single container (replaces Nginx)
 - **Dual API**: Claude Messages API (`/v1/messages`) + Codex Responses API (`/v1/responses`)
 - **Protocol Conversion**: Auto-convert between Claude/OpenAI formats
 - **Multi-Provider**: OpenAI, Claude, and compatible APIs
@@ -45,11 +52,13 @@ Then visit http://localhost:3000 and enter your key.
 
 ```
 User → Backend:3000 →
-     ├─ /           → Web UI (requires key)
-     ├─ /api/*      → Admin API (requires key)
-     ├─ /v1/messages   → Claude Messages API (requires key)
-     ├─ /v1/responses  → Codex Responses API (requires key)
-     └─ /health     → Health check (public)
+     ├─ /               → Web UI (requires key)
+     ├─ /api/*          → Admin API (requires key)
+     ├─ /v1/messages    → Claude Messages API (requires key)
+     ├─ /v1/responses   → Codex Responses API (requires key)
+     ├─ /v1/gemini/*    → Gemini API (requires key)
+     ├─ /v1/chat/completions → OpenAI Chat API (requires key)
+     └─ /health         → Health check (public)
 ```
 
 ## Installation

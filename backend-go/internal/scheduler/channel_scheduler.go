@@ -32,12 +32,14 @@ type ChannelScheduler struct {
 	messagesMetricsManager  *metrics.MetricsManager // Messages 渠道指标
 	responsesMetricsManager *metrics.MetricsManager // Responses 渠道指标
 	geminiMetricsManager    *metrics.MetricsManager // Gemini 渠道指标
+	chatMetricsManager      *metrics.MetricsManager // Chat 渠道指标
 	traceAffinity           *session.TraceAffinityManager
 	suspensionChecker       SuspensionChecker // For checking quota channel suspension
 	// Round-robin counters for channel-level load balancing
 	messagesRoundRobinCounter  int
 	responsesRoundRobinCounter int
 	geminiRoundRobinCounter    int
+	chatRoundRobinCounter      int
 }
 
 // NewChannelScheduler 创建多渠道调度器
@@ -52,6 +54,7 @@ func NewChannelScheduler(
 		messagesMetricsManager:  messagesMetrics,
 		responsesMetricsManager: responsesMetrics,
 		geminiMetricsManager:    metrics.NewMetricsManager(), // Create dedicated Gemini metrics
+		chatMetricsManager:      metrics.NewMetricsManager(), // Create dedicated Chat metrics
 		traceAffinity:           traceAffinity,
 	}
 }
@@ -1091,4 +1094,244 @@ func (s *ChannelScheduler) GetActiveGeminiChannelCount() int {
 // IsGeminiMultiChannelMode returns true if there are multiple active Gemini channels
 func (s *ChannelScheduler) IsGeminiMultiChannelMode() bool {
 	return s.GetActiveGeminiChannelCount() > 1
+}
+
+// ==================== Chat Channel Methods ====================
+
+// ChannelInfo for Chat channels
+type ChatChannelInfo struct {
+	Index    int
+	Name     string
+	Status   string
+	Priority int
+}
+
+// SelectChatChannel 选择 Chat 渠道
+func (s *ChannelScheduler) SelectChatChannel(
+	ctx context.Context,
+	failedChannels map[int]bool,
+	allowedChannels []string,
+) (*SelectionResult, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Get active Chat channels
+	activeChannels := s.getActiveChatChannels()
+	if len(activeChannels) == 0 {
+		return nil, fmt.Errorf("no active Chat channels available")
+	}
+
+	// Filter by allowed channels if specified (by channel ID)
+	if len(allowedChannels) > 0 {
+		allowedSet := make(map[string]bool)
+		for _, id := range allowedChannels {
+			allowedSet[id] = true
+		}
+		var filtered []ChannelInfo
+		for _, ch := range activeChannels {
+			if allowedSet[ch.ID] {
+				filtered = append(filtered, ch)
+			}
+		}
+		if len(filtered) == 0 {
+			return nil, fmt.Errorf("%w (allowed channels: %v)", ErrNoAllowedChannels, allowedChannels)
+		}
+		activeChannels = filtered
+	}
+
+	// Remove failed channels
+	var availableChannels []ChannelInfo
+	for _, ch := range activeChannels {
+		if !failedChannels[ch.Index] {
+			availableChannels = append(availableChannels, ch)
+		}
+	}
+	if len(availableChannels) == 0 {
+		return nil, fmt.Errorf("all Chat channels have failed")
+	}
+
+	// Use priority-based selection
+	cfg := s.configManager.GetConfig()
+	strategy := cfg.ChatLoadBalance
+	if strategy == "" {
+		strategy = "failover"
+	}
+	orderedChannels := s.orderChatChannelsByStrategy(availableChannels, strategy)
+
+	// Select first available healthy channel
+	for _, ch := range orderedChannels {
+		// Check if suspended
+		if suspended, _, _ := s.isChatChannelSuspended(ch.Index); suspended {
+			continue
+		}
+		// Check if healthy (circuit breaker)
+		if !s.chatMetricsManager.IsChannelHealthyByIdentity(ch.Index, ch.ID) {
+			continue
+		}
+		upstream := s.getChatUpstreamByIndex(ch.Index)
+		if upstream != nil && len(upstream.APIKeys) > 0 {
+			return &SelectionResult{
+				Upstream:     upstream,
+				ChannelIndex: ch.Index,
+				Reason:       "chat_priority",
+			}, nil
+		}
+	}
+
+	// Fallback: return first available even if unhealthy
+	for _, ch := range orderedChannels {
+		upstream := s.getChatUpstreamByIndex(ch.Index)
+		if upstream != nil && len(upstream.APIKeys) > 0 {
+			return &SelectionResult{
+				Upstream:     upstream,
+				ChannelIndex: ch.Index,
+				Reason:       "chat_fallback",
+			}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no usable Chat channel found")
+}
+
+// getActiveChatChannels returns active Chat channels
+func (s *ChannelScheduler) getActiveChatChannels() []ChannelInfo {
+	cfg := s.configManager.GetConfig()
+	var channels []ChannelInfo
+
+	for i, upstream := range cfg.ChatUpstream {
+		status := config.GetChannelStatus(&upstream)
+		if status == "active" || status == "" {
+			channels = append(channels, ChannelInfo{
+				Index:    i,
+				ID:       upstream.ID,
+				Name:     upstream.Name,
+				Status:   status,
+				Priority: config.GetChannelPriority(&upstream, i),
+			})
+		}
+	}
+
+	return channels
+}
+
+// getChatUpstreamByIndex gets Chat upstream by index
+func (s *ChannelScheduler) getChatUpstreamByIndex(index int) *config.UpstreamConfig {
+	cfg := s.configManager.GetConfig()
+	if index < 0 || index >= len(cfg.ChatUpstream) {
+		return nil
+	}
+	upstream := cfg.ChatUpstream[index]
+	return &upstream
+}
+
+// orderChatChannelsByStrategy orders Chat channels by strategy
+func (s *ChannelScheduler) orderChatChannelsByStrategy(channels []ChannelInfo, strategy string) []ChannelInfo {
+	result := make([]ChannelInfo, len(channels))
+	copy(result, channels)
+
+	switch strategy {
+	case "round-robin":
+		// Rotate based on counter
+		if len(result) > 0 {
+			s.chatRoundRobinCounter = (s.chatRoundRobinCounter + 1) % len(result)
+			rotated := make([]ChannelInfo, len(result))
+			for i := range result {
+				rotated[i] = result[(i+s.chatRoundRobinCounter)%len(result)]
+			}
+			result = rotated
+		}
+	case "random":
+		// Shuffle
+		rand.Shuffle(len(result), func(i, j int) {
+			result[i], result[j] = result[j], result[i]
+		})
+	default: // "failover" or priority-based
+		// Sort by priority (lower = higher priority)
+		sort.Slice(result, func(i, j int) bool {
+			return result[i].Priority < result[j].Priority
+		})
+	}
+
+	return result
+}
+
+// isChatChannelSuspended checks if a Chat channel is suspended
+func (s *ChannelScheduler) isChatChannelSuspended(channelIndex int) (bool, time.Time, string) {
+	if s.suspensionChecker == nil {
+		return false, time.Time{}, ""
+	}
+	return s.suspensionChecker.IsChannelSuspended(channelIndex, "chat")
+}
+
+func (s *ChannelScheduler) getChatChannelIdentityByIndex(index int) (string, string) {
+	upstream := s.getChatUpstreamByIndex(index)
+	if upstream == nil {
+		return "", ""
+	}
+	return strings.TrimSpace(upstream.ID), strings.TrimSpace(upstream.Name)
+}
+
+// RecordChatSuccess records success for Chat channel
+func (s *ChannelScheduler) RecordChatSuccess(channelIndex int) {
+	s.RecordChatSuccessWithStatus(channelIndex, 0)
+}
+
+// RecordChatSuccessWithStatus records success for Chat channel (optional status code)
+func (s *ChannelScheduler) RecordChatSuccessWithStatus(channelIndex int, statusCode int) {
+	s.RecordChatSuccessWithStatusDetail(channelIndex, statusCode, "", "")
+}
+
+// RecordChatSuccessWithStatusDetail records success for Chat channel (optional status code/model/channel name)
+func (s *ChannelScheduler) RecordChatSuccessWithStatusDetail(channelIndex int, statusCode int, model, channelName string, routedChannelName ...string) {
+	channelID, fallbackName := s.getChatChannelIdentityByIndex(channelIndex)
+	ownerName := strings.TrimSpace(channelName)
+	if ownerName == "" {
+		ownerName = fallbackName
+	}
+	s.chatMetricsManager.RecordSuccessWithStatusDetailByIdentity(channelIndex, channelID, statusCode, model, ownerName, routedChannelName...)
+}
+
+// RecordChatFailure records failure for Chat channel
+func (s *ChannelScheduler) RecordChatFailure(channelIndex int) {
+	s.RecordChatFailureWithStatus(channelIndex, 0)
+}
+
+// RecordChatFailureWithStatus records failure for Chat channel (optional status code)
+func (s *ChannelScheduler) RecordChatFailureWithStatus(channelIndex int, statusCode int) {
+	s.RecordChatFailureWithStatusDetail(channelIndex, statusCode, "", "")
+}
+
+// RecordChatFailureWithStatusDetail records failure for Chat channel (optional status code/model/channel name)
+func (s *ChannelScheduler) RecordChatFailureWithStatusDetail(channelIndex int, statusCode int, model, channelName string, routedChannelName ...string) {
+	channelID, fallbackName := s.getChatChannelIdentityByIndex(channelIndex)
+	ownerName := strings.TrimSpace(channelName)
+	if ownerName == "" {
+		ownerName = fallbackName
+	}
+	s.chatMetricsManager.RecordFailureWithStatusDetailByIdentity(channelIndex, channelID, statusCode, model, ownerName, routedChannelName...)
+}
+
+// ResetChatChannelMetrics resets metrics for a Chat channel
+func (s *ChannelScheduler) ResetChatChannelMetrics(channelIndex int) {
+	channelID, _ := s.getChatChannelIdentityByIndex(channelIndex)
+	if channelID != "" {
+		s.chatMetricsManager.ResetByIdentity(channelIndex, channelID)
+		return
+	}
+	s.chatMetricsManager.Reset(channelIndex)
+}
+
+// GetChatMetricsManager returns the Chat metrics manager
+func (s *ChannelScheduler) GetChatMetricsManager() *metrics.MetricsManager {
+	return s.chatMetricsManager
+}
+
+// GetActiveChatChannelCount returns the number of active Chat channels
+func (s *ChannelScheduler) GetActiveChatChannelCount() int {
+	return len(s.getActiveChatChannels())
+}
+
+// IsChatMultiChannelMode returns true if there are multiple active Chat channels
+func (s *ChannelScheduler) IsChatMultiChannelMode() bool {
+	return s.GetActiveChatChannelCount() > 1
 }

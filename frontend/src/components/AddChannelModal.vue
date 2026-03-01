@@ -1337,7 +1337,7 @@ const { t } = useI18n()
 interface Props {
   show: boolean
   channel?: Channel | null
-  channelType?: 'messages' | 'responses' | 'gemini'
+  channelType?: 'messages' | 'responses' | 'gemini' | 'chat'
   allChannels?: Channel[]
 }
 
@@ -1440,6 +1440,9 @@ const getDefaultServiceType = (): string => {
   if (props.channelType === 'gemini') {
     return 'Gemini'
   }
+  if (props.channelType === 'chat') {
+    return 'OpenAI'
+  }
   return 'Claude'
 }
 
@@ -1451,6 +1454,9 @@ const getDefaultServiceTypeValue = (): 'openai' | 'openai_chat' | 'openaiold' | 
   if (props.channelType === 'gemini') {
     return 'gemini'
   }
+  if (props.channelType === 'chat') {
+    return 'openai'
+  }
   return 'claude'
 }
 
@@ -1461,6 +1467,9 @@ const getDefaultBaseUrl = (): string => {
   }
   if (props.channelType === 'gemini') {
     return 'https://generativelanguage.googleapis.com/v1beta'
+  }
+  if (props.channelType === 'chat') {
+    return 'https://api.openai.com/v1'
   }
   return 'https://api.anthropic.com'
 }

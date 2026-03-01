@@ -533,7 +533,7 @@ class ApiService {
   }
 
   // 获取调度器统计信息
-  async getSchedulerStats(type?: 'messages' | 'responses' | 'gemini'): Promise<{
+  async getSchedulerStats(type?: 'messages' | 'responses' | 'gemini' | 'chat'): Promise<{
     multiChannelMode: boolean
     activeChannelCount: number
     traceAffinityCount: number
@@ -544,6 +544,7 @@ class ApiService {
     let query = ''
     if (type === 'responses') query = '?type=responses'
     else if (type === 'gemini') query = '?type=gemini'
+    else if (type === 'chat') query = '?type=chat'
     return this.request(`/channels/scheduler/stats${query}`)
   }
 
@@ -658,6 +659,73 @@ class ApiService {
   // 获取 Gemini 渠道指标
   async getGeminiChannelMetrics(): Promise<ChannelMetrics[]> {
     return this.request('/gemini/channels/metrics')
+  }
+
+  // ============== Chat (OpenAI Chat Completions) 渠道管理 API ==============
+
+  async getChatChannels(): Promise<ChannelsResponse> {
+    return this.request('/chat/channels')
+  }
+
+  async addChatChannel(channel: Omit<Channel, 'index' | 'latency' | 'status'>): Promise<void> {
+    await this.request('/chat/channels', {
+      method: 'POST',
+      body: JSON.stringify(channel)
+    })
+  }
+
+  async updateChatChannel(id: number, channel: Partial<Channel>): Promise<void> {
+    await this.request(`/chat/channels/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(channel)
+    })
+  }
+
+  async deleteChatChannel(id: number): Promise<void> {
+    await this.request(`/chat/channels/${id}`, {
+      method: 'DELETE'
+    })
+  }
+
+  async addChatApiKey(channelId: number, apiKey: string): Promise<void> {
+    await this.request(`/chat/channels/${channelId}/keys`, {
+      method: 'POST',
+      body: JSON.stringify({ apiKey })
+    })
+  }
+
+  async removeChatApiKeyByIndex(channelId: number, keyIndex: number): Promise<void> {
+    await this.request(`/chat/channels/${channelId}/keys/index/${keyIndex}`, {
+      method: 'DELETE'
+    })
+  }
+
+  // 重新排序 Chat 渠道优先级
+  async reorderChatChannels(order: number[]): Promise<void> {
+    await this.request('/chat/channels/reorder', {
+      method: 'POST',
+      body: JSON.stringify({ order })
+    })
+  }
+
+  // 设置 Chat 渠道状态
+  async setChatChannelStatus(channelId: number, status: ChannelStatus): Promise<void> {
+    await this.request(`/chat/channels/${channelId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status })
+    })
+  }
+
+  // 获取 Chat 渠道指标
+  async getChatChannelMetrics(): Promise<ChannelMetrics[]> {
+    return this.request('/chat/channels/metrics')
+  }
+
+  async updateChatLoadBalance(strategy: string): Promise<void> {
+    await this.request('/chat/loadbalance', {
+      method: 'PUT',
+      body: JSON.stringify({ strategy })
+    })
   }
 
   // ============== 请求日志 API ==============
@@ -1359,6 +1427,7 @@ export interface APIKey {
   allowedChannelsMsg?: string[] // stable channel IDs for /v1/messages
   allowedChannelsResp?: string[] // stable channel IDs for /v1/responses
   allowedChannelsGemini?: string[] // stable channel IDs for /v1/gemini (GeminiUpstream)
+  allowedChannelsChat?: string[] // stable channel IDs for /v1/chat/completions (ChatUpstream)
   allowedModels?: string[] // glob patterns: ["claude-sonnet-*"]
 }
 
@@ -1372,6 +1441,7 @@ export interface CreateAPIKeyRequest {
   allowedChannelsMsg?: string[]
   allowedChannelsResp?: string[]
   allowedChannelsGemini?: string[]
+  allowedChannelsChat?: string[]
   allowedModels?: string[]
 }
 
@@ -1388,6 +1458,7 @@ export interface UpdateAPIKeyRequest {
   allowedChannelsMsg?: string[]
   allowedChannelsResp?: string[]
   allowedChannelsGemini?: string[]
+  allowedChannelsChat?: string[]
   allowedModels?: string[]
 }
 

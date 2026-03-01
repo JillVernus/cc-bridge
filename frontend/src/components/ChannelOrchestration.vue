@@ -618,7 +618,7 @@ const { t } = useI18n()
 const props = defineProps<{
   channels: Channel[]
   currentChannelIndex: number
-  channelType: 'messages' | 'responses' | 'gemini'
+  channelType: 'messages' | 'responses' | 'gemini' | 'chat'
 }>()
 
 const emit = defineEmits<{
@@ -1022,6 +1022,8 @@ const refreshMetrics = async () => {
       metricsPromise = api.getChannelMetrics()
     } else if (requestedType === 'responses') {
       metricsPromise = api.getResponsesChannelMetrics()
+    } else if (requestedType === 'chat') {
+      metricsPromise = api.getChatChannelMetrics()
     } else {
       metricsPromise = api.getGeminiChannelMetrics()
     }
@@ -1061,6 +1063,8 @@ const saveOrder = async () => {
       await api.reorderChannels(order)
     } else if (props.channelType === 'responses') {
       await api.reorderResponsesChannels(order)
+    } else if (props.channelType === 'chat') {
+      await api.reorderChatChannels(order)
     } else {
       await api.reorderGeminiChannels(order)
     }
@@ -1083,6 +1087,8 @@ const setChannelStatus = async (channelId: number, status: ChannelStatus) => {
       await api.setChannelStatus(channelId, status)
     } else if (props.channelType === 'responses') {
       await api.setResponsesChannelStatus(channelId, status)
+    } else if (props.channelType === 'chat') {
+      await api.setChatChannelStatus(channelId, status)
     } else {
       await api.setGeminiChannelStatus(channelId, status)
     }
@@ -1114,11 +1120,11 @@ const resumeChannel = async (channelId: number) => {
   }
 }
 
-// 设置渠道促销期（抢优先级）- Gemini不支持促销期
+// 设置渠道促销期（抢优先级）- Gemini/Chat不支持促销期
 const setPromotion = async (channel: Channel) => {
-  if (props.channelType === 'gemini') {
-    // Gemini doesn't support promotion period
-    emit('error', 'Promotion not supported for Gemini channels')
+  if (props.channelType === 'gemini' || props.channelType === 'chat') {
+    // Gemini/Chat doesn't support promotion period
+    emit('error', 'Promotion not supported for Gemini/Chat channels')
     return
   }
   try {

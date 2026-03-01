@@ -82,7 +82,7 @@ func (vk *ValidatedKey) CheckModelPermission(model string) bool {
 }
 
 // GetAllowedChannelsByType returns allowed channel IDs for a given endpoint type.
-// Valid channelType values: "messages", "responses", "gemini".
+// Valid channelType values: "messages", "responses", "gemini", "chat".
 // Returns nil if all channels are allowed.
 func (vk *ValidatedKey) GetAllowedChannelsByType(channelType string) []string {
 	if vk == nil {
@@ -94,6 +94,8 @@ func (vk *ValidatedKey) GetAllowedChannelsByType(channelType string) []string {
 		return vk.AllowedChannelsResp
 	case "gemini":
 		return vk.AllowedChannelsGemini
+	case "chat":
+		return vk.AllowedChannelsChat
 	default: // "messages"
 		return vk.AllowedChannelsMsg
 	}

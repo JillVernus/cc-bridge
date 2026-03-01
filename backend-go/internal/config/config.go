@@ -479,6 +479,10 @@ type Config struct {
 	GeminiUpstream    []UpstreamConfig `json:"geminiUpstream"`
 	GeminiLoadBalance string           `json:"geminiLoadBalance"`
 
+	// Chat 接口专用配置（独立于 /v1/messages，用于 /v1/chat/completions）
+	ChatUpstream    []UpstreamConfig `json:"chatUpstream"`
+	ChatLoadBalance string           `json:"chatLoadBalance"`
+
 	// 调试日志配置
 	DebugLog DebugLogConfig `json:"debugLog,omitempty"`
 
@@ -526,6 +530,8 @@ func (cm *ConfigManager) ensureUniqueChannelNameLocked(name string, channelType 
 		upstreams = cm.config.ResponsesUpstream
 	case "gemini":
 		upstreams = cm.config.GeminiUpstream
+	case "chat":
+		upstreams = cm.config.ChatUpstream
 	default:
 		return fmt.Errorf("unknown channel type: %s", channelType)
 	}
@@ -593,6 +599,8 @@ func (cm *ConfigManager) loadConfig() error {
 			ResponsesLoadBalance:     "failover",
 			GeminiUpstream:           []UpstreamConfig{},
 			GeminiLoadBalance:        "failover",
+			ChatUpstream:             []UpstreamConfig{},
+			ChatLoadBalance:          "failover",
 			UserAgent:                GetDefaultUserAgentConfig(),
 		}
 
@@ -772,6 +780,14 @@ func (cm *ConfigManager) loadConfig() error {
 			log.Printf("Generated ID for Gemini channel [%d] %s: %s", i, cm.config.GeminiUpstream[i].Name, cm.config.GeminiUpstream[i].ID)
 		}
 	}
+	for i := range cm.config.ChatUpstream {
+		cm.config.ChatUpstream[i].Index = i
+		if cm.config.ChatUpstream[i].ID == "" {
+			cm.config.ChatUpstream[i].ID = generateChannelID()
+			idMigrationNeeded = true
+			log.Printf("Generated ID for Chat channel [%d] %s: %s", i, cm.config.ChatUpstream[i].Name, cm.config.ChatUpstream[i].ID)
+		}
+	}
 	if idMigrationNeeded {
 		if err := cm.saveConfigLocked(cm.config); err != nil {
 			log.Printf("Failed to save ID migration: %v", err)
@@ -855,6 +871,21 @@ func (cm *ConfigManager) validateChannelKeys() bool {
 		}
 	}
 
+	// 检查 Chat 渠道
+	for i := range cm.config.ChatUpstream {
+		upstream := &cm.config.ChatUpstream[i]
+		status := upstream.Status
+		if status == "" {
+			status = "active"
+		}
+
+		if status == "active" && len(upstream.APIKeys) == 0 {
+			upstream.Status = "suspended"
+			modified = true
+			log.Printf("⚠️ [自检] Chat 渠道 [%d] %s 没有配置 API key，已自动暂停", i, upstream.Name)
+		}
+	}
+
 	return modified
 }
 
@@ -883,6 +914,14 @@ func (cm *ConfigManager) warnInsecureChannels() {
 				i, upstream.Name)
 		}
 	}
+
+	// 检查 Chat 渠道
+	for i, upstream := range cm.config.ChatUpstream {
+		if upstream.InsecureSkipVerify {
+			log.Printf("⚠️ [安全警告] Chat 渠道 [%d] %s 已启用 insecureSkipVerify - TLS 证书验证已禁用，存在中间人攻击风险",
+				i, upstream.Name)
+		}
+	}
 }
 
 // saveConfigLocked 保存配置（已加锁）
@@ -905,6 +944,11 @@ func (cm *ConfigManager) saveConfigLocked(config Config) error {
 		for i := range config.GeminiUpstream {
 			if config.GeminiUpstream[i].ID == "" {
 				config.GeminiUpstream[i].ID = generateChannelID()
+			}
+		}
+		for i := range config.ChatUpstream {
+			if config.ChatUpstream[i].ID == "" {
+				config.ChatUpstream[i].ID = generateChannelID()
 			}
 		}
 
@@ -3239,4 +3283,372 @@ func (cm *ConfigManager) GetNextGeminiAPIKey(upstream *UpstreamConfig, failedKey
 		strategy = "failover" // Default
 	}
 	return cm.getNextAPIKeyWithStrategy(upstream, failedKeys, strategy, &cm.requestCount)
+}
+
+// ==================== Chat Upstream Methods ====================
+
+// GetCurrentChatUpstream 获取当前 Chat 上游配置
+// 优先选择第一个 active 状态的渠道，若无则回退到第一个渠道
+func (cm *ConfigManager) GetCurrentChatUpstream() (*UpstreamConfig, error) {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	if len(cm.config.ChatUpstream) == 0 {
+		return nil, fmt.Errorf("no Chat channels configured")
+	}
+
+	// 优先选择第一个 active 状态的渠道
+	for i := range cm.config.ChatUpstream {
+		status := cm.config.ChatUpstream[i].Status
+		if status == "" || status == "active" {
+			upstream := cm.config.ChatUpstream[i]
+			return &upstream, nil
+		}
+	}
+
+	// 没有 active 渠道，回退到第一个渠道
+	upstream := cm.config.ChatUpstream[0]
+	return &upstream, nil
+}
+
+// GetChatUpstreams 获取所有 Chat 渠道配置
+func (cm *ConfigManager) GetChatUpstreams() []UpstreamConfig {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	// Return a copy to prevent concurrent modification
+	result := make([]UpstreamConfig, len(cm.config.ChatUpstream))
+	copy(result, cm.config.ChatUpstream)
+	return result
+}
+
+// AddChatUpstream 添加 Chat 上游
+func (cm *ConfigManager) AddChatUpstream(upstream UpstreamConfig) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	upstream.Name = strings.TrimSpace(upstream.Name)
+	if upstream.Name == "" {
+		return fmt.Errorf("channel name is required")
+	}
+	if err := cm.ensureUniqueChannelNameLocked(upstream.Name, "chat", -1); err != nil {
+		return err
+	}
+
+	// Generate unique ID if not provided
+	if upstream.ID == "" {
+		upstream.ID = generateChannelID()
+	}
+
+	// Validate channel ID doesn't use reserved prefix
+	if strings.HasPrefix(upstream.ID, "__invalid_") {
+		return fmt.Errorf("channel ID cannot start with reserved prefix '__invalid_'")
+	}
+
+	// 新建渠道默认设为 active
+	if upstream.Status == "" {
+		upstream.Status = "active"
+	}
+
+	// Set the Index to the new position
+	upstream.Index = len(cm.config.ChatUpstream)
+
+	cm.config.ChatUpstream = append(cm.config.ChatUpstream, upstream)
+
+	if err := cm.saveConfigLocked(cm.config); err != nil {
+		return err
+	}
+
+	log.Printf("已添加 Chat 上游: %s (ID: %s)", upstream.Name, upstream.ID)
+	return nil
+}
+
+// UpdateChatUpstream 更新 Chat 上游
+// 返回值：shouldResetMetrics 表示是否需要重置渠道指标（熔断状态）
+func (cm *ConfigManager) UpdateChatUpstream(index int, updates UpstreamUpdate) (shouldResetMetrics bool, err error) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if index < 0 || index >= len(cm.config.ChatUpstream) {
+		return false, fmt.Errorf("invalid Chat upstream index: %d", index)
+	}
+
+	upstream := &cm.config.ChatUpstream[index]
+
+	if updates.Name != nil {
+		name := strings.TrimSpace(*updates.Name)
+		if name == "" {
+			return false, fmt.Errorf("channel name is required")
+		}
+		if err := cm.ensureUniqueChannelNameLocked(name, "chat", index); err != nil {
+			return false, err
+		}
+		upstream.Name = name
+	}
+	if updates.BaseURL != nil {
+		upstream.BaseURL = *updates.BaseURL
+	}
+	if updates.ServiceType != nil {
+		upstream.ServiceType = *updates.ServiceType
+	}
+	if updates.Description != nil {
+		upstream.Description = *updates.Description
+	}
+	if updates.Website != nil {
+		upstream.Website = *updates.Website
+	}
+	if updates.APIKeys != nil {
+		// 只有单 key 场景且 key 被更换时，才自动激活并重置熔断
+		if len(upstream.APIKeys) == 1 && len(updates.APIKeys) == 1 &&
+			upstream.APIKeys[0] != updates.APIKeys[0] {
+			shouldResetMetrics = true
+			if upstream.Status == "suspended" {
+				upstream.Status = "active"
+				log.Printf("Chat 渠道 [%d] %s 已从暂停状态自动激活（单 key 更换）", index, upstream.Name)
+			}
+		}
+		upstream.APIKeys = updates.APIKeys
+	}
+	if updates.ModelMapping != nil {
+		upstream.ModelMapping = updates.ModelMapping
+	}
+	if updates.InsecureSkipVerify != nil {
+		upstream.InsecureSkipVerify = *updates.InsecureSkipVerify
+	}
+	if updates.Priority != nil {
+		upstream.Priority = *updates.Priority
+	}
+	if updates.Status != nil {
+		upstream.Status = *updates.Status
+	}
+	if updates.PromotionUntil != nil {
+		upstream.PromotionUntil = updates.PromotionUntil
+	}
+	if updates.ResponseHeaderTimeoutSecs != nil {
+		upstream.ResponseHeaderTimeoutSecs = *updates.ResponseHeaderTimeoutSecs
+	}
+	if updates.PriceMultipliers != nil {
+		upstream.PriceMultipliers = updates.PriceMultipliers
+	}
+	// 配额设置
+	if updates.QuotaType != nil {
+		upstream.QuotaType = *updates.QuotaType
+		// 当 quotaType 设置为空时，清除所有其他配额字段
+		if *updates.QuotaType == "" {
+			upstream.QuotaLimit = 0
+			upstream.QuotaResetAt = nil
+			upstream.QuotaResetInterval = 0
+			upstream.QuotaResetUnit = ""
+			upstream.QuotaModels = nil
+			upstream.QuotaResetMode = ""
+		}
+	}
+	if updates.QuotaLimit != nil {
+		upstream.QuotaLimit = *updates.QuotaLimit
+	}
+	if updates.QuotaResetAt != nil {
+		upstream.QuotaResetAt = updates.QuotaResetAt
+	}
+	if updates.QuotaResetInterval != nil {
+		upstream.QuotaResetInterval = *updates.QuotaResetInterval
+	}
+	if updates.QuotaResetUnit != nil {
+		upstream.QuotaResetUnit = *updates.QuotaResetUnit
+	}
+	if updates.QuotaModels != nil {
+		upstream.QuotaModels = updates.QuotaModels
+	}
+	if updates.QuotaResetMode != nil {
+		upstream.QuotaResetMode = *updates.QuotaResetMode
+	}
+	// Per-channel rate limiting
+	if updates.RateLimitRpm != nil {
+		upstream.RateLimitRpm = *updates.RateLimitRpm
+	}
+	if updates.QueueEnabled != nil {
+		upstream.QueueEnabled = *updates.QueueEnabled
+	}
+	if updates.QueueTimeout != nil {
+		upstream.QueueTimeout = *updates.QueueTimeout
+	}
+	// Per-channel API key load balancing strategy
+	if updates.KeyLoadBalance != nil {
+		upstream.KeyLoadBalance = *updates.KeyLoadBalance
+	}
+
+	if err := cm.saveConfigLocked(cm.config); err != nil {
+		return false, err
+	}
+
+	log.Printf("已更新 Chat 上游: [%d] %s", index, cm.config.ChatUpstream[index].Name)
+	return shouldResetMetrics, nil
+}
+
+// RemoveChatUpstream 删除 Chat 上游
+func (cm *ConfigManager) RemoveChatUpstream(index int) (*UpstreamConfig, error) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if index < 0 || index >= len(cm.config.ChatUpstream) {
+		return nil, fmt.Errorf("invalid Chat upstream index: %d", index)
+	}
+
+	removed := cm.config.ChatUpstream[index]
+	cm.config.ChatUpstream = append(cm.config.ChatUpstream[:index], cm.config.ChatUpstream[index+1:]...)
+
+	// Reindex remaining upstreams
+	for i := range cm.config.ChatUpstream {
+		cm.config.ChatUpstream[i].Index = i
+	}
+
+	// 清理被删除渠道的失败 key 冷却记录
+	cm.clearFailedKeysForUpstream(&removed)
+
+	if err := cm.saveConfigLocked(cm.config); err != nil {
+		return nil, err
+	}
+
+	log.Printf("已删除 Chat 上游: %s", removed.Name)
+	return &removed, nil
+}
+
+// AddChatAPIKey 添加 Chat 上游的 API 密钥
+func (cm *ConfigManager) AddChatAPIKey(index int, apiKey string) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if index < 0 || index >= len(cm.config.ChatUpstream) {
+		return fmt.Errorf("invalid upstream index: %d", index)
+	}
+
+	// 检查密钥是否已存在
+	for _, key := range cm.config.ChatUpstream[index].APIKeys {
+		if key == apiKey {
+			return fmt.Errorf("API key already exists")
+		}
+	}
+
+	cm.config.ChatUpstream[index].APIKeys = append(cm.config.ChatUpstream[index].APIKeys, apiKey)
+
+	if err := cm.saveConfigLocked(cm.config); err != nil {
+		return err
+	}
+
+	log.Printf("已添加API密钥到 Chat 上游 [%d] %s", index, cm.config.ChatUpstream[index].Name)
+	return nil
+}
+
+// RemoveChatAPIKey 删除 Chat 上游的 API 密钥
+func (cm *ConfigManager) RemoveChatAPIKey(index int, apiKey string) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if index < 0 || index >= len(cm.config.ChatUpstream) {
+		return fmt.Errorf("invalid upstream index: %d", index)
+	}
+
+	// 查找并删除密钥
+	keys := cm.config.ChatUpstream[index].APIKeys
+	found := false
+	for i, key := range keys {
+		if key == apiKey {
+			cm.config.ChatUpstream[index].APIKeys = append(keys[:i], keys[i+1:]...)
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("API key not found")
+	}
+
+	if err := cm.saveConfigLocked(cm.config); err != nil {
+		return err
+	}
+
+	log.Printf("已从 Chat 上游 [%d] %s 删除API密钥", index, cm.config.ChatUpstream[index].Name)
+	return nil
+}
+
+// SetChatChannelStatus 设置 Chat 渠道状态
+func (cm *ConfigManager) SetChatChannelStatus(index int, status string) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if index < 0 || index >= len(cm.config.ChatUpstream) {
+		return fmt.Errorf("invalid Chat channel index: %d", index)
+	}
+
+	cm.config.ChatUpstream[index].Status = status
+
+	if err := cm.saveConfigLocked(cm.config); err != nil {
+		return err
+	}
+
+	log.Printf("已设置 Chat 渠道 [%d] %s 状态为: %s", index, cm.config.ChatUpstream[index].Name, status)
+	return nil
+}
+
+// ReorderChatUpstreams 重新排序 Chat 上游
+func (cm *ConfigManager) ReorderChatUpstreams(order []int) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if len(order) != len(cm.config.ChatUpstream) {
+		return fmt.Errorf("order list length mismatch: expected %d, got %d", len(cm.config.ChatUpstream), len(order))
+	}
+
+	// Validate order indices
+	seen := make(map[int]bool)
+	for _, idx := range order {
+		if idx < 0 || idx >= len(cm.config.ChatUpstream) {
+			return fmt.Errorf("invalid channel index: %d", idx)
+		}
+		if seen[idx] {
+			return fmt.Errorf("duplicate channel index: %d", idx)
+		}
+		seen[idx] = true
+	}
+
+	// Reorder
+	newUpstreams := make([]UpstreamConfig, len(order))
+	for newIndex, oldIndex := range order {
+		newUpstreams[newIndex] = cm.config.ChatUpstream[oldIndex]
+		newUpstreams[newIndex].Index = newIndex
+	}
+	cm.config.ChatUpstream = newUpstreams
+
+	return cm.saveConfigLocked(cm.config)
+}
+
+// GetNextChatAPIKey 获取下一个 Chat API 密钥（负载均衡）
+func (cm *ConfigManager) GetNextChatAPIKey(upstream *UpstreamConfig, failedKeys map[string]bool) (string, error) {
+	// Use per-channel key load balance setting if set, otherwise fall back to global Chat setting
+	strategy := upstream.KeyLoadBalance
+	if strategy == "" {
+		strategy = cm.config.ChatLoadBalance
+	}
+	if strategy == "" {
+		strategy = "failover" // Default
+	}
+	return cm.getNextAPIKeyWithStrategy(upstream, failedKeys, strategy, &cm.requestCount)
+}
+
+// SetChatLoadBalance 设置 Chat 负载均衡策略
+func (cm *ConfigManager) SetChatLoadBalance(strategy string) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if err := validateLoadBalanceStrategy(strategy); err != nil {
+		return err
+	}
+
+	cm.config.ChatLoadBalance = strategy
+
+	if err := cm.saveConfigLocked(cm.config); err != nil {
+		return err
+	}
+
+	log.Printf("已设置 Chat 负载均衡策略: %s", strategy)
+	return nil
 }
