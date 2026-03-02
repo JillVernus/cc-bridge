@@ -436,7 +436,7 @@ func handleMultiChannelResponses(
 			}
 		}
 
-		success, failoverErr, updatedLogID := tryResponsesChannelWithAllKeys(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager, failoverTracker, clientID, sessionID, apiKeyID, logChannelIndex, logChannelName)
+		success, failoverErr, updatedLogID := tryResponsesChannelWithAllKeys(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, &startTime, reqLogManager, requestLogID, usageManager, failoverTracker, clientID, sessionID, apiKeyID, logChannelIndex, logChannelName)
 		requestLogID = updatedLogID // Update requestLogID in case it was changed during retry_wait
 
 		if c.Request.Context().Err() != nil {
@@ -729,7 +729,7 @@ func tryResponsesChannelWithAllKeys(
 	upstream *config.UpstreamConfig,
 	bodyBytes []byte,
 	responsesReq types.ResponsesRequest,
-	startTime time.Time,
+	startTime *time.Time,
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
 	usageManager *quota.UsageManager,
@@ -753,7 +753,7 @@ func tryResponsesChannelWithAllKeys(
 
 	// 处理 OpenAI OAuth 渠道（Codex）
 	if upstream.ServiceType == "openai-oauth" {
-		success, failoverErr := tryResponsesChannelWithOAuth(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager, logChannelIndex, logChannelName)
+		success, failoverErr := tryResponsesChannelWithOAuth(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, *startTime, reqLogManager, requestLogID, usageManager, logChannelIndex, logChannelName)
 		return success, failoverErr, requestLogID
 	}
 
@@ -773,7 +773,10 @@ func tryResponsesChannelWithAllKeys(
 	deprioritizeCandidates := make(map[string]bool)
 	var pinnedKey string      // For retry-same-key scenarios
 	var retryWaitPending bool // Allows loop to continue for one retry after wait
-	currentStartTime := startTime
+	currentStartTime := *startTime
+	defer func() {
+		*startTime = currentStartTime
+	}()
 	currentRequestLogID := requestLogID
 
 	for attempt := 0; attempt < maxRetries || retryWaitPending; {
@@ -892,6 +895,7 @@ func tryResponsesChannelWithAllKeys(
 							log.Printf("⚠️ Failed to create retry pending log: %v", err)
 						} else {
 							currentRequestLogID = newPendingLog.ID
+							currentStartTime = newPendingLog.InitialTime
 						}
 					}
 
@@ -908,9 +912,8 @@ func tryResponsesChannelWithAllKeys(
 
 					select {
 					case <-time.After(decision.Wait):
-						pinnedKey = apiKey            // Pin for next attempt
-						retryWaitPending = true       // Allow loop to continue
-						currentStartTime = time.Now() // Reset startTime after wait completes
+						pinnedKey = apiKey      // Pin for next attempt
+						retryWaitPending = true // Allow loop to continue
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
@@ -1069,6 +1072,7 @@ func tryResponsesChannelWithAllKeys(
 							log.Printf("⚠️ [Responses] Failed to create retry pending log: %v", err)
 						} else {
 							currentRequestLogID = newPendingLog.ID
+							currentStartTime = newPendingLog.InitialTime
 						}
 					}
 
@@ -1085,9 +1089,8 @@ func tryResponsesChannelWithAllKeys(
 
 					select {
 					case <-time.After(decision.Wait):
-						pinnedKey = apiKey            // Pin for next attempt
-						retryWaitPending = true       // Allow loop to continue
-						currentStartTime = time.Now() // Reset startTime after wait completes
+						pinnedKey = apiKey      // Pin for next attempt
+						retryWaitPending = true // Allow loop to continue
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
@@ -1862,6 +1865,7 @@ func handleSingleChannelResponses(
 							log.Printf("⚠️ Failed to create retry pending log: %v", err)
 						} else {
 							currentRequestLogID = newPendingLog.ID
+							currentStartTime = newPendingLog.InitialTime
 						}
 					}
 
@@ -1878,9 +1882,8 @@ func handleSingleChannelResponses(
 
 					select {
 					case <-time.After(decision.Wait):
-						pinnedKey = apiKey            // Pin for next attempt
-						retryWaitPending = true       // Allow loop to continue
-						currentStartTime = time.Now() // Reset startTime after wait completes
+						pinnedKey = apiKey      // Pin for next attempt
+						retryWaitPending = true // Allow loop to continue
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
@@ -2048,6 +2051,7 @@ func handleSingleChannelResponses(
 							log.Printf("⚠️ [Responses] Failed to create retry pending log: %v", err)
 						} else {
 							currentRequestLogID = newPendingLog.ID
+							currentStartTime = newPendingLog.InitialTime
 						}
 					}
 
@@ -2064,9 +2068,8 @@ func handleSingleChannelResponses(
 
 					select {
 					case <-time.After(decision.Wait):
-						pinnedKey = apiKey            // Pin for next attempt
-						retryWaitPending = true       // Allow loop to continue
-						currentStartTime = time.Now() // Reset startTime after wait completes
+						pinnedKey = apiKey      // Pin for next attempt
+						retryWaitPending = true // Allow loop to continue
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
@@ -2449,9 +2452,14 @@ func handleResponsesSuccess(
 		var codexUsage *CodexUsage
 		var responseModel string
 		var streamWriteErr error
+		firstTokenDetector := streamDetectorForServiceType(upstreamType)
+		var firstTokenTime *time.Time
 
 		for scanner.Scan() {
 			line := scanner.Text()
+			if firstTokenDetector != nil && firstTokenTime == nil {
+				markFirstTokenIfDetected(firstTokenDetector.ObserveLine(line), &firstTokenTime)
+			}
 
 			// 记录日志（仅在开发模式下或调试日志启用时）
 			if streamLoggingEnabled || debugLogEnabled {
@@ -2555,16 +2563,18 @@ func handleResponsesSuccess(
 			)
 
 			record := &requestlog.RequestLog{
-				Status:        recordStatus,
-				CompleteTime:  completeTime,
-				DurationMs:    durationMs,
-				Type:          upstreamType,
-				ProviderName:  upstream.Name,
-				ResponseModel: responseModel,
-				HTTPStatus:    recordHTTPStatus,
-				ChannelID:     logChannelIndex,
-				ChannelName:   logChannelName,
-				Error:         recordError,
+				Status:               recordStatus,
+				CompleteTime:         completeTime,
+				DurationMs:           durationMs,
+				FirstTokenTime:       firstTokenTime,
+				FirstTokenDurationMs: firstTokenDurationFromStart(startTime, firstTokenTime),
+				Type:                 upstreamType,
+				ProviderName:         upstream.Name,
+				ResponseModel:        responseModel,
+				HTTPStatus:           recordHTTPStatus,
+				ChannelID:            logChannelIndex,
+				ChannelName:          logChannelName,
+				Error:                recordError,
 			}
 
 			if codexUsage != nil {

@@ -1216,6 +1216,8 @@ export interface RequestLog {
   id: string
   status: 'pending' | 'completed' | 'error' | 'timeout'
   initialTime: string
+  firstTokenTime?: string
+  firstTokenDurationMs?: number
   completeTime: string
   durationMs: number
   type: string

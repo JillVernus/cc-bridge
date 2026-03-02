@@ -43,22 +43,24 @@ func FormatFailoverInfo(httpStatus int, subtype string, action string, details s
 
 // RequestLog represents a single API request/response record
 type RequestLog struct {
-	ID                       string    `json:"id"`
-	Status                   string    `json:"status"` // pending, completed, error, timeout, failover (see StatusXxx constants)
-	InitialTime              time.Time `json:"initialTime"`
-	CompleteTime             time.Time `json:"completeTime"`
-	DurationMs               int64     `json:"durationMs"`
-	Type                     string    `json:"type"`                      // claude, openai, gemini (service type)
-	ProviderName             string    `json:"providerName"`              // actual provider/channel name
-	Model                    string    `json:"model"`                     // 请求的模型名称
-	ResponseModel            string    `json:"responseModel"`             // 响应中的模型名称（可能与请求不同）
-	ReasoningEffort          string    `json:"reasoningEffort,omitempty"` // Codex reasoning effort (low/medium/high/xhigh)
-	InputTokens              int       `json:"inputTokens"`
-	OutputTokens             int       `json:"outputTokens"`
-	CacheCreationInputTokens int       `json:"cacheCreationInputTokens"`
-	CacheReadInputTokens     int       `json:"cacheReadInputTokens"`
-	TotalTokens              int       `json:"totalTokens"`
-	Price                    float64   `json:"price"`
+	ID                       string     `json:"id"`
+	Status                   string     `json:"status"` // pending, completed, error, timeout, failover (see StatusXxx constants)
+	InitialTime              time.Time  `json:"initialTime"`
+	FirstTokenTime           *time.Time `json:"firstTokenTime,omitempty"`
+	FirstTokenDurationMs     int64      `json:"firstTokenDurationMs"`
+	CompleteTime             time.Time  `json:"completeTime"`
+	DurationMs               int64      `json:"durationMs"`
+	Type                     string     `json:"type"`                      // claude, openai, gemini (service type)
+	ProviderName             string     `json:"providerName"`              // actual provider/channel name
+	Model                    string     `json:"model"`                     // 请求的模型名称
+	ResponseModel            string     `json:"responseModel"`             // 响应中的模型名称（可能与请求不同）
+	ReasoningEffort          string     `json:"reasoningEffort,omitempty"` // Codex reasoning effort (low/medium/high/xhigh)
+	InputTokens              int        `json:"inputTokens"`
+	OutputTokens             int        `json:"outputTokens"`
+	CacheCreationInputTokens int        `json:"cacheCreationInputTokens"`
+	CacheReadInputTokens     int        `json:"cacheReadInputTokens"`
+	TotalTokens              int        `json:"totalTokens"`
+	Price                    float64    `json:"price"`
 	// 成本明细
 	InputCost         float64 `json:"inputCost"`
 	OutputCost        float64 `json:"outputCost"`

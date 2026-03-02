@@ -7,12 +7,7 @@
         <v-card class="summary-card" density="compact">
           <!-- Group by selector header -->
           <div class="summary-header d-flex align-center px-2 py-1">
-            <v-btn-toggle
-              v-model="summaryGroupBy"
-              mandatory
-              density="compact"
-              class="group-by-toggle"
-            >
+            <v-btn-toggle v-model="summaryGroupBy" mandatory density="compact" class="group-by-toggle">
               <v-tooltip :text="t('requestLog.groupByProvider')" location="top">
                 <template v-slot:activator="{ props }">
                   <v-btn v-bind="props" value="provider" size="x-small">
@@ -55,59 +50,107 @@
             <table class="summary-table-custom resizable-summary-table" :style="{ width: summaryTableWidth + 'px' }">
               <thead>
                 <tr>
-                  <th class="resizable-summary-header sortable-header" :style="{ width: summaryColumnWidths.name + 'px' }" @click="toggleSummarySort('name')">
+                  <th
+                    class="resizable-summary-header sortable-header"
+                    :style="{ width: summaryColumnWidths.name + 'px' }"
+                    @click="toggleSummarySort('name')"
+                  >
                     <span class="header-content">
                       {{ summaryNameHeaderTitle }}
-                      <v-icon v-if="summarySortColumn === 'name'" size="14" class="sort-icon">{{ summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down' }}</v-icon>
+                      <v-icon v-if="summarySortColumn === 'name'" size="14" class="sort-icon">{{
+                        summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
+                      }}</v-icon>
                     </span>
                     <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'name')"></div>
                   </th>
-                  <th class="text-end resizable-summary-header sortable-header" :style="{ width: summaryColumnWidths.requests + 'px' }" @click="toggleSummarySort('requests')">
+                  <th
+                    class="text-end resizable-summary-header sortable-header"
+                    :style="{ width: summaryColumnWidths.requests + 'px' }"
+                    @click="toggleSummarySort('requests')"
+                  >
                     <span class="header-content">
                       {{ t('requestLog.requests') }}
-                      <v-icon v-if="summarySortColumn === 'requests'" size="14" class="sort-icon">{{ summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down' }}</v-icon>
+                      <v-icon v-if="summarySortColumn === 'requests'" size="14" class="sort-icon">{{
+                        summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
+                      }}</v-icon>
                     </span>
                     <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'requests')"></div>
                   </th>
-                  <th class="text-end resizable-summary-header sortable-header" :style="{ width: summaryColumnWidths.input + 'px' }" @click="toggleSummarySort('input')">
+                  <th
+                    class="text-end resizable-summary-header sortable-header"
+                    :style="{ width: summaryColumnWidths.input + 'px' }"
+                    @click="toggleSummarySort('input')"
+                  >
                     <span class="header-content">
                       {{ t('requestLog.input') }}
-                      <v-icon v-if="summarySortColumn === 'input'" size="14" class="sort-icon">{{ summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down' }}</v-icon>
+                      <v-icon v-if="summarySortColumn === 'input'" size="14" class="sort-icon">{{
+                        summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
+                      }}</v-icon>
                     </span>
                     <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'input')"></div>
                   </th>
-                  <th class="text-end resizable-summary-header sortable-header" :style="{ width: summaryColumnWidths.output + 'px' }" @click="toggleSummarySort('output')">
+                  <th
+                    class="text-end resizable-summary-header sortable-header"
+                    :style="{ width: summaryColumnWidths.output + 'px' }"
+                    @click="toggleSummarySort('output')"
+                  >
                     <span class="header-content">
                       {{ t('requestLog.output') }}
-                      <v-icon v-if="summarySortColumn === 'output'" size="14" class="sort-icon">{{ summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down' }}</v-icon>
+                      <v-icon v-if="summarySortColumn === 'output'" size="14" class="sort-icon">{{
+                        summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
+                      }}</v-icon>
                     </span>
                     <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'output')"></div>
                   </th>
-                  <th class="text-end resizable-summary-header sortable-header" :style="{ width: summaryColumnWidths.cacheCreation + 'px' }" @click="toggleSummarySort('cacheCreation')">
+                  <th
+                    class="text-end resizable-summary-header sortable-header"
+                    :style="{ width: summaryColumnWidths.cacheCreation + 'px' }"
+                    @click="toggleSummarySort('cacheCreation')"
+                  >
                     <span class="header-content">
                       {{ t('requestLog.cacheCreation') }}
-                      <v-icon v-if="summarySortColumn === 'cacheCreation'" size="14" class="sort-icon">{{ summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down' }}</v-icon>
+                      <v-icon v-if="summarySortColumn === 'cacheCreation'" size="14" class="sort-icon">{{
+                        summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
+                      }}</v-icon>
                     </span>
                     <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'cacheCreation')"></div>
                   </th>
-                  <th class="text-end resizable-summary-header sortable-header" :style="{ width: summaryColumnWidths.cacheHit + 'px' }" @click="toggleSummarySort('cacheHit')">
+                  <th
+                    class="text-end resizable-summary-header sortable-header"
+                    :style="{ width: summaryColumnWidths.cacheHit + 'px' }"
+                    @click="toggleSummarySort('cacheHit')"
+                  >
                     <span class="header-content">
                       {{ t('requestLog.cacheHit') }}
-                      <v-icon v-if="summarySortColumn === 'cacheHit'" size="14" class="sort-icon">{{ summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down' }}</v-icon>
+                      <v-icon v-if="summarySortColumn === 'cacheHit'" size="14" class="sort-icon">{{
+                        summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
+                      }}</v-icon>
                     </span>
                     <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'cacheHit')"></div>
                   </th>
-                  <th class="text-end resizable-summary-header sortable-header" :style="{ width: summaryColumnWidths.cacheHitRate + 'px' }" @click="toggleSummarySort('cacheHitRate')">
+                  <th
+                    class="text-end resizable-summary-header sortable-header"
+                    :style="{ width: summaryColumnWidths.cacheHitRate + 'px' }"
+                    @click="toggleSummarySort('cacheHitRate')"
+                  >
                     <span class="header-content">
                       {{ t('requestLog.cacheHitRate') }}
-                      <v-icon v-if="summarySortColumn === 'cacheHitRate'" size="14" class="sort-icon">{{ summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down' }}</v-icon>
+                      <v-icon v-if="summarySortColumn === 'cacheHitRate'" size="14" class="sort-icon">{{
+                        summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
+                      }}</v-icon>
                     </span>
                     <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'cacheHitRate')"></div>
                   </th>
-                  <th class="text-end resizable-summary-header sortable-header" :style="{ width: summaryColumnWidths.cost + 'px' }" @click="toggleSummarySort('cost')">
+                  <th
+                    class="text-end resizable-summary-header sortable-header"
+                    :style="{ width: summaryColumnWidths.cost + 'px' }"
+                    @click="toggleSummarySort('cost')"
+                  >
                     <span class="header-content">
                       {{ t('requestLog.cost') }}
-                      <v-icon v-if="summarySortColumn === 'cost'" size="14" class="sort-icon">{{ summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down' }}</v-icon>
+                      <v-icon v-if="summarySortColumn === 'cost'" size="14" class="sort-icon">{{
+                        summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
+                      }}</v-icon>
                     </span>
                     <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'cost')"></div>
                   </th>
@@ -124,9 +167,16 @@
                   :key="key"
                   :class="{ 'summary-row-flash': currentUpdatedSet.has(String(key)) }"
                 >
-                  <td class="text-caption font-weight-bold summary-name-cell" :style="{ width: summaryColumnWidths.name + 'px', maxWidth: summaryColumnWidths.name + 'px' }">
+                  <td
+                    class="text-caption font-weight-bold summary-name-cell"
+                    :style="{ width: summaryColumnWidths.name + 'px', maxWidth: summaryColumnWidths.name + 'px' }"
+                  >
                     <v-tooltip
-                      v-if="(summaryGroupBy === 'client' || summaryGroupBy === 'session') && String(key) && String(key) !== '<unknown>'"
+                      v-if="
+                        (summaryGroupBy === 'client' || summaryGroupBy === 'session') &&
+                        String(key) &&
+                        String(key) !== '<unknown>'
+                      "
                       location="top"
                       max-width="600"
                     >
@@ -144,18 +194,35 @@
                           <span class="alias-label">{{ t('requestLog.alias') }}:</span> {{ getUserAlias(String(key)) }}
                         </div>
                         <div>
-                          <span class="id-label">{{ t('requestLog.clientId') }}:</span> {{ normalizeUserId(String(key)) }}
+                          <span class="id-label">{{ t('requestLog.clientId') }}:</span>
+                          {{ normalizeUserId(String(key)) }}
                         </div>
                       </div>
                       <span v-else class="id-tooltip">{{ String(key) }}</span>
                     </v-tooltip>
                     <span v-else>{{ formatSummaryKey(String(key)) }}</span>
                   </td>
-                  <td class="text-end text-caption" :style="{ width: summaryColumnWidths.requests + 'px' }">{{ data.count }}</td>
-                  <td class="text-end text-caption" :style="{ width: summaryColumnWidths.input + 'px' }">{{ formatNumber(data.inputTokens) }}</td>
-                  <td class="text-end text-caption" :style="{ width: summaryColumnWidths.output + 'px' }">{{ formatNumber(data.outputTokens) }}</td>
-                  <td class="text-end text-caption text-success" :style="{ width: summaryColumnWidths.cacheCreation + 'px' }">{{ formatNumber(data.cacheCreationInputTokens) }}</td>
-                  <td class="text-end text-caption text-warning" :style="{ width: summaryColumnWidths.cacheHit + 'px' }">{{ formatNumber(data.cacheReadInputTokens) }}</td>
+                  <td class="text-end text-caption" :style="{ width: summaryColumnWidths.requests + 'px' }">
+                    {{ data.count }}
+                  </td>
+                  <td class="text-end text-caption" :style="{ width: summaryColumnWidths.input + 'px' }">
+                    {{ formatNumber(data.inputTokens) }}
+                  </td>
+                  <td class="text-end text-caption" :style="{ width: summaryColumnWidths.output + 'px' }">
+                    {{ formatNumber(data.outputTokens) }}
+                  </td>
+                  <td
+                    class="text-end text-caption text-success"
+                    :style="{ width: summaryColumnWidths.cacheCreation + 'px' }"
+                  >
+                    {{ formatNumber(data.cacheCreationInputTokens) }}
+                  </td>
+                  <td
+                    class="text-end text-caption text-warning"
+                    :style="{ width: summaryColumnWidths.cacheHit + 'px' }"
+                  >
+                    {{ formatNumber(data.cacheReadInputTokens) }}
+                  </td>
                   <td class="text-end text-caption" :style="{ width: summaryColumnWidths.cacheHitRate + 'px' }">
                     <v-tooltip :text="t('requestLog.cacheHitRateTooltip')" location="top">
                       <template #activator="{ props }">
@@ -163,7 +230,9 @@
                       </template>
                     </v-tooltip>
                   </td>
-                  <td class="text-end text-caption cost-cell" :style="{ width: summaryColumnWidths.cost + 'px' }">{{ formatPriceSummary(data.cost) }}</td>
+                  <td class="text-end text-caption cost-cell" :style="{ width: summaryColumnWidths.cost + 'px' }">
+                    {{ formatPriceSummary(data.cost) }}
+                  </td>
                 </tr>
                 <tr v-if="currentSortedData.length === 0">
                   <td colspan="8" class="text-center text-caption text-grey">{{ t('common.noData') }}</td>
@@ -176,20 +245,55 @@
             <table class="summary-table-custom" :style="{ width: summaryTableWidth + 'px' }">
               <tbody>
                 <tr class="total-row">
-                  <td class="text-caption font-weight-bold" :style="{ width: summaryColumnWidths.name + 'px' }">Total</td>
-                  <td class="text-end text-caption font-weight-bold" :style="{ width: summaryColumnWidths.requests + 'px' }">{{ currentTotals.count }}</td>
-                  <td class="text-end text-caption font-weight-bold" :style="{ width: summaryColumnWidths.input + 'px' }">{{ formatNumber(currentTotals.inputTokens) }}</td>
-                  <td class="text-end text-caption font-weight-bold" :style="{ width: summaryColumnWidths.output + 'px' }">{{ formatNumber(currentTotals.outputTokens) }}</td>
-                  <td class="text-end text-caption font-weight-bold text-success" :style="{ width: summaryColumnWidths.cacheCreation + 'px' }">{{ formatNumber(currentTotals.cacheCreationInputTokens) }}</td>
-                  <td class="text-end text-caption font-weight-bold text-warning" :style="{ width: summaryColumnWidths.cacheHit + 'px' }">{{ formatNumber(currentTotals.cacheReadInputTokens) }}</td>
-                  <td class="text-end text-caption font-weight-bold" :style="{ width: summaryColumnWidths.cacheHitRate + 'px' }">
+                  <td class="text-caption font-weight-bold" :style="{ width: summaryColumnWidths.name + 'px' }">
+                    Total
+                  </td>
+                  <td
+                    class="text-end text-caption font-weight-bold"
+                    :style="{ width: summaryColumnWidths.requests + 'px' }"
+                  >
+                    {{ currentTotals.count }}
+                  </td>
+                  <td
+                    class="text-end text-caption font-weight-bold"
+                    :style="{ width: summaryColumnWidths.input + 'px' }"
+                  >
+                    {{ formatNumber(currentTotals.inputTokens) }}
+                  </td>
+                  <td
+                    class="text-end text-caption font-weight-bold"
+                    :style="{ width: summaryColumnWidths.output + 'px' }"
+                  >
+                    {{ formatNumber(currentTotals.outputTokens) }}
+                  </td>
+                  <td
+                    class="text-end text-caption font-weight-bold text-success"
+                    :style="{ width: summaryColumnWidths.cacheCreation + 'px' }"
+                  >
+                    {{ formatNumber(currentTotals.cacheCreationInputTokens) }}
+                  </td>
+                  <td
+                    class="text-end text-caption font-weight-bold text-warning"
+                    :style="{ width: summaryColumnWidths.cacheHit + 'px' }"
+                  >
+                    {{ formatNumber(currentTotals.cacheReadInputTokens) }}
+                  </td>
+                  <td
+                    class="text-end text-caption font-weight-bold"
+                    :style="{ width: summaryColumnWidths.cacheHitRate + 'px' }"
+                  >
                     <v-tooltip :text="t('requestLog.cacheHitRateTooltip')" location="top">
                       <template #activator="{ props }">
                         <span v-bind="props" class="hit-rate-value">{{ calcHitRate(currentTotals) }}%</span>
                       </template>
                     </v-tooltip>
                   </td>
-                  <td class="text-end text-caption font-weight-bold cost-cell" :style="{ width: summaryColumnWidths.cost + 'px' }">{{ formatPriceSummary(currentTotals.cost) }}</td>
+                  <td
+                    class="text-end text-caption font-weight-bold cost-cell"
+                    :style="{ width: summaryColumnWidths.cost + 'px' }"
+                  >
+                    {{ formatPriceSummary(currentTotals.cost) }}
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -217,42 +321,69 @@
           </div>
           <!-- Header table -->
           <div class="summary-table-header-wrapper">
-            <table class="summary-table-custom resizable-summary-table" :style="{ width: activeSessionsTableWidth + 'px' }">
+            <table
+              class="summary-table-custom resizable-summary-table"
+              :style="{ width: activeSessionsTableWidth + 'px' }"
+            >
               <thead>
                 <tr>
                   <th class="resizable-summary-header" :style="{ width: activeSessionColumnWidths.session + 'px' }">
                     {{ t('requestLog.session') }}
                     <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'session')"></div>
                   </th>
-                  <th class="text-end resizable-summary-header" :style="{ width: activeSessionColumnWidths.live + 'px' }">
+                  <th
+                    class="text-end resizable-summary-header"
+                    :style="{ width: activeSessionColumnWidths.live + 'px' }"
+                  >
                     {{ t('requestLog.live') }}
                     <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'live')"></div>
                   </th>
-                  <th class="text-end resizable-summary-header" :style="{ width: activeSessionColumnWidths.requests + 'px' }">
+                  <th
+                    class="text-end resizable-summary-header"
+                    :style="{ width: activeSessionColumnWidths.requests + 'px' }"
+                  >
                     {{ t('requestLog.requests') }}
                     <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'requests')"></div>
                   </th>
-                  <th class="text-end resizable-summary-header" :style="{ width: activeSessionColumnWidths.input + 'px' }">
+                  <th
+                    class="text-end resizable-summary-header"
+                    :style="{ width: activeSessionColumnWidths.input + 'px' }"
+                  >
                     {{ t('requestLog.input') }}
                     <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'input')"></div>
                   </th>
-                  <th class="text-end resizable-summary-header" :style="{ width: activeSessionColumnWidths.output + 'px' }">
+                  <th
+                    class="text-end resizable-summary-header"
+                    :style="{ width: activeSessionColumnWidths.output + 'px' }"
+                  >
                     {{ t('requestLog.output') }}
                     <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'output')"></div>
                   </th>
-                  <th class="text-end resizable-summary-header" :style="{ width: activeSessionColumnWidths.cache + 'px' }">
+                  <th
+                    class="text-end resizable-summary-header"
+                    :style="{ width: activeSessionColumnWidths.cache + 'px' }"
+                  >
                     {{ t('requestLog.cacheCreation') }}
                     <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'cache')"></div>
                   </th>
-                  <th class="text-end resizable-summary-header" :style="{ width: activeSessionColumnWidths.hit + 'px' }">
+                  <th
+                    class="text-end resizable-summary-header"
+                    :style="{ width: activeSessionColumnWidths.hit + 'px' }"
+                  >
                     {{ t('requestLog.cacheHit') }}
                     <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'hit')"></div>
                   </th>
-                  <th class="text-end resizable-summary-header" :style="{ width: activeSessionColumnWidths.hitRate + 'px' }">
+                  <th
+                    class="text-end resizable-summary-header"
+                    :style="{ width: activeSessionColumnWidths.hitRate + 'px' }"
+                  >
                     {{ t('requestLog.cacheHitRate') }}
                     <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'hitRate')"></div>
                   </th>
-                  <th class="text-end resizable-summary-header" :style="{ width: activeSessionColumnWidths.cost + 'px' }">
+                  <th
+                    class="text-end resizable-summary-header"
+                    :style="{ width: activeSessionColumnWidths.cost + 'px' }"
+                  >
                     {{ t('requestLog.cost') }}
                     <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'cost')"></div>
                   </th>
@@ -269,7 +400,12 @@
                   :key="session.sessionId"
                   :class="{ 'summary-row-flash': updatedActiveSessions.has(session.sessionId) }"
                 >
-                  <td :style="{ width: activeSessionColumnWidths.session + 'px', maxWidth: activeSessionColumnWidths.session + 'px' }">
+                  <td
+                    :style="{
+                      width: activeSessionColumnWidths.session + 'px',
+                      maxWidth: activeSessionColumnWidths.session + 'px'
+                    }"
+                  >
                     <div class="d-flex align-center">
                       <v-icon v-if="session.type === 'claude'" size="14" icon="custom:claude" class="mr-1" />
                       <v-icon v-else-if="session.type === 'gemini'" size="14" icon="custom:gemini" class="mr-1" />
@@ -282,23 +418,87 @@
                       </v-tooltip>
                     </div>
                   </td>
-                  <td class="text-end text-caption" :style="{ width: activeSessionColumnWidths.live + 'px', maxWidth: activeSessionColumnWidths.live + 'px' }">{{ formatLiveTime(session.firstRequestTime) }}</td>
-                  <td class="text-end text-caption" :style="{ width: activeSessionColumnWidths.requests + 'px', maxWidth: activeSessionColumnWidths.requests + 'px' }">{{ session.count }}</td>
-                  <td class="text-end text-caption" :style="{ width: activeSessionColumnWidths.input + 'px', maxWidth: activeSessionColumnWidths.input + 'px' }">{{ formatNumber(session.inputTokens) }}</td>
-                  <td class="text-end text-caption" :style="{ width: activeSessionColumnWidths.output + 'px', maxWidth: activeSessionColumnWidths.output + 'px' }">{{ formatNumber(session.outputTokens) }}</td>
-                  <td class="text-end text-caption text-success" :style="{ width: activeSessionColumnWidths.cache + 'px', maxWidth: activeSessionColumnWidths.cache + 'px' }">{{ formatNumber(session.cacheCreationInputTokens) }}</td>
-                  <td class="text-end text-caption text-warning" :style="{ width: activeSessionColumnWidths.hit + 'px', maxWidth: activeSessionColumnWidths.hit + 'px' }">{{ formatNumber(session.cacheReadInputTokens) }}</td>
-                  <td class="text-end text-caption" :style="{ width: activeSessionColumnWidths.hitRate + 'px', maxWidth: activeSessionColumnWidths.hitRate + 'px' }">
+                  <td
+                    class="text-end text-caption"
+                    :style="{
+                      width: activeSessionColumnWidths.live + 'px',
+                      maxWidth: activeSessionColumnWidths.live + 'px'
+                    }"
+                  >
+                    {{ formatLiveTime(session.firstRequestTime) }}
+                  </td>
+                  <td
+                    class="text-end text-caption"
+                    :style="{
+                      width: activeSessionColumnWidths.requests + 'px',
+                      maxWidth: activeSessionColumnWidths.requests + 'px'
+                    }"
+                  >
+                    {{ session.count }}
+                  </td>
+                  <td
+                    class="text-end text-caption"
+                    :style="{
+                      width: activeSessionColumnWidths.input + 'px',
+                      maxWidth: activeSessionColumnWidths.input + 'px'
+                    }"
+                  >
+                    {{ formatNumber(session.inputTokens) }}
+                  </td>
+                  <td
+                    class="text-end text-caption"
+                    :style="{
+                      width: activeSessionColumnWidths.output + 'px',
+                      maxWidth: activeSessionColumnWidths.output + 'px'
+                    }"
+                  >
+                    {{ formatNumber(session.outputTokens) }}
+                  </td>
+                  <td
+                    class="text-end text-caption text-success"
+                    :style="{
+                      width: activeSessionColumnWidths.cache + 'px',
+                      maxWidth: activeSessionColumnWidths.cache + 'px'
+                    }"
+                  >
+                    {{ formatNumber(session.cacheCreationInputTokens) }}
+                  </td>
+                  <td
+                    class="text-end text-caption text-warning"
+                    :style="{
+                      width: activeSessionColumnWidths.hit + 'px',
+                      maxWidth: activeSessionColumnWidths.hit + 'px'
+                    }"
+                  >
+                    {{ formatNumber(session.cacheReadInputTokens) }}
+                  </td>
+                  <td
+                    class="text-end text-caption"
+                    :style="{
+                      width: activeSessionColumnWidths.hitRate + 'px',
+                      maxWidth: activeSessionColumnWidths.hitRate + 'px'
+                    }"
+                  >
                     <v-tooltip :text="t('requestLog.cacheHitRateTooltip')" location="top">
                       <template #activator="{ props }">
                         <span v-bind="props" class="hit-rate-value">{{ calcHitRate(session) }}%</span>
                       </template>
                     </v-tooltip>
                   </td>
-                  <td class="text-end text-caption cost-cell" :style="{ width: activeSessionColumnWidths.cost + 'px', maxWidth: activeSessionColumnWidths.cost + 'px' }">{{ formatPriceSummary(session.cost) }}</td>
+                  <td
+                    class="text-end text-caption cost-cell"
+                    :style="{
+                      width: activeSessionColumnWidths.cost + 'px',
+                      maxWidth: activeSessionColumnWidths.cost + 'px'
+                    }"
+                  >
+                    {{ formatPriceSummary(session.cost) }}
+                  </td>
                 </tr>
                 <tr v-if="activeSessions.length === 0">
-                  <td colspan="9" class="text-center text-caption text-grey pa-4">{{ t('requestLog.noActiveSessions') }}</td>
+                  <td colspan="9" class="text-center text-caption text-grey pa-4">
+                    {{ t('requestLog.noActiveSessions') }}
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -314,17 +514,15 @@
       <div v-else class="panel-splitter-spacer"></div>
 
       <!-- 日期筛选 -->
-      <div class="panel-wrapper date-filter-panel" :class="{ collapsed: isDateFilterCollapsed }" :style="{ width: panelWidths.dateFilter + '%' }">
+      <div
+        class="panel-wrapper date-filter-panel"
+        :class="{ collapsed: isDateFilterCollapsed }"
+        :style="{ width: panelWidths.dateFilter + '%' }"
+      >
         <v-card class="summary-card date-filter-card" density="compact">
           <!-- Collapsed state: just the expand button -->
           <div v-if="isDateFilterCollapsed" class="date-filter-collapsed d-flex align-center justify-center">
-            <v-btn
-              icon
-              variant="text"
-              size="small"
-              class="collapse-toggle-btn"
-              @click="toggleDateFilterCollapsed"
-            >
+            <v-btn icon variant="text" size="small" class="collapse-toggle-btn" @click="toggleDateFilterCollapsed">
               <v-icon size="20">mdi-chevron-double-left</v-icon>
             </v-btn>
           </div>
@@ -341,12 +539,7 @@
               <v-icon size="18">mdi-chevron-double-right</v-icon>
             </v-btn>
             <!-- Unit selector -->
-            <v-btn-toggle
-              v-model="dateUnit"
-              mandatory
-              density="compact"
-              class="unit-toggle mb-2"
-            >
+            <v-btn-toggle v-model="dateUnit" mandatory density="compact" class="unit-toggle mb-2">
               <v-btn value="day" size="x-small">{{ t('requestLog.unitDay') }}</v-btn>
               <v-btn value="week" size="x-small">{{ t('requestLog.unitWeek') }}</v-btn>
               <v-btn value="month" size="x-small">{{ t('requestLog.unitMonth') }}</v-btn>
@@ -375,13 +568,7 @@
           <v-icon class="mr-2">mdi-cog</v-icon>
           {{ t('requestLog.settings') }}
           <v-spacer />
-          <v-btn
-            icon
-            variant="text"
-            size="small"
-            @click="showSettings = false"
-            class="modal-action-btn"
-          >
+          <v-btn icon variant="text" size="small" @click="showSettings = false" class="modal-action-btn">
             <v-icon>mdi-close</v-icon>
           </v-btn>
         </v-card-title>
@@ -401,11 +588,7 @@
               />
             </div>
             <div class="d-flex align-center ga-2 mt-2">
-              <v-btn
-                size="small"
-                variant="tonal"
-                @click="resetColumnVisibility"
-              >
+              <v-btn size="small" variant="tonal" @click="resetColumnVisibility">
                 <v-icon class="mr-1" size="16">mdi-eye</v-icon>
                 {{ t('requestLog.showAllColumns') }}
               </v-btn>
@@ -422,11 +605,7 @@
               {{ t('requestLog.columnStacking') }}
             </div>
             <div class="stacking-options">
-              <div
-                v-for="config in stackPairConfigs"
-                :key="config.primary"
-                class="stacking-row"
-              >
+              <div v-for="config in stackPairConfigs" :key="config.primary" class="stacking-row">
                 <span class="text-body-2 stacking-label">{{ getStackPairLabel(config.primary) }}</span>
                 <v-btn-toggle
                   v-model="stackModes[config.primary]"
@@ -462,11 +641,7 @@
 
           <div class="settings-section mb-4">
             <div class="text-subtitle-2 mb-2">{{ t('requestLog.columnWidthSettings') }}</div>
-            <v-btn
-              color="primary"
-              variant="tonal"
-              @click="resetColumnWidths"
-            >
+            <v-btn color="primary" variant="tonal" @click="resetColumnWidths">
               <v-icon class="mr-1">mdi-table-refresh</v-icon>
               {{ t('requestLog.resetColumnWidth') }}
             </v-btn>
@@ -508,12 +683,7 @@
                 hide-details
                 style="max-width: 180px"
               />
-              <v-btn
-                color="warning"
-                variant="tonal"
-                @click="confirmCleanupLogs"
-                :loading="cleaning"
-              >
+              <v-btn color="warning" variant="tonal" @click="confirmCleanupLogs" :loading="cleaning">
                 <v-icon class="mr-1">mdi-broom</v-icon>
                 {{ t('requestLog.cleanup') }}
               </v-btn>
@@ -563,12 +733,7 @@
 
           <div class="settings-section">
             <div class="text-subtitle-2 mb-2">{{ t('requestLog.databaseOps') }}</div>
-            <v-btn
-              color="error"
-              variant="tonal"
-              @click="confirmClearLogs"
-              :loading="clearing"
-            >
+            <v-btn color="error" variant="tonal" @click="confirmClearLogs" :loading="clearing">
               <v-icon class="mr-1">mdi-delete</v-icon>
               {{ t('requestLog.clearLogs') }}
             </v-btn>
@@ -587,7 +752,15 @@
           <v-btn icon variant="text" size="small" @click="showConfirmClear = false" class="modal-action-btn">
             <v-icon>mdi-close</v-icon>
           </v-btn>
-          <v-btn icon variant="flat" size="small" color="error" @click="clearLogs" :loading="clearing" class="modal-action-btn">
+          <v-btn
+            icon
+            variant="flat"
+            size="small"
+            color="error"
+            @click="clearLogs"
+            :loading="clearing"
+            class="modal-action-btn"
+          >
             <v-icon>mdi-check</v-icon>
           </v-btn>
         </v-card-title>
@@ -604,11 +777,21 @@
           <v-btn icon variant="text" size="small" @click="showConfirmCleanup = false" class="modal-action-btn">
             <v-icon>mdi-close</v-icon>
           </v-btn>
-          <v-btn icon variant="flat" size="small" color="warning" @click="cleanupLogs" :loading="cleaning" class="modal-action-btn">
+          <v-btn
+            icon
+            variant="flat"
+            size="small"
+            color="warning"
+            @click="cleanupLogs"
+            :loading="cleaning"
+            class="modal-action-btn"
+          >
             <v-icon>mdi-check</v-icon>
           </v-btn>
         </v-card-title>
-        <v-card-text class="modal-content">{{ t('requestLog.confirmCleanupDesc', { days: retentionDays }) }}</v-card-text>
+        <v-card-text class="modal-content">{{
+          t('requestLog.confirmCleanupDesc', { days: retentionDays })
+        }}</v-card-text>
       </v-card>
     </v-dialog>
 
@@ -691,7 +874,10 @@
     <!-- 操作栏 -->
     <div class="action-bar mb-4">
       <!-- Live indicator (clickable to toggle SSE) -->
-      <v-tooltip :text="sseEnabled ? t('requestLog.clickToDisableSSE') : t('requestLog.clickToEnableSSE')" location="top">
+      <v-tooltip
+        :text="sseEnabled ? t('requestLog.clickToDisableSSE') : t('requestLog.clickToEnableSSE')"
+        location="top"
+      >
         <template v-slot:activator="{ props }">
           <v-chip
             v-if="sseEnabled && isSSEConnected"
@@ -738,7 +924,9 @@
         :class="{ 'neo-btn-active': autoRefreshEnabled }"
         @click="toggleAutoRefresh"
       >
-        <v-icon size="18" class="mr-1" :class="{ 'spin': autoRefreshEnabled && !isSSEConnected }">{{ autoRefreshEnabled ? 'mdi-sync' : 'mdi-sync-off' }}</v-icon>
+        <v-icon size="18" class="mr-1" :class="{ spin: autoRefreshEnabled && !isSSEConnected }">{{
+          autoRefreshEnabled ? 'mdi-sync' : 'mdi-sync-off'
+        }}</v-icon>
         {{ autoRefreshEnabled ? t('requestLog.autoRefreshing') : t('requestLog.autoRefreshOff') }}
       </v-btn>
       <v-spacer />
@@ -784,21 +972,10 @@
 
         <template v-slot:item.status="{ item }">
           <div class="d-flex align-center ga-1">
-            <v-progress-circular
-              v-if="item.status === 'pending'"
-              indeterminate
-              size="16"
-              width="2"
-              color="warning"
-            />
+            <v-progress-circular v-if="item.status === 'pending'" indeterminate size="16" width="2" color="warning" />
             <v-tooltip v-else-if="item.error || item.upstreamError || item.failoverInfo" location="top" max-width="400">
               <template v-slot:activator="{ props }">
-                <v-chip
-                  v-bind="props"
-                  size="x-small"
-                  :color="getRequestStatusColor(item.status)"
-                  variant="flat"
-                >
+                <v-chip v-bind="props" size="x-small" :color="getRequestStatusColor(item.status)" variant="flat">
                   {{ item.httpStatus || getRequestStatusLabel(item.status) }}
                 </v-chip>
               </template>
@@ -817,12 +994,7 @@
                 </div>
               </div>
             </v-tooltip>
-            <v-chip
-              v-else
-              size="x-small"
-              :color="getRequestStatusColor(item.status)"
-              variant="flat"
-            >
+            <v-chip v-else size="x-small" :color="getRequestStatusColor(item.status)" variant="flat">
               {{ item.httpStatus || getRequestStatusLabel(item.status) }}
             </v-chip>
             <!-- Debug data indicator -->
@@ -836,57 +1008,94 @@
         </template>
 
         <template v-slot:item.initialTime="{ item }">
-          <!-- Stacked: Time + Duration -->
-          <v-tooltip v-if="isStacked('initialTime')" location="top" max-width="300">
+          <span class="text-caption">{{ formatTime(item.initialTime) }}</span>
+        </template>
+
+        <template v-slot:item.firstTokenDurationMs="{ item }">
+          <!-- Stacked: First Token Duration + Duration -->
+          <v-tooltip v-if="isStacked('firstTokenDurationMs')" location="top" max-width="340">
             <template v-slot:activator="{ props }">
               <div v-bind="props" class="stacked-cell">
-                <span class="text-caption">{{ formatTime(item.initialTime) }}</span>
+                <span v-if="item.status === 'pending'" class="text-caption">
+                  <v-progress-circular indeterminate size="10" width="1" color="grey" />
+                </span>
+                <span
+                  v-else-if="hasFirstTokenMetric(item)"
+                  class="text-caption duration-text"
+                  :class="'duration-' + getDurationColor(item.firstTokenDurationMs ?? 0)"
+                >
+                  {{ formatDuration(item.firstTokenDurationMs ?? 0) }}
+                </span>
+                <span v-else class="text-caption">—</span>
                 <span v-if="item.status === 'pending'" class="stacked-secondary">
                   <v-progress-circular indeterminate size="10" width="1" color="grey" />
                 </span>
-                <span v-else class="stacked-secondary duration-text" :class="'duration-' + getDurationColor(item.durationMs)">
+                <span
+                  v-else
+                  class="stacked-secondary duration-text"
+                  :class="'duration-' + getDurationColor(item.durationMs)"
+                >
                   {{ formatDuration(item.durationMs) }}
                 </span>
               </div>
             </template>
             <div class="stacked-tooltip">
-              <div><strong>{{ t('requestLog.time') }}:</strong> {{ formatTime(item.initialTime) }}</div>
-              <div><strong>{{ t('requestLog.duration') }}:</strong> {{ item.status === 'pending' ? '...' : formatDuration(item.durationMs) }}</div>
+              <div>
+                <strong>{{ t('requestLog.firstTokenDuration') }}:</strong>
+                {{ item.status === 'pending' ? '...' : formatFirstTokenDuration(item) }}
+              </div>
+              <div>
+                <strong>{{ t('requestLog.duration') }}:</strong>
+                {{ item.status === 'pending' ? '...' : formatDuration(item.durationMs) }}
+              </div>
             </div>
           </v-tooltip>
-          <!-- Expanded: Time only -->
-          <span v-else class="text-caption">{{ formatTime(item.initialTime) }}</span>
+          <v-progress-circular v-else-if="item.status === 'pending'" indeterminate size="16" width="2" color="grey" />
+          <span
+            v-else-if="hasFirstTokenMetric(item)"
+            class="duration-text"
+            :class="'duration-' + getDurationColor(item.firstTokenDurationMs ?? 0)"
+          >
+            {{ formatDuration(item.firstTokenDurationMs ?? 0) }}
+          </span>
+          <span v-else class="text-caption">—</span>
         </template>
 
         <template v-slot:item.durationMs="{ item }">
-          <v-progress-circular
-            v-if="item.status === 'pending'"
-            indeterminate
-            size="16"
-            width="2"
-            color="grey"
-          />
+          <v-progress-circular v-if="item.status === 'pending'" indeterminate size="16" width="2" color="grey" />
           <span v-else class="duration-text" :class="'duration-' + getDurationColor(item.durationMs)">
             {{ formatDuration(item.durationMs) }}
           </span>
         </template>
 
         <template v-slot:item.providerName="{ item }">
-          <v-progress-circular
-            v-if="item.status === 'pending'"
-            indeterminate
-            size="16"
-            width="2"
-            color="grey"
-          />
+          <v-progress-circular v-if="item.status === 'pending'" indeterminate size="16" width="2" color="grey" />
           <!-- Stacked: Channel + Model -->
           <v-tooltip v-else-if="isStacked('providerName')" location="top" max-width="400">
             <template v-slot:activator="{ props }">
               <div v-bind="props" class="stacked-cell">
                 <v-chip size="x-small" variant="text" class="provider-chip">
-                  <v-icon v-if="item.type === 'claude'" start size="14" icon="custom:claude" class="provider-icon mr-1" />
-                  <v-icon v-else-if="isOpenAIFamilyType(item.type)" start size="14" icon="custom:codex" class="provider-icon mr-1" />
-                  <v-icon v-else-if="item.type === 'gemini'" start size="14" icon="custom:gemini" class="provider-icon mr-1" />
+                  <v-icon
+                    v-if="item.type === 'claude'"
+                    start
+                    size="14"
+                    icon="custom:claude"
+                    class="provider-icon mr-1"
+                  />
+                  <v-icon
+                    v-else-if="isOpenAIFamilyType(item.type)"
+                    start
+                    size="14"
+                    icon="custom:codex"
+                    class="provider-icon mr-1"
+                  />
+                  <v-icon
+                    v-else-if="item.type === 'gemini'"
+                    start
+                    size="14"
+                    icon="custom:gemini"
+                    class="provider-icon mr-1"
+                  />
                   {{ item.providerName || item.type }}
                   <v-tooltip v-if="isForwardProxyLog(item)" location="top">
                     <template v-slot:activator="{ props: fwdProps }">
@@ -897,15 +1106,30 @@
                 </v-chip>
                 <span v-if="item.model" class="stacked-secondary">
                   {{ item.model }}
-                  <v-icon v-if="item.reasoningEffort" size="12" class="ml-1" :color="getReasoningEffortColor(item.reasoningEffort)">{{ getReasoningEffortIcon(item.reasoningEffort) }}</v-icon>
-                  <v-icon v-else-if="item.responseModel && item.responseModel !== item.model" size="10" class="ml-1">mdi-swap-horizontal</v-icon>
+                  <v-icon
+                    v-if="item.reasoningEffort"
+                    size="12"
+                    class="ml-1"
+                    :color="getReasoningEffortColor(item.reasoningEffort)"
+                    >{{ getReasoningEffortIcon(item.reasoningEffort) }}</v-icon
+                  >
+                  <v-icon v-else-if="item.responseModel && item.responseModel !== item.model" size="10" class="ml-1"
+                    >mdi-swap-horizontal</v-icon
+                  >
                 </span>
               </div>
             </template>
             <div class="stacked-tooltip">
-              <div><strong>{{ t('requestLog.channel') }}:</strong> {{ item.providerName || item.type }}<span v-if="isForwardProxyLog(item)"> ({{ t('forwardProxy.title') }})</span></div>
-              <div><strong>{{ t('requestLog.model') }}:</strong> {{ item.model }}</div>
-              <div v-if="item.reasoningEffort"><strong>{{ t('requestLog.reasoningEffort') }}</strong> {{ item.reasoningEffort }}</div>
+              <div>
+                <strong>{{ t('requestLog.channel') }}:</strong> {{ item.providerName || item.type
+                }}<span v-if="isForwardProxyLog(item)"> ({{ t('forwardProxy.title') }})</span>
+              </div>
+              <div>
+                <strong>{{ t('requestLog.model') }}:</strong> {{ item.model }}
+              </div>
+              <div v-if="item.reasoningEffort">
+                <strong>{{ t('requestLog.reasoningEffort') }}</strong> {{ item.reasoningEffort }}
+              </div>
               <div v-if="item.responseModel && item.responseModel !== item.model">
                 <strong>Mapped:</strong> {{ item.model }} → {{ item.responseModel }}
               </div>
@@ -914,8 +1138,20 @@
           <!-- Expanded: Channel only -->
           <v-chip v-else size="x-small" variant="text" class="provider-chip">
             <v-icon v-if="item.type === 'claude'" start size="14" icon="custom:claude" class="provider-icon mr-1" />
-            <v-icon v-else-if="isOpenAIFamilyType(item.type)" start size="14" icon="custom:codex" class="provider-icon mr-1" />
-            <v-icon v-else-if="item.type === 'gemini'" start size="14" icon="custom:gemini" class="provider-icon mr-1" />
+            <v-icon
+              v-else-if="isOpenAIFamilyType(item.type)"
+              start
+              size="14"
+              icon="custom:codex"
+              class="provider-icon mr-1"
+            />
+            <v-icon
+              v-else-if="item.type === 'gemini'"
+              start
+              size="14"
+              icon="custom:gemini"
+              class="provider-icon mr-1"
+            />
             {{ item.providerName || item.type }}
             <v-tooltip v-if="isForwardProxyLog(item)" location="top">
               <template v-slot:activator="{ props: fwdProps }">
@@ -962,13 +1198,24 @@
         </template>
 
         <template v-slot:item.apiKeyId="{ item }">
-          <v-tooltip v-if="item.apiKeyId !== undefined && item.apiKeyId !== null && getAPIKeyName(item.apiKeyId)" location="top" max-width="300">
+          <v-tooltip
+            v-if="item.apiKeyId !== undefined && item.apiKeyId !== null && getAPIKeyName(item.apiKeyId)"
+            location="top"
+            max-width="300"
+          >
             <template v-slot:activator="{ props }">
-              <v-chip v-bind="props" size="x-small" variant="tonal" :color="item.apiKeyId === 0 ? 'warning' : 'primary'">
+              <v-chip
+                v-bind="props"
+                size="x-small"
+                variant="tonal"
+                :color="item.apiKeyId === 0 ? 'warning' : 'primary'"
+              >
                 {{ getAPIKeyName(item.apiKeyId) }}
               </v-chip>
             </template>
-            <span class="id-tooltip">{{ item.apiKeyId === 0 ? 'Master Key (from .env)' : `ID: ${item.apiKeyId}` }}</span>
+            <span class="id-tooltip">{{
+              item.apiKeyId === 0 ? 'Master Key (from .env)' : `ID: ${item.apiKeyId}`
+            }}</span>
           </v-tooltip>
           <span v-else class="text-caption mono-text id-cell">—</span>
         </template>
@@ -1044,46 +1291,62 @@
         </template>
 
         <template v-slot:item.tokens="{ item }">
-          <v-progress-circular
-            v-if="item.status === 'pending'"
-            indeterminate
-            size="14"
-            width="2"
-            color="grey"
-          />
+          <v-progress-circular v-if="item.status === 'pending'" indeterminate size="14" width="2" color="grey" />
           <v-tooltip v-else location="top" max-width="300">
             <template v-slot:activator="{ props }">
               <div v-bind="props" class="tokens-stacked">
-                <span class="token-cell input-color"><span class="token-num">{{ formatTokensCompact(item.inputTokens) }}</span><span class="token-sym">↑</span></span>
-                <span class="token-cell output-color"><span class="token-num">{{ formatTokensCompact(item.outputTokens) }}</span><span class="token-sym">↓</span></span>
+                <span class="token-cell input-color"
+                  ><span class="token-num">{{ formatTokensCompact(item.inputTokens) }}</span
+                  ><span class="token-sym">↑</span></span
+                >
+                <span class="token-cell output-color"
+                  ><span class="token-num">{{ formatTokensCompact(item.outputTokens) }}</span
+                  ><span class="token-sym">↓</span></span
+                >
                 <template v-if="item.cacheCreationInputTokens || item.cacheReadInputTokens">
-                  <span v-if="item.cacheCreationInputTokens" class="token-cell cache-create-color cache-cell"><span class="token-num">{{ formatTokensCompact(item.cacheCreationInputTokens) }}</span><span class="token-sym">+</span></span>
+                  <span v-if="item.cacheCreationInputTokens" class="token-cell cache-create-color cache-cell"
+                    ><span class="token-num">{{ formatTokensCompact(item.cacheCreationInputTokens) }}</span
+                    ><span class="token-sym">+</span></span
+                  >
                   <span v-else class="token-cell cache-cell"></span>
-                  <span v-if="item.cacheReadInputTokens" class="token-cell cache-hit-color cache-cell"><span class="token-num">{{ formatTokensCompact(item.cacheReadInputTokens) }}</span><span class="token-sym">⚡</span></span>
+                  <span v-if="item.cacheReadInputTokens" class="token-cell cache-hit-color cache-cell"
+                    ><span class="token-num">{{ formatTokensCompact(item.cacheReadInputTokens) }}</span
+                    ><span class="token-sym">⚡</span></span
+                  >
                   <span v-else class="token-cell cache-cell"></span>
                 </template>
               </div>
             </template>
             <div class="tokens-tooltip">
-              <div class="tooltip-row"><span class="tooltip-label">{{ t('requestLog.input') }}:</span> <span class="input-color">{{ formatNumber(item.inputTokens) }}</span></div>
-              <div class="tooltip-row"><span class="tooltip-label">{{ t('requestLog.output') }}:</span> <span class="output-color">{{ formatNumber(item.outputTokens) }}</span></div>
-              <div v-if="item.cacheCreationInputTokens" class="tooltip-row"><span class="tooltip-label">{{ t('requestLog.cacheCreation') }}:</span> <span class="cache-create-color">{{ formatNumber(item.cacheCreationInputTokens) }}</span></div>
-              <div v-if="item.cacheReadInputTokens" class="tooltip-row"><span class="tooltip-label">{{ t('requestLog.cacheHit') }}:</span> <span class="cache-hit-color">{{ formatNumber(item.cacheReadInputTokens) }}</span></div>
+              <div class="tooltip-row">
+                <span class="tooltip-label">{{ t('requestLog.input') }}:</span>
+                <span class="input-color">{{ formatNumber(item.inputTokens) }}</span>
+              </div>
+              <div class="tooltip-row">
+                <span class="tooltip-label">{{ t('requestLog.output') }}:</span>
+                <span class="output-color">{{ formatNumber(item.outputTokens) }}</span>
+              </div>
+              <div v-if="item.cacheCreationInputTokens" class="tooltip-row">
+                <span class="tooltip-label">{{ t('requestLog.cacheCreation') }}:</span>
+                <span class="cache-create-color">{{ formatNumber(item.cacheCreationInputTokens) }}</span>
+              </div>
+              <div v-if="item.cacheReadInputTokens" class="tooltip-row">
+                <span class="tooltip-label">{{ t('requestLog.cacheHit') }}:</span>
+                <span class="cache-hit-color">{{ formatNumber(item.cacheReadInputTokens) }}</span>
+              </div>
             </div>
           </v-tooltip>
         </template>
 
         <template v-slot:item.price="{ item }">
-          <v-progress-circular
-            v-if="item.status === 'pending'"
-            indeterminate
-            size="16"
-            width="2"
-            color="grey"
-          />
+          <v-progress-circular v-if="item.status === 'pending'" indeterminate size="16" width="2" color="grey" />
           <v-tooltip v-else-if="hasCostBreakdown(item)" location="top" max-width="300">
             <template v-slot:activator="{ props }">
-              <span v-bind="props" class="text-caption price-value price-with-tooltip" :class="{ 'price-zero': !item.price }">
+              <span
+                v-bind="props"
+                class="text-caption price-value price-with-tooltip"
+                :class="{ 'price-zero': !item.price }"
+              >
                 {{ formatPriceDetailed(item.price) }}
               </span>
             </template>
@@ -1118,23 +1381,13 @@
 
         <template v-slot:bottom>
           <div class="d-flex align-center justify-end pa-2">
-            <v-btn
-              variant="text"
-              size="small"
-              :disabled="offset === 0"
-              @click="prevPage"
-            >
+            <v-btn variant="text" size="small" :disabled="offset === 0" @click="prevPage">
               {{ t('requestLog.prevPage') }}
             </v-btn>
             <span class="mx-2 text-caption">
               {{ offset + 1 }} - {{ Math.min(offset + pageSize, total) }} / {{ total }}
             </span>
-            <v-btn
-              variant="text"
-              size="small"
-              :disabled="!hasMore"
-              @click="nextPage"
-            >
+            <v-btn variant="text" size="small" :disabled="!hasMore" @click="nextPage">
               {{ t('requestLog.nextPage') }}
             </v-btn>
           </div>
@@ -1143,33 +1396,41 @@
     </v-card>
 
     <!-- Debug Modal -->
-    <RequestDebugModal
-      v-model="showDebugModal"
-      :request-id="selectedRequestId"
-      :log-item="selectedLogItem"
-    />
+    <RequestDebugModal v-model="showDebugModal" :request-id="selectedRequestId" :log-item="selectedLogItem" />
   </div>
 </template>
 
 <script setup lang="ts">
-	import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-	import { useI18n } from 'vue-i18n'
-	import { useDisplay } from 'vuetify'
-	import { api, type RequestLog, type RequestLogStats, type GroupStats, type ActiveSession, type APIKey } from '../services/api'
-	import RequestDebugModal from './RequestDebugModal.vue'
-	import { useLogStream, type LogCreatedPayload, type LogUpdatedPayload, type ConnectionState } from '../composables/useLogStream'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useDisplay } from 'vuetify'
+import {
+  api,
+  type RequestLog,
+  type RequestLogStats,
+  type GroupStats,
+  type ActiveSession,
+  type APIKey
+} from '../services/api'
+import RequestDebugModal from './RequestDebugModal.vue'
+import {
+  useLogStream,
+  type LogCreatedPayload,
+  type LogUpdatedPayload,
+  type ConnectionState
+} from '../composables/useLogStream'
 
-	// i18n
-	const { t } = useI18n()
+// i18n
+const { t } = useI18n()
 
-	// Viewport detection for responsive stacking
-	const { width: viewportWidth } = useDisplay()
+// Viewport detection for responsive stacking
+const { width: viewportWidth } = useDisplay()
 
-		const emit = defineEmits<{
-		  (e: 'dateRangeChange', payload: { from: string; to: string }): void
-		  (e: 'sseStateChange', state: ConnectionState): void
-		  (e: 'pollingEnabledChange', enabled: boolean): void
-		}>()
+const emit = defineEmits<{
+  (e: 'dateRangeChange', payload: { from: string; to: string }): void
+  (e: 'sseStateChange', state: ConnectionState): void
+  (e: 'pollingEnabledChange', enabled: boolean): void
+}>()
 
 const logs = ref<RequestLog[]>([])
 const stats = ref<RequestLogStats | null>(null)
@@ -1219,7 +1480,7 @@ const summaryGroupByOptions = computed(() => [
   { label: t('requestLog.groupByProvider'), value: 'provider' },
   { label: t('requestLog.groupByClient'), value: 'client' },
   { label: t('requestLog.groupBySession'), value: 'session' },
-  { label: t('requestLog.groupByApiKey'), value: 'apiKey' },
+  { label: t('requestLog.groupByApiKey'), value: 'apiKey' }
 ])
 
 const summaryNameHeaderTitle = computed(() => {
@@ -1240,7 +1501,15 @@ const summaryNameHeaderTitle = computed(() => {
 })
 
 // Summary table sorting state
-type SummarySortColumn = 'name' | 'requests' | 'input' | 'output' | 'cacheCreation' | 'cacheHit' | 'cacheHitRate' | 'cost'
+type SummarySortColumn =
+  | 'name'
+  | 'requests'
+  | 'input'
+  | 'output'
+  | 'cacheCreation'
+  | 'cacheHit'
+  | 'cacheHitRate'
+  | 'cost'
 type SortDirection = 'asc' | 'desc'
 const summarySortColumn = ref<SummarySortColumn>('cost')
 const summarySortDirection = ref<SortDirection>('desc')
@@ -1274,7 +1543,7 @@ const retentionOptions = computed(() => [
   { label: t('requestLog.retention60'), value: 60 },
   { label: t('requestLog.retention90'), value: 90 },
   { label: t('requestLog.retention180'), value: 180 },
-  { label: t('requestLog.retention365'), value: 365 },
+  { label: t('requestLog.retention365'), value: 365 }
 ])
 
 // Date filter - use local date
@@ -1427,14 +1696,22 @@ const getTotalTokens = (data: GroupStats) => {
   return data.inputTokens + data.outputTokens + data.cacheCreationInputTokens + data.cacheReadInputTokens
 }
 
-const detectUpdatedGroups = (oldData: Record<string, GroupStats> | undefined, newData: Record<string, GroupStats> | undefined) => {
+const detectUpdatedGroups = (
+  oldData: Record<string, GroupStats> | undefined,
+  newData: Record<string, GroupStats> | undefined
+) => {
   const updated = new Set<string>()
   if (!newData) return updated
 
   for (const key of Object.keys(newData)) {
     const oldVal = oldData?.[key]
     const newVal = newData[key]
-    if (!oldVal || oldVal.count !== newVal.count || oldVal.cost !== newVal.cost || getTotalTokens(oldVal) !== getTotalTokens(newVal)) {
+    if (
+      !oldVal ||
+      oldVal.count !== newVal.count ||
+      oldVal.cost !== newVal.cost ||
+      getTotalTokens(oldVal) !== getTotalTokens(newVal)
+    ) {
       updated.add(key)
     }
   }
@@ -1451,11 +1728,13 @@ const detectActiveSessionChanges = (oldSessions: ActiveSession[], newSessions: A
 
   for (const newSession of newSessions) {
     const oldSession = oldMap.get(newSession.sessionId)
-    if (!oldSession ||
-        oldSession.count !== newSession.count ||
-        oldSession.cost !== newSession.cost ||
-        oldSession.inputTokens !== newSession.inputTokens ||
-        oldSession.outputTokens !== newSession.outputTokens) {
+    if (
+      !oldSession ||
+      oldSession.count !== newSession.count ||
+      oldSession.cost !== newSession.cost ||
+      oldSession.inputTokens !== newSession.inputTokens ||
+      oldSession.outputTokens !== newSession.outputTokens
+    ) {
       updated.add(newSession.sessionId)
     }
   }
@@ -1465,57 +1744,59 @@ const detectActiveSessionChanges = (oldSessions: ActiveSession[], newSessions: A
 
 const sortedByModel = computed(() => {
   if (!stats.value?.byModel) return []
-  return Object.entries(stats.value.byModel)
-    .sort(([, a], [, b]) => {
-      const costDiff = b.cost - a.cost
-      if (costDiff !== 0) return costDiff
-      return getTotalTokens(b) - getTotalTokens(a)
-    })
+  return Object.entries(stats.value.byModel).sort(([, a], [, b]) => {
+    const costDiff = b.cost - a.cost
+    if (costDiff !== 0) return costDiff
+    return getTotalTokens(b) - getTotalTokens(a)
+  })
 })
 
 const sortedByProvider = computed(() => {
   if (!stats.value?.byProvider) return []
-  return Object.entries(stats.value.byProvider)
-    .sort(([, a], [, b]) => {
-      const costDiff = b.cost - a.cost
-      if (costDiff !== 0) return costDiff
-      return getTotalTokens(b) - getTotalTokens(a)
-    })
+  return Object.entries(stats.value.byProvider).sort(([, a], [, b]) => {
+    const costDiff = b.cost - a.cost
+    if (costDiff !== 0) return costDiff
+    return getTotalTokens(b) - getTotalTokens(a)
+  })
 })
 
 const sortedByClient = computed(() => {
   if (!stats.value?.byClient) return []
-  return Object.entries(stats.value.byClient)
-    .sort(([, a], [, b]) => {
-      const costDiff = b.cost - a.cost
-      if (costDiff !== 0) return costDiff
-      return getTotalTokens(b) - getTotalTokens(a)
-    })
+  return Object.entries(stats.value.byClient).sort(([, a], [, b]) => {
+    const costDiff = b.cost - a.cost
+    if (costDiff !== 0) return costDiff
+    return getTotalTokens(b) - getTotalTokens(a)
+  })
 })
 
 const sortedBySession = computed(() => {
   if (!stats.value?.bySession) return []
-  return Object.entries(stats.value.bySession)
-    .sort(([, a], [, b]) => {
-      const costDiff = b.cost - a.cost
-      if (costDiff !== 0) return costDiff
-      return getTotalTokens(b) - getTotalTokens(a)
-    })
+  return Object.entries(stats.value.bySession).sort(([, a], [, b]) => {
+    const costDiff = b.cost - a.cost
+    if (costDiff !== 0) return costDiff
+    return getTotalTokens(b) - getTotalTokens(a)
+  })
 })
 
 const sortedByAPIKey = computed(() => {
   if (!stats.value?.byApiKey) return []
-  return Object.entries(stats.value.byApiKey)
-    .sort(([, a], [, b]) => {
-      const costDiff = b.cost - a.cost
-      if (costDiff !== 0) return costDiff
-      return getTotalTokens(b) - getTotalTokens(a)
-    })
+  return Object.entries(stats.value.byApiKey).sort(([, a], [, b]) => {
+    const costDiff = b.cost - a.cost
+    if (costDiff !== 0) return costDiff
+    return getTotalTokens(b) - getTotalTokens(a)
+  })
 })
 
 // Totals for summary tables
 const modelTotals = computed(() => {
-  const totals = { count: 0, inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, cost: 0 }
+  const totals = {
+    count: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: 0,
+    cost: 0
+  }
   for (const [, data] of sortedByModel.value) {
     totals.count += data.count
     totals.inputTokens += data.inputTokens
@@ -1528,7 +1809,14 @@ const modelTotals = computed(() => {
 })
 
 const providerTotals = computed(() => {
-  const totals = { count: 0, inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, cost: 0 }
+  const totals = {
+    count: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: 0,
+    cost: 0
+  }
   for (const [, data] of sortedByProvider.value) {
     totals.count += data.count
     totals.inputTokens += data.inputTokens
@@ -1541,7 +1829,14 @@ const providerTotals = computed(() => {
 })
 
 const clientTotals = computed(() => {
-  const totals = { count: 0, inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, cost: 0 }
+  const totals = {
+    count: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: 0,
+    cost: 0
+  }
   for (const [, data] of sortedByClient.value) {
     totals.count += data.count
     totals.inputTokens += data.inputTokens
@@ -1554,7 +1849,14 @@ const clientTotals = computed(() => {
 })
 
 const sessionTotals = computed(() => {
-  const totals = { count: 0, inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, cost: 0 }
+  const totals = {
+    count: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: 0,
+    cost: 0
+  }
   for (const [, data] of sortedBySession.value) {
     totals.count += data.count
     totals.inputTokens += data.inputTokens
@@ -1567,7 +1869,14 @@ const sessionTotals = computed(() => {
 })
 
 const apiKeyTotals = computed(() => {
-  const totals = { count: 0, inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, cost: 0 }
+  const totals = {
+    count: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: 0,
+    cost: 0
+  }
   for (const [, data] of sortedByAPIKey.value) {
     totals.count += data.count
     totals.inputTokens += data.inputTokens
@@ -1676,7 +1985,8 @@ const currentUpdatedSet = computed(() => {
 
 // Computed total width for summary table
 const summaryTableWidth = computed(() => {
-  return summaryColumnWidths.value.name +
+  return (
+    summaryColumnWidths.value.name +
     summaryColumnWidths.value.requests +
     summaryColumnWidths.value.input +
     summaryColumnWidths.value.output +
@@ -1684,6 +1994,7 @@ const summaryTableWidth = computed(() => {
     summaryColumnWidths.value.cacheHit +
     summaryColumnWidths.value.cacheHitRate +
     summaryColumnWidths.value.cost
+  )
 })
 
 // Active sessions column widths (resizable)
@@ -1702,7 +2013,8 @@ const defaultActiveSessionColumnWidths: Record<string, number> = {
 const activeSessionColumnWidths = ref<Record<string, number>>({ ...defaultActiveSessionColumnWidths })
 
 const activeSessionsTableWidth = computed(() => {
-  return activeSessionColumnWidths.value.session +
+  return (
+    activeSessionColumnWidths.value.session +
     activeSessionColumnWidths.value.live +
     activeSessionColumnWidths.value.requests +
     activeSessionColumnWidths.value.input +
@@ -1711,6 +2023,7 @@ const activeSessionsTableWidth = computed(() => {
     activeSessionColumnWidths.value.hit +
     activeSessionColumnWidths.value.hitRate +
     activeSessionColumnWidths.value.cost
+  )
 })
 
 // Load active session column widths from localStorage
@@ -2145,32 +2458,32 @@ const stopPanelResize = () => {
   document.body.style.userSelect = ''
 }
 
-	// Auto-refresh
-	// Default: if SSE is enabled (default), start with polling disabled and only fall back after a grace period.
-	// If user disabled SSE previously, start polling immediately.
-	const autoRefreshEnabled = ref(localStorage.getItem('requestlog-sse-enabled') === 'false')
-	const autoRefreshInterval = ref(3) // seconds, persisted to localStorage
-	let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
+// Auto-refresh
+// Default: if SSE is enabled (default), start with polling disabled and only fall back after a grace period.
+// If user disabled SSE previously, start polling immediately.
+const autoRefreshEnabled = ref(localStorage.getItem('requestlog-sse-enabled') === 'false')
+const autoRefreshInterval = ref(3) // seconds, persisted to localStorage
+let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
 
-	// Avoid thrashing between SSE and polling when the SSE connection blips briefly.
-	const POLLING_FALLBACK_DELAY_MS = 3000
-	let pollingFallbackTimer: ReturnType<typeof setTimeout> | null = null
-	const cancelPollingFallback = () => {
-	  if (pollingFallbackTimer) {
-	    clearTimeout(pollingFallbackTimer)
-	    pollingFallbackTimer = null
-	  }
-	}
-	const schedulePollingFallback = () => {
-	  cancelPollingFallback()
-	  pollingFallbackTimer = setTimeout(() => {
-	    // Only enable polling if SSE is still not connected.
-	    if (!sseEnabled.value) return
-	    if (sseConnectionState.value === 'connected') return
-	    autoRefreshEnabled.value = true
-	    startAutoRefresh()
-	  }, POLLING_FALLBACK_DELAY_MS)
-	}
+// Avoid thrashing between SSE and polling when the SSE connection blips briefly.
+const POLLING_FALLBACK_DELAY_MS = 3000
+let pollingFallbackTimer: ReturnType<typeof setTimeout> | null = null
+const cancelPollingFallback = () => {
+  if (pollingFallbackTimer) {
+    clearTimeout(pollingFallbackTimer)
+    pollingFallbackTimer = null
+  }
+}
+const schedulePollingFallback = () => {
+  cancelPollingFallback()
+  pollingFallbackTimer = setTimeout(() => {
+    // Only enable polling if SSE is still not connected.
+    if (!sseEnabled.value) return
+    if (sseConnectionState.value === 'connected') return
+    autoRefreshEnabled.value = true
+    startAutoRefresh()
+  }, POLLING_FALLBACK_DELAY_MS)
+}
 
 // Stats refresh timer for SSE mode (low-frequency poll for summary tables)
 const SSE_STATS_REFRESH_INTERVAL = 15000 // 15 seconds
@@ -2205,32 +2518,32 @@ const loadSSEEnabled = () => {
 const saveSSEEnabled = () => {
   localStorage.setItem('requestlog-sse-enabled', String(sseEnabled.value))
 }
-	const toggleSSEEnabled = () => {
-	  sseEnabled.value = !sseEnabled.value
-	  saveSSEEnabled()
-	  if (sseEnabled.value) {
-	    // Enable SSE
-	    // Prefer SSE: stop time-based polling immediately, then fall back after a short grace period.
-	    cancelPollingFallback()
-	    autoRefreshEnabled.value = false
-	    stopAutoRefresh()
-	    connectSSE()
-	    schedulePollingFallback()
-	  } else {
-	    // Disable SSE, fall back to polling
-	    disconnectSSE()
-	    sseConnectionState.value = 'disconnected'
-	    stopSSEStatsRefresh()
-	    cancelPollingFallback()
-	    autoRefreshEnabled.value = true
-	    startAutoRefresh()
-	  }
-	}
+const toggleSSEEnabled = () => {
+  sseEnabled.value = !sseEnabled.value
+  saveSSEEnabled()
+  if (sseEnabled.value) {
+    // Enable SSE
+    // Prefer SSE: stop time-based polling immediately, then fall back after a short grace period.
+    cancelPollingFallback()
+    autoRefreshEnabled.value = false
+    stopAutoRefresh()
+    connectSSE()
+    schedulePollingFallback()
+  } else {
+    // Disable SSE, fall back to polling
+    disconnectSSE()
+    sseConnectionState.value = 'disconnected'
+    stopSSEStatsRefresh()
+    cancelPollingFallback()
+    autoRefreshEnabled.value = true
+    startAutoRefresh()
+  }
+}
 
-	// SSE connection state
-	const sseConnectionState = ref<ConnectionState>('disconnected')
-	const isSSEConnected = computed(() => sseConnectionState.value === 'connected')
-	let ssePausedByVisibility = false
+// SSE connection state
+const sseConnectionState = ref<ConnectionState>('disconnected')
+const isSSEConnected = computed(() => sseConnectionState.value === 'connected')
+let ssePausedByVisibility = false
 
 // SSE event handlers
 const handleLogCreated = (payload: LogCreatedPayload) => {
@@ -2238,13 +2551,15 @@ const handleLogCreated = (payload: LogCreatedPayload) => {
   const outputTokens = payload.outputTokens ?? 0
   const cacheCreationInputTokens = payload.cacheCreationInputTokens ?? 0
   const cacheReadInputTokens = payload.cacheReadInputTokens ?? 0
-  const totalTokens = payload.totalTokens ?? (inputTokens + outputTokens)
+  const totalTokens = payload.totalTokens ?? inputTokens + outputTokens
 
   // Add new log to the beginning of the list
   const newLog: RequestLog = {
     id: payload.id,
     status: payload.status as 'pending' | 'completed' | 'error' | 'timeout',
     initialTime: payload.initialTime,
+    firstTokenTime: payload.firstTokenTime,
+    firstTokenDurationMs: payload.firstTokenDurationMs ?? 0,
     completeTime: payload.completeTime || '',
     durationMs: payload.durationMs ?? 0,
     type: payload.type || '',
@@ -2305,7 +2620,9 @@ const handleLogCreated = (payload: LogCreatedPayload) => {
       ]
       // Flash the updated session
       updatedActiveSessions.value = new Set([payload.sessionId])
-      setTimeout(() => { updatedActiveSessions.value = new Set() }, 1000)
+      setTimeout(() => {
+        updatedActiveSessions.value = new Set()
+      }, 1000)
     } else {
       // New session - add to the list
       const newSession: ActiveSession = {
@@ -2323,7 +2640,9 @@ const handleLogCreated = (payload: LogCreatedPayload) => {
       activeSessions.value = [newSession, ...activeSessions.value]
       // Flash the new session
       updatedActiveSessions.value = new Set([payload.sessionId])
-      setTimeout(() => { updatedActiveSessions.value = new Set() }, 1000)
+      setTimeout(() => {
+        updatedActiveSessions.value = new Set()
+      }, 1000)
     }
   }
 }
@@ -2335,6 +2654,8 @@ const handleLogUpdated = (payload: LogUpdatedPayload) => {
     const oldLog = logs.value[index]
     const updated = { ...oldLog }
     updated.status = payload.status as 'pending' | 'completed' | 'error' | 'timeout'
+    updated.firstTokenTime = payload.firstTokenTime ?? oldLog.firstTokenTime
+    updated.firstTokenDurationMs = payload.firstTokenDurationMs ?? oldLog.firstTokenDurationMs ?? 0
     updated.durationMs = payload.durationMs
     updated.httpStatus = payload.httpStatus
     updated.type = payload.type
@@ -2375,7 +2696,14 @@ const handleLogUpdated = (payload: LogUpdatedPayload) => {
       const updateGroup = (group: Record<string, GroupStats> | undefined, key: string) => {
         if (!group) return
         if (!group[key]) {
-          group[key] = { count: 0, inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, cost: 0 }
+          group[key] = {
+            count: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheCreationInputTokens: 0,
+            cacheReadInputTokens: 0,
+            cost: 0
+          }
         }
         group[key].count++
         group[key].inputTokens += payload.inputTokens
@@ -2435,7 +2763,9 @@ const handleLogUpdated = (payload: LogUpdatedPayload) => {
           ]
           // Flash the updated session
           updatedActiveSessions.value = new Set([session])
-          setTimeout(() => { updatedActiveSessions.value = new Set() }, 1000)
+          setTimeout(() => {
+            updatedActiveSessions.value = new Set()
+          }, 1000)
         }
       }
     }
@@ -2458,49 +2788,54 @@ const handleLogDebugData = (payload: { id: string; hasDebugData: boolean }) => {
   }
 }
 
-	const handleSSEConnectionChange = (state: ConnectionState) => {
-	  sseConnectionState.value = state
-	  console.log(`📡 SSE connection state: ${state}`)
-	  emit('sseStateChange', state)
+const handleSSEConnectionChange = (state: ConnectionState) => {
+  sseConnectionState.value = state
+  console.log(`📡 SSE connection state: ${state}`)
+  emit('sseStateChange', state)
 
-	  // If the tab isn't visible, keep everything paused (no polling fallback).
-	  if (document.visibilityState === 'hidden') {
-	    stopAutoRefresh()
-	    stopSSEStatsRefresh()
-	    cancelPollingFallback()
-	    return
-	  }
+  // If the tab isn't visible, keep everything paused (no polling fallback).
+  if (document.visibilityState === 'hidden') {
+    stopAutoRefresh()
+    stopSSEStatsRefresh()
+    cancelPollingFallback()
+    return
+  }
 
-	  if (state === 'connected') {
-	    // SSE connected - disable all polling (SSE handlers update everything in real-time)
-	    cancelPollingFallback()
-	    autoRefreshEnabled.value = false
-	    stopAutoRefresh()
-	    stopSSEStatsRefresh()
-	    silentRefresh()
-	    return
-	  }
+  if (state === 'connected') {
+    // SSE connected - disable all polling (SSE handlers update everything in real-time)
+    cancelPollingFallback()
+    autoRefreshEnabled.value = false
+    stopAutoRefresh()
+    stopSSEStatsRefresh()
+    silentRefresh()
+    return
+  }
 
-	  // For brief SSE disconnects/connection blips, delay enabling polling to avoid flapping.
-	  if (state === 'connecting') {
-	    cancelPollingFallback()
-	    autoRefreshEnabled.value = false
-	    stopAutoRefresh()
-	    schedulePollingFallback()
-	    return
-	  }
+  // For brief SSE disconnects/connection blips, delay enabling polling to avoid flapping.
+  if (state === 'connecting') {
+    cancelPollingFallback()
+    autoRefreshEnabled.value = false
+    stopAutoRefresh()
+    schedulePollingFallback()
+    return
+  }
 
-	  if (state === 'disconnected' || state === 'error') {
-	    stopSSEStatsRefresh()
-	    cancelPollingFallback()
-	    autoRefreshEnabled.value = false
-	    stopAutoRefresh()
-	    schedulePollingFallback()
-	  }
-	}
+  if (state === 'disconnected' || state === 'error') {
+    stopSSEStatsRefresh()
+    cancelPollingFallback()
+    autoRefreshEnabled.value = false
+    stopAutoRefresh()
+    schedulePollingFallback()
+  }
+}
 
 // Initialize SSE
-const { connectionState: sseState, isPollingFallback, connect: connectSSE, disconnect: disconnectSSE } = useLogStream({
+const {
+  connectionState: sseState,
+  isPollingFallback,
+  connect: connectSSE,
+  disconnect: disconnectSSE
+} = useLogStream({
   onLogCreated: handleLogCreated,
   onLogUpdated: handleLogUpdated,
   onLogDebugData: handleLogDebugData,
@@ -2513,6 +2848,7 @@ const { connectionState: sseState, isPollingFallback, connect: connectSSE, disco
 const defaultColumnWidths: Record<string, number> = {
   status: 70,
   initialTime: 140,
+  firstTokenDurationMs: 130,
   durationMs: 100,
   providerName: 120,
   model: 200,
@@ -2520,7 +2856,7 @@ const defaultColumnWidths: Record<string, number> = {
   clientId: 220,
   sessionId: 240,
   tokens: 160,
-  price: 80,
+  price: 80
 }
 
 const columnWidths = ref<Record<string, number>>({ ...defaultColumnWidths })
@@ -2529,6 +2865,7 @@ const columnWidths = ref<Record<string, number>>({ ...defaultColumnWidths })
 const defaultColumnVisibility: Record<string, boolean> = {
   status: true,
   initialTime: true,
+  firstTokenDurationMs: true,
   durationMs: true,
   providerName: true,
   model: true,
@@ -2536,7 +2873,7 @@ const defaultColumnVisibility: Record<string, boolean> = {
   clientId: true,
   sessionId: true,
   tokens: true,
-  price: true,
+  price: true
 }
 
 const columnVisibility = ref<Record<string, boolean>>({ ...defaultColumnVisibility })
@@ -2551,24 +2888,28 @@ interface StackPairConfig {
 
 const stackPairConfigs: StackPairConfig[] = [
   { primary: 'providerName', secondary: 'model' },
-  { primary: 'initialTime', secondary: 'durationMs' },
-  { primary: 'clientId', secondary: 'sessionId' },
+  { primary: 'firstTokenDurationMs', secondary: 'durationMs' },
+  { primary: 'clientId', secondary: 'sessionId' }
 ]
 
 // Get label for a stacking pair (computed at render time for i18n reactivity)
 const getStackPairLabel = (primary: string): string => {
   switch (primary) {
-    case 'providerName': return `${t('requestLog.channel')} + ${t('requestLog.model')}`
-    case 'initialTime': return `${t('requestLog.time')} + ${t('requestLog.duration')}`
-    case 'clientId': return `${t('requestLog.client')} + ${t('requestLog.session')}`
-    default: return primary
+    case 'providerName':
+      return `${t('requestLog.channel')} + ${t('requestLog.model')}`
+    case 'firstTokenDurationMs':
+      return `${t('requestLog.firstTokenDuration')} + ${t('requestLog.duration')}`
+    case 'clientId':
+      return `${t('requestLog.client')} + ${t('requestLog.session')}`
+    default:
+      return primary
   }
 }
 
 const defaultStackModes: Record<string, StackMode> = {
   providerName: 'expanded',
-  initialTime: 'expanded',
-  clientId: 'expanded',
+  firstTokenDurationMs: 'expanded',
+  clientId: 'expanded'
 }
 
 const stackModes = ref<Record<string, StackMode>>({ ...defaultStackModes })
@@ -2587,14 +2928,7 @@ const isStacked = (primaryKey: string): boolean => {
 
 const FORWARD_PROXY_CHANNEL_UID = 'subscription:forward-proxy'
 const FORWARD_PROXY_CHANNEL_NAME = 'Subscription (Forward Proxy)'
-const OPENAI_FAMILY_TYPES = new Set([
-  'openai',
-  'openaiold',
-  'openai_chat',
-  'openai-oauth',
-  'codex',
-  'responses',
-])
+const OPENAI_FAMILY_TYPES = new Set(['openai', 'openaiold', 'openai_chat', 'openai-oauth', 'codex', 'responses'])
 
 const isOpenAIFamilyType = (type: string): boolean => OPENAI_FAMILY_TYPES.has(type)
 
@@ -2619,19 +2953,26 @@ const loadStackingPrefs = () => {
     const saved = localStorage.getItem(STACKING_KEY)
     if (saved) {
       const parsed = JSON.parse(saved) as Record<string, StackMode>
+      if (parsed.initialTime && !parsed.firstTokenDurationMs) {
+        parsed.firstTokenDurationMs = parsed.initialTime
+      }
       Object.keys(parsed).forEach(key => {
         if (key in stackModes.value) {
           stackModes.value[key] = parsed[key]
         }
       })
     }
-  } catch (e) { console.error('Failed to load stacking prefs:', e) }
+  } catch (e) {
+    console.error('Failed to load stacking prefs:', e)
+  }
 }
 
 const saveStackingPrefs = () => {
   try {
     localStorage.setItem(STACKING_KEY, JSON.stringify(stackModes.value))
-  } catch (e) { console.error('Failed to save stacking prefs:', e) }
+  } catch (e) {
+    console.error('Failed to save stacking prefs:', e)
+  }
 }
 
 const resetStackingPrefs = () => {
@@ -2643,6 +2984,7 @@ const resetStackingPrefs = () => {
 const columnDisplayNames = computed(() => ({
   status: t('requestLog.status'),
   initialTime: t('requestLog.time'),
+  firstTokenDurationMs: t('requestLog.firstTokenDuration'),
   durationMs: t('requestLog.duration'),
   providerName: t('requestLog.channel'),
   model: t('requestLog.model'),
@@ -2650,7 +2992,7 @@ const columnDisplayNames = computed(() => ({
   clientId: t('requestLog.client'),
   sessionId: t('requestLog.session'),
   tokens: t('requestLog.tokens'),
-  price: t('requestLog.price'),
+  price: t('requestLog.price')
 }))
 
 // Load column visibility from localStorage
@@ -2743,6 +3085,7 @@ const resetColumnWidths = () => {
 
 const allHeaders = [
   { title: () => t('requestLog.time'), key: 'initialTime', sortable: false },
+  { title: () => t('requestLog.firstTokenDuration'), key: 'firstTokenDurationMs', sortable: false },
   { title: () => t('requestLog.duration'), key: 'durationMs', sortable: false },
   { title: () => t('requestLog.channel'), key: 'providerName', sortable: false },
   { title: () => t('requestLog.model'), key: 'model', sortable: false },
@@ -2751,7 +3094,7 @@ const allHeaders = [
   { title: () => t('requestLog.session'), key: 'sessionId', sortable: false },
   { title: () => t('requestLog.tokens'), key: 'tokens', sortable: false },
   { title: () => t('requestLog.price'), key: 'price', sortable: false },
-  { title: () => t('requestLog.status'), key: 'status', sortable: false },
+  { title: () => t('requestLog.status'), key: 'status', sortable: false }
 ]
 
 const headers = computed(() =>
@@ -2830,14 +3173,18 @@ const refreshLogs = async () => {
 
 // Watch date/unit changes - debounced to avoid rapid re-fetches
 let dateChangeTimeout: ReturnType<typeof setTimeout> | null = null
-	watch([currentDate, dateUnit], () => {
-	  if (dateChangeTimeout) clearTimeout(dateChangeTimeout)
-	  dateChangeTimeout = setTimeout(() => {
-	    offset.value = 0
-	    emit('dateRangeChange', getDateRange())
-	    refreshLogs()
-	  }, 100)
-	}, { immediate: false })
+watch(
+  [currentDate, dateUnit],
+  () => {
+    if (dateChangeTimeout) clearTimeout(dateChangeTimeout)
+    dateChangeTimeout = setTimeout(() => {
+      offset.value = 0
+      emit('dateRangeChange', getDateRange())
+      refreshLogs()
+    }, 100)
+  },
+  { immediate: false }
+)
 
 const prevPage = () => {
   if (offset.value > 0) {
@@ -2873,6 +3220,15 @@ const formatNumber = (n: number) => {
 const formatDuration = (ms: number) => {
   const numStr = String(ms).slice(0, 7)
   return numStr.padStart(7, '\u00A0') + '\u00A0ms'
+}
+
+const hasFirstTokenMetric = (item: RequestLog) => {
+  return !!item.firstTokenTime
+}
+
+const formatFirstTokenDuration = (item: RequestLog) => {
+  if (!hasFirstTokenMetric(item)) return '—'
+  return formatDuration(item.firstTokenDurationMs ?? 0)
 }
 
 // Format tokens: 6-char left-padded abbreviated number + space + symbol (e.g., " 1.2K (↑)")
@@ -2918,10 +3274,12 @@ const formatPriceSummary = (price: number) => {
 
 // Check if a request log has cost breakdown details
 const hasCostBreakdown = (item: RequestLog) => {
-  return (item.inputCost && item.inputCost > 0) ||
-         (item.outputCost && item.outputCost > 0) ||
-         (item.cacheCreationCost && item.cacheCreationCost > 0) ||
-         (item.cacheReadCost && item.cacheReadCost > 0)
+  return (
+    (item.inputCost && item.inputCost > 0) ||
+    (item.outputCost && item.outputCost > 0) ||
+    (item.cacheCreationCost && item.cacheCreationCost > 0) ||
+    (item.cacheReadCost && item.cacheReadCost > 0)
+  )
 }
 
 const truncateModel = (model: string) => {
@@ -3152,51 +3510,53 @@ const removeAlias = async (userId?: string) => {
   }
 }
 
-	onMounted(() => {
-	  loadColumnWidths()
-	  loadColumnVisibility()
-	  loadStackingPrefs()
-	  loadSummaryColumnWidths()
-	  loadActiveSessionColumnWidths()
-	  loadPanelWidths()
-	  loadDateFilterCollapsed()
-	  // Apply collapsed state after loading panel widths
-	  if (isDateFilterCollapsed.value) {
-	    // Use persisted expanded widths if available, otherwise use loaded panel widths
-	    if (!expandedPanelWidths.value) {
-	      expandedPanelWidths.value = { ...panelWidths.value }
-	    }
-	    const collapsedWidth = 1
-	    const freedWidth = expandedPanelWidths.value.dateFilter - collapsedWidth
-	    const totalOther = expandedPanelWidths.value.summary + expandedPanelWidths.value.reserved
-	    if (totalOther > 0) {
-	      panelWidths.value.summary = expandedPanelWidths.value.summary + freedWidth * (expandedPanelWidths.value.summary / totalOther)
-	      panelWidths.value.reserved = expandedPanelWidths.value.reserved + freedWidth * (expandedPanelWidths.value.reserved / totalOther)
-	    } else {
-	      panelWidths.value.summary = 49
-	      panelWidths.value.reserved = 49
-	    }
-	    panelWidths.value.dateFilter = collapsedWidth
-	  }
-	  loadUserAliases()
-	  loadAPIKeys()
-	  loadSSEEnabled()
-	  loadAutoRefreshInterval()
-	  emit('dateRangeChange', getDateRange())
-	  refreshLogs()
-	  if (sseEnabled.value) {
-	    // Try SSE first, fall back to polling if it fails
-	    connectSSE()
-	    // Start polling as backup only if SSE doesn't connect quickly.
-	    autoRefreshEnabled.value = false
-	    stopAutoRefresh()
-	    schedulePollingFallback()
-	  } else {
-	    // SSE disabled, use polling only
-	    startAutoRefresh()
-	  }
-	  document.addEventListener('visibilitychange', handleVisibilityChange)
-	})
+onMounted(() => {
+  loadColumnWidths()
+  loadColumnVisibility()
+  loadStackingPrefs()
+  loadSummaryColumnWidths()
+  loadActiveSessionColumnWidths()
+  loadPanelWidths()
+  loadDateFilterCollapsed()
+  // Apply collapsed state after loading panel widths
+  if (isDateFilterCollapsed.value) {
+    // Use persisted expanded widths if available, otherwise use loaded panel widths
+    if (!expandedPanelWidths.value) {
+      expandedPanelWidths.value = { ...panelWidths.value }
+    }
+    const collapsedWidth = 1
+    const freedWidth = expandedPanelWidths.value.dateFilter - collapsedWidth
+    const totalOther = expandedPanelWidths.value.summary + expandedPanelWidths.value.reserved
+    if (totalOther > 0) {
+      panelWidths.value.summary =
+        expandedPanelWidths.value.summary + freedWidth * (expandedPanelWidths.value.summary / totalOther)
+      panelWidths.value.reserved =
+        expandedPanelWidths.value.reserved + freedWidth * (expandedPanelWidths.value.reserved / totalOther)
+    } else {
+      panelWidths.value.summary = 49
+      panelWidths.value.reserved = 49
+    }
+    panelWidths.value.dateFilter = collapsedWidth
+  }
+  loadUserAliases()
+  loadAPIKeys()
+  loadSSEEnabled()
+  loadAutoRefreshInterval()
+  emit('dateRangeChange', getDateRange())
+  refreshLogs()
+  if (sseEnabled.value) {
+    // Try SSE first, fall back to polling if it fails
+    connectSSE()
+    // Start polling as backup only if SSE doesn't connect quickly.
+    autoRefreshEnabled.value = false
+    stopAutoRefresh()
+    schedulePollingFallback()
+  } else {
+    // SSE disabled, use polling only
+    startAutoRefresh()
+  }
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+})
 
 onUnmounted(() => {
   stopAutoRefresh()
@@ -3207,11 +3567,15 @@ onUnmounted(() => {
 })
 
 // Let parent components (e.g. charts) follow the same "effective polling" state.
-watch(autoRefreshEnabled, (enabled) => {
-  emit('pollingEnabledChange', enabled)
-}, { immediate: true })
+watch(
+  autoRefreshEnabled,
+  enabled => {
+    emit('pollingEnabledChange', enabled)
+  },
+  { immediate: true }
+)
 
-	const startAutoRefresh = () => {
+const startAutoRefresh = () => {
   if (autoRefreshTimer) {
     clearInterval(autoRefreshTimer)
   }
@@ -3232,35 +3596,35 @@ const stopAutoRefresh = () => {
   }
 }
 
-	const handleVisibilityChange = () => {
-	  if (document.visibilityState === 'hidden') {
-	    stopAutoRefresh()
-	    cancelPollingFallback()
-	    // Disconnect SSE to avoid keeping a live connection open when user isn't watching.
-	    // We'll reconnect when the tab becomes visible again.
-	    if (sseEnabled.value && sseConnectionState.value !== 'disconnected') {
-	      ssePausedByVisibility = true
-	      disconnectSSE()
-	      sseConnectionState.value = 'disconnected'
-	      stopSSEStatsRefresh()
-	    }
-	    return
-	  }
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'hidden') {
+    stopAutoRefresh()
+    cancelPollingFallback()
+    // Disconnect SSE to avoid keeping a live connection open when user isn't watching.
+    // We'll reconnect when the tab becomes visible again.
+    if (sseEnabled.value && sseConnectionState.value !== 'disconnected') {
+      ssePausedByVisibility = true
+      disconnectSSE()
+      sseConnectionState.value = 'disconnected'
+      stopSSEStatsRefresh()
+    }
+    return
+  }
 
-	  // Visible again: follow the same effective rules as the SSE/polling state machine.
-	  if (sseEnabled.value) {
-	    // Prefer SSE, only poll if SSE stays down past the grace period.
-	    stopAutoRefresh()
-	    cancelPollingFallback()
-	    if (ssePausedByVisibility) {
-	      ssePausedByVisibility = false
-	      connectSSE()
-	    }
-	    if (sseConnectionState.value !== 'connected') {
-	      schedulePollingFallback()
-	    }
-	    return
-	  }
+  // Visible again: follow the same effective rules as the SSE/polling state machine.
+  if (sseEnabled.value) {
+    // Prefer SSE, only poll if SSE stays down past the grace period.
+    stopAutoRefresh()
+    cancelPollingFallback()
+    if (ssePausedByVisibility) {
+      ssePausedByVisibility = false
+      connectSSE()
+    }
+    if (sseConnectionState.value !== 'connected') {
+      schedulePollingFallback()
+    }
+    return
+  }
 
   // SSE disabled: resume polling only if user left auto-refresh enabled.
   if (autoRefreshEnabled.value) {
@@ -3310,28 +3674,40 @@ const refreshStatsOnly = async () => {
     // Flash updated summary groups
     if (newUpdatedModels.size > 0) {
       updatedModels.value = newUpdatedModels
-      setTimeout(() => { updatedModels.value = new Set() }, 1000)
+      setTimeout(() => {
+        updatedModels.value = new Set()
+      }, 1000)
     }
     if (newUpdatedProviders.size > 0) {
       updatedProviders.value = newUpdatedProviders
-      setTimeout(() => { updatedProviders.value = new Set() }, 1000)
+      setTimeout(() => {
+        updatedProviders.value = new Set()
+      }, 1000)
     }
     if (newUpdatedClients.size > 0) {
       updatedClients.value = newUpdatedClients
-      setTimeout(() => { updatedClients.value = new Set() }, 1000)
+      setTimeout(() => {
+        updatedClients.value = new Set()
+      }, 1000)
     }
     if (newUpdatedSessions.size > 0) {
       updatedSessions.value = newUpdatedSessions
-      setTimeout(() => { updatedSessions.value = new Set() }, 1000)
+      setTimeout(() => {
+        updatedSessions.value = new Set()
+      }, 1000)
     }
     if (newUpdatedAPIKeys.size > 0) {
       updatedAPIKeys.value = newUpdatedAPIKeys
-      setTimeout(() => { updatedAPIKeys.value = new Set() }, 1000)
+      setTimeout(() => {
+        updatedAPIKeys.value = new Set()
+      }, 1000)
     }
     // Flash updated active sessions
     if (newUpdatedActive.size > 0) {
       updatedActiveSessions.value = newUpdatedActive
-      setTimeout(() => { updatedActiveSessions.value = new Set() }, 1000)
+      setTimeout(() => {
+        updatedActiveSessions.value = new Set()
+      }, 1000)
     }
   } catch (e) {
     console.warn('Failed to refresh stats:', e)
@@ -3396,34 +3772,48 @@ const silentRefresh = async () => {
 
       if (newUpdatedIds.size > 0) {
         updatedIds.value = newUpdatedIds
-        setTimeout(() => { updatedIds.value = new Set() }, 1000)
+        setTimeout(() => {
+          updatedIds.value = new Set()
+        }, 1000)
       }
       if (newUpdatedModels.size > 0) {
         updatedModels.value = newUpdatedModels
-        setTimeout(() => { updatedModels.value = new Set() }, 1000)
+        setTimeout(() => {
+          updatedModels.value = new Set()
+        }, 1000)
       }
       if (newUpdatedProviders.size > 0) {
         updatedProviders.value = newUpdatedProviders
-        setTimeout(() => { updatedProviders.value = new Set() }, 1000)
+        setTimeout(() => {
+          updatedProviders.value = new Set()
+        }, 1000)
       }
       if (newUpdatedClients.size > 0) {
         updatedClients.value = newUpdatedClients
-        setTimeout(() => { updatedClients.value = new Set() }, 1000)
+        setTimeout(() => {
+          updatedClients.value = new Set()
+        }, 1000)
       }
       if (newUpdatedSessions.size > 0) {
         updatedSessions.value = newUpdatedSessions
-        setTimeout(() => { updatedSessions.value = new Set() }, 1000)
+        setTimeout(() => {
+          updatedSessions.value = new Set()
+        }, 1000)
       }
       if (newUpdatedAPIKeys.size > 0) {
         updatedAPIKeys.value = newUpdatedAPIKeys
-        setTimeout(() => { updatedAPIKeys.value = new Set() }, 1000)
+        setTimeout(() => {
+          updatedAPIKeys.value = new Set()
+        }, 1000)
       }
 
       // Detect updated active sessions
       const newUpdatedActive = detectActiveSessionChanges(activeSessions.value, activeSessionsRes)
       if (newUpdatedActive.size > 0) {
         updatedActiveSessions.value = newUpdatedActive
-        setTimeout(() => { updatedActiveSessions.value = new Set() }, 1000)
+        setTimeout(() => {
+          updatedActiveSessions.value = new Set()
+        }, 1000)
       }
     }
 
@@ -3488,8 +3878,13 @@ const silentRefresh = async () => {
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
 }
 
 /* Top panels container with flex layout */
@@ -4000,9 +4395,15 @@ const silentRefresh = async () => {
 
 /* Row flash animation for updated records */
 @keyframes row-flash {
-  0% { background-color: rgba(76, 175, 80, 0.4); }
-  50% { background-color: rgba(76, 175, 80, 0.2); }
-  100% { background-color: transparent; }
+  0% {
+    background-color: rgba(76, 175, 80, 0.4);
+  }
+  50% {
+    background-color: rgba(76, 175, 80, 0.2);
+  }
+  100% {
+    background-color: transparent;
+  }
 }
 
 .log-table :deep(tr.row-flash) {
@@ -4130,11 +4531,11 @@ const silentRefresh = async () => {
 
 /* Token color coding */
 .input-color {
-  color: #4CAF50 !important; /* Green for input */
+  color: #4caf50 !important; /* Green for input */
 }
 
 .output-color {
-  color: #2196F3 !important; /* Blue for output */
+  color: #2196f3 !important; /* Blue for output */
 }
 
 .cache-create-color {
@@ -4146,11 +4547,11 @@ const silentRefresh = async () => {
 }
 
 .v-theme--dark .input-color {
-  color: #81C784 !important;
+  color: #81c784 !important;
 }
 
 .v-theme--dark .output-color {
-  color: #64B5F6 !important;
+  color: #64b5f6 !important;
 }
 
 .v-theme--dark .cache-create-color {
@@ -4262,7 +4663,7 @@ const silentRefresh = async () => {
 .price-value {
   font-family: 'Courier New', monospace;
   font-weight: 600;
-  color: #4CAF50;
+  color: #4caf50;
 }
 
 .price-zero {
@@ -4277,7 +4678,7 @@ const silentRefresh = async () => {
 }
 
 .v-theme--dark .price-value {
-  color: #81C784;
+  color: #81c784;
 }
 
 .v-theme--dark .price-zero {
@@ -4340,18 +4741,18 @@ const silentRefresh = async () => {
 }
 
 .cost-breakdown-total .cost-value {
-  color: #81C784;
+  color: #81c784;
 }
 
 /* Cost cell in summary tables */
 .cost-cell {
   font-family: 'Courier New', monospace;
   font-weight: 600;
-  color: #4CAF50 !important;
+  color: #4caf50 !important;
 }
 
 .v-theme--dark .cost-cell {
-  color: #81C784 !important;
+  color: #81c784 !important;
 }
 
 /* Model mapping tooltip styles */
@@ -4372,7 +4773,7 @@ const silentRefresh = async () => {
 }
 
 .model-mapping-tooltip .request-model {
-  color: #64B5F6;
+  color: #64b5f6;
   font-weight: 500;
 }
 
@@ -4381,7 +4782,7 @@ const silentRefresh = async () => {
 }
 
 .model-mapping-tooltip .response-model {
-  color: #81C784;
+  color: #81c784;
   font-weight: 500;
 }
 
@@ -4405,19 +4806,19 @@ const silentRefresh = async () => {
 }
 
 .reasoning-effort-tooltip .effort-value.effort-low {
-  color: #4CAF50;
+  color: #4caf50;
 }
 
 .reasoning-effort-tooltip .effort-value.effort-medium {
-  color: #64B5F6;
+  color: #64b5f6;
 }
 
 .reasoning-effort-tooltip .effort-value.effort-high {
-  color: #FFB74D;
+  color: #ffb74d;
 }
 
 .reasoning-effort-tooltip .effort-value.effort-xhigh {
-  color: #EF5350;
+  color: #ef5350;
 }
 
 .settings-card {
@@ -4457,11 +4858,11 @@ const silentRefresh = async () => {
   }
 
   /* Summary tables - hide some columns on mobile */
-  .summary-table .col-small:nth-child(n+4) {
+  .summary-table .col-small:nth-child(n + 4) {
     display: none;
   }
 
-  .summary-table-footer-fixed .col-small:nth-child(n+4) {
+  .summary-table-footer-fixed .col-small:nth-child(n + 4) {
     display: none;
   }
 
@@ -4695,5 +5096,4 @@ const silentRefresh = async () => {
   font-size: 0.7rem !important;
   padding: 0 8px !important;
 }
-
 </style>

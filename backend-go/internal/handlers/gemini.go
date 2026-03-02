@@ -893,8 +893,6 @@ func tryGeminiChannel(
 					case <-time.After(decision.Wait):
 						pinnedKey = apiKey
 						retryWaitPending = true
-						// Reset startTime after wait completes for the next attempt's duration
-						currentStartTime = time.Now()
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
@@ -1070,9 +1068,8 @@ func tryGeminiChannel(
 
 					select {
 					case <-time.After(decision.Wait):
-						pinnedKey = apiKey            // Pin for next attempt
-						retryWaitPending = true       // Allow loop to continue
-						currentStartTime = time.Now() // Reset startTime after wait completes
+						pinnedKey = apiKey      // Pin for next attempt
+						retryWaitPending = true // Allow loop to continue
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
@@ -1328,18 +1325,34 @@ func handleGeminiSuccess(
 			debugCapture = &cappedBuffer{max: maxCapture}
 		}
 
-		var streamReader io.Reader = resp.Body
-		if debugCapture != nil {
-			streamReader = io.TeeReader(resp.Body, io.MultiWriter(tail, debugCapture))
-		} else {
-			streamReader = io.TeeReader(resp.Body, tail)
-		}
-
 		copyBuf := make([]byte, 32*1024)
 		var streamCopyErr error
-		if _, err := io.CopyBuffer(fw, streamReader, copyBuf); err != nil {
-			streamCopyErr = err
-			log.Printf("⚠️ Gemini 流式响应传输错误: %v", err)
+		firstTokenDetector := streamDetectorForServiceType(upstream.ServiceType)
+		var firstTokenTime *time.Time
+		for {
+			n, readErr := resp.Body.Read(copyBuf)
+			if n > 0 {
+				chunk := copyBuf[:n]
+				_, _ = tail.Write(chunk)
+				if debugCapture != nil {
+					_, _ = debugCapture.Write(chunk)
+				}
+				if firstTokenDetector != nil && firstTokenTime == nil {
+					markFirstTokenIfDetected(firstTokenDetector.ObserveBytes(chunk), &firstTokenTime)
+				}
+				if _, err := fw.Write(chunk); err != nil {
+					streamCopyErr = err
+					log.Printf("⚠️ Gemini 流式响应传输错误: %v", err)
+					break
+				}
+			}
+			if readErr != nil {
+				if readErr != io.EOF {
+					streamCopyErr = readErr
+					log.Printf("⚠️ Gemini 流式响应读取错误: %v", readErr)
+				}
+				break
+			}
 		}
 
 		if flusher != nil {
@@ -1364,15 +1377,17 @@ func handleGeminiSuccess(
 			)
 
 			record := &requestlog.RequestLog{
-				Status:       recordStatus,
-				CompleteTime: completeTime,
-				DurationMs:   durationMs,
-				Type:         upstream.ServiceType,
-				ProviderName: upstream.Name,
-				HTTPStatus:   recordHTTPStatus,
-				ChannelID:    logChannelIndex,
-				ChannelName:  logChannelName,
-				Error:        recordError,
+				Status:               recordStatus,
+				CompleteTime:         completeTime,
+				DurationMs:           durationMs,
+				FirstTokenTime:       firstTokenTime,
+				FirstTokenDurationMs: firstTokenDurationFromStart(startTime, firstTokenTime),
+				Type:                 upstream.ServiceType,
+				ProviderName:         upstream.Name,
+				HTTPStatus:           recordHTTPStatus,
+				ChannelID:            logChannelIndex,
+				ChannelName:          logChannelName,
+				Error:                recordError,
 			}
 
 			if usage != nil {

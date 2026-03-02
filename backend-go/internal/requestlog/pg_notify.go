@@ -161,7 +161,7 @@ func (m *Manager) StopListener() {
 func (m *Manager) getPartialRecordForSSE(id string) (*RequestLog, error) {
 	query := m.convertQuery(`
 		SELECT r.id, r.status, r.provider, r.provider_name, r.model, r.response_model,
-		       r.duration_ms, r.http_status, r.input_tokens, r.output_tokens,
+		       r.first_token_time, r.first_token_duration_ms, r.duration_ms, r.http_status, r.input_tokens, r.output_tokens,
 		       r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
 		       r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
 		       r.api_key_id, r.error, r.upstream_error, r.failover_info, r.complete_time,
@@ -176,14 +176,14 @@ func (m *Manager) getPartialRecordForSSE(id string) (*RequestLog, error) {
 	var r RequestLog
 	var hasDebugData int
 	var channelID, apiKeyID sql.NullInt64
-	var completeTime sql.NullTime
+	var completeTime, firstTokenTime sql.NullTime
 	var providerName, model, responseModel sql.NullString
 	var channelUID, channelName, endpoint, clientID, sessionID, reasoningEffort sql.NullString
 	var errorStr, upstreamErrorStr, failoverInfoStr sql.NullString
 
 	err := m.db.QueryRow(query, id).Scan(
 		&r.ID, &r.Status, &r.Type, &providerName, &model, &responseModel,
-		&r.DurationMs, &r.HTTPStatus, &r.InputTokens, &r.OutputTokens,
+		&firstTokenTime, &r.FirstTokenDurationMs, &r.DurationMs, &r.HTTPStatus, &r.InputTokens, &r.OutputTokens,
 		&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 		&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
 		&apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr, &completeTime,
@@ -208,6 +208,10 @@ func (m *Manager) getPartialRecordForSSE(id string) (*RequestLog, error) {
 	}
 	if responseModel.Valid {
 		r.ResponseModel = responseModel.String
+	}
+	if firstTokenTime.Valid {
+		parsedFirstTokenTime := firstTokenTime.Time
+		r.FirstTokenTime = &parsedFirstTokenTime
 	}
 	if completeTime.Valid {
 		r.CompleteTime = completeTime.Time

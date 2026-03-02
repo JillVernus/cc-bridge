@@ -476,6 +476,7 @@ export default {
     totalRecords: '共 {count} 条记录',
     status: '状态',
     time: '时间',
+    firstTokenDuration: '首 Token 耗时',
     duration: '耗时',
     tokens: 'Tokens',
     price: '费用',

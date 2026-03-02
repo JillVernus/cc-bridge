@@ -15,15 +15,18 @@ import (
 // StreamParserWriter wraps StreamSynthesizer as an io.Writer for use with io.TeeReader.
 // Raw SSE bytes are buffered into lines and fed to the synthesizer for metric extraction.
 type StreamParserWriter struct {
-	synthesizer *utils.StreamSynthesizer
-	buf         bytes.Buffer
-	messageID   string // extracted from message_start for log ID
+	synthesizer    *utils.StreamSynthesizer
+	detector       *utils.FirstTokenDetector
+	buf            bytes.Buffer
+	messageID      string // extracted from message_start for log ID
+	firstTokenTime *time.Time
 }
 
 // NewStreamParserWriter creates a parser that delegates to StreamSynthesizer.
 func NewStreamParserWriter() *StreamParserWriter {
 	return &StreamParserWriter{
 		synthesizer: utils.NewStreamSynthesizer("claude"),
+		detector:    utils.NewFirstTokenDetector(utils.FirstTokenProtocolClaudeSSE),
 	}
 }
 
@@ -43,6 +46,10 @@ func (p *StreamParserWriter) GetUsage() *utils.StreamUsage {
 		remaining := strings.TrimRight(p.buf.String(), "\r\n")
 		if remaining != "" {
 			p.synthesizer.ProcessLine(remaining)
+			if p.detector != nil && p.firstTokenTime == nil && p.detector.ObserveLine(remaining) {
+				ts := time.Now()
+				p.firstTokenTime = &ts
+			}
 		}
 		p.buf.Reset()
 	}
@@ -52,6 +59,11 @@ func (p *StreamParserWriter) GetUsage() *utils.StreamUsage {
 // GetMessageID returns the message ID extracted from the stream.
 func (p *StreamParserWriter) GetMessageID() string {
 	return p.messageID
+}
+
+// GetFirstTokenTime returns the first content token arrival time when observed.
+func (p *StreamParserWriter) GetFirstTokenTime() *time.Time {
+	return p.firstTokenTime
 }
 
 func (p *StreamParserWriter) parseBufferedLines() {
@@ -77,6 +89,10 @@ func (p *StreamParserWriter) parseBufferedLines() {
 
 		// Delegate all SSE parsing to StreamSynthesizer
 		p.synthesizer.ProcessLine(line)
+		if p.detector != nil && p.firstTokenTime == nil && p.detector.ObserveLine(line) {
+			ts := time.Now()
+			p.firstTokenTime = &ts
+		}
 	}
 }
 
@@ -130,13 +146,20 @@ func parseJSONResponse(body []byte) (messageID string, usage *utils.StreamUsage)
 }
 
 // createCompletionRecord creates a record with response metrics for updating the pending log.
-func createCompletionRecord(usage *utils.StreamUsage, httpStatus int, startTime, endTime time.Time, hostOnly string) *requestlog.RequestLog {
+func createCompletionRecord(usage *utils.StreamUsage, httpStatus int, startTime, endTime time.Time, hostOnly string, firstTokenTime *time.Time) *requestlog.RequestLog {
 	status := requestlog.StatusCompleted
 	if httpStatus >= 400 {
 		status = requestlog.StatusError
 	}
 
 	durationMs := endTime.Sub(startTime).Milliseconds()
+	var firstTokenDurationMs int64
+	if firstTokenTime != nil {
+		firstTokenDurationMs = firstTokenTime.Sub(startTime).Milliseconds()
+		if firstTokenDurationMs < 0 {
+			firstTokenDurationMs = 0
+		}
+	}
 
 	totalTokens := usage.InputTokens + usage.OutputTokens +
 		usage.CacheCreationInputTokens + usage.CacheReadInputTokens
@@ -164,6 +187,8 @@ func createCompletionRecord(usage *utils.StreamUsage, httpStatus int, startTime,
 		Status:                   status,
 		CompleteTime:             endTime,
 		DurationMs:               durationMs,
+		FirstTokenTime:           firstTokenTime,
+		FirstTokenDurationMs:     firstTokenDurationMs,
 		Type:                     "claude",
 		ProviderName:             hostOnly,
 		ResponseModel:            usage.Model,

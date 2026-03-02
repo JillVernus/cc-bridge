@@ -6,6 +6,14 @@
 
 ## [v1.5.2] - 2026-03-02
 
+### ✨ 新功能
+
+- **请求日志新增首 Token 耗时指标（First Token Duration）**:
+  - 后端在流式路径中记录 `firstTokenTime` 与 `firstTokenDurationMs`，用于衡量「请求发出 -> 首 token 到达」延迟。
+  - 新字段已打通数据库存储、API 返回与 SSE 实时事件（`log:created` / `log:updated`）。
+  - 非流式请求保持语义稳定：`firstTokenTime` 为空，`firstTokenDurationMs` 为 `0`。
+  - 前端请求日志表格的堆叠显示选项由 `Time + Duration` 调整为 `First Token Duration + Duration`，并保留原 `Duration` 列。
+
 ### 🐛 修复
 
 - **Claude Messages -> Codex Responses 流式转换一致性修复**:

@@ -489,7 +489,7 @@ func handleMultiChannelProxy(
 			upstream,
 			bodyBytes,
 			claudeReq,
-			startTime,
+			&startTime,
 			reqLogManager,
 			requestLogID,
 			usageManager,
@@ -795,7 +795,7 @@ func tryChannelWithAllKeys(
 	upstream *config.UpstreamConfig,
 	bodyBytes []byte,
 	claudeReq types.ClaudeRequest,
-	startTime time.Time,
+	startTime *time.Time,
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
 	usageManager *quota.UsageManager,
@@ -811,7 +811,7 @@ func tryChannelWithAllKeys(
 	FailoverInfo string
 }, string) {
 	if upstream.ServiceType == "openai-oauth" {
-		success, failoverErr := tryMessagesChannelWithOAuth(c, envCfg, cfgManager, upstream, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID, usageManager, logChannelIndex, logChannelName)
+		success, failoverErr := tryMessagesChannelWithOAuth(c, envCfg, cfgManager, upstream, bodyBytes, claudeReq, *startTime, reqLogManager, requestLogID, usageManager, logChannelIndex, logChannelName)
 		return success, failoverErr, requestLogID
 	}
 
@@ -840,7 +840,10 @@ func tryChannelWithAllKeys(
 	deprioritizeCandidates := make(map[string]bool)
 	var pinnedKey string      // For retry-same-key scenarios
 	var retryWaitPending bool // Allows loop to continue for one retry after wait
-	currentStartTime := startTime
+	currentStartTime := *startTime
+	defer func() {
+		*startTime = currentStartTime
+	}()
 	currentRequestLogID := requestLogID
 
 	for attempt := 0; attempt < maxRetries || retryWaitPending; {
@@ -1011,6 +1014,7 @@ func tryChannelWithAllKeys(
 							log.Printf("⚠️ Failed to create retry pending log: %v", err)
 						} else {
 							currentRequestLogID = newPendingLog.ID
+							currentStartTime = newPendingLog.InitialTime
 						}
 					}
 
@@ -1027,9 +1031,8 @@ func tryChannelWithAllKeys(
 
 					select {
 					case <-time.After(decision.Wait):
-						pinnedKey = apiKey            // Pin for next attempt
-						retryWaitPending = true       // Allow loop to continue
-						currentStartTime = time.Now() // Reset startTime after wait completes
+						pinnedKey = apiKey      // Pin for next attempt
+						retryWaitPending = true // Allow loop to continue
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
@@ -1190,6 +1193,7 @@ func tryChannelWithAllKeys(
 							log.Printf("⚠️ Failed to create retry pending log: %v", err)
 						} else {
 							currentRequestLogID = newPendingLog.ID
+							currentStartTime = newPendingLog.InitialTime
 						}
 					}
 
@@ -1206,9 +1210,8 @@ func tryChannelWithAllKeys(
 
 					select {
 					case <-time.After(decision.Wait):
-						pinnedKey = apiKey            // Pin for next attempt
-						retryWaitPending = true       // Allow loop to continue
-						currentStartTime = time.Now() // Reset startTime after wait completes
+						pinnedKey = apiKey      // Pin for next attempt
+						retryWaitPending = true // Allow loop to continue
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
@@ -1964,14 +1967,14 @@ func handleSingleChannelProxy(
 							log.Printf("⚠️ Failed to create retry pending log: %v", err)
 						} else {
 							currentRequestLogID = newPendingLog.ID
+							currentStartTime = newPendingLog.InitialTime
 						}
 					}
 
 					select {
 					case <-time.After(decision.Wait):
-						pinnedKey = apiKey            // Pin for next attempt
-						retryWaitPending = true       // Allow loop to continue
-						currentStartTime = time.Now() // Reset startTime after wait completes
+						pinnedKey = apiKey      // Pin for next attempt
+						retryWaitPending = true // Allow loop to continue
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
@@ -2126,6 +2129,7 @@ func handleSingleChannelProxy(
 							log.Printf("⚠️ Failed to create retry pending log: %v", err)
 						} else {
 							currentRequestLogID = newPendingLog.ID
+							currentStartTime = newPendingLog.InitialTime
 						}
 					}
 
@@ -2142,9 +2146,8 @@ func handleSingleChannelProxy(
 
 					select {
 					case <-time.After(decision.Wait):
-						pinnedKey = apiKey            // Pin for next attempt
-						retryWaitPending = true       // Allow loop to continue
-						currentStartTime = time.Now() // Reset startTime after wait completes
+						pinnedKey = apiKey      // Pin for next attempt
+						retryWaitPending = true // Allow loop to continue
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
@@ -2737,6 +2740,9 @@ func handleStreamResponse(
 
 	var logBuffer bytes.Buffer
 	var synthesizer *utils.StreamSynthesizer
+	// /v1/messages always emits Claude-style SSE to clients after provider conversion.
+	firstTokenDetector := streamDetectorForServiceType("claude")
+	var firstTokenTime *time.Time
 
 	// We need synthesizer to extract usage/model for request logs from streaming payloads.
 	needsSynthesizer := (upstream.ServiceType == "claude" ||
@@ -2807,15 +2813,17 @@ func handleStreamResponse(
 					}
 
 					record := &requestlog.RequestLog{
-						Status:        requestlog.StatusCompleted,
-						CompleteTime:  completeTime,
-						DurationMs:    durationMs,
-						Type:          upstream.ServiceType,
-						ProviderName:  upstream.Name,
-						ResponseModel: responseModel,
-						HTTPStatus:    resp.StatusCode,
-						ChannelID:     logChannelIndex,
-						ChannelName:   logChannelName,
+						Status:               requestlog.StatusCompleted,
+						CompleteTime:         completeTime,
+						DurationMs:           durationMs,
+						FirstTokenTime:       firstTokenTime,
+						FirstTokenDurationMs: firstTokenDurationFromStart(startTime, firstTokenTime),
+						Type:                 upstream.ServiceType,
+						ProviderName:         upstream.Name,
+						ResponseModel:        responseModel,
+						HTTPStatus:           resp.StatusCode,
+						ChannelID:            logChannelIndex,
+						ChannelName:          logChannelName,
 					}
 
 					if usage != nil {
@@ -2865,6 +2873,9 @@ func handleStreamResponse(
 			}
 
 			// 缓存事件用于最后的日志输出和 usage 提取
+			if firstTokenDetector != nil && firstTokenTime == nil {
+				markFirstTokenIfDetected(firstTokenDetector.ObserveChunk(event), &firstTokenTime)
+			}
 			if streamLoggingEnabled || needsSynthesizer || debugLogEnabled {
 				if streamLoggingEnabled || debugLogEnabled {
 					logBuffer.WriteString(event)
@@ -2919,15 +2930,17 @@ func handleStreamResponse(
 				if reqLogManager != nil && requestLogID != "" {
 					completeTime := time.Now()
 					record := &requestlog.RequestLog{
-						Status:       requestlog.StatusError,
-						CompleteTime: completeTime,
-						DurationMs:   completeTime.Sub(startTime).Milliseconds(),
-						Type:         upstream.ServiceType,
-						ProviderName: upstream.Name,
-						HTTPStatus:   resp.StatusCode,
-						ChannelID:    logChannelIndex,
-						ChannelName:  logChannelName,
-						Error:        err.Error(),
+						Status:               requestlog.StatusError,
+						CompleteTime:         completeTime,
+						DurationMs:           completeTime.Sub(startTime).Milliseconds(),
+						FirstTokenTime:       firstTokenTime,
+						FirstTokenDurationMs: firstTokenDurationFromStart(startTime, firstTokenTime),
+						Type:                 upstream.ServiceType,
+						ProviderName:         upstream.Name,
+						HTTPStatus:           resp.StatusCode,
+						ChannelID:            logChannelIndex,
+						ChannelName:          logChannelName,
+						Error:                err.Error(),
 					}
 					_ = reqLogManager.Update(requestLogID, record)
 				}

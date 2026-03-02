@@ -237,7 +237,8 @@ export default {
     serviceTypeGemini: 'Gemini',
     serviceTypeComposite: 'Composite Channel',
     importResponsesChannel: 'Reuse Responses Channel',
-    importResponsesChannelHint: 'Copy Base URL and API keys from an existing Responses channel (only keyed channels shown).',
+    importResponsesChannelHint:
+      'Copy Base URL and API keys from an existing Responses channel (only keyed channels shown).',
     importResponsesApplied: 'Base URL and API keys will be imported from the selected Responses channel on save.',
     baseUrl: 'Base URL *',
     baseUrlPlaceholder: 'e.g., https://api.openai.com/v1',
@@ -484,6 +485,7 @@ export default {
     totalRecords: '{count} records total',
     status: 'Status',
     time: 'Time',
+    firstTokenDuration: 'First Token Duration',
     duration: 'Duration',
     tokens: 'Tokens',
     price: 'Price',
@@ -1032,12 +1034,14 @@ export default {
     addDomain: 'Add Domain',
     domainsDescription: 'Domains to intercept via TLS MITM. All other domains pass through as blind tunnels.',
     caCertSection: 'CA Certificate',
-    caCertDescription: 'Download the CA certificate and install it on clients that use this proxy. Required for HTTPS interception to work without certificate errors.',
+    caCertDescription:
+      'Download the CA certificate and install it on clients that use this proxy. Required for HTTPS interception to work without certificate errors.',
     downloadCACert: 'Download CA Certificate',
     certDownloaded: 'CA certificate downloaded',
     certDownloadFailed: 'Failed to download CA certificate',
     usageTitle: 'Usage',
-    usageNote: 'Set HTTPS_PROXY environment variable to route traffic through this proxy. Install the CA certificate on the client system.',
+    usageNote:
+      'Set HTTPS_PROXY environment variable to route traffic through this proxy. Install the CA certificate on the client system.',
     loadFailed: 'Failed to load forward proxy config',
     saveFailed: 'Failed to save forward proxy config'
   }

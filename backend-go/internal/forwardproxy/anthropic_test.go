@@ -105,6 +105,28 @@ func TestStreamParserWriter_FlushOnGetUsage(t *testing.T) {
 	}
 }
 
+func TestStreamParserWriter_FirstTokenDetectedWithoutTrailingNewline(t *testing.T) {
+	// Final content delta line has no trailing newline and should still be observed on GetUsage flush.
+	sseData := "event: message_start\n" +
+		`data: {"type":"message_start","message":{"id":"msg_first_token_notrail","model":"claude-sonnet-4-20250514","usage":{"input_tokens":10,"output_tokens":1}}}` +
+		"\n\n" +
+		"event: content_block_delta\n" +
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}` // no trailing newline
+
+	parser := NewStreamParserWriter()
+	parser.Write([]byte(sseData))
+
+	if parser.GetFirstTokenTime() != nil {
+		t.Fatalf("first token should not be set until unterminated last line is flushed")
+	}
+
+	_ = parser.GetUsage() // flushes remaining line
+
+	if parser.GetFirstTokenTime() == nil {
+		t.Fatalf("expected first token time after flushing unterminated content delta line")
+	}
+}
+
 func TestParseJSONResponse(t *testing.T) {
 	body := []byte(`{
 		"id": "msg_json_test",

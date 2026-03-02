@@ -7,6 +7,8 @@ export type SSEEventType = 'log:created' | 'log:updated' | 'log:debugdata' | 'lo
 export interface LogCreatedPayload {
   id: string
   status: string
+  firstTokenTime?: string
+  firstTokenDurationMs?: number
   durationMs?: number
   httpStatus?: number
   type?: string
@@ -43,6 +45,8 @@ export interface LogCreatedPayload {
 export interface LogUpdatedPayload {
   id: string
   status: string
+  firstTokenTime?: string
+  firstTokenDurationMs?: number
   durationMs: number
   httpStatus: number
   type: string

@@ -177,9 +177,10 @@ func (s *Server) proxySSEResponse(clientConn io.Writer, resp *http.Response, req
 
 	endTime := time.Now()
 	usage := parser.GetUsage()
+	firstTokenTime := parser.GetFirstTokenTime()
 
 	if s.requestLogManager != nil && pendingLogID != "" {
-		record := createCompletionRecord(usage, resp.StatusCode, startTime, endTime, hostOnly)
+		record := createCompletionRecord(usage, resp.StatusCode, startTime, endTime, hostOnly, firstTokenTime)
 		if err := s.requestLogManager.Update(pendingLogID, record); err != nil {
 			log.Printf("[fwd-proxy] failed to update request log: %v", err)
 		}
@@ -204,7 +205,7 @@ func (s *Server) proxyJSONResponse(clientConn io.Writer, resp *http.Response, re
 	_, usage := parseJSONResponse(captureBuf.Bytes())
 
 	if s.requestLogManager != nil && pendingLogID != "" {
-		record := createCompletionRecord(usage, resp.StatusCode, startTime, endTime, hostOnly)
+		record := createCompletionRecord(usage, resp.StatusCode, startTime, endTime, hostOnly, nil)
 		record.Stream = false
 		if err := s.requestLogManager.Update(pendingLogID, record); err != nil {
 			log.Printf("[fwd-proxy] failed to update request log: %v", err)

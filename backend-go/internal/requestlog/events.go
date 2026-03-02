@@ -23,58 +23,62 @@ type LogEvent struct {
 
 // LogCreatedPayload contains data for log:created events
 type LogCreatedPayload struct {
-	ID                       string    `json:"id"`
-	Status                   string    `json:"status"`
-	DurationMs               int64     `json:"durationMs"`
-	HTTPStatus               int       `json:"httpStatus"`
-	Type                     string    `json:"type"` // claude, openai, gemini
-	ProviderName             string    `json:"providerName"`
-	Model                    string    `json:"model"`
-	ResponseModel            string    `json:"responseModel,omitempty"`
-	ChannelID                int       `json:"channelId"`
-	ChannelUID               string    `json:"channelUid,omitempty"`
-	ChannelName              string    `json:"channelName"`
-	Endpoint                 string    `json:"endpoint"`
-	Stream                   bool      `json:"stream"`
-	InputTokens              int       `json:"inputTokens"`
-	OutputTokens             int       `json:"outputTokens"`
-	CacheCreationInputTokens int       `json:"cacheCreationInputTokens"`
-	CacheReadInputTokens     int       `json:"cacheReadInputTokens"`
-	TotalTokens              int       `json:"totalTokens"`
-	Price                    float64   `json:"price"`
-	InputCost                float64   `json:"inputCost"`
-	OutputCost               float64   `json:"outputCost"`
-	CacheCreationCost        float64   `json:"cacheCreationCost"`
-	CacheReadCost            float64   `json:"cacheReadCost"`
-	APIKeyID                 *int64    `json:"apiKeyId"`
-	HasDebugData             bool      `json:"hasDebugData"`
-	ClientID                 string    `json:"clientId,omitempty"`
-	SessionID                string    `json:"sessionId,omitempty"`
-	ReasoningEffort          string    `json:"reasoningEffort,omitempty"`
-	Error                    string    `json:"error,omitempty"`
-	UpstreamError            string    `json:"upstreamError,omitempty"`
-	FailoverInfo             string    `json:"failoverInfo,omitempty"`
-	InitialTime              time.Time `json:"initialTime"`
-	CompleteTime             time.Time `json:"completeTime"`
+	ID                       string     `json:"id"`
+	Status                   string     `json:"status"`
+	FirstTokenTime           *time.Time `json:"firstTokenTime,omitempty"`
+	FirstTokenDurationMs     int64      `json:"firstTokenDurationMs"`
+	DurationMs               int64      `json:"durationMs"`
+	HTTPStatus               int        `json:"httpStatus"`
+	Type                     string     `json:"type"` // claude, openai, gemini
+	ProviderName             string     `json:"providerName"`
+	Model                    string     `json:"model"`
+	ResponseModel            string     `json:"responseModel,omitempty"`
+	ChannelID                int        `json:"channelId"`
+	ChannelUID               string     `json:"channelUid,omitempty"`
+	ChannelName              string     `json:"channelName"`
+	Endpoint                 string     `json:"endpoint"`
+	Stream                   bool       `json:"stream"`
+	InputTokens              int        `json:"inputTokens"`
+	OutputTokens             int        `json:"outputTokens"`
+	CacheCreationInputTokens int        `json:"cacheCreationInputTokens"`
+	CacheReadInputTokens     int        `json:"cacheReadInputTokens"`
+	TotalTokens              int        `json:"totalTokens"`
+	Price                    float64    `json:"price"`
+	InputCost                float64    `json:"inputCost"`
+	OutputCost               float64    `json:"outputCost"`
+	CacheCreationCost        float64    `json:"cacheCreationCost"`
+	CacheReadCost            float64    `json:"cacheReadCost"`
+	APIKeyID                 *int64     `json:"apiKeyId"`
+	HasDebugData             bool       `json:"hasDebugData"`
+	ClientID                 string     `json:"clientId,omitempty"`
+	SessionID                string     `json:"sessionId,omitempty"`
+	ReasoningEffort          string     `json:"reasoningEffort,omitempty"`
+	Error                    string     `json:"error,omitempty"`
+	UpstreamError            string     `json:"upstreamError,omitempty"`
+	FailoverInfo             string     `json:"failoverInfo,omitempty"`
+	InitialTime              time.Time  `json:"initialTime"`
+	CompleteTime             time.Time  `json:"completeTime"`
 }
 
 // LogUpdatedPayload contains data for log:updated events
 type LogUpdatedPayload struct {
-	ID                       string  `json:"id"`
-	Status                   string  `json:"status"`
-	DurationMs               int64   `json:"durationMs"`
-	HTTPStatus               int     `json:"httpStatus"`
-	Type                     string  `json:"type"`         // claude, openai, gemini
-	ProviderName             string  `json:"providerName"` // channel name
-	ChannelID                int     `json:"channelId"`
-	ChannelUID               string  `json:"channelUid,omitempty"`
-	ChannelName              string  `json:"channelName"`
-	InputTokens              int     `json:"inputTokens"`
-	OutputTokens             int     `json:"outputTokens"`
-	CacheCreationInputTokens int     `json:"cacheCreationInputTokens"`
-	CacheReadInputTokens     int     `json:"cacheReadInputTokens"`
-	TotalTokens              int     `json:"totalTokens"`
-	Price                    float64 `json:"price"`
+	ID                       string     `json:"id"`
+	Status                   string     `json:"status"`
+	FirstTokenTime           *time.Time `json:"firstTokenTime,omitempty"`
+	FirstTokenDurationMs     int64      `json:"firstTokenDurationMs"`
+	DurationMs               int64      `json:"durationMs"`
+	HTTPStatus               int        `json:"httpStatus"`
+	Type                     string     `json:"type"`         // claude, openai, gemini
+	ProviderName             string     `json:"providerName"` // channel name
+	ChannelID                int        `json:"channelId"`
+	ChannelUID               string     `json:"channelUid,omitempty"`
+	ChannelName              string     `json:"channelName"`
+	InputTokens              int        `json:"inputTokens"`
+	OutputTokens             int        `json:"outputTokens"`
+	CacheCreationInputTokens int        `json:"cacheCreationInputTokens"`
+	CacheReadInputTokens     int        `json:"cacheReadInputTokens"`
+	TotalTokens              int        `json:"totalTokens"`
+	Price                    float64    `json:"price"`
 	// Cost breakdown
 	InputCost         float64 `json:"inputCost"`
 	OutputCost        float64 `json:"outputCost"`
@@ -106,6 +110,8 @@ func NewLogCreatedEvent(record *RequestLog) *LogEvent {
 		Data: LogCreatedPayload{
 			ID:                       record.ID,
 			Status:                   record.Status,
+			FirstTokenTime:           record.FirstTokenTime,
+			FirstTokenDurationMs:     record.FirstTokenDurationMs,
 			DurationMs:               record.DurationMs,
 			HTTPStatus:               record.HTTPStatus,
 			Type:                     record.Type,
@@ -149,6 +155,8 @@ func NewLogUpdatedEvent(id string, record *RequestLog) *LogEvent {
 		Data: LogUpdatedPayload{
 			ID:                       id,
 			Status:                   record.Status,
+			FirstTokenTime:           record.FirstTokenTime,
+			FirstTokenDurationMs:     record.FirstTokenDurationMs,
 			DurationMs:               record.DurationMs,
 			HTTPStatus:               record.HTTPStatus,
 			Type:                     record.Type,
