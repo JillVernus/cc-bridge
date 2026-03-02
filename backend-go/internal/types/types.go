@@ -7,8 +7,10 @@ type ClaudeRequest struct {
 	System      interface{}     `json:"system,omitempty"` // string 或 content 数组
 	MaxTokens   int             `json:"max_tokens,omitempty"`
 	Temperature float64         `json:"temperature,omitempty"`
+	TopP        float64         `json:"top_p,omitempty"`
 	Stream      bool            `json:"stream,omitempty"`
 	Tools       []ClaudeTool    `json:"tools,omitempty"`
+	ToolChoice  interface{}     `json:"tool_choice,omitempty"` // string 或 object
 	Thinking    *ClaudeThinking `json:"thinking,omitempty"`
 }
 
@@ -37,6 +39,7 @@ type ClaudeContent struct {
 
 // ClaudeTool Claude 工具定义
 type ClaudeTool struct {
+	Type        string      `json:"type,omitempty"` // 可选内置工具类型标记（如 web_search）
 	Name        string      `json:"name"`
 	Description string      `json:"description,omitempty"`
 	InputSchema interface{} `json:"input_schema"`

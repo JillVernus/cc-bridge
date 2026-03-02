@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -19,6 +20,16 @@ import (
 // ResponsesUpstreamProvider 将 Claude Messages 请求转换为 Responses API 格式
 // 用于 /v1/messages 端点转发到 Responses API 上游
 type ResponsesUpstreamProvider struct{}
+
+// responsesOptionalFields captures optional/raw request shapes that are needed by
+// higher-fidelity Claude -> Responses mapping, while keeping backward compatibility.
+type responsesOptionalFields struct {
+	TopP          float64
+	HasTopP       bool
+	ToolChoice    interface{}
+	HasToolChoice bool
+	RawTools      []map[string]interface{}
+}
 
 // ConvertToProviderRequest 将 Claude Messages 请求转换为 Responses API 格式
 func (p *ResponsesUpstreamProvider) ConvertToProviderRequest(c *gin.Context, upstream *config.UpstreamConfig, apiKey string) (*http.Request, []byte, error) {
@@ -34,8 +45,14 @@ func (p *ResponsesUpstreamProvider) ConvertToProviderRequest(c *gin.Context, ups
 		return nil, originalBodyBytes, fmt.Errorf("failed to parse Claude request: %w", err)
 	}
 
+	// 同步保留原始 map 形态，供可选字段/tool shape 提取（不影响现有兼容行为）
+	var rawRequest map[string]interface{}
+	if len(originalBodyBytes) > 0 {
+		_ = json.Unmarshal(originalBodyBytes, &rawRequest)
+	}
+
 	// 转换为 Responses API 格式
-	responsesReq := p.convertToResponsesRequest(&claudeReq, upstream)
+	responsesReq := p.convertToResponsesRequest(&claudeReq, upstream, rawRequest)
 
 	reqBodyBytes, err := json.Marshal(responsesReq)
 	if err != nil {
@@ -59,7 +76,13 @@ func (p *ResponsesUpstreamProvider) ConvertToProviderRequest(c *gin.Context, ups
 }
 
 // convertToResponsesRequest 将 Claude 请求转换为 Responses 请求
-func (p *ResponsesUpstreamProvider) convertToResponsesRequest(claudeReq *types.ClaudeRequest, upstream *config.UpstreamConfig) map[string]interface{} {
+func (p *ResponsesUpstreamProvider) convertToResponsesRequest(
+	claudeReq *types.ClaudeRequest,
+	upstream *config.UpstreamConfig,
+	rawRequest map[string]interface{},
+) map[string]interface{} {
+	optionalFields := p.extractOptionalFields(claudeReq, rawRequest)
+
 	req := map[string]interface{}{
 		"model":  config.RedirectModel(claudeReq.Model, upstream),
 		"stream": claudeReq.Stream,
@@ -84,13 +107,74 @@ func (p *ResponsesUpstreamProvider) convertToResponsesRequest(claudeReq *types.C
 	if claudeReq.Temperature > 0 {
 		req["temperature"] = claudeReq.Temperature
 	}
+	if optionalFields.HasTopP && optionalFields.TopP > 0 {
+		req["top_p"] = optionalFields.TopP
+	}
+	if reasoning, ok := p.convertThinkingToReasoning(claudeReq.Thinking); ok {
+		req["reasoning"] = reasoning
+	}
 
 	// 转换 tools
 	if len(claudeReq.Tools) > 0 {
-		req["tools"] = p.convertTools(claudeReq.Tools)
+		req["tools"] = p.convertTools(claudeReq.Tools, optionalFields.RawTools)
+	}
+	if toolChoice, ok := p.convertToolChoice(optionalFields); ok {
+		req["tool_choice"] = toolChoice
 	}
 
 	return req
+}
+
+func (p *ResponsesUpstreamProvider) extractOptionalFields(
+	claudeReq *types.ClaudeRequest,
+	rawRequest map[string]interface{},
+) responsesOptionalFields {
+	result := responsesOptionalFields{}
+
+	if claudeReq.TopP > 0 {
+		result.TopP = claudeReq.TopP
+		result.HasTopP = true
+	}
+
+	if claudeReq.ToolChoice != nil {
+		result.ToolChoice = claudeReq.ToolChoice
+		result.HasToolChoice = true
+	}
+
+	if rawRequest == nil {
+		return result
+	}
+
+	if !result.HasTopP {
+		if topP, ok := parseJSONNumber(rawRequest["top_p"]); ok {
+			result.TopP = topP
+			result.HasTopP = true
+		}
+	}
+
+	if !result.HasToolChoice {
+		if toolChoice, ok := rawRequest["tool_choice"]; ok {
+			result.ToolChoice = toolChoice
+			result.HasToolChoice = true
+		}
+	}
+
+	if rawTools, ok := rawRequest["tools"].([]interface{}); ok {
+		for _, rawTool := range rawTools {
+			toolMap, ok := rawTool.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			result.RawTools = append(result.RawTools, toolMap)
+		}
+	}
+
+	return result
+}
+
+func parseJSONNumber(v interface{}) (float64, bool) {
+	f, ok := v.(float64)
+	return f, ok
 }
 
 // convertMessagesToInput 将 Claude messages 转换为 Responses input
@@ -98,24 +182,25 @@ func (p *ResponsesUpstreamProvider) convertMessagesToInput(messages []types.Clau
 	input := []map[string]interface{}{}
 
 	for _, msg := range messages {
-		item := p.convertMessageToInputItem(msg)
-		if item != nil {
-			input = append(input, item)
+		items := p.convertMessageToInputItems(msg)
+		if len(items) > 0 {
+			input = append(input, items...)
 		}
 	}
 
 	return input
 }
 
-// convertMessageToInputItem 将单个 Claude message 转换为 Responses input item
-func (p *ResponsesUpstreamProvider) convertMessageToInputItem(msg types.ClaudeMessage) map[string]interface{} {
+// convertMessageToInputItems 将单个 Claude message 转换为一个或多个 Responses input items
+// 规则：文本块按原顺序聚合；遇到 tool_use/tool_result 先 flush 文本，再追加工具项。
+func (p *ResponsesUpstreamProvider) convertMessageToInputItems(msg types.ClaudeMessage) []map[string]interface{} {
 	// 处理字符串内容
 	if str, ok := msg.Content.(string); ok {
-		return map[string]interface{}{
+		return []map[string]interface{}{{
 			"type":    "message",
 			"role":    msg.Role,
 			"content": str,
-		}
+		}}
 	}
 
 	// 处理内容数组
@@ -124,10 +209,19 @@ func (p *ResponsesUpstreamProvider) convertMessageToInputItem(msg types.ClaudeMe
 		return nil
 	}
 
-	// 提取文本内容
+	items := []map[string]interface{}{}
 	var textParts []string
-	var toolCalls []map[string]interface{}
-	var toolResults []map[string]interface{}
+	flushText := func() {
+		if len(textParts) == 0 {
+			return
+		}
+		items = append(items, map[string]interface{}{
+			"type":    "message",
+			"role":    msg.Role,
+			"content": strings.Join(textParts, "\n"),
+		})
+		textParts = textParts[:0]
+	}
 
 	for _, c := range contents {
 		content, ok := c.(map[string]interface{})
@@ -144,6 +238,7 @@ func (p *ResponsesUpstreamProvider) convertMessageToInputItem(msg types.ClaudeMe
 			}
 
 		case "tool_use":
+			flushText()
 			id, _ := content["id"].(string)
 			name, _ := content["name"].(string)
 			input := content["input"]
@@ -151,7 +246,7 @@ func (p *ResponsesUpstreamProvider) convertMessageToInputItem(msg types.ClaudeMe
 			// 将 input 序列化为 JSON 字符串
 			inputJSON, _ := json.Marshal(input)
 
-			toolCalls = append(toolCalls, map[string]interface{}{
+			items = append(items, map[string]interface{}{
 				"type":      "function_call",
 				"call_id":   id,
 				"name":      name,
@@ -159,6 +254,7 @@ func (p *ResponsesUpstreamProvider) convertMessageToInputItem(msg types.ClaudeMe
 			})
 
 		case "tool_result":
+			flushText()
 			toolUseID, _ := content["tool_use_id"].(string)
 			resultContent := content["content"]
 
@@ -170,7 +266,7 @@ func (p *ResponsesUpstreamProvider) convertMessageToInputItem(msg types.ClaudeMe
 				output = string(outputJSON)
 			}
 
-			toolResults = append(toolResults, map[string]interface{}{
+			items = append(items, map[string]interface{}{
 				"type":    "function_call_output",
 				"call_id": toolUseID,
 				"output":  output,
@@ -178,43 +274,200 @@ func (p *ResponsesUpstreamProvider) convertMessageToInputItem(msg types.ClaudeMe
 		}
 	}
 
-	// 如果有文本内容，创建 message item
-	if len(textParts) > 0 {
-		return map[string]interface{}{
-			"type":    "message",
-			"role":    msg.Role,
-			"content": strings.Join(textParts, "\n"),
-		}
-	}
-
-	// 如果有 tool_use，返回 function_call items
-	if len(toolCalls) > 0 {
-		// 返回第一个 tool call（Responses API 通常一次处理一个）
-		return toolCalls[0]
-	}
-
-	// 如果有 tool_result，返回 function_call_output items
-	if len(toolResults) > 0 {
-		return toolResults[0]
-	}
-
-	return nil
+	flushText()
+	return items
 }
 
 // convertTools 将 Claude tools 转换为 Responses tools
-func (p *ResponsesUpstreamProvider) convertTools(claudeTools []types.ClaudeTool) []map[string]interface{} {
+func (p *ResponsesUpstreamProvider) convertTools(claudeTools []types.ClaudeTool, rawTools []map[string]interface{}) []map[string]interface{} {
 	tools := []map[string]interface{}{}
 
+	// 优先使用 raw tools：可保留 struct 无法表达的内置工具形态
+	if len(rawTools) > 0 {
+		for _, rawTool := range rawTools {
+			converted, ok := p.convertRawTool(rawTool)
+			if ok {
+				tools = append(tools, converted)
+			}
+		}
+		return tools
+	}
+
 	for _, tool := range claudeTools {
-		tools = append(tools, map[string]interface{}{
-			"type":        "function",
-			"name":        tool.Name,
-			"description": tool.Description,
-			"parameters":  tool.InputSchema,
-		})
+		converted, ok := p.convertTypedTool(tool)
+		if ok {
+			tools = append(tools, converted)
+		}
 	}
 
 	return tools
+}
+
+func (p *ResponsesUpstreamProvider) convertTypedTool(tool types.ClaudeTool) (map[string]interface{}, bool) {
+	toolType := normalizeToolType(tool.Type)
+	if isWebSearchToolType(toolType) {
+		return map[string]interface{}{
+			"type": "web_search_preview",
+		}, true
+	}
+
+	if toolType != "" && toolType != "function" {
+		log.Printf("⚠️ [Messages->Responses] unsupported typed tool dropped: type=%q", tool.Type)
+		return nil, false
+	}
+
+	name := strings.TrimSpace(tool.Name)
+	if name == "" || tool.InputSchema == nil {
+		log.Printf("⚠️ [Messages->Responses] malformed function tool dropped (typed): name=%q has_input_schema=%t", name, tool.InputSchema != nil)
+		return nil, false
+	}
+
+	converted := map[string]interface{}{
+		"type":       "function",
+		"name":       name,
+		"parameters": tool.InputSchema,
+	}
+	if description := strings.TrimSpace(tool.Description); description != "" {
+		converted["description"] = description
+	}
+
+	return converted, true
+}
+
+func (p *ResponsesUpstreamProvider) convertRawTool(rawTool map[string]interface{}) (map[string]interface{}, bool) {
+	rawType, _ := rawTool["type"].(string)
+	toolType := normalizeToolType(rawType)
+
+	if isWebSearchToolType(toolType) {
+		return map[string]interface{}{
+			"type": "web_search_preview",
+		}, true
+	}
+
+	if toolType != "" && toolType != "function" {
+		log.Printf("⚠️ [Messages->Responses] unsupported raw tool dropped: type=%q", rawType)
+		return nil, false
+	}
+
+	name, _ := rawTool["name"].(string)
+	name = strings.TrimSpace(name)
+
+	parameters := rawTool["input_schema"]
+	if parameters == nil {
+		parameters = rawTool["parameters"]
+	}
+
+	if name == "" || parameters == nil {
+		log.Printf("⚠️ [Messages->Responses] malformed function tool dropped (raw): name=%q has_parameters=%t", name, parameters != nil)
+		return nil, false
+	}
+
+	converted := map[string]interface{}{
+		"type":       "function",
+		"name":       name,
+		"parameters": parameters,
+	}
+	if description, _ := rawTool["description"].(string); strings.TrimSpace(description) != "" {
+		converted["description"] = strings.TrimSpace(description)
+	}
+
+	return converted, true
+}
+
+func (p *ResponsesUpstreamProvider) convertToolChoice(optionalFields responsesOptionalFields) (interface{}, bool) {
+	if !optionalFields.HasToolChoice {
+		return nil, false
+	}
+
+	switch value := optionalFields.ToolChoice.(type) {
+	case string:
+		return normalizeStringToolChoice(value)
+	case map[string]interface{}:
+		return convertObjectToolChoice(value)
+	default:
+		log.Printf("⚠️ [Messages->Responses] unsupported tool_choice dropped: %T", optionalFields.ToolChoice)
+		return nil, false
+	}
+}
+
+func normalizeStringToolChoice(choice string) (interface{}, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(choice))
+	if normalized == "" {
+		return nil, false
+	}
+
+	switch normalized {
+	case "auto", "none":
+		return normalized, true
+	case "any", "required":
+		return "required", true
+	default:
+		return map[string]interface{}{
+			"type": "function",
+			"name": choice,
+		}, true
+	}
+}
+
+func convertObjectToolChoice(choice map[string]interface{}) (interface{}, bool) {
+	if functionObj, ok := choice["function"].(map[string]interface{}); ok {
+		if name, _ := functionObj["name"].(string); strings.TrimSpace(name) != "" {
+			return map[string]interface{}{
+				"type": "function",
+				"name": strings.TrimSpace(name),
+			}, true
+		}
+	}
+
+	if name, _ := choice["name"].(string); strings.TrimSpace(name) != "" {
+		return map[string]interface{}{
+			"type": "function",
+			"name": strings.TrimSpace(name),
+		}, true
+	}
+
+	typeValue, _ := choice["type"].(string)
+	normalizedType := normalizeToolType(typeValue)
+	switch normalizedType {
+	case "auto", "none":
+		return normalizedType, true
+	case "any", "required":
+		return "required", true
+	case "tool", "function":
+		log.Printf("⚠️ [Messages->Responses] tool_choice object missing function name, dropped: type=%q", typeValue)
+		return nil, false
+	case "":
+		log.Printf("⚠️ [Messages->Responses] tool_choice object missing type/name, dropped")
+		return nil, false
+	default:
+		log.Printf("⚠️ [Messages->Responses] unsupported tool_choice object type dropped: %q", typeValue)
+		return nil, false
+	}
+}
+
+func normalizeToolType(t string) string {
+	return strings.ToLower(strings.TrimSpace(t))
+}
+
+func isWebSearchToolType(toolType string) bool {
+	if toolType == "web_search" || toolType == "web_search_preview" {
+		return true
+	}
+	return strings.HasPrefix(toolType, "web_search_")
+}
+
+func (p *ResponsesUpstreamProvider) convertThinkingToReasoning(thinking *types.ClaudeThinking) (map[string]interface{}, bool) {
+	if thinking == nil {
+		return nil, false
+	}
+
+	if normalizeToolType(thinking.Type) != "enabled" || thinking.BudgetTokens <= 0 {
+		return nil, false
+	}
+
+	return map[string]interface{}{
+		"effort": "high",
+	}, true
 }
 
 // buildTargetURL 构建目标 URL
