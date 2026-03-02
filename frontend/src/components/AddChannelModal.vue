@@ -322,6 +322,7 @@
                     :key="compositeEditorKey"
                     v-model="form.compositeMappings"
                     :all-channels="allChannels"
+                    :responses-channels="responsesChannels"
                   />
                 </v-col>
 
@@ -1078,7 +1079,12 @@
                   <div class="d-flex align-center ga-2">
                     <v-icon :color="totalKeyCount > 0 || isUsingResponsesImport ? 'primary' : 'error'">mdi-key</v-icon>
                     <span class="text-body-1 font-weight-bold">{{ t('addChannel.apiKeyManagement') }}</span>
-                    <v-chip v-if="totalKeyCount === 0 && !isUsingResponsesImport" size="x-small" color="error" variant="tonal">
+                    <v-chip
+                      v-if="totalKeyCount === 0 && !isUsingResponsesImport"
+                      size="x-small"
+                      color="error"
+                      variant="tonal"
+                    >
                       {{ t('addChannel.atLeastOneKeyRequired') }}
                     </v-chip>
                   </div>
@@ -1354,7 +1360,15 @@
 import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useTheme } from 'vuetify'
 import { useI18n } from 'vue-i18n'
-import type { Channel, OAuthTokens, AliasesConfig, ContentFilterRule as ApiContentFilterRule } from '../services/api'
+import type {
+  Channel,
+  OAuthTokens,
+  AliasesConfig,
+  CompositeMapping,
+  CompositeTargetPool,
+  CompositeTargetRef,
+  ContentFilterRule as ApiContentFilterRule
+} from '../services/api'
 import { api } from '../services/api'
 import CompositeChannelEditor from './CompositeChannelEditor.vue'
 
@@ -1727,12 +1741,7 @@ const form = reactive({
   >,
   oauthTokens: undefined as OAuthTokens | undefined,
   // Composite channel mappings
-  compositeMappings: [] as Array<{
-    pattern: string
-    targetChannelId: string
-    failoverChain?: string[]
-    targetModel?: string
-  }>,
+  compositeMappings: [] as CompositeMapping[],
   // Quota settings
   quotaType: '' as '' | 'requests' | 'credit',
   quotaLimit: undefined as number | undefined,
@@ -2031,28 +2040,68 @@ const newCompositeMapping = reactive({
 // Composite mapping error state
 const compositeMappingError = ref('')
 
-// Normalize composite mappings (trim, ensure wildcard last)
-const normalizeCompositeMappings = (
-  mappings: Array<{ pattern: string; targetChannelId: string; failoverChain?: string[]; targetModel?: string }>
-) => {
-  const normalized = mappings.map(m => ({
-    pattern: m.pattern.trim(),
-    targetChannelId: m.targetChannelId,
-    failoverChain: m.failoverChain || [],
-    targetModel: m.targetModel?.trim() || undefined
-  }))
+const normalizeCompositePool = (pool?: string): CompositeTargetPool => (pool === 'responses' ? 'responses' : 'messages')
 
-  // No longer need wildcard reordering - wildcard is not allowed
-  return normalized
+const normalizeCompositeTargetRef = (
+  target: CompositeTargetRef,
+  defaultPool: CompositeTargetPool
+): CompositeTargetRef => {
+  return {
+    pool: normalizeCompositePool(target.pool || defaultPool),
+    channelId: String(target.channelId || '').trim()
+  }
 }
 
-// Claude-compatible service types
-const claudeCompatibleTypes = ['claude', 'openai_chat', 'openai', 'gemini', 'openaiold']
+const getCompositeFailoverTargets = (mapping: CompositeMapping): CompositeTargetRef[] => {
+  const primaryPool = normalizeCompositePool(mapping.targetPool)
+  if (Array.isArray(mapping.failoverTargets) && mapping.failoverTargets.length > 0) {
+    return mapping.failoverTargets
+      .map(target => normalizeCompositeTargetRef(target, primaryPool))
+      .filter(target => target.channelId !== '')
+  }
+  return (mapping.failoverChain || [])
+    .map(channelId => normalizeCompositeTargetRef({ pool: primaryPool, channelId }, primaryPool))
+    .filter(target => target.channelId !== '')
+}
+
+const normalizeCompositeMappings = (mappings: CompositeMapping[]): CompositeMapping[] => {
+  return mappings.map(mapping => {
+    const pattern = String(mapping.pattern || '').trim()
+    const targetPool = normalizeCompositePool(mapping.targetPool)
+    const targetChannelId = String(mapping.targetChannelId || '').trim()
+    const failoverTargets = getCompositeFailoverTargets(mapping).map(target =>
+      normalizeCompositeTargetRef(target, targetPool)
+    )
+    return {
+      pattern,
+      targetChannelId,
+      targetPool,
+      failoverTargets,
+      failoverChain: failoverTargets.map(target => target.channelId),
+      targetModel: mapping.targetModel?.trim() || undefined
+    }
+  })
+}
+
+const messagesCompositeCompatibleTypes = ['claude', 'openai_chat', 'openai', 'gemini', 'openaiold', 'responses']
+const responsesCompositeCompatibleTypes = ['responses', 'openai-oauth']
+
+const getCompositeTargetChannel = (pool: CompositeTargetPool, channelId: string): Channel | undefined => {
+  if (pool === 'responses') {
+    return props.responsesChannels.find(ch => ch.id === channelId)
+  }
+  return props.allChannels.find(ch => ch.id === channelId)
+}
+
+const isCompositeTargetServiceTypeAllowed = (pool: CompositeTargetPool, serviceType: string): boolean => {
+  if (pool === 'responses') {
+    return responsesCompositeCompatibleTypes.includes(serviceType)
+  }
+  return messagesCompositeCompatibleTypes.includes(serviceType)
+}
 
 // Validate composite mappings
-const validateCompositeMappings = (
-  mappings: Array<{ pattern: string; targetChannelId: string; failoverChain?: string[]; targetModel?: string }>
-): string => {
+const validateCompositeMappings = (mappings: CompositeMapping[]): string => {
   // Required patterns - all 3 must be present
   const requiredPatterns = ['haiku', 'sonnet', 'opus']
   const seen = new Set<string>()
@@ -2070,26 +2119,34 @@ const validateCompositeMappings = (
     seen.add(pattern)
 
     // Validate primary target
-    const targetChannelId = mapping.targetChannelId
+    const targetChannelId = String(mapping.targetChannelId || '').trim()
     if (!targetChannelId) return t('addChannel.compositeTargetRequired')
 
-    const target = props.allChannels.find(ch => ch.id === targetChannelId)
+    const targetPool = normalizeCompositePool(mapping.targetPool)
+    const target = getCompositeTargetChannel(targetPool, targetChannelId)
     if (!target) return t('addChannel.compositeMissingTargetChannel')
-    if (!claudeCompatibleTypes.includes(target.serviceType)) {
+    if (!isCompositeTargetServiceTypeAllowed(targetPool, target.serviceType)) {
       return t('addChannel.compositeInvalidServiceType', { channel: target.name })
     }
 
     // Validate failover chain - at least 1 required
-    const failoverChain = mapping.failoverChain || []
-    if (failoverChain.length === 0) {
+    const failoverTargets = getCompositeFailoverTargets({
+      ...mapping,
+      targetPool,
+      targetChannelId
+    })
+    if (failoverTargets.length === 0) {
       return t('addChannel.compositeMinFailover', { pattern })
     }
 
     // Validate each failover channel
-    for (const failoverId of failoverChain) {
-      const failoverChannel = props.allChannels.find(ch => ch.id === failoverId)
+    for (const failoverTarget of failoverTargets) {
+      const failoverPool = normalizeCompositePool(failoverTarget.pool || targetPool)
+      const failoverID = String(failoverTarget.channelId || '').trim()
+      if (!failoverID) return t('addChannel.compositeMissingTargetChannel')
+      const failoverChannel = getCompositeTargetChannel(failoverPool, failoverID)
       if (!failoverChannel) return t('addChannel.compositeMissingTargetChannel')
-      if (!claudeCompatibleTypes.includes(failoverChannel.serviceType)) {
+      if (!isCompositeTargetServiceTypeAllowed(failoverPool, failoverChannel.serviceType)) {
         return t('addChannel.compositeInvalidServiceType', { channel: failoverChannel.name })
       }
     }
@@ -2118,23 +2175,6 @@ watch(
     compositeMappingError.value = ''
   }
 )
-
-// Available Claude channels for composite mapping
-const availableClaudeChannels = computed(() => {
-  return props.allChannels
-    .filter(ch => !!ch.id && ch.serviceType === 'claude' && ch.status !== 'disabled')
-    .map(ch => ({
-      id: ch.id as string,
-      name: ch.name,
-      index: ch.index
-    }))
-})
-
-// Get channel name by ID
-const getTargetChannelName = (channelId: string): string => {
-  const channel = props.allChannels.find(ch => ch.id === channelId)
-  return channel?.name || channelId
-}
 
 const showResponsesImportPicker = computed(() => {
   return props.channelType === 'messages' && form.serviceType === 'responses'
@@ -2404,13 +2444,7 @@ const loadChannelData = (channel: Channel) => {
   form.priceMultipliers = { ...(channel.priceMultipliers || {}) }
 
   // Load composite mappings
-  form.compositeMappings =
-    channel.compositeMappings?.map(m => ({
-      pattern: m.pattern,
-      targetChannelId: m.targetChannelId || '',
-      failoverChain: m.failoverChain || [],
-      targetModel: m.targetModel
-    })) || []
+  form.compositeMappings = normalizeCompositeMappings(channel.compositeMappings || [])
 
   // Load quota settings
   form.quotaType = channel.quotaType || ''
@@ -2890,6 +2924,11 @@ const handleSubmit = async () => {
     channelData.compositeMappings = normalized.map(m => ({
       pattern: m.pattern,
       targetChannelId: m.targetChannelId,
+      targetPool: normalizeCompositePool(m.targetPool),
+      failoverTargets: getCompositeFailoverTargets(m).map(target => ({
+        pool: normalizeCompositePool(target.pool),
+        channelId: target.channelId
+      })),
       failoverChain: m.failoverChain || [],
       targetModel: m.targetModel || undefined
     }))

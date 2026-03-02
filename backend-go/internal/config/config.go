@@ -74,11 +74,23 @@ type ContentFilter struct {
 }
 
 // CompositeMapping defines a model-to-channel mapping for composite channels
+type CompositeTargetRef struct {
+	Pool      string `json:"pool,omitempty"` // messages | responses (default: messages)
+	ChannelID string `json:"channelId"`      // Target channel ID in the selected pool
+}
+
+const (
+	CompositeTargetPoolMessages  = "messages"
+	CompositeTargetPoolResponses = "responses"
+)
+
 type CompositeMapping struct {
-	Pattern         string   `json:"pattern"`                 // Model pattern: "haiku", "sonnet", "opus" (mandatory, no wildcard)
-	TargetChannelID string   `json:"targetChannelId"`         // Primary target channel ID
-	FailoverChain   []string `json:"failoverChain,omitempty"` // Ordered failover channel IDs (min 1 required)
-	TargetModel     string   `json:"targetModel,omitempty"`   // Optional: override model name sent to target
+	Pattern         string               `json:"pattern"`                   // Model pattern: "haiku", "sonnet", "opus" (mandatory, no wildcard)
+	TargetChannelID string               `json:"targetChannelId"`           // Primary target channel ID
+	TargetPool      string               `json:"targetPool,omitempty"`      // Primary target pool: messages | responses (default messages)
+	FailoverChain   []string             `json:"failoverChain,omitempty"`   // Ordered failover channel IDs (min 1 required)
+	FailoverTargets []CompositeTargetRef `json:"failoverTargets,omitempty"` // Canonical failover targets (pool-aware)
+	TargetModel     string               `json:"targetModel,omitempty"`     // Optional: override model name sent to target
 	// Deprecated: use TargetChannelID instead. Kept for migration only.
 	TargetChannel int `json:"targetChannel,omitempty"` // Legacy: target channel index
 }
@@ -1320,9 +1332,9 @@ func (cm *ConfigManager) clearFailedKeysForUpstream(upstream *UpstreamConfig) {
 }
 
 // AddUpstream 添加上游
-// ValidateCompositeChannel validates a composite channel configuration
-// upstreams should be the list of existing upstream channels for target validation
-func ValidateCompositeChannel(upstream *UpstreamConfig, upstreams []UpstreamConfig) error {
+// ValidateCompositeChannel validates a messages composite channel configuration.
+// messagesUpstreams and responsesUpstreams are used for cross-pool target validation.
+func ValidateCompositeChannel(upstream *UpstreamConfig, messagesUpstreams []UpstreamConfig, responsesUpstreams []UpstreamConfig) error {
 	if !IsCompositeChannel(upstream) {
 		return nil // Not a composite channel, no validation needed
 	}
@@ -1343,35 +1355,52 @@ func ValidateCompositeChannel(upstream *UpstreamConfig, upstreams []UpstreamConf
 	// Required patterns
 	requiredPatterns := map[string]bool{"haiku": false, "sonnet": false, "opus": false}
 
-	// Claude-compatible service types (can receive Claude API requests)
-	claudeCompatibleTypes := map[string]bool{
+	// Messages-pool service types that can receive /v1/messages traffic
+	messagesCompatibleTypes := map[string]bool{
 		"claude":      true,
 		"openai_chat": true,
 		"openai":      true,
 		"gemini":      true,
 		"openaiold":   true,
+		"responses":   true,
+	}
+	// Responses-pool target types allowed for messages composite bridging
+	responsesCompatibleTypes := map[string]bool{
+		"responses":    true,
+		"openai-oauth": true,
 	}
 
-	// Helper function to validate a channel ID
-	validateChannelID := func(channelID string, context string) (*UpstreamConfig, error) {
+	validateTarget := func(target CompositeTargetRef, context string) (*UpstreamConfig, error) {
+		pool := NormalizeCompositeTargetPool(target.Pool)
+		channelID := strings.TrimSpace(target.ChannelID)
 		if channelID == "" {
 			return nil, fmt.Errorf("%s: channel ID is empty", context)
 		}
+
+		var upstreams []UpstreamConfig
+		var allowedTypes map[string]bool
+		switch pool {
+		case CompositeTargetPoolResponses:
+			upstreams = responsesUpstreams
+			allowedTypes = responsesCompatibleTypes
+		default:
+			upstreams = messagesUpstreams
+			allowedTypes = messagesCompatibleTypes
+		}
+
 		for idx := range upstreams {
 			if upstreams[idx].ID == channelID {
-				target := &upstreams[idx]
-				// Must be Claude-compatible type
-				if !claudeCompatibleTypes[target.ServiceType] {
-					return nil, fmt.Errorf("%s: channel '%s' must be Claude-compatible type (got %s)", context, target.Name, target.ServiceType)
+				targetUpstream := &upstreams[idx]
+				if !allowedTypes[targetUpstream.ServiceType] {
+					return nil, fmt.Errorf("%s: channel '%s' in pool '%s' has incompatible type '%s'", context, targetUpstream.Name, pool, targetUpstream.ServiceType)
 				}
-				// Cannot reference composite channel (no recursion)
-				if IsCompositeChannel(target) {
-					return nil, fmt.Errorf("%s: channel '%s' cannot be another composite channel", context, target.Name)
+				if IsCompositeChannel(targetUpstream) {
+					return nil, fmt.Errorf("%s: channel '%s' cannot be another composite channel", context, targetUpstream.Name)
 				}
-				return target, nil
+				return targetUpstream, nil
 			}
 		}
-		return nil, fmt.Errorf("%s: channel ID '%s' not found", context, channelID)
+		return nil, fmt.Errorf("%s: channel ID '%s' not found in pool '%s'", context, channelID, pool)
 	}
 
 	// Validate each mapping
@@ -1397,28 +1426,40 @@ func ValidateCompositeChannel(upstream *UpstreamConfig, upstreams []UpstreamConf
 		}
 		requiredPatterns[mapping.Pattern] = true
 
-		// Validate primary target channel
-		if _, err := validateChannelID(mapping.TargetChannelID, fmt.Sprintf("mapping %d (pattern '%s')", i, mapping.Pattern)); err != nil {
-			// Try legacy index migration
-			if mapping.TargetChannel >= 0 && mapping.TargetChannel < len(upstreams) {
-				target := &upstreams[mapping.TargetChannel]
-				if target.ID != "" {
-					mapping.TargetChannelID = target.ID
-					log.Printf("Auto-migrated composite mapping %d: index %d -> ID %s", i, mapping.TargetChannel, target.ID)
-				} else {
-					return fmt.Errorf("mapping %d: target channel at index %d has no ID", i, mapping.TargetChannel)
-				}
-			} else {
-				return err
+		if mapping.TargetPool != "" && !IsValidCompositeTargetPool(mapping.TargetPool) {
+			return fmt.Errorf("mapping %d (pattern '%s'): invalid targetPool '%s'", i, mapping.Pattern, mapping.TargetPool)
+		}
+		for j, target := range mapping.FailoverTargets {
+			if target.Pool != "" && !IsValidCompositeTargetPool(target.Pool) {
+				return fmt.Errorf("mapping %d (pattern '%s') failoverTargets[%d]: invalid pool '%s'", i, mapping.Pattern, j, target.Pool)
 			}
 		}
 
-		// Validate failover chain (minimum 1 required)
-		if len(mapping.FailoverChain) == 0 {
+		// Legacy primary migration: index -> ID in messages pool
+		if strings.TrimSpace(mapping.TargetChannelID) == "" && mapping.TargetChannel >= 0 && mapping.TargetChannel < len(messagesUpstreams) {
+			target := &messagesUpstreams[mapping.TargetChannel]
+			if target.ID != "" {
+				mapping.TargetChannelID = target.ID
+				mapping.TargetPool = CompositeTargetPoolMessages
+				log.Printf("Auto-migrated composite mapping %d: index %d -> ID %s", i, mapping.TargetChannel, target.ID)
+			} else {
+				return fmt.Errorf("mapping %d: target channel at index %d has no ID", i, mapping.TargetChannel)
+			}
+		}
+
+		normalizeCompositeMappingTargets(mapping)
+
+		primary := getCompositePrimaryTargetRef(mapping)
+		if _, err := validateTarget(primary, fmt.Sprintf("mapping %d (pattern '%s')", i, mapping.Pattern)); err != nil {
+			return err
+		}
+
+		failoverTargets := getCompositeFailoverTargetRefs(mapping)
+		if len(failoverTargets) == 0 {
 			return fmt.Errorf("mapping %d (pattern '%s'): failover chain must have at least 1 channel", i, mapping.Pattern)
 		}
-		for j, failoverID := range mapping.FailoverChain {
-			if _, err := validateChannelID(failoverID, fmt.Sprintf("mapping %d (pattern '%s') failover[%d]", i, mapping.Pattern, j)); err != nil {
+		for j, failoverTarget := range failoverTargets {
+			if _, err := validateTarget(failoverTarget, fmt.Sprintf("mapping %d (pattern '%s') failover[%d]", i, mapping.Pattern, j)); err != nil {
 				return err
 			}
 		}
@@ -1458,7 +1499,7 @@ func (cm *ConfigManager) AddUpstream(upstream UpstreamConfig) error {
 
 	// Validate composite channel before adding
 	if IsCompositeChannel(&upstream) {
-		if err := ValidateCompositeChannel(&upstream, cm.config.Upstream); err != nil {
+		if err := ValidateCompositeChannel(&upstream, cm.config.Upstream, cm.config.ResponsesUpstream); err != nil {
 			return fmt.Errorf("invalid composite channel: %w", err)
 		}
 	}
@@ -1604,7 +1645,7 @@ func (cm *ConfigManager) UpdateUpstream(index int, updates UpstreamUpdate) (shou
 
 	// Validate composite channel after applying all updates
 	if IsCompositeChannel(upstream) {
-		if err := ValidateCompositeChannel(upstream, cm.config.Upstream); err != nil {
+		if err := ValidateCompositeChannel(upstream, cm.config.Upstream, cm.config.ResponsesUpstream); err != nil {
 			return false, fmt.Errorf("invalid composite channel: %w", err)
 		}
 	}
@@ -1629,7 +1670,7 @@ func (cm *ConfigManager) RemoveUpstream(index int) (*UpstreamConfig, error) {
 	removed := cm.config.Upstream[index]
 
 	// Update composite mappings that reference this channel
-	cm.updateCompositeMappingsOnDelete(removed.ID, index)
+	cm.updateCompositeMappingsOnDelete(removed.ID, index, CompositeTargetPoolMessages)
 
 	cm.config.Upstream = append(cm.config.Upstream[:index], cm.config.Upstream[index+1:]...)
 
@@ -1649,8 +1690,9 @@ func (cm *ConfigManager) RemoveUpstream(index int) (*UpstreamConfig, error) {
 	return &removed, nil
 }
 
-// updateCompositeMappingsOnDelete removes or updates composite mappings when a channel is deleted
-func (cm *ConfigManager) updateCompositeMappingsOnDelete(deletedID string, deletedIndex int) {
+// updateCompositeMappingsOnDelete removes or updates messages composite mappings when a target channel is deleted.
+func (cm *ConfigManager) updateCompositeMappingsOnDelete(deletedID string, deletedIndex int, deletedPool string) {
+	normalizedDeletedPool := NormalizeCompositeTargetPool(deletedPool)
 	for i := range cm.config.Upstream {
 		upstream := &cm.config.Upstream[i]
 		if !IsCompositeChannel(upstream) || len(upstream.CompositeMappings) == 0 {
@@ -1659,32 +1701,59 @@ func (cm *ConfigManager) updateCompositeMappingsOnDelete(deletedID string, delet
 
 		// Filter out mappings that reference the deleted channel
 		validMappings := make([]CompositeMapping, 0, len(upstream.CompositeMappings))
+		channelChanged := false
 		for _, mapping := range upstream.CompositeMappings {
+			normalizeCompositeMappingTargets(&mapping)
+
 			// Check if this mapping references the deleted channel
 			referencesDeleted := false
-
-			if mapping.TargetChannelID != "" && mapping.TargetChannelID == deletedID {
+			primary := getCompositePrimaryTargetRef(&mapping)
+			if primary.Pool == normalizedDeletedPool && primary.ChannelID == deletedID {
 				referencesDeleted = true
-			} else if mapping.TargetChannelID == "" && mapping.TargetChannel == deletedIndex {
-				// Legacy index-based reference
+			} else if normalizedDeletedPool == CompositeTargetPoolMessages && mapping.TargetChannelID == "" && mapping.TargetChannel == deletedIndex {
+				// Legacy index-based primary reference (messages-only)
 				referencesDeleted = true
 			}
 
 			if referencesDeleted {
+				channelChanged = true
 				log.Printf("⚠️ Removed composite mapping '%s' from channel '%s' (target channel deleted)",
 					mapping.Pattern, upstream.Name)
 				continue
 			}
 
 			// For legacy index-based mappings, update indices > deleted
-			if mapping.TargetChannelID == "" && mapping.TargetChannel > deletedIndex {
+			if normalizedDeletedPool == CompositeTargetPoolMessages && mapping.TargetChannelID == "" && mapping.TargetChannel > deletedIndex {
 				mapping.TargetChannel--
+				channelChanged = true
 			}
+
+			failovers := getCompositeFailoverTargetRefs(&mapping)
+			filteredFailovers := make([]CompositeTargetRef, 0, len(failovers))
+			removedFromFailover := false
+			for _, failover := range failovers {
+				if failover.Pool == normalizedDeletedPool && failover.ChannelID == deletedID {
+					removedFromFailover = true
+					continue
+				}
+				filteredFailovers = append(filteredFailovers, failover)
+			}
+			if removedFromFailover {
+				channelChanged = true
+				log.Printf("⚠️ Removed deleted target from composite failover chain '%s' in channel '%s'",
+					mapping.Pattern, upstream.Name)
+			}
+			mapping.FailoverTargets = filteredFailovers
+			legacyChain := make([]string, 0, len(filteredFailovers))
+			for _, target := range filteredFailovers {
+				legacyChain = append(legacyChain, target.ChannelID)
+			}
+			mapping.FailoverChain = legacyChain
 
 			validMappings = append(validMappings, mapping)
 		}
 
-		if len(validMappings) != len(upstream.CompositeMappings) {
+		if channelChanged || len(validMappings) != len(upstream.CompositeMappings) {
 			upstream.CompositeMappings = validMappings
 			if len(validMappings) == 0 {
 				log.Printf("⚠️ Composite channel '%s' has no remaining mappings after deletion", upstream.Name)
@@ -2459,6 +2528,10 @@ func (cm *ConfigManager) RemoveResponsesUpstream(index int) (*UpstreamConfig, er
 	}
 
 	removed := cm.config.ResponsesUpstream[index]
+
+	// Update messages composite mappings that reference this responses channel
+	cm.updateCompositeMappingsOnDelete(removed.ID, index, CompositeTargetPoolResponses)
+
 	cm.config.ResponsesUpstream = append(cm.config.ResponsesUpstream[:index], cm.config.ResponsesUpstream[index+1:]...)
 
 	// Reindex remaining upstreams
@@ -2785,91 +2858,235 @@ func IsCompositeChannel(upstream *UpstreamConfig) bool {
 	return upstream.ServiceType == "composite"
 }
 
-// ResolveCompositeMapping finds the target channel for a given model
-// Returns: targetChannelID, targetIndex (for convenience), targetModel (may be overridden), found
-// Resolution order: exact match > contains match (longest pattern first) > wildcard "*"
-// upstreams is needed to resolve TargetChannelID to index
-func ResolveCompositeMapping(upstream *UpstreamConfig, model string, upstreams []UpstreamConfig) (string, int, string, bool) {
-	// Nil-safe check
+func NormalizeCompositeTargetPool(pool string) string {
+	switch strings.ToLower(strings.TrimSpace(pool)) {
+	case CompositeTargetPoolResponses:
+		return CompositeTargetPoolResponses
+	default:
+		return CompositeTargetPoolMessages
+	}
+}
+
+func IsValidCompositeTargetPool(pool string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(pool))
+	return normalized == CompositeTargetPoolMessages || normalized == CompositeTargetPoolResponses
+}
+
+func normalizeCompositeTargetRef(target CompositeTargetRef, defaultPool string) CompositeTargetRef {
+	pool := NormalizeCompositeTargetPool(target.Pool)
+	if strings.TrimSpace(target.Pool) == "" {
+		pool = NormalizeCompositeTargetPool(defaultPool)
+	}
+	return CompositeTargetRef{
+		Pool:      pool,
+		ChannelID: strings.TrimSpace(target.ChannelID),
+	}
+}
+
+func getCompositePrimaryTargetRef(mapping *CompositeMapping) CompositeTargetRef {
+	if mapping == nil {
+		return CompositeTargetRef{
+			Pool: CompositeTargetPoolMessages,
+		}
+	}
+	return normalizeCompositeTargetRef(CompositeTargetRef{
+		Pool:      mapping.TargetPool,
+		ChannelID: mapping.TargetChannelID,
+	}, CompositeTargetPoolMessages)
+}
+
+// GetCompositePrimaryTargetRef returns the normalized primary target for a composite mapping.
+func GetCompositePrimaryTargetRef(mapping *CompositeMapping) CompositeTargetRef {
+	return getCompositePrimaryTargetRef(mapping)
+}
+
+func getCompositeFailoverTargetRefs(mapping *CompositeMapping) []CompositeTargetRef {
+	if mapping == nil {
+		return nil
+	}
+	primary := getCompositePrimaryTargetRef(mapping)
+	if len(mapping.FailoverTargets) > 0 {
+		refs := make([]CompositeTargetRef, 0, len(mapping.FailoverTargets))
+		for _, target := range mapping.FailoverTargets {
+			normalized := normalizeCompositeTargetRef(target, primary.Pool)
+			if normalized.ChannelID == "" {
+				continue
+			}
+			refs = append(refs, normalized)
+		}
+		return refs
+	}
+	if len(mapping.FailoverChain) == 0 {
+		return nil
+	}
+	refs := make([]CompositeTargetRef, 0, len(mapping.FailoverChain))
+	for _, channelID := range mapping.FailoverChain {
+		normalized := normalizeCompositeTargetRef(CompositeTargetRef{
+			Pool:      primary.Pool,
+			ChannelID: channelID,
+		}, primary.Pool)
+		if normalized.ChannelID == "" {
+			continue
+		}
+		refs = append(refs, normalized)
+	}
+	return refs
+}
+
+// GetCompositeFailoverTargetRefs returns normalized failover targets for a composite mapping.
+func GetCompositeFailoverTargetRefs(mapping *CompositeMapping) []CompositeTargetRef {
+	return getCompositeFailoverTargetRefs(mapping)
+}
+
+func normalizeCompositeMappingTargets(mapping *CompositeMapping) {
+	if mapping == nil {
+		return
+	}
+
+	primary := getCompositePrimaryTargetRef(mapping)
+	mapping.TargetPool = primary.Pool
+	mapping.TargetChannelID = primary.ChannelID
+
+	failoverRefs := getCompositeFailoverTargetRefs(mapping)
+	mapping.FailoverTargets = failoverRefs
+
+	legacyChain := make([]string, 0, len(failoverRefs))
+	for _, target := range failoverRefs {
+		legacyChain = append(legacyChain, target.ChannelID)
+	}
+	mapping.FailoverChain = legacyChain
+}
+
+type ResolvedCompositeMapping struct {
+	TargetPool      string
+	TargetChannelID string
+	TargetIndex     int
+	TargetModel     string
+}
+
+// ResolveCompositeMappingWithPools resolves a composite mapping across messages/responses pools.
+// Resolution order: exact match > contains match (longest pattern first) > wildcard "*".
+func ResolveCompositeMappingWithPools(
+	upstream *UpstreamConfig,
+	model string,
+	messagesUpstreams []UpstreamConfig,
+	responsesUpstreams []UpstreamConfig,
+) (ResolvedCompositeMapping, bool) {
 	if upstream == nil || !IsCompositeChannel(upstream) || len(upstream.CompositeMappings) == 0 {
-		return "", -1, "", false
+		return ResolvedCompositeMapping{}, false
+	}
+
+	resolve := func(mapping *CompositeMapping) (ResolvedCompositeMapping, bool) {
+		if mapping == nil {
+			return ResolvedCompositeMapping{}, false
+		}
+		mappingCopy := *mapping
+		normalizeCompositeMappingTargets(&mappingCopy)
+		target := getCompositePrimaryTargetRef(&mappingCopy)
+		if target.ChannelID == "" && mapping.TargetChannel >= 0 && mapping.TargetChannel < len(messagesUpstreams) {
+			target = CompositeTargetRef{
+				Pool:      CompositeTargetPoolMessages,
+				ChannelID: strings.TrimSpace(messagesUpstreams[mapping.TargetChannel].ID),
+			}
+		}
+		idx := resolveTargetIndexByRef(target, messagesUpstreams, responsesUpstreams)
+		if idx < 0 && target.ChannelID == "" && mapping.TargetChannel >= 0 && mapping.TargetChannel < len(messagesUpstreams) {
+			idx = mapping.TargetChannel
+			target = CompositeTargetRef{
+				Pool:      CompositeTargetPoolMessages,
+				ChannelID: strings.TrimSpace(messagesUpstreams[idx].ID),
+			}
+		}
+		if idx < 0 {
+			return ResolvedCompositeMapping{}, false
+		}
+
+		targetModel := model
+		if mappingCopy.TargetModel != "" {
+			targetModel = mappingCopy.TargetModel
+		}
+
+		return ResolvedCompositeMapping{
+			TargetPool:      target.Pool,
+			TargetChannelID: target.ChannelID,
+			TargetIndex:     idx,
+			TargetModel:     targetModel,
+		}, true
 	}
 
 	var wildcardMapping *CompositeMapping
 	var containsMatches []*CompositeMapping
-
-	// Pass 1: Find exact match (highest priority) and collect contains matches
 	for i := range upstream.CompositeMappings {
 		mapping := &upstream.CompositeMappings[i]
-
 		if mapping.Pattern == "*" {
 			wildcardMapping = mapping
 			continue
 		}
-
-		// Exact match - return immediately (highest priority)
 		if mapping.Pattern == model {
-			targetModel := model
-			if mapping.TargetModel != "" {
-				targetModel = mapping.TargetModel
-			}
-			idx := resolveTargetIndex(mapping, upstreams)
-			return mapping.TargetChannelID, idx, targetModel, idx >= 0
+			return resolve(mapping)
 		}
-
-		// Collect contains matches for later (will sort by length)
 		if strings.Contains(model, mapping.Pattern) {
 			containsMatches = append(containsMatches, mapping)
 		}
 	}
 
-	// Pass 2: Among contains matches, pick the longest pattern (most specific)
 	if len(containsMatches) > 0 {
-		// Sort by pattern length descending (longest first)
 		sort.Slice(containsMatches, func(i, j int) bool {
 			return len(containsMatches[i].Pattern) > len(containsMatches[j].Pattern)
 		})
-
-		bestMatch := containsMatches[0]
-		targetModel := model
-		if bestMatch.TargetModel != "" {
-			targetModel = bestMatch.TargetModel
-		}
-		idx := resolveTargetIndex(bestMatch, upstreams)
-		return bestMatch.TargetChannelID, idx, targetModel, idx >= 0
+		return resolve(containsMatches[0])
 	}
 
-	// Pass 3: Wildcard fallback (lowest priority)
 	if wildcardMapping != nil {
-		targetModel := model
-		if wildcardMapping.TargetModel != "" {
-			targetModel = wildcardMapping.TargetModel
-		}
-		idx := resolveTargetIndex(wildcardMapping, upstreams)
-		return wildcardMapping.TargetChannelID, idx, targetModel, idx >= 0
+		return resolve(wildcardMapping)
 	}
 
-	return "", -1, "", false
+	return ResolvedCompositeMapping{}, false
 }
 
-// resolveTargetIndex finds the index of a target channel by ID or legacy index
-// Returns -1 if not found (bounds-safe)
-func resolveTargetIndex(mapping *CompositeMapping, upstreams []UpstreamConfig) int {
-	if mapping.TargetChannelID != "" {
-		for i := range upstreams {
-			if upstreams[i].ID == mapping.TargetChannelID {
-				return i
-			}
+// ResolveCompositeMapping is backward-compatible single-pool resolution helper.
+// For compatibility, the provided upstream list is treated as both pool lookups.
+func ResolveCompositeMapping(upstream *UpstreamConfig, model string, upstreams []UpstreamConfig) (string, int, string, bool) {
+	resolved, found := ResolveCompositeMappingWithPools(upstream, model, upstreams, upstreams)
+	if !found {
+		return "", -1, "", false
+	}
+	return resolved.TargetChannelID, resolved.TargetIndex, resolved.TargetModel, true
+}
+
+func resolveTargetIndexByRef(target CompositeTargetRef, messagesUpstreams []UpstreamConfig, responsesUpstreams []UpstreamConfig) int {
+	pool := NormalizeCompositeTargetPool(target.Pool)
+	channelID := strings.TrimSpace(target.ChannelID)
+	if channelID == "" {
+		return -1
+	}
+
+	var upstreams []UpstreamConfig
+	switch pool {
+	case CompositeTargetPoolResponses:
+		upstreams = responsesUpstreams
+	default:
+		upstreams = messagesUpstreams
+	}
+
+	for i := range upstreams {
+		if upstreams[i].ID == channelID {
+			return i
 		}
-		return -1 // ID not found
 	}
+	return -1
+}
 
-	// Legacy fallback: use index if valid
-	if mapping.TargetChannel >= 0 && mapping.TargetChannel < len(upstreams) {
-		return mapping.TargetChannel
+// resolveTargetIndex finds the index of the primary target channel by ID or legacy index.
+// Returns -1 if not found (bounds-safe).
+func resolveTargetIndex(mapping *CompositeMapping, upstreams []UpstreamConfig) int {
+	if mapping == nil {
+		return -1
 	}
-
-	return -1 // Invalid index
+	mappingCopy := *mapping
+	normalizeCompositeMappingTargets(&mappingCopy)
+	primary := getCompositePrimaryTargetRef(&mappingCopy)
+	return resolveTargetIndexByRef(primary, upstreams, upstreams)
 }
 
 // GetPromotedChannel 获取当前处于促销期的渠道索引（返回优先级最高的）

@@ -152,6 +152,78 @@ func TestGetCurrentMessagesChannel_CompositeResolvesOpusTarget(t *testing.T) {
 	}
 }
 
+func TestGetCurrentMessagesChannel_CompositeResolvesResponsesPoolTarget(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cfg := config.Config{
+		Upstream: []config.UpstreamConfig{
+			{
+				ID:          "ch-composite",
+				Name:        "Composite-Primary",
+				ServiceType: "composite",
+				Status:      "active",
+				CompositeMappings: []config.CompositeMapping{
+					{Pattern: "haiku", TargetChannelID: "ch-haiku"},
+					{Pattern: "sonnet", TargetChannelID: "ch-sonnet"},
+					{Pattern: "opus", TargetChannelID: "resp-opus", TargetPool: "responses"},
+				},
+			},
+			{
+				ID:          "ch-haiku",
+				Name:        "Haiku-Target",
+				ServiceType: "claude",
+				Status:      "active",
+				APIKeys:     []string{"key-h"},
+			},
+			{
+				ID:          "ch-sonnet",
+				Name:        "Sonnet-Target",
+				ServiceType: "claude",
+				Status:      "active",
+				APIKeys:     []string{"key-s"},
+			},
+		},
+		LoadBalance: "failover",
+		ResponsesUpstream: []config.UpstreamConfig{
+			{
+				ID:          "resp-opus",
+				Name:        "Codex-Opus",
+				ServiceType: "responses",
+				Status:      "active",
+				APIKeys:     []string{"key-r"},
+			},
+		},
+		ResponsesLoadBalance:     "failover",
+		GeminiUpstream:           []config.UpstreamConfig{},
+		GeminiLoadBalance:        "failover",
+		CurrentUpstream:          0,
+		CurrentResponsesUpstream: 0,
+	}
+	cfgManager := createTestConfigManager(t, cfg)
+
+	r := gin.New()
+	r.GET("/api/messages/channels/current", GetCurrentMessagesChannel(cfgManager))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/messages/channels/current", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		ChannelName string `json:"channelName"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if resp.ChannelName != "Codex-Opus" {
+		t.Fatalf("expected channelName=Codex-Opus, got %q", resp.ChannelName)
+	}
+}
+
 func TestGetCurrentMessagesChannel_NoChannels(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

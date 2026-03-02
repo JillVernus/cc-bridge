@@ -785,8 +785,8 @@ func TestCompositeMapping(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			return
 		}
 
-		// Find the matching mapping
-		targetChannelID, targetIdx, targetModel, found := config.ResolveCompositeMapping(upstream, model, cfg.Upstream)
+		// Find the matching mapping (pool-aware)
+		resolved, found := config.ResolveCompositeMappingWithPools(upstream, model, cfg.Upstream, cfg.ResponsesUpstream)
 		if !found {
 			c.JSON(http.StatusOK, gin.H{
 				"matched":       false,
@@ -797,36 +797,46 @@ func TestCompositeMapping(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			return
 		}
 
+		var targetChannels []config.UpstreamConfig
+		switch resolved.TargetPool {
+		case config.CompositeTargetPoolResponses:
+			targetChannels = cfg.ResponsesUpstream
+		default:
+			targetChannels = cfg.Upstream
+		}
+
 		// Get target channel info
-		if targetIdx < 0 || targetIdx >= len(cfg.Upstream) {
+		if resolved.TargetIndex < 0 || resolved.TargetIndex >= len(targetChannels) {
 			c.JSON(http.StatusOK, gin.H{
 				"matched":            false,
 				"model":              model,
 				"message":            "Target channel not found for this mapping",
-				"targetChannelId":    targetChannelID,
-				"targetChannelIndex": targetIdx,
+				"targetPool":         resolved.TargetPool,
+				"targetChannelId":    resolved.TargetChannelID,
+				"targetChannelIndex": resolved.TargetIndex,
 				"targetChannel":      nil,
 			})
 			return
 		}
 
-		targetChannel := &cfg.Upstream[targetIdx]
+		targetChannel := &targetChannels[resolved.TargetIndex]
 		// Use channel's own ID if targetChannelID is empty (legacy index-based mappings)
-		resolvedTargetChannelID := targetChannelID
+		resolvedTargetChannelID := resolved.TargetChannelID
 		if resolvedTargetChannelID == "" {
 			resolvedTargetChannelID = targetChannel.ID
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"matched": true,
-			"model":   model,
+			"matched":    true,
+			"model":      model,
+			"targetPool": resolved.TargetPool,
 			"targetChannel": gin.H{
-				"index":  targetIdx,
+				"index":  resolved.TargetIndex,
 				"id":     resolvedTargetChannelID,
 				"name":   targetChannel.Name,
 				"status": config.GetChannelStatus(targetChannel),
 			},
-			"resolvedModel": targetModel,
+			"resolvedModel": resolved.TargetModel,
 		})
 	}
 }

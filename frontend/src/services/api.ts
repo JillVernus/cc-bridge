@@ -149,10 +149,19 @@ export interface OAuthStatusResponse {
 }
 
 // Composite channel model mapping
+export type CompositeTargetPool = 'messages' | 'responses'
+
+export interface CompositeTargetRef {
+  pool?: CompositeTargetPool // Default: messages
+  channelId: string
+}
+
 export interface CompositeMapping {
   pattern: string // Model pattern: "haiku", "sonnet", "opus" (mandatory, no wildcard)
   targetChannelId: string // Primary target channel ID
+  targetPool?: CompositeTargetPool // Primary target pool (default: messages)
   failoverChain?: string[] // Ordered failover channel IDs (min 1 required)
+  failoverTargets?: CompositeTargetRef[] // Canonical failover targets (pool-aware)
   targetModel?: string // Optional model name override
 }
 

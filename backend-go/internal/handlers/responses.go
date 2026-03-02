@@ -33,6 +33,9 @@ import (
 // codexTokenManager is a shared token manager for OAuth token refresh
 var codexTokenManager = codex.NewTokenManager()
 
+// codexOAuthResponsesEndpoint is overridable for tests; production uses ChatGPT Codex endpoint.
+var codexOAuthResponsesEndpoint = "https://chatgpt.com/backend-api/codex/responses"
+
 // trackResponsesUsage tracks usage for Responses API channels based on quota type
 func trackResponsesUsage(usageManager *quota.UsageManager, upstream *config.UpstreamConfig, model string, cost float64) {
 	if usageManager == nil || upstream.QuotaType == "" {
@@ -277,7 +280,10 @@ func handleMultiChannelResponses(
 	// Track current selection for composite failover chain
 	var currentSelection *scheduler.SelectionResult
 
-	for channelAttempt := 0; channelAttempt < maxChannelAttempts; channelAttempt++ {
+	// channelAttempt counts top-level channel selections.
+	// Composite chain hops do not consume this budget.
+	channelAttempt := 0
+	for {
 		var selection *scheduler.SelectionResult
 		var err error
 
@@ -353,11 +359,15 @@ func handleMultiChannelResponses(
 			}
 		} else {
 			// Normal channel selection
+			if channelAttempt >= maxChannelAttempts {
+				break
+			}
 			selection, err = channelScheduler.SelectChannel(c.Request.Context(), clientID, failedChannels, true, allowedChannels, responsesReq.Model)
 			if err != nil {
 				lastError = err
 				break
 			}
+			channelAttempt++
 		}
 
 		currentSelection = selection
@@ -380,13 +390,17 @@ func handleMultiChannelResponses(
 		logChannelName := metricsChannelName
 
 		if shouldLogInfo {
+			attemptNum := channelAttempt
+			if attemptNum <= 0 {
+				attemptNum = 1
+			}
 			if selection.CompositeUpstream != nil {
 				// Routed through a composite channel
 				log.Printf("🎯 [Multi-Channel/Responses] [Composite: %d] %s → [Channel: %d] %s (reason: %s, model: %s, attempt %d/%d)",
-					selection.CompositeChannelIndex, selection.CompositeUpstream.Name, channelIndex, upstream.Name, selection.Reason, selection.ResolvedModel, channelAttempt+1, maxChannelAttempts)
+					selection.CompositeChannelIndex, selection.CompositeUpstream.Name, channelIndex, upstream.Name, selection.Reason, selection.ResolvedModel, attemptNum, maxChannelAttempts)
 			} else {
 				log.Printf("🎯 [Multi-Channel/Responses] Selected channel: [%d] %s (reason: %s, attempt %d/%d)",
-					channelIndex, upstream.Name, selection.Reason, channelAttempt+1, maxChannelAttempts)
+					channelIndex, upstream.Name, selection.Reason, attemptNum, maxChannelAttempts)
 			}
 		}
 
@@ -404,8 +418,12 @@ func handleMultiChannelResponses(
 						channelIndex, upstream.Name, result.Error)
 				}
 				channelScheduler.RecordFailureWithStatusDetail(metricsChannelIndex, true, 429, metricsModel, metricsChannelName, metricsRoutedChannelName)
-				// Mark channel as failed for this request and try next channel
-				failedChannels[channelIndex] = true
+				// Use scheduler-provided failure key to keep mixed-pool composite bookkeeping safe.
+				failedKey := channelIndex
+				if selection.FailedChannelKey >= 0 {
+					failedKey = selection.FailedChannelKey
+				}
+				failedChannels[failedKey] = true
 				lastError = result.Error
 				lastFailedUpstream = upstream
 				lastFailedLogChannelIndex = logChannelIndex
@@ -460,7 +478,11 @@ func handleMultiChannelResponses(
 			failureStatus = failoverErr.Status
 		}
 		channelScheduler.RecordFailureWithStatusDetail(metricsChannelIndex, true, failureStatus, metricsModel, metricsChannelName, metricsRoutedChannelName)
-		failedChannels[channelIndex] = true
+		failedKey := channelIndex
+		if selection.FailedChannelKey >= 0 {
+			failedKey = selection.FailedChannelKey
+		}
+		failedChannels[failedKey] = true
 
 		// For composite channels, check if there are more in the failover chain
 		// If so, continue the loop (the composite failover will be handled at the top)
@@ -540,7 +562,7 @@ func handleMultiChannelResponses(
 		// will be triggered at the top of the next iteration
 
 		// Check if there are more channels to try (non-composite case)
-		hasMoreChannels := channelAttempt < maxChannelAttempts-1 && len(failedChannels) < maxChannelAttempts
+		hasMoreChannels := channelAttempt < maxChannelAttempts
 
 		if hasMoreChannels {
 			// Failover case: log this failed attempt and create new pending log for next attempt
@@ -557,7 +579,7 @@ func handleMultiChannelResponses(
 
 				// Update current log as failover (keeping original error info)
 				// Build error message with HTTP status for better visibility
-				errorMsg := fmt.Sprintf("failover to next channel (%d/%d)", channelAttempt+1, maxChannelAttempts)
+				errorMsg := fmt.Sprintf("failover to next channel (%d/%d)", channelAttempt, maxChannelAttempts)
 				if httpStatus > 0 {
 					errorMsg = fmt.Sprintf("%d: %s", httpStatus, errorMsg)
 				}
@@ -1329,7 +1351,7 @@ func tryResponsesChannelWithOAuth(
 	}
 
 	// 构建 OAuth 请求
-	providerReq, err := buildCodexOAuthRequest(c, cfgManager, upstream, bodyBytes, responsesReq, accessToken, accountID)
+	providerReq, err := buildCodexOAuthRequest(c, cfgManager, upstream, bodyBytes, responsesReq, accessToken, accountID, true)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to build OAuth request: %s", err.Error())
 		log.Printf("⚠️ [OAuth] 构建请求失败: %v", err)
@@ -1417,6 +1439,7 @@ func buildCodexOAuthRequest(
 	responsesReq types.ResponsesRequest,
 	accessToken string,
 	accountID string,
+	applyModelRedirect bool,
 ) (*http.Request, error) {
 	// 解析请求体为 map 以保留所有字段
 	var reqMap map[string]interface{}
@@ -1424,9 +1447,11 @@ func buildCodexOAuthRequest(
 		return nil, fmt.Errorf("failed to parse request body: %w", err)
 	}
 
-	// 模型重定向
-	if model, ok := reqMap["model"].(string); ok {
-		reqMap["model"] = config.RedirectModel(model, upstream)
+	// 模型重定向（仅在上游请求体尚未重定向时执行）
+	if applyModelRedirect {
+		if model, ok := reqMap["model"].(string); ok {
+			reqMap["model"] = config.RedirectModel(model, upstream)
+		}
 	}
 
 	// 序列化请求体
@@ -1435,10 +1460,7 @@ func buildCodexOAuthRequest(
 		return nil, fmt.Errorf("failed to marshal request body: %w", err)
 	}
 
-	// Codex OAuth 使用固定的 API 端点
-	targetURL := "https://chatgpt.com/backend-api/codex/responses"
-
-	req, err := http.NewRequest("POST", targetURL, bytes.NewReader(reqBody))
+	req, err := http.NewRequest("POST", codexOAuthResponsesEndpoint, bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, err
 	}

@@ -138,19 +138,21 @@ func ProxyHandlerWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.ConfigM
 		isMultiChannel := channelScheduler.IsMultiChannelMode(false)
 
 		// Get allowed channels from API key permissions
-		var allowedChannels []string
+		var allowedChannelsMsg []string
+		var allowedChannelsResp []string
 		if vk, exists := c.Get(middleware.ContextKeyValidatedKey); exists {
 			if validatedKey, ok := vk.(*apikey.ValidatedKey); ok && validatedKey != nil {
-				allowedChannels = validatedKey.GetAllowedChannels(false) // false = Messages API
+				allowedChannelsMsg = validatedKey.GetAllowedChannelsByType("messages")
+				allowedChannelsResp = validatedKey.GetAllowedChannelsByType("responses")
 			}
 		}
 
 		if isMultiChannel {
 			// 多渠道模式：使用调度器
-			handleMultiChannelProxy(c, envCfg, cfgManager, channelScheduler, bodyBytes, claudeReq, userID, sessionID, apiKeyID, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker, channelRateLimiter)
+			handleMultiChannelProxy(c, envCfg, cfgManager, channelScheduler, bodyBytes, claudeReq, userID, sessionID, apiKeyID, startTime, reqLogManager, requestLogID, usageManager, allowedChannelsMsg, allowedChannelsResp, failoverTracker, channelRateLimiter)
 		} else {
 			// 单渠道模式：使用现有逻辑
-			handleSingleChannelProxy(c, envCfg, cfgManager, channelScheduler, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker, userID, sessionID, apiKeyID, channelRateLimiter)
+			handleSingleChannelProxy(c, envCfg, cfgManager, channelScheduler, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID, usageManager, allowedChannelsMsg, allowedChannelsResp, failoverTracker, userID, sessionID, apiKeyID, channelRateLimiter)
 		}
 	})
 }
@@ -203,6 +205,35 @@ func resolveRequestLogChannelContext(selection *scheduler.SelectionResult, fallb
 	return -1, ""
 }
 
+func isChannelAllowed(channelID string, allowed []string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	for _, id := range allowed {
+		if id == channelID {
+			return true
+		}
+	}
+	return false
+}
+
+func isResolvedTargetAllowedForPool(channelID string, pool string, allowedMessages []string, allowedResponses []string) bool {
+	switch config.NormalizeCompositeTargetPool(pool) {
+	case config.CompositeTargetPoolResponses:
+		return isChannelAllowed(channelID, allowedResponses)
+	default:
+		return isChannelAllowed(channelID, allowedMessages)
+	}
+}
+
+var getValidOAuthTokenForMessagesBridge = func(tokens *config.OAuthTokens) (string, string, *config.OAuthTokens, error) {
+	return codexTokenManager.GetValidToken(tokens)
+}
+
+var refreshOAuthTokensForMessagesBridge = func(refreshToken string, retries int) (*config.OAuthTokens, error) {
+	return codexTokenManager.RefreshTokensWithRetry(refreshToken, retries)
+}
+
 // handleMultiChannelProxy handles multi-channel proxy requests with failover support.
 // When a channel fails and there are more channels to try, it logs the failed attempt
 // with StatusFailover and creates a new pending log for the next attempt.
@@ -220,12 +251,15 @@ func handleMultiChannelProxy(
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
 	usageManager *quota.UsageManager,
-	allowedChannels []string,
+	allowedChannelsMsg []string,
+	allowedChannelsResp []string,
 	failoverTracker *config.FailoverTracker,
 	channelRateLimiter *middleware.ChannelRateLimiter,
 ) {
 	failedChannels := make(map[int]bool)
 	var lastError error
+	var lastResolvedTargetPermissionErr error
+	var sawNonPermissionFailure bool
 	var lastFailoverError *struct {
 		Status       int
 		Body         []byte
@@ -240,7 +274,10 @@ func handleMultiChannelProxy(
 	// Track current selection for composite failover chain
 	var currentSelection *scheduler.SelectionResult
 
-	for channelAttempt := 0; channelAttempt < maxChannelAttempts; channelAttempt++ {
+	// channelAttempt counts top-level channel selections.
+	// Composite chain hops do not consume this budget.
+	channelAttempt := 0
+	for {
 		var selection *scheduler.SelectionResult
 		var err error
 
@@ -251,6 +288,44 @@ func handleMultiChannelProxy(
 			// Try next in composite failover chain
 			selection, err = channelScheduler.GetNextCompositeFailover(currentSelection, false, failedChannels, nil, false)
 			if err != nil {
+				// If there were remaining failover entries but none could be selected,
+				// treat it as non-permission exhaustion (e.g., missing credentials/unavailable targets).
+				if len(currentSelection.FailoverChain) > 0 {
+					sawNonPermissionFailure = true
+				}
+				if lastFailoverError == nil && lastResolvedTargetPermissionErr != nil && !sawNonPermissionFailure {
+					httpStatus := http.StatusForbidden
+					errMsg := lastResolvedTargetPermissionErr.Error()
+					if reqLogManager != nil && requestLogID != "" {
+						record := &requestlog.RequestLog{
+							Status:       requestlog.StatusError,
+							CompleteTime: time.Now(),
+							DurationMs:   time.Since(startTime).Milliseconds(),
+							Model:        claudeReq.Model,
+							HTTPStatus:   httpStatus,
+							Error:        errMsg,
+						}
+						logChannelIndex, logChannelName := resolveRequestLogChannelContext(currentSelection, lastFailedUpstream)
+						if logChannelIndex >= 0 || logChannelName != "" {
+							record.ChannelID = logChannelIndex
+							record.ChannelName = logChannelName
+						}
+						if lastFailedUpstream != nil {
+							record.Type = lastFailedUpstream.ServiceType
+							record.ProviderName = lastFailedUpstream.Name
+						}
+						_ = reqLogManager.Update(requestLogID, record)
+					}
+					errJSON := fmt.Sprintf(`{"error":"channel not allowed","details":"%s","code":"CHANNEL_NOT_ALLOWED"}`, errMsg)
+					SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, httpStatus, []byte(errJSON))
+					c.JSON(httpStatus, gin.H{
+						"error":   "channel not allowed",
+						"details": errMsg,
+						"code":    "CHANNEL_NOT_ALLOWED",
+					})
+					return
+				}
+
 				// Composite failover chain exhausted - do NOT try other channels
 				// Return error to client immediately (sticky composite behavior)
 				log.Printf("💥 [Composite] Failover chain exhausted for '%s': %v", currentSelection.CompositeUpstream.Name, err)
@@ -310,16 +385,35 @@ func handleMultiChannelProxy(
 			}
 		} else {
 			// Normal channel selection
-			selection, err = channelScheduler.SelectChannel(c.Request.Context(), clientID, failedChannels, false, allowedChannels, claudeReq.Model)
-			if err != nil {
-				lastError = err
+			if channelAttempt >= maxChannelAttempts {
 				break
 			}
+			selection, err = channelScheduler.SelectChannel(c.Request.Context(), clientID, failedChannels, false, allowedChannelsMsg, claudeReq.Model)
+			if err != nil {
+				if lastResolvedTargetPermissionErr != nil && !errors.Is(err, scheduler.ErrNoAllowedChannels) {
+					lastError = fmt.Errorf("%w: %s", scheduler.ErrNoAllowedChannels, lastResolvedTargetPermissionErr.Error())
+				} else {
+					lastError = err
+				}
+				break
+			}
+			channelAttempt++
 		}
 
 		currentSelection = selection
 
 		upstream := selection.Upstream
+		if !isResolvedTargetAllowedForPool(strings.TrimSpace(upstream.ID), selection.TargetPool, allowedChannelsMsg, allowedChannelsResp) {
+			failedKey := selection.ChannelIndex
+			if selection.FailedChannelKey >= 0 {
+				failedKey = selection.FailedChannelKey
+			}
+			failedChannels[failedKey] = true
+			lastResolvedTargetPermissionErr = fmt.Errorf("resolved channel %s not allowed for this API key", strings.TrimSpace(upstream.Name))
+			lastError = fmt.Errorf("%w: %s", scheduler.ErrNoAllowedChannels, lastResolvedTargetPermissionErr.Error())
+			lastFailedUpstream = upstream
+			continue
+		}
 		channelIndex := selection.ChannelIndex
 		metricsModel := claudeReq.Model
 		if selection.ResolvedModel != "" {
@@ -337,19 +431,27 @@ func handleMultiChannelProxy(
 		logChannelName := strings.TrimSpace(metricsChannelName)
 
 		if shouldLogInfo {
+			attemptNum := channelAttempt
+			if attemptNum <= 0 {
+				attemptNum = 1
+			}
 			if selection.CompositeUpstream != nil {
 				// Routed through a composite channel
 				log.Printf("🎯 [Multi-Channel] [Composite: %d] %s → [Channel: %d] %s (reason: %s, model: %s, attempt %d/%d)",
-					selection.CompositeChannelIndex, selection.CompositeUpstream.Name, channelIndex, upstream.Name, selection.Reason, selection.ResolvedModel, channelAttempt+1, maxChannelAttempts)
+					selection.CompositeChannelIndex, selection.CompositeUpstream.Name, channelIndex, upstream.Name, selection.Reason, selection.ResolvedModel, attemptNum, maxChannelAttempts)
 			} else {
 				log.Printf("🎯 [Multi-Channel] Selected channel: [%d] %s (reason: %s, attempt %d/%d)",
-					channelIndex, upstream.Name, selection.Reason, channelAttempt+1, maxChannelAttempts)
+					channelIndex, upstream.Name, selection.Reason, attemptNum, maxChannelAttempts)
 			}
 		}
 
 		// Check per-channel rate limit (if configured)
 		if channelRateLimiter != nil && upstream.RateLimitRpm > 0 {
-			result := channelRateLimiter.Acquire(c.Request.Context(), upstream, "messages")
+			rateLimitType := "messages"
+			if config.NormalizeCompositeTargetPool(selection.TargetPool) == config.CompositeTargetPoolResponses {
+				rateLimitType = "responses"
+			}
+			result := channelRateLimiter.Acquire(c.Request.Context(), upstream, rateLimitType)
 			if !result.Allowed {
 				if result.Queued {
 					// Request was queued but timed out or client disconnected
@@ -361,8 +463,14 @@ func handleMultiChannelProxy(
 						channelIndex, upstream.Name, result.Error)
 				}
 				channelScheduler.RecordFailureWithStatusDetail(metricsChannelIndex, false, 429, metricsModel, metricsChannelName, metricsRoutedChannelName)
-				// Mark channel as failed for this request and try next channel
-				failedChannels[channelIndex] = true
+				// Mark channel as failed for this request and try next channel.
+				// Use scheduler-provided failure key to avoid cross-pool index collisions.
+				failedKey := channelIndex
+				if selection.FailedChannelKey >= 0 {
+					failedKey = selection.FailedChannelKey
+				}
+				failedChannels[failedKey] = true
+				sawNonPermissionFailure = true
 				lastError = result.Error
 				lastFailedUpstream = upstream
 				continue
@@ -393,6 +501,7 @@ func handleMultiChannelProxy(
 			apiKeyID,
 		)
 		requestLogID = updatedLogID // Update requestLogID in case it was changed during retry_wait
+		sawNonPermissionFailure = true
 
 		if c.Request.Context().Err() != nil {
 			return
@@ -433,7 +542,11 @@ func handleMultiChannelProxy(
 			failureStatus = failoverErr.Status
 		}
 		channelScheduler.RecordFailureWithStatusDetail(metricsChannelIndex, false, failureStatus, metricsModel, metricsChannelName, metricsRoutedChannelName)
-		failedChannels[channelIndex] = true
+		failedKey := channelIndex
+		if selection.FailedChannelKey >= 0 {
+			failedKey = selection.FailedChannelKey
+		}
+		failedChannels[failedKey] = true
 
 		// For composite channels, check if there are more in the failover chain
 		// If so, continue the loop (the composite failover will be handled at the top)
@@ -509,7 +622,7 @@ func handleMultiChannelProxy(
 		// will be triggered at the top of the next iteration
 
 		// Check if there are more channels to try (non-composite case)
-		hasMoreChannels := channelAttempt < maxChannelAttempts-1 && len(failedChannels) < maxChannelAttempts
+		hasMoreChannels := channelAttempt < maxChannelAttempts
 
 		if hasMoreChannels {
 			// Failover case: log this failed attempt and create new pending log for next attempt
@@ -526,7 +639,7 @@ func handleMultiChannelProxy(
 
 				// Update current log as failover (keeping original error info)
 				// Build error message with HTTP status for better visibility
-				errorMsg := fmt.Sprintf("failover to next channel (%d/%d)", channelAttempt+1, maxChannelAttempts)
+				errorMsg := fmt.Sprintf("failover to next channel (%d/%d)", channelAttempt, maxChannelAttempts)
 				if httpStatus > 0 {
 					errorMsg = fmt.Sprintf("%d: %s", httpStatus, errorMsg)
 				}
@@ -597,7 +710,10 @@ func handleMultiChannelProxy(
 		if lastError != nil {
 			errMsg = lastError.Error()
 		}
-		if lastError != nil && errors.Is(lastError, scheduler.ErrNoAllowedChannels) {
+		if lastResolvedTargetPermissionErr != nil && lastFailoverError == nil && !sawNonPermissionFailure {
+			httpStatus = 403
+			errMsg = lastResolvedTargetPermissionErr.Error()
+		} else if lastError != nil && errors.Is(lastError, scheduler.ErrNoAllowedChannels) {
 			httpStatus = 403
 		}
 		record := &requestlog.RequestLog{
@@ -637,7 +753,16 @@ func handleMultiChannelProxy(
 		}
 	} else {
 		// Check if this is a permission error (no allowed channels)
-		if lastError != nil && errors.Is(lastError, scheduler.ErrNoAllowedChannels) {
+		if lastResolvedTargetPermissionErr != nil && lastFailoverError == nil && !sawNonPermissionFailure {
+			errMsg := lastResolvedTargetPermissionErr.Error()
+			errJSON := fmt.Sprintf(`{"error":"channel not allowed","details":"%s","code":"CHANNEL_NOT_ALLOWED"}`, errMsg)
+			SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, 403, []byte(errJSON))
+			c.JSON(403, gin.H{
+				"error":   "channel not allowed",
+				"details": errMsg,
+				"code":    "CHANNEL_NOT_ALLOWED",
+			})
+		} else if lastError != nil && errors.Is(lastError, scheduler.ErrNoAllowedChannels) {
 			errMsg := lastError.Error()
 			errJSON := fmt.Sprintf(`{"error":"channel not allowed","details":"%s","code":"CHANNEL_NOT_ALLOWED"}`, errMsg)
 			SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, 403, []byte(errJSON))
@@ -685,6 +810,11 @@ func tryChannelWithAllKeys(
 	Body         []byte
 	FailoverInfo string
 }, string) {
+	if upstream.ServiceType == "openai-oauth" {
+		success, failoverErr := tryMessagesChannelWithOAuth(c, envCfg, cfgManager, upstream, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID, usageManager, logChannelIndex, logChannelName)
+		return success, failoverErr, requestLogID
+	}
+
 	if len(upstream.APIKeys) == 0 {
 		return false, nil, requestLogID
 	}
@@ -1243,6 +1373,145 @@ func tryChannelWithAllKeys(
 	return false, lastFailoverError, currentRequestLogID
 }
 
+func convertClaudeBodyToResponsesRequest(c *gin.Context, upstream *config.UpstreamConfig, bodyBytes []byte) ([]byte, types.ResponsesRequest, error) {
+	var responsesReq types.ResponsesRequest
+
+	provider := &providers.ResponsesUpstreamProvider{}
+	c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+
+	// API key is irrelevant here: we only need the converted request payload.
+	providerReq, _, err := provider.ConvertToProviderRequest(c, upstream, "oauth-placeholder")
+	if err != nil {
+		return nil, responsesReq, err
+	}
+	if providerReq.Body == nil {
+		return nil, responsesReq, fmt.Errorf("converted responses request body is empty")
+	}
+	defer providerReq.Body.Close()
+
+	responsesBody, err := io.ReadAll(providerReq.Body)
+	if err != nil {
+		return nil, responsesReq, err
+	}
+	if len(responsesBody) > 0 {
+		if err := json.Unmarshal(responsesBody, &responsesReq); err != nil {
+			return nil, responsesReq, err
+		}
+	}
+
+	return responsesBody, responsesReq, nil
+}
+
+func tryMessagesChannelWithOAuth(
+	c *gin.Context,
+	envCfg *config.EnvConfig,
+	cfgManager *config.ConfigManager,
+	upstream *config.UpstreamConfig,
+	bodyBytes []byte,
+	claudeReq types.ClaudeRequest,
+	startTime time.Time,
+	reqLogManager *requestlog.Manager,
+	requestLogID string,
+	usageManager *quota.UsageManager,
+	logChannelIndex int,
+	logChannelName string,
+) (bool, *struct {
+	Status       int
+	Body         []byte
+	FailoverInfo string
+}) {
+	if strings.TrimSpace(logChannelName) == "" {
+		logChannelName = strings.TrimSpace(upstream.Name)
+	}
+	if logChannelIndex < 0 {
+		logChannelIndex = upstream.Index
+	}
+
+	makeError := func(status int, msg string) *struct {
+		Status       int
+		Body         []byte
+		FailoverInfo string
+	} {
+		return &struct {
+			Status       int
+			Body         []byte
+			FailoverInfo string
+		}{
+			Status: status,
+			Body:   []byte(fmt.Sprintf(`{"error":"%s"}`, msg)),
+		}
+	}
+
+	if upstream.OAuthTokens == nil {
+		return false, makeError(503, "OAuth tokens not configured for this channel")
+	}
+
+	accessToken, accountID, updatedTokens, err := getValidOAuthTokenForMessagesBridge(upstream.OAuthTokens)
+	if err != nil {
+		return false, makeError(401, fmt.Sprintf("Failed to get valid OAuth token: %s", err.Error()))
+	}
+
+	if updatedTokens != nil {
+		if err := cfgManager.UpdateResponsesOAuthTokensByName(upstream.Name, updatedTokens); err != nil {
+			log.Printf("⚠️ [OAuth] 保存刷新后的 token 失败: %v", err)
+		}
+	}
+
+	responsesBody, responsesReq, err := convertClaudeBodyToResponsesRequest(c, upstream, bodyBytes)
+	if err != nil {
+		return false, makeError(500, fmt.Sprintf("Failed to convert Claude request to Responses format: %s", err.Error()))
+	}
+	// Keep stream intent aligned with the original Claude request.
+	responsesReq.Stream = claudeReq.Stream
+
+	providerReq, err := buildCodexOAuthRequest(c, cfgManager, upstream, responsesBody, responsesReq, accessToken, accountID, false)
+	if err != nil {
+		return false, makeError(500, fmt.Sprintf("Failed to build OAuth request: %s", err.Error()))
+	}
+
+	resp, err := sendResponsesRequest(providerReq, upstream, envCfg, responsesReq.Stream)
+	if err != nil {
+		return false, makeError(502, fmt.Sprintf("Request failed: %s", err.Error()))
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBodyBytes, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		respBodyBytes = utils.DecompressGzipIfNeeded(resp, respBodyBytes)
+
+		if resp.StatusCode == 401 {
+			log.Printf("🔄 [OAuth] 401 错误，尝试强制刷新 token...")
+			newTokens, refreshErr := refreshOAuthTokensForMessagesBridge(upstream.OAuthTokens.RefreshToken, 2)
+			if refreshErr == nil {
+				if saveErr := cfgManager.UpdateResponsesOAuthTokensByName(upstream.Name, newTokens); saveErr != nil {
+					log.Printf("⚠️ [OAuth] 保存刷新后的 token 失败: %v", saveErr)
+				}
+			}
+		}
+
+		return false, &struct {
+			Status       int
+			Body         []byte
+			FailoverInfo string
+		}{
+			Status: resp.StatusCode,
+			Body:   respBodyBytes,
+		}
+	}
+
+	// Keep quota/status bookkeeping behavior consistent with existing responses OAuth path.
+	quota.GetManager().UpdateFromHeaders(upstream.Index, upstream.Name, resp.Header)
+
+	provider := &providers.ResponsesUpstreamProvider{}
+	if claudeReq.Stream {
+		handleStreamResponse(c, resp, provider, envCfg, cfgManager, startTime, upstream, reqLogManager, requestLogID, claudeReq.Model, usageManager, logChannelIndex, logChannelName)
+	} else {
+		handleNormalResponse(c, resp, provider, envCfg, cfgManager, startTime, upstream, reqLogManager, requestLogID, claudeReq.Model, usageManager, logChannelIndex, logChannelName)
+	}
+
+	return true, nil
+}
+
 // handleSingleChannelProxy 处理单渠道代理请求（现有逻辑）
 func handleSingleChannelProxy(
 	c *gin.Context,
@@ -1255,7 +1524,8 @@ func handleSingleChannelProxy(
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
 	usageManager *quota.UsageManager,
-	allowedChannels []string,
+	allowedChannelsMsg []string,
+	allowedChannelsResp []string,
 	failoverTracker *config.FailoverTracker,
 	clientID string,
 	sessionID string,
@@ -1303,27 +1573,19 @@ func handleSingleChannelProxy(
 	}
 
 	// Check if this channel is allowed by API key permissions
-	if len(allowedChannels) > 0 {
-		allowed := false
-		for _, id := range allowedChannels {
-			if id == upstream.ID {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			channelIndex := upstream.Index
-			finalizePendingWithError(403, fmt.Sprintf("Channel %s not allowed for this API key", upstream.Name), upstream, &channelIndex, upstream.Name)
-			c.JSON(403, gin.H{
-				"error": fmt.Sprintf("Channel %s not allowed for this API key", upstream.Name),
-				"code":  "CHANNEL_NOT_ALLOWED",
-			})
-			return
-		}
+	if !isChannelAllowed(strings.TrimSpace(upstream.ID), allowedChannelsMsg) {
+		channelIndex := upstream.Index
+		finalizePendingWithError(403, fmt.Sprintf("Channel %s not allowed for this API key", upstream.Name), upstream, &channelIndex, upstream.Name)
+		c.JSON(403, gin.H{
+			"error": fmt.Sprintf("Channel %s not allowed for this API key", upstream.Name),
+			"code":  "CHANNEL_NOT_ALLOWED",
+		})
+		return
 	}
 
-	// Composite channels don't have API keys - they route to other channels
-	if len(upstream.APIKeys) == 0 && !config.IsCompositeChannel(upstream) {
+	// Composite channels don't have API keys - they route to other channels.
+	// openai-oauth channels use OAuth tokens instead of API keys.
+	if len(upstream.APIKeys) == 0 && !config.IsCompositeChannel(upstream) && upstream.ServiceType != "openai-oauth" {
 		channelIndex := upstream.Index
 		finalizePendingWithError(503, fmt.Sprintf("Current channel \"%s\" has no API keys configured", upstream.Name), upstream, &channelIndex, upstream.Name)
 		c.JSON(503, gin.H{
@@ -1338,11 +1600,12 @@ func handleSingleChannelProxy(
 	metricsChannelIndex := upstream.Index
 	metricsChannelName := upstream.Name
 	metricsRoutedChannelName := ""
+	resolvedTargetPool := config.CompositeTargetPoolMessages
 	if config.IsCompositeChannel(upstream) {
 		compositeName := upstream.Name
 		compositeIndex := upstream.Index
 		cfg := cfgManager.GetConfig()
-		targetChannelID, targetIndex, resolvedModel, found := config.ResolveCompositeMapping(upstream, claudeReq.Model, cfg.Upstream)
+		resolved, found := config.ResolveCompositeMappingWithPools(upstream, claudeReq.Model, cfg.Upstream, cfg.ResponsesUpstream)
 		if !found {
 			channelIndex := upstream.Index
 			finalizePendingWithError(400, fmt.Sprintf("Composite channel '%s' has no mapping for model '%s'", upstream.Name, claudeReq.Model), upstream, &channelIndex, upstream.Name)
@@ -1352,24 +1615,52 @@ func handleSingleChannelProxy(
 			})
 			return
 		}
-		if targetIndex < 0 || targetIndex >= len(cfg.Upstream) {
+		targetIndex := resolved.TargetIndex
+		resolvedTargetPool = config.NormalizeCompositeTargetPool(resolved.TargetPool)
+
+		var targetUpstream config.UpstreamConfig
+		switch resolvedTargetPool {
+		case config.CompositeTargetPoolResponses:
+			if targetIndex < 0 || targetIndex >= len(cfg.ResponsesUpstream) {
+				channelIndex := upstream.Index
+				finalizePendingWithError(503, fmt.Sprintf("Composite channel '%s' target channel ID '%s' not found", upstream.Name, resolved.TargetChannelID), upstream, &channelIndex, upstream.Name)
+				c.JSON(503, gin.H{
+					"error": fmt.Sprintf("Composite channel '%s' target channel ID '%s' not found", upstream.Name, resolved.TargetChannelID),
+					"code":  "COMPOSITE_TARGET_NOT_FOUND",
+				})
+				return
+			}
+			targetUpstream = cfg.ResponsesUpstream[targetIndex]
+		default:
+			if targetIndex < 0 || targetIndex >= len(cfg.Upstream) {
+				channelIndex := upstream.Index
+				finalizePendingWithError(503, fmt.Sprintf("Composite channel '%s' target channel ID '%s' not found", upstream.Name, resolved.TargetChannelID), upstream, &channelIndex, upstream.Name)
+				c.JSON(503, gin.H{
+					"error": fmt.Sprintf("Composite channel '%s' target channel ID '%s' not found", upstream.Name, resolved.TargetChannelID),
+					"code":  "COMPOSITE_TARGET_NOT_FOUND",
+				})
+				return
+			}
+			targetUpstream = cfg.Upstream[targetIndex]
+		}
+
+		if !isResolvedTargetAllowedForPool(strings.TrimSpace(targetUpstream.ID), resolvedTargetPool, allowedChannelsMsg, allowedChannelsResp) {
 			channelIndex := upstream.Index
-			finalizePendingWithError(503, fmt.Sprintf("Composite channel '%s' target channel ID '%s' not found", upstream.Name, targetChannelID), upstream, &channelIndex, upstream.Name)
-			c.JSON(503, gin.H{
-				"error": fmt.Sprintf("Composite channel '%s' target channel ID '%s' not found", upstream.Name, targetChannelID),
-				"code":  "COMPOSITE_TARGET_NOT_FOUND",
+			finalizePendingWithError(403, fmt.Sprintf("Composite target channel %s not allowed for this API key", targetUpstream.Name), upstream, &channelIndex, upstream.Name)
+			c.JSON(403, gin.H{
+				"error": fmt.Sprintf("Composite target channel %s not allowed for this API key", targetUpstream.Name),
+				"code":  "CHANNEL_NOT_ALLOWED",
 			})
 			return
 		}
-		targetUpstream := cfg.Upstream[targetIndex]
-		log.Printf("🔀 [Single-Channel Composite] '%s' → target [%d] '%s' for model '%s' (resolved: '%s')",
-			upstream.Name, targetIndex, targetUpstream.Name, claudeReq.Model, resolvedModel)
+		log.Printf("🔀 [Single-Channel Composite] '%s' → target [%d] '%s' (pool: %s) for model '%s' (resolved: '%s')",
+			upstream.Name, targetIndex, targetUpstream.Name, resolvedTargetPool, claudeReq.Model, resolved.TargetModel)
 		metricsChannelIndex = compositeIndex
 		metricsChannelName = compositeName
 		metricsRoutedChannelName = targetUpstream.Name
 		upstream = &targetUpstream
-		if resolvedModel != "" {
-			metricsModel = resolvedModel
+		if resolved.TargetModel != "" {
+			metricsModel = resolved.TargetModel
 		}
 	}
 	logChannelIndex := metricsChannelIndex
@@ -1384,7 +1675,11 @@ func handleSingleChannelProxy(
 
 	// Check per-channel rate limit (if configured)
 	if channelRateLimiter != nil && upstream.RateLimitRpm > 0 {
-		result := channelRateLimiter.Acquire(c.Request.Context(), upstream, "messages")
+		rateLimitType := "messages"
+		if resolvedTargetPool == config.CompositeTargetPoolResponses {
+			rateLimitType = "responses"
+		}
+		result := channelRateLimiter.Acquire(c.Request.Context(), upstream, rateLimitType)
 		if !result.Allowed {
 			log.Printf("🚫 [Channel Rate Limit] Channel %d (%s): %v", upstream.Index, upstream.Name, result.Error)
 			channelScheduler.RecordFailureWithStatusDetail(metricsChannelIndex, false, 429, metricsModel, metricsChannelName, metricsRoutedChannelName)
@@ -1415,6 +1710,46 @@ func handleSingleChannelProxy(
 			log.Printf("✅ [Channel Rate Limit] Channel %d (%s): request released after %v queue wait",
 				upstream.Index, upstream.Name, result.WaitDuration)
 		}
+	}
+
+	// Handle Responses OAuth channel through the messages->responses bridge.
+	if upstream.ServiceType == "openai-oauth" {
+		success, failoverErr := tryMessagesChannelWithOAuth(c, envCfg, cfgManager, upstream, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID, usageManager, logChannelIndex, logChannelName)
+		if !success && failoverErr != nil {
+			status := failoverErr.Status
+			if status == 0 {
+				status = 500
+			}
+			channelIndex := logChannelIndex
+			errMsg := strings.TrimSpace(string(failoverErr.Body))
+			if errMsg == "" {
+				errMsg = fmt.Sprintf("upstream returned status %d", status)
+			}
+			finalizePendingWithError(status, errMsg, upstream, &channelIndex, logChannelName)
+			recordSingleFailure(status)
+			SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, status, failoverErr.Body)
+			var errBody map[string]interface{}
+			if err := json.Unmarshal(failoverErr.Body, &errBody); err == nil {
+				c.JSON(status, errBody)
+			} else {
+				c.JSON(status, gin.H{"error": string(failoverErr.Body)})
+			}
+		} else if success {
+			handledStatus := c.Writer.Status()
+			if handledStatus <= 0 {
+				handledStatus = http.StatusOK
+			}
+			if handledStatus >= http.StatusBadRequest {
+				recordSingleFailure(handledStatus)
+			} else {
+				recordSingleSuccess(handledStatus)
+			}
+		} else {
+			channelIndex := logChannelIndex
+			finalizePendingWithError(500, "oauth bridge request failed", upstream, &channelIndex, logChannelName)
+			recordSingleFailure(500)
+		}
+		return
 	}
 
 	// 获取提供商

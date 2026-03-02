@@ -111,13 +111,15 @@ type SelectionResult struct {
 	Upstream     *config.UpstreamConfig
 	ChannelIndex int
 	Reason       string // 选择原因（用于日志）
+	TargetPool   string // messages | responses
 
 	// Composite channel fields (populated when routing through a composite channel)
 	CompositeUpstream     *config.UpstreamConfig // The composite channel used for routing (nil if direct)
 	CompositeChannelIndex int                    // Index of the composite channel (-1 if direct)
 	ResolvedModel         string                 // The model name after composite resolution (may be overridden)
-	FailoverChain         []string               // Remaining failover chain for sticky composite behavior
-	FailoverChainIndex    int                    // Current position in failover chain (0 = primary, 1+ = failover)
+	FailoverChain         []config.CompositeTargetRef
+	FailoverChainIndex    int // Current position in failover chain (0 = primary, 1+ = failover)
+	FailedChannelKey      int // Request-scope failure key (pool-safe for mixed-pool composites)
 }
 
 // SelectChannel 选择最佳渠道
@@ -395,6 +397,25 @@ func (s *ChannelScheduler) filterByAllowedChannels(channels []ChannelInfo, allow
 	return filtered
 }
 
+const crossPoolFailedChannelOffset = 1000000
+
+func endpointPool(isResponses bool) string {
+	if isResponses {
+		return config.CompositeTargetPoolResponses
+	}
+	return config.CompositeTargetPoolMessages
+}
+
+func targetFailureKey(targetPool string, targetIndex int, isResponses bool) int {
+	if targetIndex < 0 {
+		return targetIndex
+	}
+	if config.NormalizeCompositeTargetPool(targetPool) == endpointPool(isResponses) {
+		return targetIndex
+	}
+	return crossPoolFailedChannelOffset + targetIndex
+}
+
 // resolveCompositeChannel resolves a composite channel to its target channel based on the model.
 // If the selected channel is not composite, it returns the original result unchanged.
 // If the selected channel is composite but the target is unavailable, returns an error.
@@ -416,17 +437,13 @@ func (s *ChannelScheduler) resolveCompositeChannel(
 		// Not composite - return as-is with default composite fields
 		result.CompositeChannelIndex = -1
 		result.ResolvedModel = model
+		result.TargetPool = endpointPool(isResponses)
+		result.FailedChannelKey = targetFailureKey(result.TargetPool, result.ChannelIndex, isResponses)
 		return result, nil
 	}
 
 	// Get all upstreams for resolution
 	cfg := s.configManager.GetConfig()
-	var upstreams []config.UpstreamConfig
-	if isResponses {
-		upstreams = cfg.ResponsesUpstream
-	} else {
-		upstreams = cfg.Upstream
-	}
 
 	composite := result.Upstream
 	compositeIndex := result.ChannelIndex
@@ -446,8 +463,10 @@ func (s *ChannelScheduler) resolveCompositeChannel(
 		return nil, fmt.Errorf("composite channel '%s' has no mapping for model '%s'", composite.Name, model)
 	}
 
-	// Build full channel chain: primary + failoverChain
-	fullChain := append([]string{matchedMapping.TargetChannelID}, matchedMapping.FailoverChain...)
+	// Build full pool-aware channel chain: primary + failovers
+	primaryTarget := config.GetCompositePrimaryTargetRef(matchedMapping)
+	failoverTargets := config.GetCompositeFailoverTargetRefs(matchedMapping)
+	fullChain := append([]config.CompositeTargetRef{primaryTarget}, failoverTargets...)
 
 	// Determine resolved model (may be overridden by mapping)
 	resolvedModel := model
@@ -457,7 +476,20 @@ func (s *ChannelScheduler) resolveCompositeChannel(
 
 	// Try each channel in the chain until we find an available one
 	// For composite targets, we skip status checks (composite decides routing)
-	for chainIdx, channelID := range fullChain {
+	for chainIdx, targetRef := range fullChain {
+		targetPool := config.NormalizeCompositeTargetPool(targetRef.Pool)
+		channelID := strings.TrimSpace(targetRef.ChannelID)
+		if channelID == "" {
+			continue
+		}
+
+		var upstreams []config.UpstreamConfig
+		if targetPool == config.CompositeTargetPoolResponses {
+			upstreams = cfg.ResponsesUpstream
+		} else {
+			upstreams = cfg.Upstream
+		}
+
 		targetIndex := -1
 		for j := range upstreams {
 			if upstreams[j].ID == channelID {
@@ -467,7 +499,7 @@ func (s *ChannelScheduler) resolveCompositeChannel(
 		}
 
 		if targetIndex < 0 || targetIndex >= len(upstreams) {
-			log.Printf("⚠️ [Composite] '%s' → channel ID '%s' not found, skipping", composite.Name, channelID)
+			log.Printf("⚠️ [Composite] '%s' → channel ID '%s' (pool: %s) not found, skipping", composite.Name, channelID, targetPool)
 			continue
 		}
 
@@ -476,26 +508,28 @@ func (s *ChannelScheduler) resolveCompositeChannel(
 
 		// For composite channel targets, skip status/suspension/circuit-breaker checks
 		// The composite channel decides routing, not the target's status
-		if s.isTargetChannelAvailable(target, targetIndex, isResponses, failedChannels, metricsManager, useCircuitBreaker, true) {
+		if s.isTargetChannelAvailable(target, targetIndex, targetPool, isResponses, failedChannels, metricsManager, useCircuitBreaker, true) {
 			reason := result.Reason + "_via_composite"
 			if chainIdx > 0 {
 				reason = result.Reason + "_via_composite_failover"
 			}
-			log.Printf("🔀 [Composite] '%s' → target [%d] '%s' for model '%s' (chain pos: %d, resolved: '%s')",
-				composite.Name, targetIndex, target.Name, model, chainIdx, resolvedModel)
+			log.Printf("🔀 [Composite] '%s' → target [%d] '%s' (pool: %s) for model '%s' (chain pos: %d, resolved: '%s')",
+				composite.Name, targetIndex, target.Name, targetPool, model, chainIdx, resolvedModel)
 			return &SelectionResult{
 				Upstream:              target,
 				ChannelIndex:          targetIndex,
 				Reason:                reason,
+				TargetPool:            targetPool,
 				CompositeUpstream:     composite,
 				CompositeChannelIndex: compositeIndex,
 				ResolvedModel:         resolvedModel,
 				FailoverChain:         fullChain[chainIdx+1:], // Remaining chain for retry
 				FailoverChainIndex:    chainIdx,
+				FailedChannelKey:      targetFailureKey(targetPool, targetIndex, isResponses),
 			}, nil
 		}
-		log.Printf("⚠️ [Composite] '%s' → target [%d] '%s' unavailable (no API keys or already failed), trying next in chain",
-			composite.Name, targetIndex, target.Name)
+		log.Printf("⚠️ [Composite] '%s' → target [%d] '%s' (pool: %s) unavailable (no API keys or already failed), trying next in chain",
+			composite.Name, targetIndex, target.Name, targetPool)
 	}
 
 	// All channels in chain exhausted
@@ -521,18 +555,25 @@ func (s *ChannelScheduler) GetNextCompositeFailover(
 
 	// Get all upstreams
 	cfg := s.configManager.GetConfig()
-	var upstreams []config.UpstreamConfig
-	if isResponses {
-		upstreams = cfg.ResponsesUpstream
-	} else {
-		upstreams = cfg.Upstream
-	}
 
 	composite := prevResult.CompositeUpstream
 	compositeIndex := prevResult.CompositeChannelIndex
 
 	// Try remaining channels in the failover chain
-	for i, channelID := range prevResult.FailoverChain {
+	for i, targetRef := range prevResult.FailoverChain {
+		targetPool := config.NormalizeCompositeTargetPool(targetRef.Pool)
+		channelID := strings.TrimSpace(targetRef.ChannelID)
+		if channelID == "" {
+			continue
+		}
+
+		var upstreams []config.UpstreamConfig
+		if targetPool == config.CompositeTargetPoolResponses {
+			upstreams = cfg.ResponsesUpstream
+		} else {
+			upstreams = cfg.Upstream
+		}
+
 		targetIndex := -1
 		for j := range upstreams {
 			if upstreams[j].ID == channelID {
@@ -549,19 +590,21 @@ func (s *ChannelScheduler) GetNextCompositeFailover(
 		target := &targetCopy
 
 		// Skip status checks for composite targets
-		if s.isTargetChannelAvailable(target, targetIndex, isResponses, failedChannels, metricsManager, useCircuitBreaker, true) {
+		if s.isTargetChannelAvailable(target, targetIndex, targetPool, isResponses, failedChannels, metricsManager, useCircuitBreaker, true) {
 			chainPosition := prevResult.FailoverChainIndex + 1 + i
-			log.Printf("🔀 [Composite Failover] '%s' → target [%d] '%s' (chain pos: %d)",
-				composite.Name, targetIndex, target.Name, chainPosition)
+			log.Printf("🔀 [Composite Failover] '%s' → target [%d] '%s' (pool: %s, chain pos: %d)",
+				composite.Name, targetIndex, target.Name, targetPool, chainPosition)
 			return &SelectionResult{
 				Upstream:              target,
 				ChannelIndex:          targetIndex,
 				Reason:                "composite_failover",
+				TargetPool:            targetPool,
 				CompositeUpstream:     composite,
 				CompositeChannelIndex: compositeIndex,
 				ResolvedModel:         prevResult.ResolvedModel,
 				FailoverChain:         prevResult.FailoverChain[i+1:],
 				FailoverChainIndex:    chainPosition,
+				FailedChannelKey:      targetFailureKey(targetPool, targetIndex, isResponses),
 			}, nil
 		}
 	}
@@ -574,6 +617,7 @@ func (s *ChannelScheduler) GetNextCompositeFailover(
 func (s *ChannelScheduler) isTargetChannelAvailable(
 	target *config.UpstreamConfig,
 	targetIndex int,
+	targetPool string,
 	isResponses bool,
 	failedChannels map[int]bool,
 	metricsManager *metrics.MetricsManager,
@@ -581,9 +625,11 @@ func (s *ChannelScheduler) isTargetChannelAvailable(
 	skipStatusCheck bool,
 ) bool {
 	// Check if already failed in this request
-	if failedChannels[targetIndex] {
+	if failedChannels[targetFailureKey(targetPool, targetIndex, isResponses)] {
 		return false
 	}
+
+	targetIsResponses := config.NormalizeCompositeTargetPool(targetPool) == config.CompositeTargetPoolResponses
 
 	// Check status (skip for composite failover chain targets)
 	if !skipStatusCheck {
@@ -595,18 +641,24 @@ func (s *ChannelScheduler) isTargetChannelAvailable(
 
 	// Check if suspended (skip for composite failover chain targets)
 	if !skipStatusCheck {
-		if suspended, _, _ := s.isChannelSuspended(targetIndex, isResponses); suspended {
+		if suspended, _, _ := s.isChannelSuspended(targetIndex, targetIsResponses); suspended {
 			return false
 		}
 	}
 
 	// Check circuit breaker health (skip for composite failover chain targets)
-	if !skipStatusCheck && useCircuitBreaker && !metricsManager.IsChannelHealthyByIdentity(targetIndex, strings.TrimSpace(target.ID)) {
-		return false
+	if !skipStatusCheck && useCircuitBreaker {
+		targetMetricsManager := metricsManager
+		if targetMetricsManager == nil || targetIsResponses != isResponses {
+			targetMetricsManager = s.getMetricsManager(targetIsResponses)
+		}
+		if targetMetricsManager != nil && !targetMetricsManager.IsChannelHealthyByIdentity(targetIndex, strings.TrimSpace(target.ID)) {
+			return false
+		}
 	}
 
 	// Check if has usable credentials
-	if !s.upstreamHasCredentials(target, isResponses) {
+	if !s.upstreamHasCredentials(target, targetIsResponses) {
 		return false
 	}
 

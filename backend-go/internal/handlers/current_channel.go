@@ -38,8 +38,23 @@ func GetCurrentMessagesChannel(cfgManager *config.ConfigManager) gin.HandlerFunc
 
 		// Composite channel: resolve the channel assigned for opus.
 		cfg := cfgManager.GetConfig()
-		_, targetIndex, _, found := config.ResolveCompositeMapping(upstream, "opus", cfg.Upstream)
-		if !found || targetIndex < 0 || targetIndex >= len(cfg.Upstream) {
+		resolved, found := config.ResolveCompositeMappingWithPools(upstream, "opus", cfg.Upstream, cfg.ResponsesUpstream)
+		if !found {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error": fmt.Sprintf("Composite channel '%s' has no valid opus mapping target", upstream.Name),
+				"code":  "NO_OPUS_MAPPING_TARGET",
+			})
+			return
+		}
+
+		var targetChannels []config.UpstreamConfig
+		switch resolved.TargetPool {
+		case config.CompositeTargetPoolResponses:
+			targetChannels = cfg.ResponsesUpstream
+		default:
+			targetChannels = cfg.Upstream
+		}
+		if resolved.TargetIndex < 0 || resolved.TargetIndex >= len(targetChannels) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{
 				"error": fmt.Sprintf("Composite channel '%s' has no valid opus mapping target", upstream.Name),
 				"code":  "NO_OPUS_MAPPING_TARGET",
@@ -48,7 +63,7 @@ func GetCurrentMessagesChannel(cfgManager *config.ConfigManager) gin.HandlerFunc
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"channelName": cfg.Upstream[targetIndex].Name,
+			"channelName": targetChannels[resolved.TargetIndex].Name,
 		})
 	}
 }

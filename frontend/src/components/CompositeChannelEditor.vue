@@ -15,19 +15,11 @@
 
       <!-- 3-Column Model Routing -->
       <div class="model-columns">
-        <div
-          v-for="pattern in requiredPatterns"
-          :key="pattern"
-          class="model-column"
-        >
+        <div v-for="pattern in requiredPatterns" :key="pattern" class="model-column">
           <!-- Model Header -->
           <div class="column-header">
             <span class="model-name">{{ pattern }}</span>
-            <v-icon
-              v-if="isModelValid(pattern)"
-              size="x-small"
-              color="success"
-            >mdi-check-circle</v-icon>
+            <v-icon v-if="isModelValid(pattern)" size="x-small" color="success">mdi-check-circle</v-icon>
             <v-tooltip v-else location="top">
               <template #activator="{ props }">
                 <v-icon v-bind="props" size="x-small" color="error">mdi-alert-circle</v-icon>
@@ -52,19 +44,16 @@
                   <!-- Channel Select -->
                   <div class="channel-item" :class="{ 'is-draggable': channelId !== '' }">
                     <!-- Drag Handle (only for populated slots) -->
-                    <v-icon
-                      v-if="channelId !== ''"
-                      size="small"
-                      class="drag-handle"
-                      color="grey"
-                    >mdi-drag-vertical</v-icon>
+                    <v-icon v-if="channelId !== ''" size="small" class="drag-handle" color="grey"
+                      >mdi-drag-vertical</v-icon
+                    >
                     <div v-else class="drag-handle-placeholder"></div>
                     <v-select
                       :modelValue="channelId"
-                      @update:modelValue="(val) => updateChannelAt(pattern, index, val)"
-                      :items="getAvailableChannelsFor(pattern, index)"
-                      item-title="name"
-                      item-value="id"
+                      @update:modelValue="val => updateChannelAt(pattern, index, val)"
+                      :items="getAvailableTargetsFor(pattern, index)"
+                      item-title="displayName"
+                      item-value="key"
                       variant="outlined"
                       density="compact"
                       hide-details
@@ -78,7 +67,12 @@
                             <v-icon size="small" :color="getChannelStatusColor(item.raw)">mdi-server</v-icon>
                           </template>
                           <template #append>
-                            <v-chip size="x-small" variant="outlined">{{ item.raw.serviceType }}</v-chip>
+                            <div class="d-flex align-center ga-1">
+                              <v-chip size="x-small" variant="outlined" color="primary">{{
+                                item.raw.poolLabel
+                              }}</v-chip>
+                              <v-chip size="x-small" variant="outlined">{{ item.raw.serviceType }}</v-chip>
+                            </div>
                           </template>
                         </v-list-item>
                       </template>
@@ -112,7 +106,7 @@
               color="primary"
               class="add-btn"
               @click="addChannelSlot(pattern)"
-              :disabled="modelChains[pattern].length >= availableClaudeChannels.length"
+              :disabled="modelChains[pattern].length >= availableCompositeTargets.length"
             >
               <v-icon size="x-small">mdi-plus</v-icon>
             </v-btn>
@@ -121,14 +115,7 @@
       </div>
 
       <!-- Validation Errors -->
-      <v-alert
-        v-if="validationError"
-        type="error"
-        variant="tonal"
-        class="mt-3"
-        rounded="lg"
-        density="compact"
-      >
+      <v-alert v-if="validationError" type="error" variant="tonal" class="mt-3" rounded="lg" density="compact">
         {{ validationError }}
       </v-alert>
     </v-card-text>
@@ -139,17 +126,20 @@
 import { computed, watch, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
 import draggable from 'vuedraggable'
-import type { Channel, CompositeMapping } from '../services/api'
+import type { Channel, CompositeMapping, CompositeTargetPool, CompositeTargetRef } from '../services/api'
 
 const { t } = useI18n()
 
 // Props
 interface Props {
   modelValue: CompositeMapping[]
-  allChannels: Channel[]
+  allChannels: Channel[] // messages pool channels
+  responsesChannels?: Channel[] // responses pool channels
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  responsesChannels: () => []
+})
 
 // Emits
 const emit = defineEmits<{
@@ -159,10 +149,57 @@ const emit = defineEmits<{
 // Required patterns (no wildcard)
 const requiredPatterns = ['haiku', 'sonnet', 'opus'] as const
 
-// Claude-compatible service types
-const claudeCompatibleTypes = ['claude', 'openai_chat', 'openai', 'gemini', 'openaiold']
+// messages pool service types that can receive /v1/messages traffic
+const messagesCompatibleTypes = ['claude', 'openai_chat', 'openai', 'gemini', 'openaiold', 'responses']
 
-// Local state: per-model channel chains (array of channel IDs)
+// responses pool service types allowed for messages composite bridging
+const responsesCompatibleTypes = ['responses', 'openai-oauth']
+
+const normalizePool = (pool?: string): CompositeTargetPool => (pool === 'responses' ? 'responses' : 'messages')
+
+const buildTargetKey = (pool: CompositeTargetPool, channelId: string): string => `${pool}|${channelId}`
+
+const parseTargetKey = (key: string): CompositeTargetRef | null => {
+  const [poolPart, channelIdPart] = String(key || '').split('|', 2)
+  const channelId = String(channelIdPart || '').trim()
+  if (!channelId) return null
+  return {
+    pool: normalizePool(poolPart),
+    channelId
+  }
+}
+
+const getFailoverTargets = (mapping: CompositeMapping): CompositeTargetRef[] => {
+  const primaryPool = normalizePool(mapping.targetPool)
+  if (Array.isArray(mapping.failoverTargets) && mapping.failoverTargets.length > 0) {
+    return mapping.failoverTargets
+      .map(target => ({
+        pool: normalizePool(target.pool || primaryPool),
+        channelId: String(target.channelId || '').trim()
+      }))
+      .filter(target => target.channelId !== '')
+  }
+  return (mapping.failoverChain || [])
+    .map(channelId => ({
+      pool: primaryPool,
+      channelId: String(channelId || '').trim()
+    }))
+    .filter(target => target.channelId !== '')
+}
+
+type CompositeTargetOption = {
+  key: string
+  pool: CompositeTargetPool
+  poolLabel: string
+  channelId: string
+  name: string
+  displayName: string
+  status: string
+  serviceType: Channel['serviceType']
+  index: number
+}
+
+// Local state: per-model channel chains (array of pool-aware keys)
 const modelChains = reactive<Record<string, string[]>>({
   haiku: [''],
   sonnet: [''],
@@ -172,16 +209,18 @@ const modelChains = reactive<Record<string, string[]>>({
 // Sync prop -> local state
 watch(
   () => props.modelValue,
-  (newMappings) => {
+  newMappings => {
     for (const pattern of requiredPatterns) {
       const mapping = newMappings.find(m => m.pattern === pattern)
       if (mapping) {
         const chain: string[] = []
-        if (mapping.targetChannelId) {
-          chain.push(mapping.targetChannelId)
+        const targetChannelId = String(mapping.targetChannelId || '').trim()
+        const targetPool = normalizePool(mapping.targetPool)
+        if (targetChannelId) {
+          chain.push(buildTargetKey(targetPool, targetChannelId))
         }
-        if (mapping.failoverChain && mapping.failoverChain.length > 0) {
-          chain.push(...mapping.failoverChain)
+        for (const target of getFailoverTargets(mapping)) {
+          chain.push(buildTargetKey(normalizePool(target.pool || targetPool), target.channelId))
         }
         // Ensure at least one slot
         if (chain.length === 0) {
@@ -199,11 +238,24 @@ watch(
 // Emit changes to parent
 const emitChanges = () => {
   const mappings: CompositeMapping[] = requiredPatterns.map(pattern => {
-    const chain = modelChains[pattern].filter(id => id !== '')
+    const chain = modelChains[pattern]
+      .filter(key => key !== '')
+      .map(parseTargetKey)
+      .filter((target): target is CompositeTargetRef => !!target)
+    const existing = props.modelValue.find(m => m.pattern === pattern)
+    const primary = chain[0]
+    const failovers = chain.slice(1)
+
     return {
       pattern,
-      targetChannelId: chain[0] || '',
-      failoverChain: chain.slice(1)
+      targetChannelId: primary?.channelId || '',
+      targetPool: normalizePool(primary?.pool),
+      failoverTargets: failovers.map(target => ({
+        pool: normalizePool(target.pool),
+        channelId: target.channelId
+      })),
+      failoverChain: failovers.map(target => target.channelId),
+      targetModel: existing?.targetModel
     }
   })
   emit('update:modelValue', mappings)
@@ -211,31 +263,63 @@ const emitChanges = () => {
 
 // No watcher needed - we emit directly from mutation functions
 
-// Available Claude-compatible channels
-const availableClaudeChannels = computed(() => {
-  return props.allChannels
-    .filter(ch => !!ch.id && claudeCompatibleTypes.includes(ch.serviceType))
-    .map(ch => ({
-      id: ch.id as string,
-      name: ch.name,
-      status: ch.status || 'active',
-      serviceType: ch.serviceType,
-      index: ch.index
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name))
+const availableCompositeTargets = computed<CompositeTargetOption[]>(() => {
+  const messagesTargets = props.allChannels
+    .filter(ch => !!ch.id && messagesCompatibleTypes.includes(ch.serviceType))
+    .map(ch => {
+      const channelId = ch.id as string
+      return {
+        key: buildTargetKey('messages', channelId),
+        pool: 'messages' as const,
+        poolLabel: 'messages',
+        channelId,
+        name: ch.name,
+        displayName: `${ch.name} · messages`,
+        status: ch.status || 'active',
+        serviceType: ch.serviceType,
+        index: ch.index
+      }
+    })
+
+  const responsesTargets = props.responsesChannels
+    .filter(ch => !!ch.id && responsesCompatibleTypes.includes(ch.serviceType))
+    .map(ch => {
+      const channelId = ch.id as string
+      return {
+        key: buildTargetKey('responses', channelId),
+        pool: 'responses' as const,
+        poolLabel: 'responses',
+        channelId,
+        name: ch.name,
+        displayName: `${ch.name} · responses`,
+        status: ch.status || 'active',
+        serviceType: ch.serviceType,
+        index: ch.index
+      }
+    })
+
+  return [...messagesTargets, ...responsesTargets].sort((a, b) => a.displayName.localeCompare(b.displayName))
 })
 
-// Get available channels for a specific position (exclude already used in this pattern)
-const getAvailableChannelsFor = (model: string, position: number) => {
+const targetOptionsByKey = computed(() => {
+  const map = new Map<string, CompositeTargetOption>()
+  for (const option of availableCompositeTargets.value) {
+    map.set(option.key, option)
+  }
+  return map
+})
+
+// Get available targets for a specific position (exclude already used in this pattern)
+const getAvailableTargetsFor = (model: string, position: number) => {
   const chain = modelChains[model] || []
-  const usedIds = new Set(chain.filter((id, idx) => id !== '' && idx !== position))
-  return availableClaudeChannels.value.filter(ch => !usedIds.has(ch.id))
+  const usedKeys = new Set(chain.filter((key, idx) => key !== '' && idx !== position))
+  return availableCompositeTargets.value.filter(option => !usedKeys.has(option.key))
 }
 
 // Update channel at specific position
-const updateChannelAt = (model: string, index: number, channelId: string | null) => {
+const updateChannelAt = (model: string, index: number, targetKey: string | null) => {
   if (!modelChains[model]) return
-  modelChains[model][index] = channelId || ''
+  modelChains[model][index] = targetKey || ''
   emitChanges()
 }
 
@@ -268,13 +352,13 @@ const onDragEnd = (model: string, newOrder: string[]) => {
 
 // Validation
 const isModelValid = (model: string): boolean => {
-  const chain = modelChains[model]?.filter(id => id !== '') || []
+  const chain = modelChains[model]?.filter(key => key !== '') || []
   // Must have at least 2 channels (1 primary + 1 failover)
   return chain.length >= 2
 }
 
 const getModelError = (model: string): string => {
-  const chain = modelChains[model]?.filter(id => id !== '') || []
+  const chain = modelChains[model]?.filter(key => key !== '') || []
   if (chain.length === 0) {
     return t('addChannel.compositePatternRequired', { pattern: model })
   }
@@ -289,15 +373,12 @@ const validationError = computed(() => {
     const error = getModelError(pattern)
     if (error) return error
 
-    // Validate each channel exists and is Claude-compatible
-    const chain = modelChains[pattern]?.filter(id => id !== '') || []
-    for (const channelId of chain) {
-      const channel = props.allChannels.find(ch => ch.id === channelId)
-      if (!channel) {
+    // Validate each target exists in allowed pool/type options
+    const chain = modelChains[pattern]?.filter(key => key !== '') || []
+    for (const targetKey of chain) {
+      const target = targetOptionsByKey.value.get(targetKey)
+      if (!target) {
         return t('addChannel.compositeMissingTargetChannel')
-      }
-      if (!claudeCompatibleTypes.includes(channel.serviceType)) {
-        return t('addChannel.compositeInvalidServiceType', { channel: channel.name })
       }
     }
   }
@@ -307,9 +388,12 @@ const validationError = computed(() => {
 // Helper functions
 const getChannelStatusColor = (channel: { status?: string }): string => {
   switch (channel.status) {
-    case 'active': return 'success'
-    case 'suspended': return 'warning'
-    default: return 'grey'
+    case 'active':
+      return 'success'
+    case 'suspended':
+      return 'warning'
+    default:
+      return 'grey'
   }
 }
 </script>
