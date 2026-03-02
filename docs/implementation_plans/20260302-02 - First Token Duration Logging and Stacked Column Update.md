@@ -171,3 +171,65 @@ After all phases:
 
 - run post-merge reviewer pass on merged state
 - close only after explicit post-merge reviewer approval
+
+## Post-Release Hotfix Addendum (2026-03-02)
+
+Additional fixes were shipped after the initial plan implementation to address
+production-observed behavior:
+
+1. `77865a8` - `fix(requestlog): fallback updated SSE payload fetch to avoid stuck pending logs`
+   - Scope: `backend-go/internal/requestlog/pg_notify.go`
+   - Fix: when cross-instance `log:updated` complete-record fetch fails, fallback
+     to partial-record fetch and still broadcast update.
+   - User-visible impact: reduced risk of rows staying `pending` on other
+     instances due to dropped update events.
+
+2. `693a31b` - `fix(requestlog): avoid postgres NULL typing failure in Update`
+   - Scope: `backend-go/internal/requestlog/manager.go`
+   - Fix: replaced PostgreSQL-fragile `? IS NOT NULL` usage in `Update()` with
+     typed-safe `COALESCE(first_token_time, ?)` binding.
+   - User-visible impact: prevents completed/error rows from remaining
+     `pending` due to failed update writes.
+
+3. `fcc0f11` - `fix(request-log): refine stacked duration spacing and header label`
+   - Scope: `frontend/src/components/RequestLogTable.vue`
+   - Fixes:
+     - align stacked `First Token Duration + Duration` values to match duration
+       alignment preference.
+     - add right-side spacing after `ms` to reduce visual column sticking.
+     - when stacked mode is active, primary stacked header displays
+       `Duration`.
+
+4. `c18122c` - `fix(first-token): detect responses fallback text events`
+   - Scope:
+     - `backend-go/internal/utils/first_token_detector.go`
+     - `backend-go/internal/utils/first_token_detector_test.go`
+   - Fix: expanded Responses SSE first-token detection beyond
+     `response.output_text.delta/done` to include fallback text paths in:
+     - `response.content_part.added/done`
+     - `response.output_item.added/done`
+     - `response.completed/done` output payload
+   - Goal: reduce false negatives where streamed requests contain text but
+     `firstTokenTime` was previously not captured.
+
+5. `(this commit)` - `fix(first-token): fallback to first SSE payload for responses streams`
+   - Scope:
+     - `backend-go/internal/handlers/responses.go`
+     - `backend-go/internal/handlers/first_token.go`
+     - `backend-go/internal/handlers/first_token_test.go`
+     - `backend-go/internal/handlers/first_token_stream_paths_test.go`
+   - Fix: when `/v1/responses` stream rows do not emit detectable text-token
+     events (for example tool-call-only streams), capture first-token timing from
+     the first non-empty `data:` SSE payload as a best-effort fallback.
+   - Guardrails:
+     - detector-driven text-token timestamp still takes precedence when present.
+     - fallback ignores empty payload and `data: [DONE]`.
+
+### Hotfix Validation Snapshot
+
+- Backend validation:
+  - `cd backend-go && go test ./internal/requestlog ./internal/handlers ./internal/forwardproxy ./internal/database -count=1`
+  - `cd backend-go && go test ./internal/utils ./internal/handlers ./internal/forwardproxy ./internal/requestlog -count=1`
+- Frontend validation:
+  - `cd frontend && bun run type-check`
+  - `cd frontend && bun run build`

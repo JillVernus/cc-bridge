@@ -132,6 +132,16 @@ func TestHandleResponsesSuccess_StreamRecordsFirstToken(t *testing.T) {
 			}, "\n"),
 			wantMsg: "done fallback",
 		},
+		{
+			name: "falls back to first payload for tool-call-only stream",
+			stream: strings.Join([]string{
+				`data: {"type":"response.output_item.added","item":{"type":"function_call","id":"fc_1","name":"search","arguments":"{\"q\":\"a\"}"}}`,
+				`data: {"type":"response.completed","response":{"id":"resp_1","output":[{"type":"function_call","id":"fc_1","name":"search","arguments":"{\"q\":\"a\"}"}],"usage":{"input_tokens":10,"output_tokens":5}}}`,
+				"data: [DONE]",
+				"",
+			}, "\n"),
+			wantMsg: "payload fallback",
+		},
 	}
 
 	for _, tc := range tests {

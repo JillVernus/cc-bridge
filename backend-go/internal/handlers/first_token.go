@@ -30,6 +30,25 @@ func markFirstTokenIfDetected(detected bool, firstTokenTime **time.Time) {
 	*firstTokenTime = &ts
 }
 
+func markFirstSSEPayloadIfPresent(line string, firstPayloadTime **time.Time) {
+	if firstPayloadTime == nil || *firstPayloadTime != nil {
+		return
+	}
+
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "data:") {
+		return
+	}
+
+	payload := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
+	if payload == "" || payload == "[DONE]" {
+		return
+	}
+
+	ts := time.Now()
+	*firstPayloadTime = &ts
+}
+
 func firstTokenDurationFromStart(startTime time.Time, firstTokenTime *time.Time) int64 {
 	if firstTokenTime == nil {
 		return 0

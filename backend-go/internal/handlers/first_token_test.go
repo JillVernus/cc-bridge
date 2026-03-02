@@ -96,6 +96,40 @@ func TestMarkFirstTokenIfDetected(t *testing.T) {
 	markFirstTokenIfDetected(true, nil)
 }
 
+func TestMarkFirstSSEPayloadIfPresent(t *testing.T) {
+	var first *time.Time
+
+	markFirstSSEPayloadIfPresent("event: response.output_text.delta", &first)
+	if first != nil {
+		t.Fatalf("event line should not be treated as payload")
+	}
+
+	markFirstSSEPayloadIfPresent("data:   ", &first)
+	if first != nil {
+		t.Fatalf("empty data payload should be ignored")
+	}
+
+	markFirstSSEPayloadIfPresent("data: [DONE]", &first)
+	if first != nil {
+		t.Fatalf("[DONE] payload should be ignored")
+	}
+
+	markFirstSSEPayloadIfPresent(`data: {"type":"response.output_item.added","item":{"type":"function_call"}}`, &first)
+	if first == nil {
+		t.Fatalf("non-empty data payload should set first payload time")
+	}
+
+	original := *first
+	time.Sleep(1 * time.Millisecond)
+	markFirstSSEPayloadIfPresent(`data: {"type":"response.completed"}`, &first)
+	if !first.Equal(original) {
+		t.Fatalf("first payload time should not be overwritten once set")
+	}
+
+	// Safety: nil double pointer should be a no-op.
+	markFirstSSEPayloadIfPresent(`data: {"type":"response.completed"}`, nil)
+}
+
 func TestFirstTokenDurationFromStart(t *testing.T) {
 	start := time.Date(2026, 3, 2, 10, 0, 0, 0, time.UTC)
 

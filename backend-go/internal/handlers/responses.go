@@ -2454,9 +2454,11 @@ func handleResponsesSuccess(
 		var streamWriteErr error
 		firstTokenDetector := streamDetectorForServiceType(upstreamType)
 		var firstTokenTime *time.Time
+		var firstStreamPayloadTime *time.Time
 
 		for scanner.Scan() {
 			line := scanner.Text()
+			markFirstSSEPayloadIfPresent(line, &firstStreamPayloadTime)
 			if firstTokenDetector != nil && firstTokenTime == nil {
 				markFirstTokenIfDetected(firstTokenDetector.ObserveLine(line), &firstTokenTime)
 			}
@@ -2554,6 +2556,12 @@ func handleResponsesSuccess(
 			} else if pm := pricing.GetManager(); pm != nil && !pm.HasPricing(pricingModel) && originalReq.Model != "" {
 				// 响应模型无定价配置，回退到请求模型
 				pricingModel = originalReq.Model
+			}
+
+			// Best-effort fallback for streams without detectable text-token events
+			// (for example tool-call-only responses): use first non-empty SSE data payload arrival.
+			if firstTokenTime == nil && firstStreamPayloadTime != nil {
+				firstTokenTime = firstStreamPayloadTime
 			}
 
 			recordStatus, recordHTTPStatus, recordError := classifyStreamingRequestLogOutcome(
