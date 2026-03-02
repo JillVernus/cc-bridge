@@ -185,11 +185,19 @@ func (p *ResponsesUpstreamProvider) convertToResponsesRequest(
 	}
 
 	// 转换 tools
+	convertedTools := []map[string]interface{}{}
 	if len(claudeReq.Tools) > 0 {
-		req["tools"] = p.convertTools(claudeReq.Tools, optionalFields.RawTools)
+		convertedTools = p.convertTools(claudeReq.Tools, optionalFields.RawTools)
+		if len(convertedTools) > 0 {
+			req["tools"] = convertedTools
+		}
 	}
 	if toolChoice, ok := p.convertToolChoice(optionalFields); ok {
 		req["tool_choice"] = toolChoice
+	} else if len(convertedTools) > 0 {
+		// Claude Messages defaults to automatic tool selection when tools are present.
+		// Mirror that default explicitly for Responses to keep tool behavior consistent.
+		req["tool_choice"] = "auto"
 	}
 
 	return req
@@ -408,13 +416,25 @@ func (p *ResponsesUpstreamProvider) convertMessageToInputItems(msg types.ClaudeM
 			flushText()
 			toolUseID, _ := content["tool_use_id"].(string)
 			resultContent := content["content"]
+			isError, _ := content["is_error"].(bool)
 
 			var output string
-			if str, ok := resultContent.(string); ok {
-				output = str
-			} else {
-				outputJSON, _ := json.Marshal(resultContent)
+			if isError {
+				// Preserve Claude tool_result error semantics in a structured way so
+				// upstream models can distinguish failures from normal tool outputs.
+				errorPayload := map[string]interface{}{
+					"is_error": true,
+					"content":  resultContent,
+				}
+				outputJSON, _ := json.Marshal(errorPayload)
 				output = string(outputJSON)
+			} else {
+				if str, ok := resultContent.(string); ok {
+					output = str
+				} else {
+					outputJSON, _ := json.Marshal(resultContent)
+					output = string(outputJSON)
+				}
 			}
 
 			items = append(items, map[string]interface{}{

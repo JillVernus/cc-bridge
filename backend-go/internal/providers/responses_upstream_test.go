@@ -107,6 +107,47 @@ func TestConvertMessagesToInput_MultipleToolResultNoCollapse(t *testing.T) {
 	}
 }
 
+func TestConvertMessagesToInput_ToolResultErrorPreserved(t *testing.T) {
+	p := &ResponsesUpstreamProvider{}
+
+	input := p.convertMessagesToInput([]types.ClaudeMessage{
+		{
+			Role: "user",
+			Content: []interface{}{
+				map[string]interface{}{
+					"type":        "tool_result",
+					"tool_use_id": "call_err",
+					"content":     "Exit code 128\nfatal: pathspec not found",
+					"is_error":    true,
+				},
+			},
+		},
+	})
+
+	if len(input) != 1 {
+		t.Fatalf("expected 1 function_call_output item, got %d", len(input))
+	}
+	if input[0]["type"] != "function_call_output" || input[0]["call_id"] != "call_err" {
+		t.Fatalf("unexpected item: %#v", input[0])
+	}
+
+	output, ok := input[0]["output"].(string)
+	if !ok {
+		t.Fatalf("expected output string, got %T", input[0]["output"])
+	}
+
+	var outputPayload map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &outputPayload); err != nil {
+		t.Fatalf("expected JSON output payload for error tool_result, got %q: %v", output, err)
+	}
+	if outputPayload["is_error"] != true {
+		t.Fatalf("expected is_error=true in output payload, got %#v", outputPayload)
+	}
+	if outputPayload["content"] != "Exit code 128\nfatal: pathspec not found" {
+		t.Fatalf("unexpected output payload content: %#v", outputPayload["content"])
+	}
+}
+
 func TestConvertMessagesToInput_RepeatedToolCallsPreserved(t *testing.T) {
 	p := &ResponsesUpstreamProvider{}
 
@@ -266,6 +307,28 @@ func TestConvertToResponsesRequest_ToolChoiceStringMapping(t *testing.T) {
 			out := p.convertToResponsesRequest(req, upstream, nil)
 			tt.check(t, out)
 		})
+	}
+}
+
+func TestConvertToResponsesRequest_DefaultToolChoiceAutoWhenToolsPresent(t *testing.T) {
+	p := &ResponsesUpstreamProvider{}
+	upstream := &config.UpstreamConfig{}
+
+	req := &types.ClaudeRequest{
+		Model:    "claude-test",
+		Messages: []types.ClaudeMessage{{Role: "user", Content: "hi"}},
+		Tools: []types.ClaudeTool{
+			{
+				Name:        "Bash",
+				Description: "run shell commands",
+				InputSchema: map[string]interface{}{"type": "object"},
+			},
+		},
+	}
+
+	out := p.convertToResponsesRequest(req, upstream, nil)
+	if out["tool_choice"] != "auto" {
+		t.Fatalf("expected default tool_choice=auto when tools are present, got %#v", out["tool_choice"])
 	}
 }
 
