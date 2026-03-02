@@ -4,6 +4,29 @@
 
 ---
 
+## [v1.5.2] - 2026-03-02
+
+### 🐛 修复
+
+- **Claude Messages -> Codex Responses 流式转换一致性修复**:
+  - 修复 translated 路径仅返回 `stop_reason: tool_use` 但缺失 `tool_use` 内容块，导致工具调用第二轮请求无法继续的问题。
+  - 对齐 `response.output_item.added`、`response.function_call_arguments.delta/done` 到 Claude `content_block_start/delta/stop` 工具事件序列。
+  - 修复 `message_start.model` 显示，支持 `gpt-5.3-codex (xhigh)`，并兼容 reasoning 延迟到达场景。
+
+- **Prompt Cache / 会话连续性修复（messages -> codex bridge）**:
+  - 桥接请求在缺失时自动补全 `prompt_cache_key`，优先级：`Session_id` > 复合 `metadata.user_id` 会话后缀 > `Conversation_id`。
+  - OAuth 上游 `Session_id` 新增回退链路（可使用 `prompt_cache_key`），提升缓存命中稳定性与响应延迟表现。
+  - 安全约束：不再将非复合格式 `metadata.user_id` 直接作为 session/cache key，避免跨会话耦合。
+
+### 📝 文档
+
+- 新增 Claude -> Codex 翻译要素参考文档：
+  - `docs/20260302-03 - Claude to Codex Translation Factors.md`
+- 更新实现计划进度与后续修复记录：
+  - `docs/implementation_plans/20260301-02 - Claude Messages to Codex Responses Translation Parity.md`
+
+---
+
 ## [v1.5.1] - 2026-03-01
 
 ### 🐛 修复

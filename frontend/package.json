@@ -1,6 +1,6 @@
 {
   "name": "cc-bridge-frontend",
-  "version": "1.4.3",
+  "version": "1.5.2",
   "license": "MIT",
   "private": true,
   "type": "module",

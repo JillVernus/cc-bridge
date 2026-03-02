@@ -861,6 +861,7 @@ func TestHandleSingleChannelProxy_CompositeOAuthTarget_HeaderAndUAParity(t *test
 		UserAgent       string
 		ContentType     string
 		StreamInPayload bool
+		PromptCacheKey  string
 	}
 
 	testCases := []struct {
@@ -918,6 +919,9 @@ func TestHandleSingleChannelProxy_CompositeOAuthTarget_HeaderAndUAParity(t *test
 				_ = json.Unmarshal(bodyBytes, &payload)
 				if stream, ok := payload["stream"].(bool); ok {
 					observed.StreamInPayload = stream
+				}
+				if promptCacheKey, ok := payload["prompt_cache_key"].(string); ok {
+					observed.PromptCacheKey = promptCacheKey
 				}
 
 				observed.Authorization = r.Header.Get("Authorization")
@@ -1071,6 +1075,9 @@ func TestHandleSingleChannelProxy_CompositeOAuthTarget_HeaderAndUAParity(t *test
 			if observed.SessionID != "sess-456" {
 				t.Fatalf("expected Session_id forwarded, got %q", observed.SessionID)
 			}
+			if observed.PromptCacheKey != "sess-456" {
+				t.Fatalf("expected prompt_cache_key derived from Session_id, got %q", observed.PromptCacheKey)
+			}
 			if observed.Accept != tc.expectedAccept {
 				t.Fatalf("expected Accept %q, got %q", tc.expectedAccept, observed.Accept)
 			}
@@ -1105,6 +1112,162 @@ func TestHandleSingleChannelProxy_CompositeOAuthTarget_HeaderAndUAParity(t *test
 				}
 			}
 		})
+	}
+}
+
+func TestHandleSingleChannelProxy_CompositeOAuthTarget_SessionFallbackFromMetadata(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	type observedRequest struct {
+		SessionID      string
+		PromptCacheKey string
+	}
+
+	var observed observedRequest
+	oauthServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bodyBytes, _ := io.ReadAll(r.Body)
+		_ = r.Body.Close()
+		var payload map[string]interface{}
+		_ = json.Unmarshal(bodyBytes, &payload)
+		if promptCacheKey, ok := payload["prompt_cache_key"].(string); ok {
+			observed.PromptCacheKey = promptCacheKey
+		}
+		observed.SessionID = r.Header.Get("Session_id")
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{
+			"id":"resp_oauth_1",
+			"status":"completed",
+			"model":"gpt-5-codex",
+			"output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]
+		}`)
+	}))
+	defer oauthServer.Close()
+
+	oldEndpoint := codexOAuthResponsesEndpoint
+	oldGetValid := getValidOAuthTokenForMessagesBridge
+	oldRefresh := refreshOAuthTokensForMessagesBridge
+	codexOAuthResponsesEndpoint = oauthServer.URL
+	defer func() {
+		codexOAuthResponsesEndpoint = oldEndpoint
+		getValidOAuthTokenForMessagesBridge = oldGetValid
+		refreshOAuthTokensForMessagesBridge = oldRefresh
+	}()
+
+	getValidOAuthTokenForMessagesBridge = func(tokens *config.OAuthTokens) (string, string, *config.OAuthTokens, error) {
+		return "access-token", "account-1", nil, nil
+	}
+	refreshOAuthTokensForMessagesBridge = func(refreshToken string, retries int) (*config.OAuthTokens, error) {
+		t.Fatalf("unexpected refresh call in fallback test")
+		return nil, nil
+	}
+
+	cfgPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := config.Config{
+		LoadBalance:              "failover",
+		ResponsesLoadBalance:     "failover",
+		GeminiLoadBalance:        "failover",
+		CurrentUpstream:          0,
+		CurrentResponsesUpstream: 0,
+	}
+	cfg.Upstream = append(cfg.Upstream, config.UpstreamConfig{
+		ID:          "cmp-oauth-fallback",
+		Name:        "Composite OAuth Fallback",
+		ServiceType: "composite",
+		Status:      "active",
+		CompositeMappings: []config.CompositeMapping{
+			{
+				Pattern:         "haiku",
+				TargetPool:      config.CompositeTargetPoolResponses,
+				TargetChannelID: "resp-oauth-fallback",
+			},
+		},
+	})
+	cfg.ResponsesUpstream = append(cfg.ResponsesUpstream, config.UpstreamConfig{
+		ID:          "resp-oauth-fallback",
+		Name:        "Responses OAuth Fallback",
+		ServiceType: "openai-oauth",
+		Status:      "active",
+		OAuthTokens: &config.OAuthTokens{
+			AccessToken:  "seed-access",
+			AccountID:    "account-1",
+			RefreshToken: "ref-1",
+		},
+	})
+
+	configBytes, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	if err := os.WriteFile(cfgPath, configBytes, 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfgManager, err := config.NewConfigManager(cfgPath)
+	if err != nil {
+		t.Fatalf("NewConfigManager: %v", err)
+	}
+	t.Cleanup(func() { _ = cfgManager.Close() })
+
+	traceAffinity := session.NewTraceAffinityManager()
+	t.Cleanup(traceAffinity.Stop)
+	s := scheduler.NewChannelScheduler(cfgManager, metrics.NewMetricsManager(), metrics.NewMetricsManager(), traceAffinity)
+
+	bodyBytes := []byte(`{
+		"model":"claude-3-haiku-20240307",
+		"max_tokens":64,
+		"stream":false,
+		"metadata":{"user_id":"user_abc_account__session_sess-meta-bridge"},
+		"messages":[{"role":"user","content":"hello"}]
+	}`)
+	var claudeReq types.ClaudeRequest
+	if err := json.Unmarshal(bodyBytes, &claudeReq); err != nil {
+		t.Fatalf("unmarshal claude request: %v", err)
+	}
+
+	rec := newCloseNotifyRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "codex_cli_rs/0.91.0 (Linux; x86_64)")
+	// Intentionally do not set Session_id header to verify fallback behavior.
+	req.Header.Set("Originator", "originator-fallback-test")
+	c.Request = req
+
+	envCfg := &config.EnvConfig{
+		LogLevel:       "error",
+		RequestTimeout: 30000,
+	}
+
+	handleSingleChannelProxy(
+		c,
+		envCfg,
+		cfgManager,
+		s,
+		bodyBytes,
+		claudeReq,
+		time.Now(),
+		nil,
+		"",
+		nil,
+		[]string{"cmp-oauth-fallback"},
+		[]string{"resp-oauth-fallback"},
+		nil,
+		"user-1",
+		"sess-meta-bridge",
+		nil,
+		nil,
+	)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if observed.PromptCacheKey != "sess-meta-bridge" {
+		t.Fatalf("expected prompt_cache_key from metadata session fallback, got %q", observed.PromptCacheKey)
+	}
+	if observed.SessionID != "sess-meta-bridge" {
+		t.Fatalf("expected Session_id header fallback from prompt_cache_key, got %q", observed.SessionID)
 	}
 }
 

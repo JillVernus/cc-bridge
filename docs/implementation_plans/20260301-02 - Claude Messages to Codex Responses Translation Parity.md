@@ -20,7 +20,7 @@ Out of scope:
 
 ## Progress Tracker
 
-Last updated: 2026-03-01 (implementation complete, post-merge review approved)
+Last updated: 2026-03-02 (post-plan parity/perf bugfixes complete, reviewer approved)
 
 - [x] Plan document created
 - [x] Plan review approved
@@ -35,6 +35,32 @@ Last updated: 2026-03-01 (implementation complete, post-merge review approved)
 - [x] Step 4 implemented: targeted tests for translator parity
 - [x] Step 4 reviewer approved
 - [x] Final validation + post-merge review approved
+- [x] Post-plan fix 1: usage parsing parity (responses usage + cached tokens)
+- [x] Post-plan fix 1 reviewer approved
+- [x] Post-plan fix 2: reasoning effort mapping from model suffix and request
+- [x] Post-plan fix 2 reviewer approved
+- [x] Post-plan fix 3: stream envelope correctness (`message_start`/`message_stop` sequence)
+- [x] Post-plan fix 3 reviewer approved
+- [x] Post-plan fix 4: `message_start.model` from upstream model (not fallback)
+- [x] Post-plan fix 4 reviewer approved
+- [x] Post-plan fix 5: Claude tool-use stream parity for Responses function calls
+- [x] Post-plan fix 5 implemented
+- [x] Post-plan fix 5 reviewer approved
+- [x] Post-plan fix 6: prompt cache/session continuity for Messages -> Codex Responses bridge
+- [x] Post-plan fix 6 implemented
+- [x] Post-plan fix 6 reviewer approved
+
+## Post-Plan Addendum (2026-03-02)
+
+The original scope marked stream response parity as out of scope for the initial
+implementation. Based on integration tests and sample payload diffing, this addendum
+extends work to cover high-impact stream parity bugs on the same translation path
+(`/v1/messages` -> Codex Responses upstream) without changing routing architecture.
+
+Reference:
+
+- Living checklist and portability notes:
+  `docs/20260302-03 - Claude to Codex Translation Factors.md`
 
 ## Background
 
@@ -76,7 +102,7 @@ No generic unknown passthrough to avoid upstream schema breakage.
 ### B) Thinking -> Reasoning Mapping
 
 - `thinking.type == "enabled"` and `budget_tokens > 0` ->
-  `reasoning: {"effort":"high"}` (deterministic first version)
+  `reasoning: {"effort":"xhigh"}` (deterministic first version)
 - `thinking.type == "disabled"` or missing/invalid budget -> omit `reasoning`
 
 Note: this is intentionally conservative for initial parity and avoids speculative

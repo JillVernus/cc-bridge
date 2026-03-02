@@ -18,6 +18,7 @@ type ClaudeRequest struct {
 type ClaudeThinking struct {
 	Type         string `json:"type"` // enabled | disabled
 	BudgetTokens int    `json:"budget_tokens,omitempty"`
+	Effort       string `json:"effort,omitempty"` // none|minimal|low|medium|high|xhigh (optional override)
 }
 
 // ClaudeMessage Claude 消息

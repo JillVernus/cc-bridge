@@ -7,6 +7,7 @@ type ResponsesRequest struct {
 	Model              string      `json:"model"`
 	Instructions       string      `json:"instructions,omitempty"` // 系统指令（映射为 system message）
 	Input              interface{} `json:"input"`                  // string 或 []ResponsesItem
+	PromptCacheKey     string      `json:"prompt_cache_key,omitempty"`
 	PreviousResponseID string      `json:"previous_response_id,omitempty"`
 	Store              *bool       `json:"store,omitempty"`             // 默认 true
 	MaxTokens          int         `json:"max_tokens,omitempty"`        // 最大 tokens

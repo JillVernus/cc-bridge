@@ -95,14 +95,36 @@ func (s *StreamSynthesizer) ProcessLine(line string) {
 		s.processOpenAI(data)
 	case "claude", "openai_chat":
 		s.processClaude(data)
-	case "responses":
-		s.processResponses(data)
+	case "responses", "openai-oauth":
+		typeStr, _ := data["type"].(string)
+		if strings.HasPrefix(typeStr, "response.") {
+			s.processResponses(data)
+		} else {
+			// Messages endpoint converts Responses streams into Claude SSE events.
+			// Fallback to Claude parser so request logs still capture usage/model.
+			s.processClaude(data)
+		}
 	}
 }
 
 // processResponses 处理OpenAI Responses流
 func (s *StreamSynthesizer) processResponses(data map[string]interface{}) {
 	typeStr, _ := data["type"].(string)
+
+	if model, ok := data["model"].(string); ok && model != "" {
+		s.model = model
+	}
+	if usage, ok := data["usage"].(map[string]interface{}); ok {
+		s.extractResponsesUsage(usage)
+	}
+	if respObj, ok := data["response"].(map[string]interface{}); ok {
+		if model, ok := respObj["model"].(string); ok && model != "" {
+			s.model = model
+		}
+		if usage, ok := respObj["usage"].(map[string]interface{}); ok {
+			s.extractResponsesUsage(usage)
+		}
+	}
 
 	// 辅助方法：获取对应 output_index 的 builder
 	getBuilder := func(index int) *strings.Builder {
@@ -421,12 +443,87 @@ func (s *StreamSynthesizer) extractClaudeUsage(usage map[string]interface{}) {
 	}
 }
 
+func parseIntFromAny(v interface{}) (int, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int(n), true
+	case float32:
+		return int(n), true
+	case int:
+		return n, true
+	case int32:
+		return int(n), true
+	case int64:
+		return int(n), true
+	case uint:
+		return int(n), true
+	case uint32:
+		return int(n), true
+	case uint64:
+		return int(n), true
+	default:
+		return 0, false
+	}
+}
+
+// extractResponsesUsage extracts usage from Responses/OpenAI-OAuth stream payloads.
+// input_tokens in Responses includes cached tokens, so we normalize to:
+// InputTokens = input_tokens - cached_tokens, CacheReadInputTokens = cached_tokens.
+func (s *StreamSynthesizer) extractResponsesUsage(usage map[string]interface{}) {
+	rawInputTokens, hasInput := parseIntFromAny(usage["input_tokens"])
+	if !hasInput {
+		rawInputTokens, hasInput = parseIntFromAny(usage["prompt_tokens"])
+	}
+
+	outputTokens, hasOutput := parseIntFromAny(usage["output_tokens"])
+	if !hasOutput {
+		outputTokens, hasOutput = parseIntFromAny(usage["completion_tokens"])
+	}
+
+	cacheReadTokens, hasCacheRead := parseIntFromAny(usage["cache_read_input_tokens"])
+	if details, ok := usage["input_tokens_details"].(map[string]interface{}); ok {
+		if cachedTokens, ok := parseIntFromAny(details["cached_tokens"]); ok {
+			cacheReadTokens = cachedTokens
+			hasCacheRead = true
+		}
+	}
+
+	cacheCreationTokens, hasCacheCreation := parseIntFromAny(usage["cache_creation_input_tokens"])
+
+	if hasInput {
+		actualInput := rawInputTokens
+		if hasCacheRead && cacheReadTokens > 0 {
+			actualInput = rawInputTokens - cacheReadTokens
+			if actualInput < 0 {
+				actualInput = 0
+			}
+		}
+		s.inputTokens = actualInput
+	}
+
+	if hasOutput {
+		s.outputTokens = outputTokens
+	}
+	if hasCacheCreation && cacheCreationTokens > 0 {
+		s.cacheCreationInputTokens = cacheCreationTokens
+	}
+	if hasCacheRead && cacheReadTokens > 0 {
+		s.cacheReadInputTokens = cacheReadTokens
+	}
+
+	if totalTokens, ok := parseIntFromAny(usage["total_tokens"]); ok {
+		s.totalTokens = totalTokens
+	} else if hasInput || hasOutput || hasCacheCreation || hasCacheRead {
+		s.totalTokens = s.inputTokens + s.outputTokens + s.cacheCreationInputTokens + s.cacheReadInputTokens
+	}
+}
+
 // GetSynthesizedContent 获取合成的内容
 func (s *StreamSynthesizer) GetSynthesizedContent() string {
 	// 不再完全失败，即使有解析错误也返回部分结果
 	var result string
 
-	if s.serviceType == "responses" && len(s.responsesText) > 0 {
+	if (s.serviceType == "responses" || s.serviceType == "openai-oauth") && len(s.responsesText) > 0 {
 		var builder strings.Builder
 		keys := make([]int, 0, len(s.responsesText))
 		for k := range s.responsesText {

@@ -2738,8 +2738,11 @@ func handleStreamResponse(
 	var logBuffer bytes.Buffer
 	var synthesizer *utils.StreamSynthesizer
 
-	// For Claude-style SSE (claude + openai_chat), we need synthesizer to extract usage for request logs.
-	needsSynthesizer := (upstream.ServiceType == "claude" || upstream.ServiceType == "openai_chat") && reqLogManager != nil
+	// We need synthesizer to extract usage/model for request logs from streaming payloads.
+	needsSynthesizer := (upstream.ServiceType == "claude" ||
+		upstream.ServiceType == "openai_chat" ||
+		upstream.ServiceType == "responses" ||
+		upstream.ServiceType == "openai-oauth") && reqLogManager != nil
 	streamLoggingEnabled := envCfg.IsDevelopment() && envCfg.EnableResponseLogs
 
 	// Check if debug logging is enabled (need to capture response body)

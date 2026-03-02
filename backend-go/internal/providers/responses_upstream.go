@@ -53,6 +53,11 @@ func (p *ResponsesUpstreamProvider) ConvertToProviderRequest(c *gin.Context, ups
 
 	// 转换为 Responses API 格式
 	responsesReq := p.convertToResponsesRequest(&claudeReq, upstream, rawRequest)
+	if promptCacheKey := extractPromptCacheKeyForResponsesBridge(c, rawRequest); promptCacheKey != "" {
+		if existing, _ := responsesReq["prompt_cache_key"].(string); strings.TrimSpace(existing) == "" {
+			responsesReq["prompt_cache_key"] = promptCacheKey
+		}
+	}
 
 	reqBodyBytes, err := json.Marshal(responsesReq)
 	if err != nil {
@@ -75,6 +80,60 @@ func (p *ResponsesUpstreamProvider) ConvertToProviderRequest(c *gin.Context, ups
 	return req, originalBodyBytes, nil
 }
 
+func extractPromptCacheKeyForResponsesBridge(c *gin.Context, rawRequest map[string]interface{}) string {
+	if rawRequest != nil {
+		if existingKey, ok := rawRequest["prompt_cache_key"].(string); ok {
+			if trimmed := strings.TrimSpace(existingKey); trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+
+	if c != nil {
+		if sessionID := strings.TrimSpace(c.GetHeader("Session_id")); sessionID != "" {
+			return sessionID
+		}
+	}
+
+	if rawRequest != nil {
+		if metadata, ok := rawRequest["metadata"].(map[string]interface{}); ok {
+			if userID, ok := metadata["user_id"].(string); ok {
+				if parsedSession := extractSessionIDFromCompoundUserID(userID); parsedSession != "" {
+					return parsedSession
+				}
+			}
+		}
+	}
+
+	if c != nil {
+		if conversationID := strings.TrimSpace(c.GetHeader("Conversation_id")); conversationID != "" {
+			return conversationID
+		}
+	}
+
+	return ""
+}
+
+func extractSessionIDFromCompoundUserID(compoundUserID string) string {
+	compoundUserID = strings.TrimSpace(compoundUserID)
+	if compoundUserID == "" {
+		return ""
+	}
+
+	const delimiter = "_account__session_"
+	idx := strings.Index(compoundUserID, delimiter)
+	if idx == -1 {
+		return ""
+	}
+
+	sessionID := strings.TrimSpace(compoundUserID[idx+len(delimiter):])
+	if sessionID == "" {
+		return ""
+	}
+
+	return sessionID
+}
+
 // convertToResponsesRequest 将 Claude 请求转换为 Responses 请求
 func (p *ResponsesUpstreamProvider) convertToResponsesRequest(
 	claudeReq *types.ClaudeRequest,
@@ -82,9 +141,15 @@ func (p *ResponsesUpstreamProvider) convertToResponsesRequest(
 	rawRequest map[string]interface{},
 ) map[string]interface{} {
 	optionalFields := p.extractOptionalFields(claudeReq, rawRequest)
+	redirectedModel := config.RedirectModel(claudeReq.Model, upstream)
+	reasoningFromModelSuffix := map[string]interface{}(nil)
+	if baseModel, reasoning, changed := splitResponsesModelThinkingSuffix(redirectedModel); changed {
+		redirectedModel = baseModel
+		reasoningFromModelSuffix = reasoning
+	}
 
 	req := map[string]interface{}{
-		"model":  config.RedirectModel(claudeReq.Model, upstream),
+		"model":  redirectedModel,
 		"stream": claudeReq.Stream,
 	}
 
@@ -112,6 +177,11 @@ func (p *ResponsesUpstreamProvider) convertToResponsesRequest(
 	}
 	if reasoning, ok := p.convertThinkingToReasoning(claudeReq.Thinking); ok {
 		req["reasoning"] = reasoning
+	}
+	// Thinking suffix from model mapping (e.g. gpt-5.3-codex(xhigh)) should override
+	// per-request defaults for Responses upstream compatibility.
+	if reasoningFromModelSuffix != nil {
+		req["reasoning"] = reasoningFromModelSuffix
 	}
 
 	// 转换 tools
@@ -175,6 +245,87 @@ func (p *ResponsesUpstreamProvider) extractOptionalFields(
 func parseJSONNumber(v interface{}) (float64, bool) {
 	f, ok := v.(float64)
 	return f, ok
+}
+
+func splitResponsesModelThinkingSuffix(model string) (baseModel string, reasoning map[string]interface{}, changed bool) {
+	base, suffix, ok := utils.SplitModelSuffix(model)
+	if !ok {
+		return model, nil, false
+	}
+
+	normalized := utils.NormalizeThinkingSuffix(suffix)
+	if !utils.IsSupportedThinkingSuffix(normalized) || normalized == "" {
+		// Keep unknown suffixes as part of model for backward compatibility.
+		return model, nil, false
+	}
+
+	trimmedBase := strings.TrimSpace(base)
+	if trimmedBase == "" {
+		return model, nil, false
+	}
+
+	return trimmedBase, map[string]interface{}{
+		"effort": normalized,
+	}, true
+}
+
+func parseJSONInt(v interface{}) (int, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int(n), true
+	case float32:
+		return int(n), true
+	case int:
+		return n, true
+	case int32:
+		return int(n), true
+	case int64:
+		return int(n), true
+	case uint:
+		return int(n), true
+	case uint32:
+		return int(n), true
+	case uint64:
+		return int(n), true
+	default:
+		return 0, false
+	}
+}
+
+func normalizeReasoningEffort(effort string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(effort)) {
+	case "none", "minimal", "low", "medium", "high", "xhigh":
+		return strings.ToLower(strings.TrimSpace(effort)), true
+	default:
+		return "", false
+	}
+}
+
+func formatResponsesDisplayModel(model string, reasoningEffort string) string {
+	baseModel := strings.TrimSpace(model)
+	if baseModel == "" {
+		baseModel = "responses"
+	}
+
+	effort, ok := normalizeReasoningEffort(reasoningEffort)
+	if !ok || effort == "" || effort == "none" || effort == "minimal" {
+		return baseModel
+	}
+
+	// Keep display stable when upstream model already contains the same suffix.
+	if strippedBase, suffix, hasSuffix := utils.SplitModelSuffix(baseModel); hasSuffix {
+		normalizedSuffix := utils.NormalizeThinkingSuffix(suffix)
+		if normalizedSuffix == effort {
+			baseModel = strings.TrimSpace(strippedBase)
+			if baseModel == "" {
+				baseModel = "responses"
+			}
+		} else {
+			return baseModel
+		}
+	}
+
+	return fmt.Sprintf("%s (%s)", baseModel, effort)
 }
 
 // convertMessagesToInput 将 Claude messages 转换为 Responses input
@@ -465,9 +616,77 @@ func (p *ResponsesUpstreamProvider) convertThinkingToReasoning(thinking *types.C
 		return nil, false
 	}
 
+	effort := "xhigh"
+	if normalized, ok := normalizeReasoningEffort(thinking.Effort); ok {
+		effort = normalized
+	}
+
 	return map[string]interface{}{
-		"effort": "high",
+		"effort": effort,
 	}, true
+}
+
+func convertResponsesUsageToClaudeUsage(usageMap map[string]interface{}) *types.Usage {
+	usage := &types.Usage{}
+	hasUsage := false
+
+	rawInput, hasInput := parseJSONInt(usageMap["input_tokens"])
+	if !hasInput {
+		rawInput, hasInput = parseJSONInt(usageMap["prompt_tokens"])
+	}
+
+	outputTokens, hasOutput := parseJSONInt(usageMap["output_tokens"])
+	if !hasOutput {
+		outputTokens, hasOutput = parseJSONInt(usageMap["completion_tokens"])
+	}
+
+	cacheCreation, hasCacheCreation := parseJSONInt(usageMap["cache_creation_input_tokens"])
+	cacheRead, hasCacheRead := parseJSONInt(usageMap["cache_read_input_tokens"])
+
+	if details, ok := usageMap["input_tokens_details"].(map[string]interface{}); ok {
+		if cachedTokens, ok := parseJSONInt(details["cached_tokens"]); ok {
+			cacheRead = cachedTokens
+			hasCacheRead = true
+		}
+	}
+
+	if hasInput {
+		usage.InputTokens = rawInput
+		if hasCacheRead && cacheRead > 0 {
+			usage.InputTokens = rawInput - cacheRead
+			if usage.InputTokens < 0 {
+				usage.InputTokens = 0
+			}
+		}
+		hasUsage = true
+	}
+
+	if hasOutput {
+		usage.OutputTokens = outputTokens
+		hasUsage = true
+	}
+
+	if hasCacheCreation && cacheCreation > 0 {
+		usage.CacheCreationInputTokens = cacheCreation
+		hasUsage = true
+	}
+	if hasCacheRead && cacheRead > 0 {
+		usage.CacheReadInputTokens = cacheRead
+		hasUsage = true
+	}
+
+	if totalTokens, ok := parseJSONInt(usageMap["total_tokens"]); ok {
+		usage.TotalTokens = totalTokens
+		hasUsage = true
+	} else if hasUsage {
+		usage.TotalTokens = usage.InputTokens + usage.OutputTokens + usage.CacheCreationInputTokens + usage.CacheReadInputTokens
+	}
+
+	if !hasUsage {
+		return nil
+	}
+
+	return usage
 }
 
 // buildTargetURL 构建目标 URL
@@ -580,14 +799,9 @@ func (p *ResponsesUpstreamProvider) ConvertToClaudeResponse(providerResp *types.
 
 	// 转换 usage
 	if usageMap, ok := responsesResp["usage"].(map[string]interface{}); ok {
-		usage := &types.Usage{}
-		if promptTokens, ok := usageMap["prompt_tokens"].(float64); ok {
-			usage.InputTokens = int(promptTokens)
+		if usage := convertResponsesUsageToClaudeUsage(usageMap); usage != nil {
+			claudeResp.Usage = usage
 		}
-		if completionTokens, ok := usageMap["completion_tokens"].(float64); ok {
-			usage.OutputTokens = int(completionTokens)
-		}
-		claudeResp.Usage = usage
 	}
 
 	return claudeResp, nil
@@ -608,13 +822,302 @@ func (p *ResponsesUpstreamProvider) HandleStreamResponse(body io.ReadCloser) (<-
 		scanner.Buffer(buf, maxCapacity)
 
 		textBlockStarted := false
-		textBlockIndex := 0
+		textBlockIndex := -1
+		nextBlockIndex := 0
+		messageStarted := false
+		messageEnded := false
+		messageID := generateID()
+		messageModel := "responses"
+		messageReasoningEffort := ""
+		toolUseSeen := false
+		toolBlockOrder := make([]string, 0, 4)
+		toolBlockIndexByItemID := map[string]int{}
+		toolBlockClosedByItemID := map[string]bool{}
+		toolBlockHasDeltaByItemID := map[string]bool{}
+		toolCallNameByItemID := map[string]string{}
+		toolCallIDByItemID := map[string]string{}
+
+		emit := func(event string, data interface{}) {
+			eventJSON, _ := json.Marshal(data)
+			eventChan <- fmt.Sprintf("event: %s\ndata: %s\n\n", event, eventJSON)
+		}
+
+		extractReasoningEffort := func(payload map[string]interface{}) string {
+			if payload == nil {
+				return ""
+			}
+			reasoning, ok := payload["reasoning"].(map[string]interface{})
+			if !ok {
+				return ""
+			}
+			rawEffort, ok := reasoning["effort"].(string)
+			if !ok {
+				return ""
+			}
+			if effort, ok := normalizeReasoningEffort(rawEffort); ok {
+				return effort
+			}
+			return ""
+		}
+
+		emitMessageStart := func() {
+			if messageStarted {
+				return
+			}
+
+			startEvent := map[string]interface{}{
+				"type": "message_start",
+				"message": map[string]interface{}{
+					"id":            messageID,
+					"type":          "message",
+					"role":          "assistant",
+					"model":         formatResponsesDisplayModel(messageModel, messageReasoningEffort),
+					"content":       []interface{}{},
+					"stop_reason":   nil,
+					"stop_sequence": nil,
+					"usage": map[string]int{
+						"input_tokens":  0,
+						"output_tokens": 0,
+					},
+				},
+			}
+			emit("message_start", startEvent)
+			messageStarted = true
+		}
+
+		closeTextBlock := func() {
+			if !textBlockStarted {
+				return
+			}
+			stopEvent := map[string]interface{}{
+				"type":  "content_block_stop",
+				"index": textBlockIndex,
+			}
+			emit("content_block_stop", stopEvent)
+			textBlockStarted = false
+			textBlockIndex = -1
+		}
+
+		emitToolStart := func(itemID string, callID string, name string) string {
+			itemID = strings.TrimSpace(itemID)
+			callID = strings.TrimSpace(callID)
+			name = strings.TrimSpace(name)
+
+			if itemID == "" {
+				if callID != "" {
+					itemID = callID
+				} else {
+					itemID = fmt.Sprintf("fc_%s", generateID())
+				}
+			}
+			if callID == "" {
+				callID = itemID
+			}
+			if name == "" {
+				name = "tool"
+			}
+
+			toolCallNameByItemID[itemID] = name
+			toolCallIDByItemID[itemID] = callID
+			if _, exists := toolBlockIndexByItemID[itemID]; exists {
+				return itemID
+			}
+
+			closeTextBlock()
+
+			blockIndex := nextBlockIndex
+			nextBlockIndex++
+			startEvent := map[string]interface{}{
+				"type":  "content_block_start",
+				"index": blockIndex,
+				"content_block": map[string]interface{}{
+					"type":  "tool_use",
+					"id":    callID,
+					"name":  name,
+					"input": map[string]interface{}{},
+				},
+			}
+			emit("content_block_start", startEvent)
+			toolBlockOrder = append(toolBlockOrder, itemID)
+			toolBlockIndexByItemID[itemID] = blockIndex
+			toolUseSeen = true
+			return itemID
+		}
+
+		emitToolDelta := func(itemID string, partialJSON string) {
+			itemID = strings.TrimSpace(itemID)
+			if itemID == "" {
+				return
+			}
+			blockIndex, exists := toolBlockIndexByItemID[itemID]
+			if !exists {
+				itemID = emitToolStart(itemID, toolCallIDByItemID[itemID], toolCallNameByItemID[itemID])
+				blockIndex = toolBlockIndexByItemID[itemID]
+			}
+			deltaEvent := map[string]interface{}{
+				"type":  "content_block_delta",
+				"index": blockIndex,
+				"delta": map[string]string{
+					"type":         "input_json_delta",
+					"partial_json": partialJSON,
+				},
+			}
+			emit("content_block_delta", deltaEvent)
+			toolBlockHasDeltaByItemID[itemID] = true
+			toolUseSeen = true
+		}
+
+		closeToolBlock := func(itemID string) {
+			itemID = strings.TrimSpace(itemID)
+			if itemID == "" {
+				return
+			}
+			blockIndex, exists := toolBlockIndexByItemID[itemID]
+			if !exists || toolBlockClosedByItemID[itemID] {
+				return
+			}
+			stopEvent := map[string]interface{}{
+				"type":  "content_block_stop",
+				"index": blockIndex,
+			}
+			emit("content_block_stop", stopEvent)
+			toolBlockClosedByItemID[itemID] = true
+		}
+
+		closeAllToolBlocks := func() {
+			for _, itemID := range toolBlockOrder {
+				closeToolBlock(itemID)
+			}
+		}
+
+		emitMessageStop := func(stopReason string, usage *types.Usage) {
+			if messageEnded {
+				return
+			}
+			if stopReason == "" {
+				stopReason = "end_turn"
+			}
+			if stopReason != "tool_use" && toolUseSeen {
+				stopReason = "tool_use"
+			}
+
+			// Ensure block/message envelope is always well-formed for Claude clients.
+			closeTextBlock()
+			closeAllToolBlocks()
+
+			deltaEvent := map[string]interface{}{
+				"type": "message_delta",
+				"delta": map[string]interface{}{
+					"stop_reason":   stopReason,
+					"stop_sequence": nil,
+				},
+			}
+			if usage != nil {
+				usageMap := map[string]int{}
+				if usage.InputTokens > 0 {
+					usageMap["input_tokens"] = usage.InputTokens
+				}
+				if usage.OutputTokens > 0 {
+					usageMap["output_tokens"] = usage.OutputTokens
+				}
+				if usage.CacheCreationInputTokens > 0 {
+					usageMap["cache_creation_input_tokens"] = usage.CacheCreationInputTokens
+				}
+				if usage.CacheReadInputTokens > 0 {
+					usageMap["cache_read_input_tokens"] = usage.CacheReadInputTokens
+				}
+				if usage.TotalTokens > 0 {
+					usageMap["total_tokens"] = usage.TotalTokens
+				}
+				if len(usageMap) > 0 {
+					deltaEvent["usage"] = usageMap
+				}
+			}
+			emit("message_delta", deltaEvent)
+			emit("message_stop", map[string]interface{}{"type": "message_stop"})
+			messageEnded = true
+		}
+
+		extractCompletedMeta := func(chunk map[string]interface{}) (string, *types.Usage, string, string) {
+			stopReason := "end_turn"
+			var usage *types.Usage
+			model := ""
+			reasoningEffort := extractReasoningEffort(chunk)
+
+			if m, ok := chunk["model"].(string); ok && strings.TrimSpace(m) != "" {
+				model = strings.TrimSpace(m)
+			}
+
+			responseObj, _ := chunk["response"].(map[string]interface{})
+			if responseObj != nil {
+				if m, ok := responseObj["model"].(string); ok && strings.TrimSpace(m) != "" {
+					model = strings.TrimSpace(m)
+				}
+				if effort := extractReasoningEffort(responseObj); effort != "" {
+					reasoningEffort = effort
+				}
+				if usageMap, ok := responseObj["usage"].(map[string]interface{}); ok {
+					usage = convertResponsesUsageToClaudeUsage(usageMap)
+				}
+
+				if output, ok := responseObj["output"].([]interface{}); ok {
+					for _, item := range output {
+						itemMap, ok := item.(map[string]interface{})
+						if !ok {
+							continue
+						}
+						if itemType, _ := itemMap["type"].(string); itemType == "function_call" {
+							stopReason = "tool_use"
+							break
+						}
+					}
+				}
+			} else if usageMap, ok := chunk["usage"].(map[string]interface{}); ok {
+				usage = convertResponsesUsageToClaudeUsage(usageMap)
+			}
+
+			return model, usage, stopReason, reasoningEffort
+		}
+
+		extractEventModel := func(chunk map[string]interface{}) string {
+			if m, ok := chunk["model"].(string); ok && strings.TrimSpace(m) != "" {
+				return strings.TrimSpace(m)
+			}
+			if responseObj, ok := chunk["response"].(map[string]interface{}); ok {
+				if m, ok := responseObj["model"].(string); ok && strings.TrimSpace(m) != "" {
+					return strings.TrimSpace(m)
+				}
+			}
+			return ""
+		}
+
+		extractEventReasoningEffort := func(chunk map[string]interface{}) string {
+			if effort := extractReasoningEffort(chunk); effort != "" {
+				return effort
+			}
+			if responseObj, ok := chunk["response"].(map[string]interface{}); ok {
+				if effort := extractReasoningEffort(responseObj); effort != "" {
+					return effort
+				}
+			}
+			return ""
+		}
 
 		for scanner.Scan() {
 			line := scanner.Text()
 			line = strings.TrimSpace(line)
 
-			if line == "" || line == "data: [DONE]" {
+			if line == "" {
+				continue
+			}
+			if line == "data: [DONE]" {
+				if messageStarted {
+					stopReason := "end_turn"
+					if toolUseSeen {
+						stopReason = "tool_use"
+					}
+					emitMessageStop(stopReason, nil)
+				}
 				continue
 			}
 
@@ -633,11 +1136,30 @@ func (p *ResponsesUpstreamProvider) HandleStreamResponse(body io.ReadCloser) (<-
 			eventType, _ := chunk["type"].(string)
 
 			switch eventType {
+			case "response.created", "response.in_progress":
+				model := extractEventModel(chunk)
+				effort := extractEventReasoningEffort(chunk)
+				if model != "" {
+					messageModel = model
+				}
+				if effort != "" {
+					messageReasoningEffort = effort
+				}
+
 			case "response.output_text.delta":
 				// 文本增量
 				if delta, ok := chunk["delta"].(string); ok {
+					if model := extractEventModel(chunk); model != "" {
+						messageModel = model
+					}
+					if effort := extractEventReasoningEffort(chunk); effort != "" {
+						messageReasoningEffort = effort
+					}
+					emitMessageStart()
 					if !textBlockStarted {
 						// 发送 content_block_start
+						textBlockIndex = nextBlockIndex
+						nextBlockIndex++
 						startEvent := map[string]interface{}{
 							"type":  "content_block_start",
 							"index": textBlockIndex,
@@ -646,8 +1168,7 @@ func (p *ResponsesUpstreamProvider) HandleStreamResponse(body io.ReadCloser) (<-
 								"text": "",
 							},
 						}
-						startJSON, _ := json.Marshal(startEvent)
-						eventChan <- fmt.Sprintf("event: content_block_start\ndata: %s\n\n", startJSON)
+						emit("content_block_start", startEvent)
 						textBlockStarted = true
 					}
 
@@ -660,41 +1181,79 @@ func (p *ResponsesUpstreamProvider) HandleStreamResponse(body io.ReadCloser) (<-
 							"text": delta,
 						},
 					}
-					deltaJSON, _ := json.Marshal(deltaEvent)
-					eventChan <- fmt.Sprintf("event: content_block_delta\ndata: %s\n\n", deltaJSON)
+					emit("content_block_delta", deltaEvent)
+				}
+
+			case "response.output_item.added":
+				itemMap, _ := chunk["item"].(map[string]interface{})
+				itemType, _ := itemMap["type"].(string)
+				if itemType == "function_call" {
+					itemID, _ := itemMap["id"].(string)
+					callID, _ := itemMap["call_id"].(string)
+					name, _ := itemMap["name"].(string)
+					arguments, _ := itemMap["arguments"].(string)
+					emitMessageStart()
+					itemID = emitToolStart(itemID, callID, name)
+					if arguments != "" {
+						emitToolDelta(itemID, arguments)
+					}
+				}
+
+			case "response.function_call_arguments.delta":
+				itemID, _ := chunk["item_id"].(string)
+				delta, _ := chunk["delta"].(string)
+				emitMessageStart()
+				emitToolDelta(itemID, delta)
+
+			case "response.function_call_arguments.done":
+				itemID, _ := chunk["item_id"].(string)
+				arguments, _ := chunk["arguments"].(string)
+				emitMessageStart()
+				itemID = emitToolStart(itemID, toolCallIDByItemID[itemID], toolCallNameByItemID[itemID])
+				if arguments != "" && !toolBlockHasDeltaByItemID[itemID] {
+					emitToolDelta(itemID, arguments)
+				}
+				closeToolBlock(itemID)
+
+			case "response.output_item.done":
+				itemMap, _ := chunk["item"].(map[string]interface{})
+				itemType, _ := itemMap["type"].(string)
+				if itemType == "function_call" {
+					itemID, _ := itemMap["id"].(string)
+					callID, _ := itemMap["call_id"].(string)
+					name, _ := itemMap["name"].(string)
+					arguments, _ := itemMap["arguments"].(string)
+					emitMessageStart()
+					itemID = emitToolStart(itemID, callID, name)
+					if arguments != "" && !toolBlockHasDeltaByItemID[itemID] {
+						emitToolDelta(itemID, arguments)
+					}
+					closeToolBlock(itemID)
 				}
 
 			case "response.completed", "response.done":
-				// 流结束
-				if textBlockStarted {
-					stopEvent := map[string]interface{}{
-						"type":  "content_block_stop",
-						"index": textBlockIndex,
-					}
-					stopJSON, _ := json.Marshal(stopEvent)
-					eventChan <- fmt.Sprintf("event: content_block_stop\ndata: %s\n\n", stopJSON)
+				model, usage, stopReason, reasoningEffort := extractCompletedMeta(chunk)
+				if strings.TrimSpace(model) != "" {
+					messageModel = strings.TrimSpace(model)
 				}
-
-				// 发送 message_delta
-				event := map[string]interface{}{
-					"type": "message_delta",
-					"delta": map[string]string{
-						"stop_reason": "end_turn",
-					},
+				if reasoningEffort != "" {
+					messageReasoningEffort = reasoningEffort
 				}
-				eventJSON, _ := json.Marshal(event)
-				eventChan <- fmt.Sprintf("event: message_delta\ndata: %s\n\n", eventJSON)
+				emitMessageStart()
+				if usage != nil && usage.OutputTokens == 0 && (textBlockStarted || toolUseSeen) {
+					// Keep streaming clients happy when output token count isn't provided.
+					usage.OutputTokens = 1
+				}
+				emitMessageStop(stopReason, usage)
 			}
 		}
 
-		// 确保流结束时关闭任何未关闭的文本块
-		if textBlockStarted {
-			stopEvent := map[string]interface{}{
-				"type":  "content_block_stop",
-				"index": textBlockIndex,
+		if messageStarted && !messageEnded {
+			stopReason := "end_turn"
+			if toolUseSeen {
+				stopReason = "tool_use"
 			}
-			stopJSON, _ := json.Marshal(stopEvent)
-			eventChan <- fmt.Sprintf("event: content_block_stop\ndata: %s\n\n", stopJSON)
+			emitMessageStop(stopReason, nil)
 		}
 
 		if err := scanner.Err(); err != nil {

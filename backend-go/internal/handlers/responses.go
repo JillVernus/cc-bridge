@@ -1466,12 +1466,20 @@ func buildCodexOAuthRequest(
 	}
 
 	// 构建 OAuth 请求头输入，转发原始请求的关键头部
+	sessionID := strings.TrimSpace(c.GetHeader("Session_id"))
+	if sessionID == "" {
+		sessionID = strings.TrimSpace(responsesReq.PromptCacheKey)
+	}
+	if sessionID == "" {
+		sessionID = strings.TrimSpace(c.GetHeader("Conversation_id"))
+	}
+
 	headerInput := utils.CodexOAuthHeadersInput{
 		AccessToken:    accessToken,
 		AccountID:      accountID,
 		UserAgent:      resolveResponsesUserAgentForOAuth(c, cfgManager),
 		ConversationID: c.GetHeader("Conversation_id"),
-		SessionID:      c.GetHeader("Session_id"),
+		SessionID:      sessionID,
 		Originator:     c.GetHeader("Originator"),
 	}
 
