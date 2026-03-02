@@ -2743,6 +2743,7 @@ func handleStreamResponse(
 	// /v1/messages always emits Claude-style SSE to clients after provider conversion.
 	firstTokenDetector := streamDetectorForServiceType("claude")
 	var firstTokenTime *time.Time
+	var firstStreamPayloadTime *time.Time
 
 	// We need synthesizer to extract usage/model for request logs from streaming payloads.
 	needsSynthesizer := (upstream.ServiceType == "claude" ||
@@ -2811,6 +2812,9 @@ func handleStreamResponse(
 					} else if pm := pricing.GetManager(); pm != nil && !pm.HasPricing(pricingModel) && requestModel != "" {
 						pricingModel = requestModel
 					}
+					if firstTokenTime == nil && firstStreamPayloadTime != nil {
+						firstTokenTime = firstStreamPayloadTime
+					}
 
 					record := &requestlog.RequestLog{
 						Status:               requestlog.StatusCompleted,
@@ -2873,6 +2877,7 @@ func handleStreamResponse(
 			}
 
 			// 缓存事件用于最后的日志输出和 usage 提取
+			markFirstSSEPayloadInChunkIfPresent(event, &firstStreamPayloadTime)
 			if firstTokenDetector != nil && firstTokenTime == nil {
 				markFirstTokenIfDetected(firstTokenDetector.ObserveChunk(event), &firstTokenTime)
 			}
@@ -2929,6 +2934,9 @@ func handleStreamResponse(
 				}
 				if reqLogManager != nil && requestLogID != "" {
 					completeTime := time.Now()
+					if firstTokenTime == nil && firstStreamPayloadTime != nil {
+						firstTokenTime = firstStreamPayloadTime
+					}
 					record := &requestlog.RequestLog{
 						Status:               requestlog.StatusError,
 						CompleteTime:         completeTime,

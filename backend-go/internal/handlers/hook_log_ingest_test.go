@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/JillVernus/cc-bridge/internal/middleware"
 	"github.com/JillVernus/cc-bridge/internal/pricing"
@@ -390,5 +391,77 @@ func TestIngestAnthropicHookLog_AutoCalculatesPrice(t *testing.T) {
 	}
 	if rec.OutputCost <= 0 {
 		t.Fatalf("expected outputCost > 0, got %.8f", rec.OutputCost)
+	}
+}
+
+func TestIngestAnthropicHookLog_FirstTokenFieldsPersisted(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	h, mgr := newHookLogTestHandler(t)
+	r := gin.New()
+	r.POST("/api/logs/hooks/anthropic", h.IngestAnthropicHookLog)
+
+	initialTime := time.Date(2026, 3, 2, 10, 0, 0, 0, time.UTC)
+	firstTokenTime := initialTime.Add(125 * time.Millisecond)
+	payload := map[string]interface{}{
+		"requestId":            "session-8:assistant-1",
+		"status":               "completed",
+		"model":                "claude-opus-4-6",
+		"initialTime":          initialTime.Format(time.RFC3339Nano),
+		"firstTokenTime":       firstTokenTime.Format(time.RFC3339Nano),
+		"firstTokenDurationMs": 125,
+		"stream":               true,
+	}
+
+	w := performHookIngestRequest(t, r, payload)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", w.Code, w.Body.String())
+	}
+
+	rec, err := mgr.GetByID("session-8:assistant-1")
+	if err != nil {
+		t.Fatalf("failed to get record by id: %v", err)
+	}
+	if rec == nil {
+		t.Fatalf("expected record to exist")
+	}
+	if rec.FirstTokenTime == nil {
+		t.Fatalf("expected firstTokenTime to be stored")
+	}
+	if !rec.FirstTokenTime.Equal(firstTokenTime) {
+		t.Fatalf("expected firstTokenTime %s, got %s", firstTokenTime.Format(time.RFC3339Nano), rec.FirstTokenTime.Format(time.RFC3339Nano))
+	}
+	if rec.FirstTokenDurationMs != 125 {
+		t.Fatalf("expected firstTokenDurationMs 125, got %d", rec.FirstTokenDurationMs)
+	}
+}
+
+func TestIngestAnthropicHookLog_InvalidFirstTokenFields(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	h, _ := newHookLogTestHandler(t)
+	r := gin.New()
+	r.POST("/api/logs/hooks/anthropic", h.IngestAnthropicHookLog)
+
+	invalidTimePayload := map[string]interface{}{
+		"requestId":      "session-9:assistant-1",
+		"status":         "completed",
+		"model":          "claude-opus-4-6",
+		"firstTokenTime": "not-a-time",
+	}
+	w1 := performHookIngestRequest(t, r, invalidTimePayload)
+	if w1.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid firstTokenTime, got %d, body=%s", w1.Code, w1.Body.String())
+	}
+
+	negativeDurationPayload := map[string]interface{}{
+		"requestId":            "session-10:assistant-1",
+		"status":               "completed",
+		"model":                "claude-opus-4-6",
+		"firstTokenDurationMs": -1,
+	}
+	w2 := performHookIngestRequest(t, r, negativeDurationPayload)
+	if w2.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for negative firstTokenDurationMs, got %d, body=%s", w2.Code, w2.Body.String())
 	}
 }

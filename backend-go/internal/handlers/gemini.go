@@ -1329,10 +1329,12 @@ func handleGeminiSuccess(
 		var streamCopyErr error
 		firstTokenDetector := streamDetectorForServiceType(upstream.ServiceType)
 		var firstTokenTime *time.Time
+		var firstStreamPayloadTime *time.Time
 		for {
 			n, readErr := resp.Body.Read(copyBuf)
 			if n > 0 {
 				chunk := copyBuf[:n]
+				markFirstNonEmptyChunkIfPresent(chunk, &firstStreamPayloadTime)
 				_, _ = tail.Write(chunk)
 				if debugCapture != nil {
 					_, _ = debugCapture.Write(chunk)
@@ -1370,6 +1372,10 @@ func handleGeminiSuccess(
 
 		// Update request log
 		if reqLogManager != nil && requestLogID != "" {
+			if firstTokenTime == nil && firstStreamPayloadTime != nil {
+				firstTokenTime = firstStreamPayloadTime
+			}
+
 			recordStatus, recordHTTPStatus, recordError := classifyStreamingRequestLogOutcome(
 				resp.StatusCode,
 				c.Request.Context().Err(),

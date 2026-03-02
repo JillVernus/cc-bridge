@@ -595,20 +595,28 @@ func streamReaderToClient(c *gin.Context, reader io.Reader, capture *bytes.Buffe
 	}
 
 	var firstTokenTime *time.Time
+	var firstStreamPayloadTime *time.Time
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text() + "\n"
+		markFirstSSEPayloadInChunkIfPresent(line, &firstStreamPayloadTime)
 		if detector != nil && firstTokenTime == nil {
 			markFirstTokenIfDetected(detector.ObserveChunk(line), &firstTokenTime)
 		}
 		if _, err := c.Writer.Write([]byte(line)); err != nil {
+			if firstTokenTime == nil && firstStreamPayloadTime != nil {
+				firstTokenTime = firstStreamPayloadTime
+			}
 			return firstTokenTime, err
 		}
 		if capture != nil {
 			capture.WriteString(line)
 		}
 		flusher.Flush()
+	}
+	if firstTokenTime == nil && firstStreamPayloadTime != nil {
+		firstTokenTime = firstStreamPayloadTime
 	}
 	return firstTokenTime, scanner.Err()
 }
@@ -620,16 +628,24 @@ func streamChunkChannelToClient(c *gin.Context, outCh <-chan string, errCh <-cha
 	}
 
 	var firstTokenTime *time.Time
+	var firstStreamPayloadTime *time.Time
 	for {
 		select {
 		case chunk, ok := <-outCh:
 			if !ok {
+				if firstTokenTime == nil && firstStreamPayloadTime != nil {
+					firstTokenTime = firstStreamPayloadTime
+				}
 				return firstTokenTime, nil
 			}
+			markFirstSSEPayloadInChunkIfPresent(chunk, &firstStreamPayloadTime)
 			if detector != nil && firstTokenTime == nil {
 				markFirstTokenIfDetected(detector.ObserveChunk(chunk), &firstTokenTime)
 			}
 			if _, err := c.Writer.Write([]byte(chunk)); err != nil {
+				if firstTokenTime == nil && firstStreamPayloadTime != nil {
+					firstTokenTime = firstStreamPayloadTime
+				}
 				return firstTokenTime, err
 			}
 			if capture != nil {
@@ -638,9 +654,15 @@ func streamChunkChannelToClient(c *gin.Context, outCh <-chan string, errCh <-cha
 			flusher.Flush()
 		case err, ok := <-errCh:
 			if ok && err != nil {
+				if firstTokenTime == nil && firstStreamPayloadTime != nil {
+					firstTokenTime = firstStreamPayloadTime
+				}
 				return firstTokenTime, err
 			}
 		case <-c.Request.Context().Done():
+			if firstTokenTime == nil && firstStreamPayloadTime != nil {
+				firstTokenTime = firstStreamPayloadTime
+			}
 			return firstTokenTime, c.Request.Context().Err()
 		}
 	}

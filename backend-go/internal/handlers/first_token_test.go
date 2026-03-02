@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -128,6 +129,47 @@ func TestMarkFirstSSEPayloadIfPresent(t *testing.T) {
 
 	// Safety: nil double pointer should be a no-op.
 	markFirstSSEPayloadIfPresent(`data: {"type":"response.completed"}`, nil)
+}
+
+func TestMarkFirstSSEPayloadInChunkIfPresent(t *testing.T) {
+	var first *time.Time
+
+	markFirstSSEPayloadInChunkIfPresent(strings.Join([]string{
+		"event: response.output_item.added",
+		`data: {"type":"response.output_item.added","item":{"type":"function_call"}}`,
+		"",
+	}, "\n"), &first)
+	if first == nil {
+		t.Fatalf("expected first payload time from chunk helper")
+	}
+
+	original := *first
+	time.Sleep(1 * time.Millisecond)
+	markFirstSSEPayloadInChunkIfPresent("data: {\"type\":\"response.completed\"}\n", &first)
+	if !first.Equal(original) {
+		t.Fatalf("first payload time should not be overwritten once set")
+	}
+}
+
+func TestMarkFirstNonEmptyChunkIfPresent(t *testing.T) {
+	var first *time.Time
+
+	markFirstNonEmptyChunkIfPresent([]byte(" \n\t"), &first)
+	if first != nil {
+		t.Fatalf("whitespace-only chunk should not set first payload time")
+	}
+
+	markFirstNonEmptyChunkIfPresent([]byte(`{"usageMetadata":{"promptTokenCount":3}}`), &first)
+	if first == nil {
+		t.Fatalf("non-empty chunk should set first payload time")
+	}
+
+	original := *first
+	time.Sleep(1 * time.Millisecond)
+	markFirstNonEmptyChunkIfPresent([]byte(`{"ignored":true}`), &first)
+	if !first.Equal(original) {
+		t.Fatalf("first payload time should not be overwritten once set")
+	}
 }
 
 func TestFirstTokenDurationFromStart(t *testing.T) {

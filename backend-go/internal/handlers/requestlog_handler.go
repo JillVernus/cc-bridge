@@ -37,6 +37,8 @@ type anthropicHookLogIngestRequest struct {
 	InitialTime              string  `json:"initialTime"`
 	CompleteTime             string  `json:"completeTime"`
 	DurationMs               *int64  `json:"durationMs"`
+	FirstTokenTime           string  `json:"firstTokenTime"`
+	FirstTokenDurationMs     *int64  `json:"firstTokenDurationMs"`
 	Model                    string  `json:"model"`
 	ResponseModel            string  `json:"responseModel"`
 	ReasoningEffort          string  `json:"reasoningEffort"`
@@ -143,6 +145,34 @@ func (h *RequestLogHandler) IngestAnthropicHookLog(c *gin.Context) {
 		}
 	}
 
+	var firstTokenTime *time.Time
+	if strings.TrimSpace(req.FirstTokenTime) != "" {
+		t, err := parseHookTime(req.FirstTokenTime)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "firstTokenTime must be RFC3339"})
+			return
+		}
+		firstTokenTime = &t
+	}
+
+	firstTokenDurationMs := int64(0)
+	if req.FirstTokenDurationMs != nil {
+		if *req.FirstTokenDurationMs < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "firstTokenDurationMs must be >= 0"})
+			return
+		}
+		firstTokenDurationMs = *req.FirstTokenDurationMs
+		if firstTokenTime == nil && firstTokenDurationMs > 0 {
+			t := initialTime.Add(time.Duration(firstTokenDurationMs) * time.Millisecond)
+			firstTokenTime = &t
+		}
+	} else if firstTokenTime != nil {
+		firstTokenDurationMs = firstTokenTime.Sub(initialTime).Milliseconds()
+		if firstTokenDurationMs < 0 {
+			firstTokenDurationMs = 0
+		}
+	}
+
 	httpStatus := defaultHookHTTPStatus(status)
 	if req.HTTPStatus != nil {
 		if *req.HTTPStatus < 0 || *req.HTTPStatus > 999 {
@@ -158,6 +188,8 @@ func (h *RequestLogHandler) IngestAnthropicHookLog(c *gin.Context) {
 		completeTime = time.Time{}
 		durationMs = 0
 		httpStatus = 0
+		firstTokenTime = nil
+		firstTokenDurationMs = 0
 	}
 
 	stream := false
@@ -216,6 +248,8 @@ func (h *RequestLogHandler) IngestAnthropicHookLog(c *gin.Context) {
 		InitialTime:              initialTime,
 		CompleteTime:             completeTime,
 		DurationMs:               durationMs,
+		FirstTokenTime:           firstTokenTime,
+		FirstTokenDurationMs:     firstTokenDurationMs,
 		Type:                     "claude",
 		ProviderName:             "anthropic-oauth",
 		Model:                    model,

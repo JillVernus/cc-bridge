@@ -225,6 +225,24 @@ production-observed behavior:
      - detector-driven text-token timestamp still takes precedence when present.
      - fallback ignores empty payload and `data: [DONE]`.
 
+6. `(this commit)` - `fix(first-token): complete fallback coverage + hook-ingest fields`
+   - Scope:
+     - `backend-go/internal/handlers/requestlog_handler.go`
+     - `backend-go/internal/handlers/chat_completions.go`
+     - `backend-go/internal/handlers/gemini.go`
+     - `backend-go/internal/handlers/proxy.go`
+     - `backend-go/internal/handlers/first_token.go`
+     - `backend-go/internal/handlers/hook_log_ingest_test.go`
+     - `backend-go/internal/handlers/first_token_stream_paths_test.go`
+     - `backend-go/internal/handlers/first_token_test.go`
+   - Fixes:
+     - hook ingest now accepts and persists `firstTokenTime` and
+       `firstTokenDurationMs` (with validation + pending normalization).
+     - first-payload fallback now applies to stream paths in
+       chat-completions, gemini, and messages/proxy (not only responses).
+     - added regression tests for payload/chunk fallback paths and hook-ingest
+       first-token fields.
+
 ### Hotfix Validation Snapshot
 
 - Backend validation:

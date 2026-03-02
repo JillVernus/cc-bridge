@@ -95,6 +95,74 @@ func TestHandleStreamResponse_RecordsFirstTokenForMessagesPath(t *testing.T) {
 	}
 }
 
+func TestHandleStreamResponse_FallsBackToFirstPayloadForMessagesPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cfgManager := newTestConfigManager(t)
+	reqLogManager := newTestRequestLogManager(t)
+
+	startTime := time.Now().Add(-150 * time.Millisecond)
+	requestLogID := addPendingLogForTest(t, reqLogManager, startTime, "/v1/messages", "claude", "claude-sonnet-4", true, 1, "messages-1")
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"stream":true}`))
+
+	sseBody := strings.Join([]string{
+		"event: message_start",
+		`data: {"type":"message_start","message":{"id":"msg_1","model":"claude-sonnet-4-20250514","usage":{"input_tokens":5,"output_tokens":1}}}`,
+		"",
+		"event: message_stop",
+		`data: {"type":"message_stop"}`,
+		"",
+	}, "\n")
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+		},
+		Body: io.NopCloser(strings.NewReader(sseBody)),
+	}
+
+	upstream := &config.UpstreamConfig{
+		Index:       1,
+		Name:        "messages-1",
+		ServiceType: "claude",
+	}
+	envCfg := &config.EnvConfig{LogLevel: "error"}
+
+	handleStreamResponse(
+		c,
+		resp,
+		providers.GetProvider("claude"),
+		envCfg,
+		cfgManager,
+		startTime,
+		upstream,
+		reqLogManager,
+		requestLogID,
+		"claude-sonnet-4",
+		nil,
+		1,
+		"messages-1",
+	)
+
+	got, err := reqLogManager.GetByID(requestLogID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	if got == nil {
+		t.Fatalf("expected request log")
+	}
+	if got.FirstTokenTime == nil {
+		t.Fatalf("expected firstTokenTime captured via payload fallback for messages stream path")
+	}
+	if got.FirstTokenDurationMs <= 0 {
+		t.Fatalf("expected positive firstTokenDurationMs, got %d", got.FirstTokenDurationMs)
+	}
+}
+
 func TestHandleResponsesSuccess_StreamRecordsFirstToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -263,6 +331,72 @@ func TestHandleGeminiSuccess_StreamRecordsFirstToken(t *testing.T) {
 	}
 }
 
+func TestHandleGeminiSuccess_StreamFallsBackToFirstChunk(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cfgManager := newTestConfigManager(t)
+	reqLogManager := newTestRequestLogManager(t)
+
+	startTime := time.Now().Add(-120 * time.Millisecond)
+	requestLogID := addPendingLogForTest(t, reqLogManager, startTime, "/v1/gemini/models/generateContent", "gemini", "gemini-2.5-pro", true, 3, "gemini-3")
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/gemini/models/generateContent", strings.NewReader(`{}`))
+
+	streamBody := strings.Join([]string{
+		`data: {"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":0,"totalTokenCount":3},"modelVersion":"gemini-2.5-pro"}`,
+		"",
+	}, "\n")
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+		},
+		Body: io.NopCloser(strings.NewReader(streamBody)),
+	}
+
+	upstream := &config.UpstreamConfig{
+		Index:       3,
+		Name:        "gemini-3",
+		ServiceType: "gemini",
+	}
+	envCfg := &config.EnvConfig{LogLevel: "error"}
+
+	if failoverErr := handleGeminiSuccess(
+		c,
+		resp,
+		upstream,
+		envCfg,
+		cfgManager,
+		true,
+		startTime,
+		"gemini-2.5-pro",
+		reqLogManager,
+		requestLogID,
+		nil,
+		3,
+		"gemini-3",
+	); failoverErr != nil {
+		t.Fatalf("expected nil failover error, got %+v", failoverErr)
+	}
+
+	got, err := reqLogManager.GetByID(requestLogID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	if got == nil {
+		t.Fatalf("expected request log")
+	}
+	if got.FirstTokenTime == nil {
+		t.Fatalf("expected firstTokenTime captured via chunk fallback for gemini stream path")
+	}
+	if got.FirstTokenDurationMs <= 0 {
+		t.Fatalf("expected positive firstTokenDurationMs, got %d", got.FirstTokenDurationMs)
+	}
+}
+
 func TestChatStreamAndFinalize_PropagatesFirstTokenToRequestLog(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -308,6 +442,79 @@ func TestChatStreamAndFinalize_PropagatesFirstTokenToRequestLog(t *testing.T) {
 	}
 	if got.FirstTokenDurationMs <= 0 {
 		t.Fatalf("expected positive firstTokenDurationMs, got %d", got.FirstTokenDurationMs)
+	}
+}
+
+func TestChatStreamAndFinalize_FallsBackToFirstPayloadToRequestLog(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	reqLogManager := newTestRequestLogManager(t)
+	startTime := time.Now().Add(-150 * time.Millisecond)
+	requestLogID := addPendingLogForTest(t, reqLogManager, startTime, "/v1/chat/completions", "openai_chat", "gpt-5", true, 4, "chat-4")
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`))
+
+	detector := utils.NewFirstTokenDetector(utils.FirstTokenProtocolOpenAIChatSSE)
+	var capture bytes.Buffer
+	firstTokenTime, err := streamReaderToClient(
+		c,
+		strings.NewReader("data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n"),
+		&capture,
+		detector,
+	)
+	if err != nil {
+		t.Fatalf("streamReaderToClient failed: %v", err)
+	}
+	if firstTokenTime == nil {
+		t.Fatalf("expected firstTokenTime from chat stream payload fallback")
+	}
+
+	upstream := &config.UpstreamConfig{
+		Index:       4,
+		Name:        "chat-4",
+		ServiceType: "openai_chat",
+	}
+	finalizeChatSuccessLog(reqLogManager, requestLogID, startTime, "gpt-5", upstream, http.StatusOK, firstTokenTime)
+
+	got, err := reqLogManager.GetByID(requestLogID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	if got == nil {
+		t.Fatalf("expected request log")
+	}
+	if got.FirstTokenTime == nil {
+		t.Fatalf("expected firstTokenTime propagated by finalizeChatSuccessLog")
+	}
+	if got.FirstTokenDurationMs <= 0 {
+		t.Fatalf("expected positive firstTokenDurationMs, got %d", got.FirstTokenDurationMs)
+	}
+}
+
+func TestStreamChunkChannelToClient_FallsBackToFirstPayload(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`))
+
+	detector := utils.NewFirstTokenDetector(utils.FirstTokenProtocolOpenAIChatSSE)
+	var capture bytes.Buffer
+
+	outCh := make(chan string, 1)
+	errCh := make(chan error)
+	outCh <- "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n"
+	close(outCh)
+	close(errCh)
+
+	firstTokenTime, err := streamChunkChannelToClient(c, outCh, errCh, &capture, detector)
+	if err != nil {
+		t.Fatalf("streamChunkChannelToClient failed: %v", err)
+	}
+	if firstTokenTime == nil {
+		t.Fatalf("expected firstTokenTime from chunk-channel payload fallback")
 	}
 }
 

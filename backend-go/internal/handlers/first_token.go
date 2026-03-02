@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"strings"
 	"time"
 
@@ -45,6 +46,29 @@ func markFirstSSEPayloadIfPresent(line string, firstPayloadTime **time.Time) {
 		return
 	}
 
+	ts := time.Now()
+	*firstPayloadTime = &ts
+}
+
+func markFirstSSEPayloadInChunkIfPresent(chunk string, firstPayloadTime **time.Time) {
+	if firstPayloadTime == nil || *firstPayloadTime != nil || chunk == "" {
+		return
+	}
+	for _, line := range strings.Split(chunk, "\n") {
+		markFirstSSEPayloadIfPresent(line, firstPayloadTime)
+		if *firstPayloadTime != nil {
+			return
+		}
+	}
+}
+
+func markFirstNonEmptyChunkIfPresent(chunk []byte, firstPayloadTime **time.Time) {
+	if firstPayloadTime == nil || *firstPayloadTime != nil {
+		return
+	}
+	if len(bytes.TrimSpace(chunk)) == 0 {
+		return
+	}
 	ts := time.Now()
 	*firstPayloadTime = &ts
 }
