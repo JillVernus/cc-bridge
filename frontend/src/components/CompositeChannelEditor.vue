@@ -61,18 +61,22 @@
                       class="channel-select"
                       :class="{ 'primary-select': index === 0 }"
                     >
+                      <template #selection="{ item }">
+                        <div class="d-flex align-center ga-2">
+                          <v-icon size="14" :icon="getServiceTypeIcon(item.raw.serviceType)" :title="item.raw.serviceType" />
+                          <span class="text-body-2">{{ item.raw.name }}</span>
+                        </div>
+                      </template>
                       <template #item="{ item, props }">
-                        <v-list-item v-bind="props">
+                        <v-list-item v-bind="props" :title="item.raw.name" :subtitle="item.raw.poolLabel">
                           <template #prepend>
-                            <v-icon size="small" :color="getChannelStatusColor(item.raw)">mdi-server</v-icon>
+                            <div class="d-flex align-center ga-1">
+                              <v-icon size="14" :icon="getServiceTypeIcon(item.raw.serviceType)" :title="item.raw.serviceType" />
+                              <v-icon size="x-small" :color="getChannelStatusColor(item.raw)">mdi-circle</v-icon>
+                            </div>
                           </template>
                           <template #append>
-                            <div class="d-flex align-center ga-1">
-                              <v-chip size="x-small" variant="outlined" color="primary">{{
-                                item.raw.poolLabel
-                              }}</v-chip>
-                              <v-chip size="x-small" variant="outlined">{{ item.raw.serviceType }}</v-chip>
-                            </div>
+                            <v-chip size="x-small" variant="outlined" color="primary">{{ item.raw.poolLabel }}</v-chip>
                           </template>
                         </v-list-item>
                       </template>
@@ -386,6 +390,27 @@ const validationError = computed(() => {
 })
 
 // Helper functions
+const getServiceTypeIcon = (serviceType: Channel['serviceType']): string => {
+  if (serviceType === 'claude' || serviceType === 'composite') {
+    return 'custom:claude'
+  }
+  if (serviceType === 'gemini') {
+    return 'custom:gemini'
+  }
+  if (serviceType === 'responses') {
+    return 'custom:codex'
+  }
+  if (
+    serviceType === 'openai' ||
+    serviceType === 'openai_chat' ||
+    serviceType === 'openaiold' ||
+    serviceType === 'openai-oauth'
+  ) {
+    return 'custom:openai'
+  }
+  return 'custom:codex'
+}
+
 const getChannelStatusColor = (channel: { status?: string }): string => {
   switch (channel.status) {
     case 'active':
