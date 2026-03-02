@@ -693,10 +693,7 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 	query := `
 	UPDATE request_logs SET
 		status = ?,
-		first_token_time = CASE
-			WHEN first_token_time IS NULL AND ? IS NOT NULL THEN ?
-			ELSE first_token_time
-		END,
+		first_token_time = COALESCE(first_token_time, ?),
 		first_token_duration_ms = CASE
 			WHEN first_token_duration_ms = 0 AND ? > 0 THEN ?
 			ELSE first_token_duration_ms
@@ -737,7 +734,6 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 
 	result, err := m.db.Exec(m.convertQuery(query),
 		record.Status,
-		firstTokenTime,
 		firstTokenTime,
 		record.FirstTokenDurationMs,
 		record.FirstTokenDurationMs,
