@@ -437,6 +437,7 @@
       :channel="editingChannel"
       :channel-type="channelTypeForComponents"
       :all-channels="channels"
+      :responses-channels="responsesChannelsData.channels"
       @save="saveChannel"
     />
 
@@ -707,6 +708,15 @@ const showGlobalStatsChart = ref(false) // 全局统计图表显示状态
 // GlobalStatsChart 组件引用
 const globalStatsChartRef = ref<InstanceType<typeof GlobalStatsChart> | null>(null)
 
+const emptyChannelsResponse = (): ChannelsResponse => ({ channels: [], current: -1, loadBalance: 'round-robin' })
+
+const resetAllChannelsData = () => {
+  channelsData.value = emptyChannelsResponse()
+  responsesChannelsData.value = emptyChannelsResponse()
+  geminiChannelsData.value = emptyChannelsResponse()
+  chatChannelsData.value = emptyChannelsResponse()
+}
+
 type LogDateRange = { from: string; to: string }
 const logsDateRange = ref<LogDateRange | null>(null)
 const onLogsDateRangeChange = (range: LogDateRange) => {
@@ -954,8 +964,22 @@ const saveChannel = async (channel: Omit<Channel, 'index' | 'latency' | 'status'
   }
 }
 
-const editChannel = (channel: Channel) => {
+const ensureResponsesChannelsLoaded = async () => {
+  if (!isAuthenticated.value) return
+  if (responsesChannelsData.value.channels.length > 0) return
+
+  try {
+    responsesChannelsData.value = await api.getResponsesChannels()
+  } catch (err) {
+    console.warn('Failed to preload Responses channels for import picker:', err)
+  }
+}
+
+const editChannel = async (channel: Channel) => {
   editingChannel.value = channel
+  if (activeTab.value === 'messages') {
+    await ensureResponsesChannelsLoaded()
+  }
   showAddChannelModal.value = true
 }
 
@@ -989,8 +1013,11 @@ const confirmDeleteChannel = async () => {
   }
 }
 
-const openAddChannelModal = () => {
+const openAddChannelModal = async () => {
   editingChannel.value = null
+  if (activeTab.value === 'messages') {
+    await ensureResponsesChannelsLoaded()
+  }
   showAddChannelModal.value = true
 }
 
@@ -1245,6 +1272,7 @@ const handleAuthSubmit = async () => {
     }
 
     isAuthenticated.value = false
+    resetAllChannelsData()
     api.clearAuth()
   } finally {
     authLoading.value = false
@@ -1256,7 +1284,7 @@ const handleLogout = () => {
   api.clearAuth()
   isAuthenticated.value = false
   authError.value = t('auth.enterKeyToContinue')
-  channelsData.value = { channels: [], current: 0, loadBalance: 'failover' }
+  resetAllChannelsData()
   showToast(t('app.loggedOut'), 'info')
 }
 
@@ -1264,6 +1292,7 @@ const handleLogout = () => {
 const handleAuthError = (error: any) => {
   if (error.message && error.message.includes('认证失败')) {
     isAuthenticated.value = false
+    resetAllChannelsData()
     authError.value = t('auth.savedKeyInvalid')
   } else {
     showToast(`${t('common.error')}: ${error instanceof Error ? error.message : t('common.unknown')}`, 'error')

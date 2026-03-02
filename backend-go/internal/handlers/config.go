@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http" // 新增
 	"strconv"
 	"strings"
@@ -41,6 +42,117 @@ func buildMaskedKeys(keys []string) []MaskedKey {
 		}
 	}
 	return maskedKeys
+}
+
+type addUpstreamRequest struct {
+	config.UpstreamConfig
+	ImportFromResponsesChannelID string `json:"importFromResponsesChannelId"`
+}
+
+type updateUpstreamRequest struct {
+	config.UpstreamUpdate
+	ImportFromResponsesChannelID *string `json:"importFromResponsesChannelId"`
+}
+
+func findResponsesUpstreamByID(cfgManager *config.ConfigManager, channelID string) (*config.UpstreamConfig, bool) {
+	targetID := strings.TrimSpace(channelID)
+	if targetID == "" {
+		return nil, false
+	}
+
+	cfg := cfgManager.GetConfig()
+	for i := range cfg.ResponsesUpstream {
+		if cfg.ResponsesUpstream[i].ID != targetID {
+			continue
+		}
+
+		found := cfg.ResponsesUpstream[i]
+		return &found, true
+	}
+
+	return nil, false
+}
+
+func applyResponsesImportToMessagesCreate(
+	cfgManager *config.ConfigManager,
+	upstream *config.UpstreamConfig,
+	importFromResponsesChannelID string,
+) error {
+	sourceID := strings.TrimSpace(importFromResponsesChannelID)
+	if sourceID == "" {
+		return nil
+	}
+
+	if strings.TrimSpace(upstream.ServiceType) != "responses" {
+		return fmt.Errorf("importFromResponsesChannelId requires serviceType to be 'responses'")
+	}
+
+	source, ok := findResponsesUpstreamByID(cfgManager, sourceID)
+	if !ok {
+		return fmt.Errorf("responses channel not found: %s", sourceID)
+	}
+
+	if len(source.APIKeys) == 0 {
+		return fmt.Errorf("selected responses channel has no API keys to import")
+	}
+
+	upstream.BaseURL = source.BaseURL
+	upstream.APIKeys = append([]string(nil), source.APIKeys...)
+	return nil
+}
+
+func resolveMessagesServiceTypeForUpdate(cfgManager *config.ConfigManager, index int, updates config.UpstreamUpdate) string {
+	if updates.ServiceType != nil {
+		return strings.TrimSpace(*updates.ServiceType)
+	}
+
+	cfg := cfgManager.GetConfig()
+	if index < 0 || index >= len(cfg.Upstream) {
+		return ""
+	}
+	return strings.TrimSpace(cfg.Upstream[index].ServiceType)
+}
+
+func applyResponsesImportToMessagesUpdate(
+	cfgManager *config.ConfigManager,
+	index int,
+	updates *config.UpstreamUpdate,
+	importFromResponsesChannelID *string,
+) error {
+	if importFromResponsesChannelID == nil {
+		return nil
+	}
+
+	sourceID := strings.TrimSpace(*importFromResponsesChannelID)
+	if sourceID == "" {
+		return nil
+	}
+
+	// Preserve existing UpdateUpstream behavior: invalid index should be handled
+	// by cfgManager.UpdateUpstream as 404 in the handler path.
+	cfg := cfgManager.GetConfig()
+	if index < 0 || index >= len(cfg.Upstream) {
+		return nil
+	}
+
+	serviceType := resolveMessagesServiceTypeForUpdate(cfgManager, index, *updates)
+	if serviceType != "responses" {
+		return fmt.Errorf("importFromResponsesChannelId requires serviceType to be 'responses'")
+	}
+
+	source, ok := findResponsesUpstreamByID(cfgManager, sourceID)
+	if !ok {
+		return fmt.Errorf("responses channel not found: %s", sourceID)
+	}
+
+	if len(source.APIKeys) == 0 {
+		return fmt.Errorf("selected responses channel has no API keys to import")
+	}
+
+	baseURL := source.BaseURL
+	updates.BaseURL = &baseURL
+	updates.APIKeys = append([]string(nil), source.APIKeys...)
+	return nil
 }
 
 // GetUpstreams 获取上游列表 (兼容前端 channels 字段名)
@@ -102,9 +214,15 @@ func GetUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 // AddUpstream 添加上游
 func AddUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var upstream config.UpstreamConfig
-		if err := c.ShouldBindJSON(&upstream); err != nil {
+		var req addUpstreamRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(400, gin.H{"error": "Invalid request body"})
+			return
+		}
+
+		upstream := req.UpstreamConfig
+		if err := applyResponsesImportToMessagesCreate(cfgManager, &upstream, req.ImportFromResponsesChannelID); err != nil {
+			c.JSON(400, gin.H{"error": err.Error()})
 			return
 		}
 
@@ -132,9 +250,15 @@ func UpdateUpstream(cfgManager *config.ConfigManager, sch *scheduler.ChannelSche
 			return
 		}
 
-		var updates config.UpstreamUpdate
-		if err := c.ShouldBindJSON(&updates); err != nil {
+		var req updateUpstreamRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(400, gin.H{"error": "Invalid request body"})
+			return
+		}
+
+		updates := req.UpstreamUpdate
+		if err := applyResponsesImportToMessagesUpdate(cfgManager, id, &updates, req.ImportFromResponsesChannelID); err != nil {
+			c.JSON(400, gin.H{"error": err.Error()})
 			return
 		}
 

@@ -174,6 +174,7 @@ export interface Channel {
   serviceType: 'openai' | 'openai_chat' | 'openaiold' | 'gemini' | 'claude' | 'responses' | 'openai-oauth' | 'composite'
   baseUrl: string
   apiKeys?: string[] // Only present when creating/updating, not in GET responses
+  importFromResponsesChannelId?: string // Messages channel only: copy baseUrl+apiKeys from Responses channel
   apiKeyCount?: number // Number of API keys (returned by GET)
   maskedKeys?: Array<{ index: number; masked: string }> // Masked keys for display/deletion
   description?: string

@@ -182,6 +182,23 @@
                   />
                 </v-col>
 
+                <!-- Messages + Responses: reuse existing Responses channel config -->
+                <v-col cols="12" v-if="showResponsesImportPicker">
+                  <v-select
+                    v-model="form.importFromResponsesChannelId"
+                    :label="t('addChannel.importResponsesChannel')"
+                    :items="responsesChannelOptions"
+                    item-title="title"
+                    item-value="value"
+                    prepend-inner-icon="mdi-link-variant"
+                    variant="outlined"
+                    density="comfortable"
+                    clearable
+                    :hint="t('addChannel.importResponsesChannelHint')"
+                    persistent-hint
+                  />
+                </v-col>
+
                 <!-- 基础URL（非 OAuth 和 Composite 类型显示） -->
                 <v-col cols="12" v-if="!isOAuthChannel && !isCompositeChannel">
                   <v-text-field
@@ -195,8 +212,9 @@
                     :rules="[rules.required, rules.url]"
                     required
                     :error-messages="errors.baseUrl"
-                    :hint="getUrlHint()"
+                    :hint="isUsingResponsesImport ? t('addChannel.importResponsesApplied') : getUrlHint()"
                     persistent-hint
+                    :readonly="isUsingResponsesImport"
                   />
                 </v-col>
 
@@ -1051,12 +1069,16 @@
 
             <!-- API密钥管理（非 OAuth 和 Composite 类型显示） -->
             <v-col cols="12" v-if="!isOAuthChannel && !isCompositeChannel">
-              <v-card variant="outlined" rounded="lg" :color="totalKeyCount === 0 ? 'error' : undefined">
+              <v-card
+                variant="outlined"
+                rounded="lg"
+                :color="totalKeyCount === 0 && !isUsingResponsesImport ? 'error' : undefined"
+              >
                 <v-card-title class="d-flex align-center justify-space-between pa-4 pb-2">
                   <div class="d-flex align-center ga-2">
-                    <v-icon :color="totalKeyCount > 0 ? 'primary' : 'error'">mdi-key</v-icon>
+                    <v-icon :color="totalKeyCount > 0 || isUsingResponsesImport ? 'primary' : 'error'">mdi-key</v-icon>
                     <span class="text-body-1 font-weight-bold">{{ t('addChannel.apiKeyManagement') }}</span>
-                    <v-chip v-if="totalKeyCount === 0" size="x-small" color="error" variant="tonal">
+                    <v-chip v-if="totalKeyCount === 0 && !isUsingResponsesImport" size="x-small" color="error" variant="tonal">
                       {{ t('addChannel.atLeastOneKeyRequired') }}
                     </v-chip>
                   </div>
@@ -1064,6 +1086,10 @@
                 </v-card-title>
 
                 <v-card-text class="pt-2">
+                  <v-alert v-if="isUsingResponsesImport" type="info" variant="tonal" density="compact" class="mb-3">
+                    {{ t('addChannel.importResponsesApplied') }}
+                  </v-alert>
+
                   <!-- 编辑模式：显示现有密钥列表（可删除/重排序） -->
                   <div v-if="isEditing && existingMaskedKeys.length > 0" class="mb-4">
                     <div class="text-caption text-medium-emphasis mb-2">
@@ -1299,6 +1325,7 @@
                       :error="!!apiKeyError"
                       :error-messages="apiKeyError"
                       @input="handleApiKeyInput"
+                      :disabled="isUsingResponsesImport"
                       class="flex-grow-1"
                     />
                     <v-btn
@@ -1307,7 +1334,7 @@
                       size="large"
                       height="40"
                       @click="addApiKey"
-                      :disabled="!newApiKey.trim()"
+                      :disabled="!newApiKey.trim() || isUsingResponsesImport"
                       class="mt-1"
                     >
                       {{ t('common.add') }}
@@ -1339,11 +1366,13 @@ interface Props {
   channel?: Channel | null
   channelType?: 'messages' | 'responses' | 'gemini' | 'chat'
   allChannels?: Channel[]
+  responsesChannels?: Channel[]
 }
 
 const props = withDefaults(defineProps<Props>(), {
   channelType: 'messages',
-  allChannels: () => []
+  allChannels: () => [],
+  responsesChannels: () => []
 })
 
 const emit = defineEmits<{
@@ -1685,6 +1714,7 @@ const form = reactive({
   responseHeaderTimeout: undefined as number | undefined,
   description: '',
   apiKeys: [] as string[],
+  importFromResponsesChannelId: '',
   modelMapping: {} as Record<string, string>,
   priceMultipliers: {} as Record<
     string,
@@ -2106,6 +2136,23 @@ const getTargetChannelName = (channelId: string): string => {
   return channel?.name || channelId
 }
 
+const showResponsesImportPicker = computed(() => {
+  return props.channelType === 'messages' && form.serviceType === 'responses'
+})
+
+const responsesChannelOptions = computed(() => {
+  return props.responsesChannels
+    .filter(ch => !!ch.id && (ch.apiKeyCount || 0) > 0)
+    .map(ch => ({
+      title: `${ch.name} (#${ch.index})`,
+      value: ch.id as string
+    }))
+})
+
+const isUsingResponsesImport = computed(() => {
+  return showResponsesImportPicker.value && !!form.importFromResponsesChannelId
+})
+
 // 表单验证错误
 const errors = reactive({
   name: '',
@@ -2143,6 +2190,27 @@ const isEditing = computed(() => !!props.channel)
 const totalKeyCount = computed(() => {
   return existingKeyCount.value + form.apiKeys.length
 })
+
+watch(
+  () => form.serviceType,
+  serviceType => {
+    if (!(props.channelType === 'messages' && serviceType === 'responses')) {
+      form.importFromResponsesChannelId = ''
+    }
+  }
+)
+
+watch(
+  () => form.importFromResponsesChannelId,
+  selectedID => {
+    if (!showResponsesImportPicker.value || !selectedID) return
+    const selected = props.responsesChannels.find(ch => ch.id === selectedID)
+    if (selected?.baseUrl) {
+      form.baseUrl = selected.baseUrl
+    }
+    form.apiKeys = []
+  }
+)
 
 // 动态header样式
 const headerClasses = computed(() => {
@@ -2187,7 +2255,11 @@ const isFormValid = computed(() => {
   }
   // For regular channels: need at least one key (existing or new)
   return (
-    form.name.trim() && form.serviceType && form.baseUrl.trim() && isValidUrl(form.baseUrl) && totalKeyCount.value > 0
+    form.name.trim() &&
+    form.serviceType &&
+    form.baseUrl.trim() &&
+    isValidUrl(form.baseUrl) &&
+    (isUsingResponsesImport.value || totalKeyCount.value > 0)
   )
 })
 
@@ -2228,6 +2300,7 @@ const resetForm = () => {
   form.responseHeaderTimeout = undefined
   form.description = ''
   form.apiKeys = []
+  form.importFromResponsesChannelId = ''
   form.modelMapping = {}
   form.priceMultipliers = {}
   form.oauthTokens = undefined
@@ -2316,6 +2389,7 @@ const loadChannelData = (channel: Channel) => {
   // In edit mode, we don't receive actual API keys from the server (security)
   // Only new keys added during this edit session will be stored here
   form.apiKeys = []
+  form.importFromResponsesChannelId = ''
 
   // Store the existing key count for display
   existingKeyCount.value = channel.apiKeyCount || 0
@@ -2724,9 +2798,11 @@ const handleSubmit = async () => {
   const serviceType = form.serviceType as Channel['serviceType']
   const isOAuth = serviceType === 'openai-oauth'
   const isComposite = serviceType === 'composite'
+  const isResponsesImport =
+    props.channelType === 'messages' && serviceType === 'responses' && !!form.importFromResponsesChannelId
 
   // Composite/OAuth channels should not send user-entered API keys
-  const processedApiKeys = isOAuth || isComposite ? [] : form.apiKeys.filter(key => key.trim())
+  const processedApiKeys = isOAuth || isComposite || isResponsesImport ? [] : form.apiKeys.filter(key => key.trim())
 
   // OAuth uses fixed endpoint; composite must have empty baseUrl (backend invariant)
   const baseUrl = isOAuth
@@ -2791,6 +2867,10 @@ const handleSubmit = async () => {
               : 429
         }
       : undefined
+  }
+
+  if (isResponsesImport) {
+    channelData.importFromResponsesChannelId = form.importFromResponsesChannelId
   }
 
   // 对于 OAuth 渠道，添加 OAuth tokens
