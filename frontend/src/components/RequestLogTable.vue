@@ -1015,24 +1015,24 @@
           <!-- Stacked: First Token Duration + Duration -->
           <v-tooltip v-if="isStacked('firstTokenDurationMs')" location="top" max-width="340">
             <template v-slot:activator="{ props }">
-              <div v-bind="props" class="stacked-cell">
-                <span v-if="item.status === 'pending'" class="text-caption">
+              <div v-bind="props" class="stacked-cell stacked-duration-cell">
+                <span v-if="item.status === 'pending'" class="stacked-duration-value">
                   <v-progress-circular indeterminate size="10" width="1" color="grey" />
                 </span>
                 <span
                   v-else-if="hasFirstTokenMetric(item)"
-                  class="text-caption duration-text"
+                  class="stacked-duration-value duration-text"
                   :class="'duration-' + getDurationColor(item.firstTokenDurationMs ?? 0)"
                 >
                   {{ formatDuration(item.firstTokenDurationMs ?? 0) }}
                 </span>
-                <span v-else class="text-caption">—</span>
-                <span v-if="item.status === 'pending'" class="stacked-secondary">
+                <span v-else class="stacked-duration-value duration-text duration-muted">—</span>
+                <span v-if="item.status === 'pending'" class="stacked-duration-value">
                   <v-progress-circular indeterminate size="10" width="1" color="grey" />
                 </span>
                 <span
                   v-else
-                  class="stacked-secondary duration-text"
+                  class="stacked-duration-value duration-text"
                   :class="'duration-' + getDurationColor(item.durationMs)"
                 >
                   {{ formatDuration(item.durationMs) }}
@@ -3085,7 +3085,11 @@ const resetColumnWidths = () => {
 
 const allHeaders = [
   { title: () => t('requestLog.time'), key: 'initialTime', sortable: false },
-  { title: () => t('requestLog.firstTokenDuration'), key: 'firstTokenDurationMs', sortable: false },
+  {
+    title: () => (isStacked('firstTokenDurationMs') ? t('requestLog.duration') : t('requestLog.firstTokenDuration')),
+    key: 'firstTokenDurationMs',
+    sortable: false
+  },
   { title: () => t('requestLog.duration'), key: 'durationMs', sortable: false },
   { title: () => t('requestLog.channel'), key: 'providerName', sortable: false },
   { title: () => t('requestLog.model'), key: 'model', sortable: false },
@@ -3215,11 +3219,11 @@ const formatNumber = (n: number) => {
   return String(n)
 }
 
-// Format duration: 7-digit left-padded number + space + "ms" (e.g., "    352 ms")
-// Max 9999999ms = ~2.7 hours, sufficient for most requests
+// Format duration: 7-digit left-padded number + space + "ms" + trailing spacer.
+// Max 9999999ms = ~2.7 hours, sufficient for most requests.
 const formatDuration = (ms: number) => {
   const numStr = String(ms).slice(0, 7)
-  return numStr.padStart(7, '\u00A0') + '\u00A0ms'
+  return numStr.padStart(7, '\u00A0') + '\u00A0ms\u00A0\u00A0'
 }
 
 const hasFirstTokenMetric = (item: RequestLog) => {
@@ -5036,6 +5040,22 @@ const silentRefresh = async () => {
   gap: 1px;
   line-height: 1.3;
   padding: 2px 0;
+}
+
+.stacked-duration-cell {
+  align-items: flex-end;
+}
+
+.stacked-duration-value {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 10ch;
+  line-height: 1.2;
+}
+
+.duration-muted {
+  opacity: 0.7;
 }
 
 .stacked-secondary {
