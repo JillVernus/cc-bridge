@@ -74,6 +74,58 @@ func TestFirstTokenDetector_ResponsesSSE_PayloadTypeWinsOverStaleEvent(t *testin
 	}
 }
 
+func TestFirstTokenDetector_ResponsesSSE_ContentPartAddedFallback(t *testing.T) {
+	d := NewFirstTokenDetector(FirstTokenProtocolResponsesSSE)
+
+	if d.ObserveLine(`data: {"type":"response.content_part.added","part":{"type":"output_text","text":"   "}}`) {
+		t.Fatalf("whitespace output_text in content_part.added must not count as first token")
+	}
+	if !d.ObserveLine(`data: {"type":"response.content_part.added","part":{"type":"output_text","text":"hello"}}`) {
+		t.Fatalf("non-empty output_text in content_part.added should count as first token")
+	}
+}
+
+func TestFirstTokenDetector_ResponsesSSE_ContentPartAdded_IgnoresNonOutputTextPart(t *testing.T) {
+	d := NewFirstTokenDetector(FirstTokenProtocolResponsesSSE)
+
+	if d.ObserveLine(`data: {"type":"response.content_part.added","part":{"type":"refusal","text":"hello"}}`) {
+		t.Fatalf("non-output_text content_part must not count as first token")
+	}
+}
+
+func TestFirstTokenDetector_ResponsesSSE_CompletedOutputFallback(t *testing.T) {
+	d := NewFirstTokenDetector(FirstTokenProtocolResponsesSSE)
+
+	if d.ObserveLine(`data: {"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"   "}]}]}}`) {
+		t.Fatalf("whitespace-only completed output text must not count as first token")
+	}
+	if !d.ObserveLine(`data: {"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"hello"}]}]}}`) {
+		t.Fatalf("non-empty completed output text should count as first token")
+	}
+}
+
+func TestFirstTokenDetector_ResponsesSSE_OutputItemFallback(t *testing.T) {
+	d := NewFirstTokenDetector(FirstTokenProtocolResponsesSSE)
+
+	if !d.ObserveLine(`data: {"type":"response.output_item.added","item":{"type":"message","content":[{"type":"output_text","text":"hello"}]}}`) {
+		t.Fatalf("non-empty output_item output_text should count as first token")
+	}
+}
+
+func TestFirstTokenDetector_ResponsesSSE_OutputItemAndCompleted_IgnoresNonTextShapes(t *testing.T) {
+	d := NewFirstTokenDetector(FirstTokenProtocolResponsesSSE)
+
+	if d.ObserveLine(`data: {"type":"response.output_item.added","item":{"type":"function_call","arguments":"{\"cmd\":\"echo hi\"}"}}`) {
+		t.Fatalf("function_call output_item must not count as first token")
+	}
+	if d.ObserveLine(`data: {"type":"response.output_item.done","item":{"type":"message","content":[{"type":"refusal","text":"no"}]}}`) {
+		t.Fatalf("non-output_text content block in output_item must not count as first token")
+	}
+	if d.ObserveLine(`data: {"type":"response.completed","response":{"output":[{"type":"function_call","name":"exec_command"}]}}`) {
+		t.Fatalf("completed response without message output_text must not count as first token")
+	}
+}
+
 func TestFirstTokenDetector_StopAfterDetect(t *testing.T) {
 	d := NewFirstTokenDetector(FirstTokenProtocolClaudeSSE)
 

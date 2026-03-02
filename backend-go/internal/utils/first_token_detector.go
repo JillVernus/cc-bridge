@@ -215,9 +215,66 @@ func (d *FirstTokenDetector) detectResponsesText(payload string) bool {
 	case "response.output_text.done":
 		text, _ := msg["text"].(string)
 		return strings.TrimSpace(text) != ""
+	case "response.content_part.added", "response.content_part.done":
+		part, _ := msg["part"].(map[string]interface{})
+		partType, _ := part["type"].(string)
+		if partType != "output_text" {
+			return false
+		}
+		text, _ := part["text"].(string)
+		return strings.TrimSpace(text) != ""
+	case "response.output_item.added", "response.output_item.done":
+		item, _ := msg["item"].(map[string]interface{})
+		return hasResponseItemOutputText(item)
+	case "response.completed", "response.done":
+		responseObj, _ := msg["response"].(map[string]interface{})
+		return hasResponseOutputText(responseObj)
 	default:
 		return false
 	}
+}
+
+func hasResponseItemOutputText(item map[string]interface{}) bool {
+	if len(item) == 0 {
+		return false
+	}
+	itemType, _ := item["type"].(string)
+	if itemType != "message" {
+		return false
+	}
+	content, _ := item["content"].([]interface{})
+	for _, blockAny := range content {
+		block, ok := blockAny.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		blockType, _ := block["type"].(string)
+		if blockType != "output_text" {
+			continue
+		}
+		text, _ := block["text"].(string)
+		if strings.TrimSpace(text) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasResponseOutputText(responseObj map[string]interface{}) bool {
+	if len(responseObj) == 0 {
+		return false
+	}
+	output, _ := responseObj["output"].([]interface{})
+	for _, itemAny := range output {
+		item, ok := itemAny.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if hasResponseItemOutputText(item) {
+			return true
+		}
+	}
+	return false
 }
 
 func (d *FirstTokenDetector) detectGeminiText(payload string) bool {
