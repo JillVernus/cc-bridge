@@ -111,7 +111,14 @@ func (m *Manager) handleNotification(payload *NotificationPayload) {
 		if record, err := m.getCompleteRecordForSSE(payload.LogID); err == nil {
 			m.broadcaster.Broadcast(NewLogUpdatedEvent(payload.LogID, record))
 		} else {
-			log.Printf("⚠️ Failed to fetch complete record for SSE: %v", err)
+			// Fallback to partial record so status transitions (pending -> completed/error)
+			// are still delivered even if complete-row hydration fails.
+			if partial, partialErr := m.getPartialRecordForSSE(payload.LogID); partialErr == nil {
+				m.broadcaster.Broadcast(NewLogUpdatedEvent(payload.LogID, partial))
+			} else {
+				log.Printf("⚠️ Failed to fetch complete record for SSE: %v", err)
+				log.Printf("⚠️ Failed to fetch partial fallback record for SSE: %v", partialErr)
+			}
 		}
 	}
 }
