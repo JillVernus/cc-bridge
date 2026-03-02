@@ -4,6 +4,20 @@
 
 ---
 
+## [v1.5.3] - 2026-03-02
+
+### 🐛 修复
+
+- **First Token Duration 缺失值修复（流式请求）**:
+  - `/v1/responses` 在文本 token 检测失败时，回退为首个非空 SSE `data:` 事件时间。
+  - 同步补齐 `/v1/chat/completions`、`/v1/messages`、`/v1/gemini` 的同类回退逻辑，减少流式请求完成后首 Token 耗时为空的情况。
+
+- **Hook 日志首 Token 字段补齐**:
+  - `/api/logs/hooks/anthropic` 新增支持 `firstTokenTime` 与 `firstTokenDurationMs` 入库。
+  - 增加字段校验与 pending 状态归一化处理，保持日志生命周期语义一致。
+
+---
+
 ## [v1.5.2] - 2026-03-02
 
 ### ✨ 新功能
