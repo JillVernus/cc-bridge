@@ -972,7 +972,7 @@
 
         <template v-slot:item.status="{ item }">
           <div class="d-flex align-center ga-1">
-            <v-progress-circular v-if="item.status === 'pending'" indeterminate size="16" width="2" color="warning" />
+            <div v-if="item.status === 'pending'" class="skeleton-bar" style="width: 52px; height: 20px; border-radius: 10px;" />
             <v-tooltip v-else-if="item.error || item.upstreamError || item.failoverInfo" location="top" max-width="400">
               <template v-slot:activator="{ props }">
                 <v-chip v-bind="props" size="x-small" :color="getRequestStatusColor(item.status)" variant="flat">
@@ -1017,7 +1017,7 @@
             <template v-slot:activator="{ props }">
               <div v-bind="props" class="stacked-cell stacked-duration-cell">
                 <span v-if="item.status === 'pending'" class="stacked-duration-value">
-                  <v-progress-circular indeterminate size="10" width="1" color="grey" />
+                  <div class="skeleton-bar" style="width: 44px; height: 10px;" />
                 </span>
                 <span
                   v-else-if="hasFirstTokenMetric(item)"
@@ -1026,9 +1026,9 @@
                 >
                   {{ formatDuration(item.firstTokenDurationMs ?? 0) }}
                 </span>
-                <span v-else class="stacked-duration-value duration-text duration-muted">—</span>
+                <span v-else class="stacked-duration-value duration-text duration-muted">{{ formatFirstTokenDuration(item) }}</span>
                 <span v-if="item.status === 'pending'" class="stacked-duration-value">
-                  <v-progress-circular indeterminate size="10" width="1" color="grey" />
+                  <div class="skeleton-bar" style="width: 44px; height: 10px;" />
                 </span>
                 <span
                   v-else
@@ -1050,7 +1050,7 @@
               </div>
             </div>
           </v-tooltip>
-          <v-progress-circular v-else-if="item.status === 'pending'" indeterminate size="16" width="2" color="grey" />
+          <div v-else-if="item.status === 'pending'" class="skeleton-bar" style="width: 60px; height: 12px;" />
           <span
             v-else-if="hasFirstTokenMetric(item)"
             class="duration-text"
@@ -1062,14 +1062,17 @@
         </template>
 
         <template v-slot:item.durationMs="{ item }">
-          <v-progress-circular v-if="item.status === 'pending'" indeterminate size="16" width="2" color="grey" />
+          <div v-if="item.status === 'pending'" class="skeleton-bar" style="width: 56px; height: 12px;" />
           <span v-else class="duration-text" :class="'duration-' + getDurationColor(item.durationMs)">
             {{ formatDuration(item.durationMs) }}
           </span>
         </template>
 
         <template v-slot:item.providerName="{ item }">
-          <v-progress-circular v-if="item.status === 'pending'" indeterminate size="16" width="2" color="grey" />
+          <div v-if="item.status === 'pending'" class="d-flex flex-column ga-1">
+            <div class="skeleton-bar" style="width: 80px; height: 12px;" />
+            <div class="skeleton-bar" style="width: 56px; height: 10px;" />
+          </div>
           <!-- Stacked: Channel + Model -->
           <v-tooltip v-else-if="isStacked('providerName')" location="top" max-width="400">
             <template v-slot:activator="{ props }">
@@ -1291,7 +1294,7 @@
         </template>
 
         <template v-slot:item.tokens="{ item }">
-          <v-progress-circular v-if="item.status === 'pending'" indeterminate size="14" width="2" color="grey" />
+          <div v-if="item.status === 'pending'" class="skeleton-bar" style="width: 72px; height: 12px;" />
           <v-tooltip v-else location="top" max-width="300">
             <template v-slot:activator="{ props }">
               <div v-bind="props" class="tokens-stacked">
@@ -1339,7 +1342,7 @@
         </template>
 
         <template v-slot:item.price="{ item }">
-          <v-progress-circular v-if="item.status === 'pending'" indeterminate size="16" width="2" color="grey" />
+          <div v-if="item.status === 'pending'" class="skeleton-bar" style="width: 48px; height: 12px;" />
           <v-tooltip v-else-if="hasCostBreakdown(item)" location="top" max-width="300">
             <template v-slot:activator="{ props }">
               <span
@@ -3231,7 +3234,7 @@ const hasFirstTokenMetric = (item: RequestLog) => {
 }
 
 const formatFirstTokenDuration = (item: RequestLog) => {
-  if (!hasFirstTokenMetric(item)) return '—'
+  if (!hasFirstTokenMetric(item)) return '—\u00A0\u00A0'
   return formatDuration(item.firstTokenDurationMs ?? 0)
 }
 
@@ -4001,6 +4004,33 @@ const silentRefresh = async () => {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* Skeleton shimmer for pending rows */
+@keyframes shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.skeleton-bar {
+  position: relative;
+  display: inline-block;
+  border-radius: 4px;
+  overflow: hidden;
+  background: rgba(var(--v-theme-on-surface), 0.08);
+}
+
+.skeleton-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(var(--v-theme-on-surface), 0.15) 50%,
+    transparent 100%
+  );
+  animation: shimmer 1.4s ease-in-out infinite;
 }
 
 .summary-card {
