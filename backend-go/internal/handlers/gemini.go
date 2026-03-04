@@ -891,6 +891,8 @@ func tryGeminiChannel(
 
 					select {
 					case <-time.After(decision.Wait):
+						currentStartTime = time.Now() // exclude on-hold wait from duration metrics
+						*startTime = currentStartTime
 						pinnedKey = apiKey
 						retryWaitPending = true
 						continue
@@ -1068,6 +1070,8 @@ func tryGeminiChannel(
 
 					select {
 					case <-time.After(decision.Wait):
+						currentStartTime = time.Now() // exclude on-hold wait from duration metrics
+						*startTime = currentStartTime
 						pinnedKey = apiKey      // Pin for next attempt
 						retryWaitPending = true // Allow loop to continue
 						continue

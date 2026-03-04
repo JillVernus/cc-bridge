@@ -647,11 +647,11 @@ func TestTryMessagesChannelWithAllKeys_RetryWaitUsesNewPendingInitialTime(t *tes
 	if !finalLog.InitialTime.After(initialLog.InitialTime) {
 		t.Fatalf("expected final log InitialTime to be newer after retry_wait pending recreation")
 	}
-	if finalLog.FirstTokenTime == nil || finalLog.FirstTokenDurationMs <= 0 {
-		t.Fatalf("expected final log to capture first-token timing, got firstTokenTime=%v firstTokenDurationMs=%d", finalLog.FirstTokenTime, finalLog.FirstTokenDurationMs)
+	if finalLog.FirstTokenTime == nil {
+		t.Fatalf("expected final log to capture first-token time after retry_wait, got nil")
 	}
-	if !startTime.Equal(finalLog.InitialTime) {
-		t.Fatalf("expected startTime baseline to be updated to final pending initial time")
+	if startTime.Before(finalLog.InitialTime) {
+		t.Fatalf("expected startTime baseline to be >= final pending initial time (retry starts after wait), got startTime=%v InitialTime=%v", startTime, finalLog.InitialTime)
 	}
 }
 

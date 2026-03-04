@@ -912,6 +912,7 @@ func tryResponsesChannelWithAllKeys(
 
 					select {
 					case <-time.After(decision.Wait):
+						currentStartTime = time.Now() // exclude on-hold wait from duration metrics
 						pinnedKey = apiKey      // Pin for next attempt
 						retryWaitPending = true // Allow loop to continue
 						continue
@@ -1089,6 +1090,7 @@ func tryResponsesChannelWithAllKeys(
 
 					select {
 					case <-time.After(decision.Wait):
+						currentStartTime = time.Now() // exclude on-hold wait from duration metrics
 						pinnedKey = apiKey      // Pin for next attempt
 						retryWaitPending = true // Allow loop to continue
 						continue
@@ -1882,6 +1884,7 @@ func handleSingleChannelResponses(
 
 					select {
 					case <-time.After(decision.Wait):
+						currentStartTime = time.Now() // exclude on-hold wait from duration metrics
 						pinnedKey = apiKey      // Pin for next attempt
 						retryWaitPending = true // Allow loop to continue
 						continue
@@ -2068,6 +2071,7 @@ func handleSingleChannelResponses(
 
 					select {
 					case <-time.After(decision.Wait):
+						currentStartTime = time.Now() // exclude on-hold wait from duration metrics
 						pinnedKey = apiKey      // Pin for next attempt
 						retryWaitPending = true // Allow loop to continue
 						continue
