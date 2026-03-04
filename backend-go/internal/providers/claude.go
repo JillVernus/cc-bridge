@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -18,36 +19,75 @@ import (
 // ClaudeProvider Claude 提供商（直接透传）
 type ClaudeProvider struct{}
 
+func truncateForLog(s string, maxChars int) string {
+	runes := []rune(s)
+	if len(runes) <= maxChars {
+		return s
+	}
+	if maxChars <= 3 {
+		return string(runes[:maxChars])
+	}
+	return string(runes[:maxChars-3]) + "..."
+}
+
+func remapClaudeRequestModel(bodyBytes []byte, upstream *config.UpstreamConfig) ([]byte, error) {
+	if len(bodyBytes) == 0 || upstream == nil || len(upstream.ModelMapping) == 0 {
+		return bodyBytes, nil
+	}
+
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+		// Keep passthrough behavior for non-JSON bodies.
+		return bodyBytes, nil
+	}
+
+	rawModel, ok := payload["model"]
+	if !ok {
+		return bodyBytes, nil
+	}
+
+	var model string
+	if err := json.Unmarshal(rawModel, &model); err != nil {
+		return bodyBytes, nil
+	}
+
+	redirectedModel := config.RedirectModel(model, upstream)
+	if redirectedModel == model {
+		return bodyBytes, nil
+	}
+	log.Printf("🔀 [Model Mapping] channel=%q %q → %q",
+		upstream.Name, truncateForLog(model, 50), truncateForLog(redirectedModel, 50))
+
+	encodedModel, err := json.Marshal(redirectedModel)
+	if err != nil {
+		return nil, err
+	}
+	payload["model"] = encodedModel
+
+	remappedBody, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	return remappedBody, nil
+}
+
 // ConvertToProviderRequest 转换为 Claude 请求（实现真正的透传）
 func (p *ClaudeProvider) ConvertToProviderRequest(c *gin.Context, upstream *config.UpstreamConfig, apiKey string) (*http.Request, []byte, error) {
 	var bodyBytes []byte
 	var err error
 
-	// 仅在需要模型重定向时才解析和重构请求体
-	if upstream.ModelMapping != nil && len(upstream.ModelMapping) > 0 {
-		bodyBytes, err = io.ReadAll(c.Request.Body)
-		if err != nil {
-			return nil, nil, err
-		}
-		c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes)) // 恢复body
+	// 读取原始请求体用于日志与转发
+	bodyBytes, err = io.ReadAll(c.Request.Body)
+	if err != nil {
+		return nil, nil, err
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes)) // 恢复body
 
-		var claudeReq types.ClaudeRequest
-		if err := json.Unmarshal(bodyBytes, &claudeReq); err != nil {
-			return nil, bodyBytes, err
-		}
-		claudeReq.Model = config.RedirectModel(claudeReq.Model, upstream)
-
-		bodyBytes, err = json.Marshal(claudeReq)
-		if err != nil {
-			return nil, nil, err
-		}
-	} else {
-		// 如果不需要模型重定向，则直接从原始请求中读取body用于日志和请求转发
-		bodyBytes, err = io.ReadAll(c.Request.Body)
-		if err != nil {
-			return nil, nil, err
-		}
-		c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes)) // 恢复body
+	// 仅重写 model 字段，保留其余原始 payload 结构
+	bodyBytes, err = remapClaudeRequestModel(bodyBytes, upstream)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	// 构建目标URL

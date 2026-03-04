@@ -66,3 +66,55 @@ func TestRedirectModel_AllowsUnknownSuffix_PassThrough(t *testing.T) {
 		t.Fatalf("expected unknown suffix to be propagated, got %q", got)
 	}
 }
+
+// TestRedirectModel_FuzzyMatchOpus tests the exact user-reported scenario:
+// mapping "opus" -> "claude-opus-4-5" should match "claude-opus-4.6"
+func TestRedirectModel_FuzzyMatchOpus(t *testing.T) {
+	testCases := []struct {
+		name     string
+		mapping  map[string]string
+		model    string
+		expected string
+	}{
+		{
+			name:     "opus matches claude-opus-4.6",
+			mapping:  map[string]string{"opus": "claude-opus-4-5"},
+			model:    "claude-opus-4.6",
+			expected: "claude-opus-4-5",
+		},
+		{
+			name:     "opus matches claude-opus-4-6 (dashes)",
+			mapping:  map[string]string{"opus": "claude-opus-4-5"},
+			model:    "claude-opus-4-6",
+			expected: "claude-opus-4-5",
+		},
+		{
+			name:     "opus matches claude-3-opus-20240229",
+			mapping:  map[string]string{"opus": "claude-opus-4-5"},
+			model:    "claude-3-opus-20240229",
+			expected: "claude-opus-4-5",
+		},
+		{
+			name:     "sonnet should not match opus model",
+			mapping:  map[string]string{"opus": "claude-opus-4-5"},
+			model:    "claude-3-sonnet-20240229",
+			expected: "claude-3-sonnet-20240229", // unchanged
+		},
+		{
+			name:     "exact opus matches",
+			mapping:  map[string]string{"opus": "claude-opus-4-5"},
+			model:    "opus",
+			expected: "claude-opus-4-5",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			up := &UpstreamConfig{ModelMapping: tc.mapping}
+			got := RedirectModel(tc.model, up)
+			if got != tc.expected {
+				t.Errorf("RedirectModel(%q) = %q, want %q", tc.model, got, tc.expected)
+			}
+		})
+	}
+}

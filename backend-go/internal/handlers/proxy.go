@@ -86,7 +86,7 @@ func ProxyHandlerWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.ConfigM
 		// claudeReq 变量用于判断是否流式请求和提取 user_id
 		var claudeReq types.ClaudeRequest
 		if len(bodyBytes) > 0 {
-			_ = json.Unmarshal(bodyBytes, &claudeReq)
+			claudeReq = parseClaudeRequestForRouting(bodyBytes)
 		}
 
 		// Check model permission
@@ -155,6 +155,38 @@ func ProxyHandlerWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.ConfigM
 			handleSingleChannelProxy(c, envCfg, cfgManager, channelScheduler, bodyBytes, claudeReq, startTime, reqLogManager, requestLogID, usageManager, allowedChannelsMsg, allowedChannelsResp, failoverTracker, userID, sessionID, apiKeyID, channelRateLimiter)
 		}
 	})
+}
+
+func parseClaudeRequestForRouting(bodyBytes []byte) types.ClaudeRequest {
+	var req types.ClaudeRequest
+	if len(bodyBytes) == 0 {
+		return req
+	}
+
+	if err := json.Unmarshal(bodyBytes, &req); err == nil {
+		return req
+	}
+
+	// Fallback for payloads that are valid JSON but not strictly compatible with
+	// ClaudeRequest (for example nullable/non-standard fields). We only need
+	// routing-critical fields here.
+	var raw map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &raw); err != nil {
+		return req
+	}
+
+	if model, ok := raw["model"].(string); ok {
+		req.Model = strings.TrimSpace(model)
+	}
+
+	switch stream := raw["stream"].(type) {
+	case bool:
+		req.Stream = stream
+	case string:
+		req.Stream = strings.EqualFold(strings.TrimSpace(stream), "true")
+	}
+
+	return req
 }
 
 // extractUserID 从请求体中提取 user_id
