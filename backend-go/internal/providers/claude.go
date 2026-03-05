@@ -152,39 +152,59 @@ func (p *ClaudeProvider) HandleStreamResponse(body io.ReadCloser) (<-chan string
 		defer close(errChan)
 		defer body.Close()
 
-		scanner := bufio.NewScanner(body)
-		// Increase max line size to avoid breaking on large SSE chunks (default is ~64KB).
-		const maxCapacity = 4 * 1024 * 1024 // 4MB
-		buf := make([]byte, 0, 64*1024)     // initial 64KB
-		scanner.Buffer(buf, maxCapacity)
+		// Use Reader.ReadString('\n') instead of Scanner to avoid hard token limits.
+		// Some upstream SSE lines (e.g., large signatures / tool args) can exceed scanner caps.
+		reader := bufio.NewReaderSize(body, 64*1024)
 		toolUseStopEmitted := false
 
-		for scanner.Scan() {
-			line := scanner.Text()
-
-			// 直接转发 SSE 事件（包括空行）
-			if strings.HasPrefix(line, "event:") || strings.HasPrefix(line, "data:") || line == "" {
-				eventChan <- line + "\n"
-
-				// 检测是否发送了 tool_use 相关的 stop_reason
-				if strings.Contains(line, `"stop_reason":"tool_use"`) ||
-					strings.Contains(line, `"stop_reason": "tool_use"`) {
-					toolUseStopEmitted = true
-				}
+		for {
+			line, err := reader.ReadString('\n')
+			if len(line) == 0 && err == io.EOF {
+				break
 			}
-		}
 
-		if err := scanner.Err(); err != nil {
-			// 在 tool_use 场景下，客户端主动断开是正常行为
-			// 如果已经发送了 tool_use stop 事件，并且错误是连接断开相关的，则忽略该错误
-			errMsg := err.Error()
-			if toolUseStopEmitted && (strings.Contains(errMsg, "broken pipe") ||
-				strings.Contains(errMsg, "connection reset") ||
-				strings.Contains(errMsg, "EOF")) {
-				// 这是预期的客户端行为，不报告错误
+			trimmed := strings.TrimSpace(strings.TrimRight(line, "\r\n"))
+			outLine := ""
+
+			switch {
+			case strings.HasPrefix(trimmed, "event:") || strings.HasPrefix(trimmed, "data:"):
+				// Standard SSE lines (allow either "data:..." or "data: ...").
+				outLine = trimmed
+			case trimmed == "":
+				// SSE event delimiter.
+				outLine = ""
+			case json.Valid([]byte(trimmed)):
+				// Some upstreams occasionally emit bare JSON lines in stream mode
+				// (missing "data:" prefix). Normalize to valid SSE data line.
+				outLine = "data: " + trimmed
+			default:
+				// Ignore non-SSE/non-JSON noise lines to preserve passthrough safety.
+				continue
+			}
+
+			eventChan <- outLine + "\n"
+
+			// 检测是否发送了 tool_use 相关的 stop_reason
+			if strings.Contains(outLine, `"stop_reason":"tool_use"`) ||
+				strings.Contains(outLine, `"stop_reason": "tool_use"`) {
+				toolUseStopEmitted = true
+			}
+
+			if err != nil {
+				// 在 tool_use 场景下，客户端主动断开是正常行为
+				// 如果已经发送了 tool_use stop 事件，并且错误是连接断开相关的，则忽略该错误
+				errMsg := err.Error()
+				if toolUseStopEmitted && (strings.Contains(errMsg, "broken pipe") ||
+					strings.Contains(errMsg, "connection reset") ||
+					strings.Contains(errMsg, "EOF")) {
+					// 这是预期的客户端行为，不报告错误
+					return
+				}
+				if err != io.EOF {
+					errChan <- err
+				}
 				return
 			}
-			errChan <- err
 		}
 	}()
 
