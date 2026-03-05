@@ -1064,8 +1064,8 @@ func tryChannelWithAllKeys(
 					select {
 					case <-time.After(decision.Wait):
 						currentStartTime = time.Now() // exclude on-hold wait from duration metrics
-						pinnedKey = apiKey      // Pin for next attempt
-						retryWaitPending = true // Allow loop to continue
+						pinnedKey = apiKey            // Pin for next attempt
+						retryWaitPending = true       // Allow loop to continue
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
@@ -1244,8 +1244,8 @@ func tryChannelWithAllKeys(
 					select {
 					case <-time.After(decision.Wait):
 						currentStartTime = time.Now() // exclude on-hold wait from duration metrics
-						pinnedKey = apiKey      // Pin for next attempt
-						retryWaitPending = true // Allow loop to continue
+						pinnedKey = apiKey            // Pin for next attempt
+						retryWaitPending = true       // Allow loop to continue
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
@@ -2008,8 +2008,8 @@ func handleSingleChannelProxy(
 					select {
 					case <-time.After(decision.Wait):
 						currentStartTime = time.Now() // exclude on-hold wait from duration metrics
-						pinnedKey = apiKey      // Pin for next attempt
-						retryWaitPending = true // Allow loop to continue
+						pinnedKey = apiKey            // Pin for next attempt
+						retryWaitPending = true       // Allow loop to continue
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
@@ -2182,8 +2182,8 @@ func handleSingleChannelProxy(
 					select {
 					case <-time.After(decision.Wait):
 						currentStartTime = time.Now() // exclude on-hold wait from duration metrics
-						pinnedKey = apiKey      // Pin for next attempt
-						retryWaitPending = true // Allow loop to continue
+						pinnedKey = apiKey            // Pin for next attempt
+						retryWaitPending = true       // Allow loop to continue
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
@@ -2441,6 +2441,11 @@ func sendRequest(req *http.Request, upstream *config.UpstreamConfig, envCfg *con
 
 	if upstream.InsecureSkipVerify && envCfg.EnableRequestLogs {
 		log.Printf("⚠️ 正在跳过对 %s 的TLS证书验证", req.URL.String())
+	}
+
+	// Claude 流式请求必须显式声明 SSE 接受类型，避免部分网关返回非标准分段。
+	if isStream && upstream.ServiceType == "claude" {
+		req.Header.Set("Accept", "text/event-stream")
 	}
 
 	if envCfg.EnableRequestLogs {
@@ -2803,113 +2808,160 @@ func handleStreamResponse(
 	}
 	flusher.Flush()
 
+	finalizeStreamSuccess := func() {
+		completeTime := time.Now()
+		durationMs := completeTime.Sub(startTime).Milliseconds()
+
+		if envCfg.EnableResponseLogs {
+			log.Printf("⏱️ 流式响应完成: %dms", durationMs)
+
+			// 打印完整的响应内容
+			if envCfg.IsDevelopment() {
+				if synthesizer != nil {
+					synthesizedContent := synthesizer.GetSynthesizedContent()
+					parseFailed := synthesizer.IsParseFailed()
+					if synthesizedContent != "" && !parseFailed {
+						log.Printf("🛰️  上游流式响应合成内容:\n%s", strings.TrimSpace(synthesizedContent))
+					} else if logBuffer.Len() > 0 {
+						log.Printf("🛰️  上游流式响应原始内容:\n%s", logBuffer.String())
+					}
+				} else if logBuffer.Len() > 0 {
+					// synthesizer为nil时，直接打印原始内容
+					log.Printf("🛰️  上游流式响应原始内容:\n%s", logBuffer.String())
+				}
+			}
+		}
+
+		// 更新请求日志（所有上游都更新；usage/成本仅在可提取时填充）
+		if reqLogManager != nil && requestLogID != "" {
+			var usage *utils.StreamUsage
+			responseModel := ""
+
+			if synthesizer != nil {
+				usage = synthesizer.GetUsage()
+				responseModel = synthesizer.GetModel()
+			}
+
+			pricingModel := responseModel
+			if pricingModel == "" {
+				pricingModel = requestModel
+			} else if pm := pricing.GetManager(); pm != nil && !pm.HasPricing(pricingModel) && requestModel != "" {
+				pricingModel = requestModel
+			}
+			if firstTokenTime == nil && firstStreamPayloadTime != nil {
+				firstTokenTime = firstStreamPayloadTime
+			}
+
+			record := &requestlog.RequestLog{
+				Status:               requestlog.StatusCompleted,
+				CompleteTime:         completeTime,
+				DurationMs:           durationMs,
+				FirstTokenTime:       firstTokenTime,
+				FirstTokenDurationMs: firstTokenDurationFromStart(startTime, firstTokenTime),
+				Type:                 upstream.ServiceType,
+				ProviderName:         upstream.Name,
+				ResponseModel:        responseModel,
+				HTTPStatus:           resp.StatusCode,
+				ChannelID:            logChannelIndex,
+				ChannelName:          logChannelName,
+			}
+
+			if usage != nil {
+				record.InputTokens = usage.InputTokens
+				record.OutputTokens = usage.OutputTokens
+				record.CacheCreationInputTokens = usage.CacheCreationInputTokens
+				record.CacheReadInputTokens = usage.CacheReadInputTokens
+				record.TotalTokens = usage.TotalTokens
+
+				if pm := pricing.GetManager(); pm != nil {
+					var multipliers *pricing.PriceMultipliers
+					if channelMult := upstream.GetPriceMultipliers(pricingModel); channelMult != nil {
+						multipliers = &pricing.PriceMultipliers{
+							InputMultiplier:         channelMult.GetEffectiveMultiplier("input"),
+							OutputMultiplier:        channelMult.GetEffectiveMultiplier("output"),
+							CacheCreationMultiplier: channelMult.GetEffectiveMultiplier("cacheCreation"),
+							CacheReadMultiplier:     channelMult.GetEffectiveMultiplier("cacheRead"),
+						}
+					}
+					breakdown := pm.CalculateCostWithBreakdown(
+						pricingModel,
+						usage.InputTokens,
+						usage.OutputTokens,
+						usage.CacheCreationInputTokens,
+						usage.CacheReadInputTokens,
+						multipliers,
+					)
+					record.Price = breakdown.TotalCost
+					record.InputCost = breakdown.InputCost
+					record.OutputCost = breakdown.OutputCost
+					record.CacheCreationCost = breakdown.CacheCreationCost
+					record.CacheReadCost = breakdown.CacheReadCost
+				}
+			}
+
+			if err := reqLogManager.Update(requestLogID, record); err != nil {
+				log.Printf("⚠️ 请求日志更新失败: %v", err)
+			}
+
+			// Save debug log if enabled (use logBuffer for stream response body)
+			SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, logBuffer.Bytes())
+
+			// Track usage for quota (stream responses are successful when channel closed)
+			trackMessagesUsage(usageManager, upstream, requestModel, record.Price)
+		}
+	}
+
+	finalizeStreamError := func(streamErr error) {
+		// 真的有错误发生
+		log.Printf("💥 流式传输错误: %v", streamErr)
+
+		// 打印已接收到的部分响应
+		if envCfg.EnableResponseLogs && envCfg.IsDevelopment() {
+			if synthesizer != nil {
+				synthesizedContent := synthesizer.GetSynthesizedContent()
+				if synthesizedContent != "" && !synthesizer.IsParseFailed() {
+					log.Printf("🛰️  上游流式响应合成内容 (部分):\n%s", strings.TrimSpace(synthesizedContent))
+				} else if logBuffer.Len() > 0 {
+					log.Printf("🛰️  上游流式响应原始内容 (部分):\n%s", logBuffer.String())
+				}
+			}
+		}
+		if reqLogManager != nil && requestLogID != "" {
+			completeTime := time.Now()
+			if firstTokenTime == nil && firstStreamPayloadTime != nil {
+				firstTokenTime = firstStreamPayloadTime
+			}
+			record := &requestlog.RequestLog{
+				Status:               requestlog.StatusError,
+				CompleteTime:         completeTime,
+				DurationMs:           completeTime.Sub(startTime).Milliseconds(),
+				FirstTokenTime:       firstTokenTime,
+				FirstTokenDurationMs: firstTokenDurationFromStart(startTime, firstTokenTime),
+				Type:                 upstream.ServiceType,
+				ProviderName:         upstream.Name,
+				HTTPStatus:           resp.StatusCode,
+				ChannelID:            logChannelIndex,
+				ChannelName:          logChannelName,
+				Error:                streamErr.Error(),
+			}
+			_ = reqLogManager.Update(requestLogID, record)
+		}
+	}
+
 	clientGone := false
+	eventStream := eventChan
+	errorStream := errChan
 	for {
+		if eventStream == nil && errorStream == nil {
+			finalizeStreamSuccess()
+			return
+		}
+
 		select {
-		case event, ok := <-eventChan:
+		case event, ok := <-eventStream:
 			if !ok {
-				// 通道关闭，流式传输结束
-				completeTime := time.Now()
-				durationMs := completeTime.Sub(startTime).Milliseconds()
-
-				if envCfg.EnableResponseLogs {
-					log.Printf("⏱️ 流式响应完成: %dms", durationMs)
-
-					// 打印完整的响应内容
-					if envCfg.IsDevelopment() {
-						if synthesizer != nil {
-							synthesizedContent := synthesizer.GetSynthesizedContent()
-							parseFailed := synthesizer.IsParseFailed()
-							if synthesizedContent != "" && !parseFailed {
-								log.Printf("🛰️  上游流式响应合成内容:\n%s", strings.TrimSpace(synthesizedContent))
-							} else if logBuffer.Len() > 0 {
-								log.Printf("🛰️  上游流式响应原始内容:\n%s", logBuffer.String())
-							}
-						} else if logBuffer.Len() > 0 {
-							// synthesizer为nil时，直接打印原始内容
-							log.Printf("🛰️  上游流式响应原始内容:\n%s", logBuffer.String())
-						}
-					}
-				}
-
-				// 更新请求日志（所有上游都更新；usage/成本仅在可提取时填充）
-				if reqLogManager != nil && requestLogID != "" {
-					var usage *utils.StreamUsage
-					responseModel := ""
-
-					if synthesizer != nil {
-						usage = synthesizer.GetUsage()
-						responseModel = synthesizer.GetModel()
-					}
-
-					pricingModel := responseModel
-					if pricingModel == "" {
-						pricingModel = requestModel
-					} else if pm := pricing.GetManager(); pm != nil && !pm.HasPricing(pricingModel) && requestModel != "" {
-						pricingModel = requestModel
-					}
-					if firstTokenTime == nil && firstStreamPayloadTime != nil {
-						firstTokenTime = firstStreamPayloadTime
-					}
-
-					record := &requestlog.RequestLog{
-						Status:               requestlog.StatusCompleted,
-						CompleteTime:         completeTime,
-						DurationMs:           durationMs,
-						FirstTokenTime:       firstTokenTime,
-						FirstTokenDurationMs: firstTokenDurationFromStart(startTime, firstTokenTime),
-						Type:                 upstream.ServiceType,
-						ProviderName:         upstream.Name,
-						ResponseModel:        responseModel,
-						HTTPStatus:           resp.StatusCode,
-						ChannelID:            logChannelIndex,
-						ChannelName:          logChannelName,
-					}
-
-					if usage != nil {
-						record.InputTokens = usage.InputTokens
-						record.OutputTokens = usage.OutputTokens
-						record.CacheCreationInputTokens = usage.CacheCreationInputTokens
-						record.CacheReadInputTokens = usage.CacheReadInputTokens
-						record.TotalTokens = usage.TotalTokens
-
-						if pm := pricing.GetManager(); pm != nil {
-							var multipliers *pricing.PriceMultipliers
-							if channelMult := upstream.GetPriceMultipliers(pricingModel); channelMult != nil {
-								multipliers = &pricing.PriceMultipliers{
-									InputMultiplier:         channelMult.GetEffectiveMultiplier("input"),
-									OutputMultiplier:        channelMult.GetEffectiveMultiplier("output"),
-									CacheCreationMultiplier: channelMult.GetEffectiveMultiplier("cacheCreation"),
-									CacheReadMultiplier:     channelMult.GetEffectiveMultiplier("cacheRead"),
-								}
-							}
-							breakdown := pm.CalculateCostWithBreakdown(
-								pricingModel,
-								usage.InputTokens,
-								usage.OutputTokens,
-								usage.CacheCreationInputTokens,
-								usage.CacheReadInputTokens,
-								multipliers,
-							)
-							record.Price = breakdown.TotalCost
-							record.InputCost = breakdown.InputCost
-							record.OutputCost = breakdown.OutputCost
-							record.CacheCreationCost = breakdown.CacheCreationCost
-							record.CacheReadCost = breakdown.CacheReadCost
-						}
-					}
-
-					if err := reqLogManager.Update(requestLogID, record); err != nil {
-						log.Printf("⚠️ 请求日志更新失败: %v", err)
-					}
-
-					// Save debug log if enabled (use logBuffer for stream response body)
-					SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, logBuffer.Bytes())
-
-					// Track usage for quota (stream responses are successful when channel closed)
-					trackMessagesUsage(usageManager, upstream, requestModel, record.Price)
-				}
-				return
+				eventStream = nil
+				continue
 			}
 
 			// 缓存事件用于最后的日志输出和 usage 提取
@@ -2948,46 +3000,14 @@ func handleStreamResponse(
 				}
 			}
 
-		case err, ok := <-errChan:
+		case streamErr, ok := <-errorStream:
 			if !ok {
-				// errChan关闭，但这不一定意味着流结束，继续等待eventChan
+				// errChan 关闭，继续等待 eventChan 关闭，避免误判提前完成
+				errorStream = nil
 				continue
 			}
-			if err != nil {
-				// 真的有错误发生
-				log.Printf("💥 流式传输错误: %v", err)
-
-				// 打印已接收到的部分响应
-				if envCfg.EnableResponseLogs && envCfg.IsDevelopment() {
-					if synthesizer != nil {
-						synthesizedContent := synthesizer.GetSynthesizedContent()
-						if synthesizedContent != "" && !synthesizer.IsParseFailed() {
-							log.Printf("🛰️  上游流式响应合成内容 (部分):\n%s", strings.TrimSpace(synthesizedContent))
-						} else if logBuffer.Len() > 0 {
-							log.Printf("🛰️  上游流式响应原始内容 (部分):\n%s", logBuffer.String())
-						}
-					}
-				}
-				if reqLogManager != nil && requestLogID != "" {
-					completeTime := time.Now()
-					if firstTokenTime == nil && firstStreamPayloadTime != nil {
-						firstTokenTime = firstStreamPayloadTime
-					}
-					record := &requestlog.RequestLog{
-						Status:               requestlog.StatusError,
-						CompleteTime:         completeTime,
-						DurationMs:           completeTime.Sub(startTime).Milliseconds(),
-						FirstTokenTime:       firstTokenTime,
-						FirstTokenDurationMs: firstTokenDurationFromStart(startTime, firstTokenTime),
-						Type:                 upstream.ServiceType,
-						ProviderName:         upstream.Name,
-						HTTPStatus:           resp.StatusCode,
-						ChannelID:            logChannelIndex,
-						ChannelName:          logChannelName,
-						Error:                err.Error(),
-					}
-					_ = reqLogManager.Update(requestLogID, record)
-				}
+			if streamErr != nil {
+				finalizeStreamError(streamErr)
 				return
 			}
 		}

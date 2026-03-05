@@ -156,6 +156,15 @@ func (p *ClaudeProvider) HandleStreamResponse(body io.ReadCloser) (<-chan string
 		// Some upstream SSE lines (e.g., large signatures / tool args) can exceed scanner caps.
 		reader := bufio.NewReaderSize(body, 64*1024)
 		toolUseStopEmitted := false
+		blockLines := make([]string, 0, 4)
+
+		flushBlock := func() {
+			if len(blockLines) == 0 {
+				return
+			}
+			eventChan <- strings.Join(blockLines, "\n") + "\n\n"
+			blockLines = blockLines[:0]
+		}
 
 		for {
 			line, err := reader.ReadString('\n')
@@ -172,22 +181,23 @@ func (p *ClaudeProvider) HandleStreamResponse(body io.ReadCloser) (<-chan string
 				outLine = trimmed
 			case trimmed == "":
 				// SSE event delimiter.
-				outLine = ""
+				flushBlock()
 			case json.Valid([]byte(trimmed)):
 				// Some upstreams occasionally emit bare JSON lines in stream mode
 				// (missing "data:" prefix). Normalize to valid SSE data line.
 				outLine = "data: " + trimmed
 			default:
 				// Ignore non-SSE/non-JSON noise lines to preserve passthrough safety.
-				continue
+				outLine = ""
 			}
 
-			eventChan <- outLine + "\n"
-
-			// 检测是否发送了 tool_use 相关的 stop_reason
-			if strings.Contains(outLine, `"stop_reason":"tool_use"`) ||
-				strings.Contains(outLine, `"stop_reason": "tool_use"`) {
-				toolUseStopEmitted = true
+			if outLine != "" {
+				blockLines = append(blockLines, outLine)
+				// 检测是否发送了 tool_use 相关的 stop_reason
+				if strings.Contains(outLine, `"stop_reason":"tool_use"`) ||
+					strings.Contains(outLine, `"stop_reason": "tool_use"`) {
+					toolUseStopEmitted = true
+				}
 			}
 
 			if err != nil {
@@ -200,12 +210,15 @@ func (p *ClaudeProvider) HandleStreamResponse(body io.ReadCloser) (<-chan string
 					// 这是预期的客户端行为，不报告错误
 					return
 				}
+				flushBlock()
 				if err != io.EOF {
 					errChan <- err
 				}
 				return
 			}
 		}
+
+		flushBlock()
 	}()
 
 	return eventChan, errChan, nil

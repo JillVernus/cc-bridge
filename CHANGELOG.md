@@ -4,6 +4,18 @@
 
 ---
 
+## [v1.5.7] - 2026-03-05
+
+### 🐛 修复
+
+- **Claude Messages SSE 首事件被拆分导致客户端误判流结束**:
+  - `ClaudeProvider` 改为按完整 SSE 事件块（`event + data + blank line`）转发，不再逐行分发，避免 `event: message_start` 单独成为首包。
+  - `handleStreamResponse` 结束判定改为等待 `eventChan` 与 `errChan` 都关闭，防止错过尾部传输错误并误记 `completed`。
+  - Claude 流式上游请求显式设置 `Accept: text/event-stream`，提升经网关转发时的流式稳定性。
+  - 新增回归测试：SSE 事件块原子转发、流关闭与错误通道竞态、Claude 流式 Accept 头覆盖。
+
+---
+
 ## [v1.5.6] - 2026-03-05
 
 ### 🐛 修复

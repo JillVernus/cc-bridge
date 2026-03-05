@@ -71,6 +71,43 @@ func TestClaudeProviderHandleStreamResponse_PreservesStandardSSELines(t *testing
 	}
 }
 
+func TestClaudeProviderHandleStreamResponse_EmitsCompleteSSEBlockPerEvent(t *testing.T) {
+	p := &ClaudeProvider{}
+	input := strings.Join([]string{
+		"event: message_start",
+		`data: {"type":"message_start","message":{"id":"msg_1"}}`,
+		"",
+	}, "\n")
+
+	eventCh, errCh, err := p.HandleStreamResponse(io.NopCloser(strings.NewReader(input)))
+	if err != nil {
+		t.Fatalf("HandleStreamResponse returned error: %v", err)
+	}
+
+	var chunks []string
+	for ch := range eventCh {
+		chunks = append(chunks, ch)
+	}
+	for streamErr := range errCh {
+		if streamErr != nil {
+			t.Fatalf("stream error: %v", streamErr)
+		}
+	}
+
+	if len(chunks) != 1 {
+		t.Fatalf("expected exactly 1 SSE chunk, got %d: %#v", len(chunks), chunks)
+	}
+	if !strings.HasPrefix(chunks[0], "event: message_start\n") {
+		t.Fatalf("expected chunk to start with event line, got: %q", chunks[0])
+	}
+	if !strings.Contains(chunks[0], `data: {"type":"message_start","message":{"id":"msg_1"}}`+"\n") {
+		t.Fatalf("expected chunk to contain data line, got: %q", chunks[0])
+	}
+	if !strings.HasSuffix(chunks[0], "\n\n") {
+		t.Fatalf("expected chunk to end with SSE delimiter, got: %q", chunks[0])
+	}
+}
+
 func TestClaudeProviderHandleStreamResponse_HandlesVeryLargeDataLine(t *testing.T) {
 	p := &ClaudeProvider{}
 
