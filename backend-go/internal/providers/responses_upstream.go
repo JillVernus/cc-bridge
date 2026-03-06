@@ -29,6 +29,8 @@ type responsesOptionalFields struct {
 	ToolChoice    interface{}
 	HasToolChoice bool
 	RawTools      []map[string]interface{}
+	Speed         string
+	HasSpeed      bool
 }
 
 // ConvertToProviderRequest 将 Claude Messages 请求转换为 Responses API 格式
@@ -183,6 +185,9 @@ func (p *ResponsesUpstreamProvider) convertToResponsesRequest(
 	if reasoningFromModelSuffix != nil {
 		req["reasoning"] = reasoningFromModelSuffix
 	}
+	if serviceTier, ok := convertClaudeSpeedToResponsesServiceTier(optionalFields.Speed); ok {
+		req["service_tier"] = serviceTier
+	}
 
 	// 转换 tools
 	convertedTools := []map[string]interface{}{}
@@ -218,6 +223,10 @@ func (p *ResponsesUpstreamProvider) extractOptionalFields(
 		result.ToolChoice = claudeReq.ToolChoice
 		result.HasToolChoice = true
 	}
+	if speed := strings.TrimSpace(claudeReq.Speed); speed != "" {
+		result.Speed = speed
+		result.HasSpeed = true
+	}
 
 	if rawRequest == nil {
 		return result
@@ -234,6 +243,14 @@ func (p *ResponsesUpstreamProvider) extractOptionalFields(
 		if toolChoice, ok := rawRequest["tool_choice"]; ok {
 			result.ToolChoice = toolChoice
 			result.HasToolChoice = true
+		}
+	}
+	if !result.HasSpeed {
+		if speed, ok := rawRequest["speed"].(string); ok {
+			if speed = strings.TrimSpace(speed); speed != "" {
+				result.Speed = speed
+				result.HasSpeed = true
+			}
 		}
 	}
 
@@ -253,6 +270,15 @@ func (p *ResponsesUpstreamProvider) extractOptionalFields(
 func parseJSONNumber(v interface{}) (float64, bool) {
 	f, ok := v.(float64)
 	return f, ok
+}
+
+func convertClaudeSpeedToResponsesServiceTier(speed string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(speed)) {
+	case "fast":
+		return "priority", true
+	default:
+		return "", false
+	}
 }
 
 func splitResponsesModelThinkingSuffix(model string) (baseModel string, reasoning map[string]interface{}, changed bool) {

@@ -502,6 +502,39 @@ func TestConvertToResponsesRequest_ModelSuffixAppliesWhenThinkingDisabled(t *tes
 	}
 }
 
+func TestConvertToResponsesRequest_ClaudeFastMapsToPriorityServiceTier(t *testing.T) {
+	p := &ResponsesUpstreamProvider{}
+	upstream := &config.UpstreamConfig{}
+
+	req := &types.ClaudeRequest{
+		Model:    "claude-opus-4-6",
+		Messages: []types.ClaudeMessage{{Role: "user", Content: "hi"}},
+	}
+	raw := map[string]interface{}{
+		"speed": "fast",
+	}
+
+	out := p.convertToResponsesRequest(req, upstream, raw)
+	if out["service_tier"] != "priority" {
+		t.Fatalf("expected service_tier=priority for Claude speed=fast, got %#v", out["service_tier"])
+	}
+}
+
+func TestConvertToResponsesRequest_ClaudeDefaultOmitsServiceTier(t *testing.T) {
+	p := &ResponsesUpstreamProvider{}
+	upstream := &config.UpstreamConfig{}
+
+	req := &types.ClaudeRequest{
+		Model:    "claude-opus-4-6",
+		Messages: []types.ClaudeMessage{{Role: "user", Content: "hi"}},
+	}
+
+	out := p.convertToResponsesRequest(req, upstream, nil)
+	if _, ok := out["service_tier"]; ok {
+		t.Fatalf("expected service_tier omitted when Claude speed is not fast, got %#v", out["service_tier"])
+	}
+}
+
 func TestConvertToClaudeResponse_UsageFromResponsesShape(t *testing.T) {
 	p := &ResponsesUpstreamProvider{}
 
@@ -924,6 +957,48 @@ func TestConvertToProviderRequest_AutoSetsPromptCacheKeyFromSessionHeader(t *tes
 
 	if out["prompt_cache_key"] != "sess-bridge-123" {
 		t.Fatalf("expected prompt_cache_key from Session_id header, got %#v", out["prompt_cache_key"])
+	}
+}
+
+func TestConvertToProviderRequest_ClaudeFastMapsToPriorityServiceTier(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	p := &ResponsesUpstreamProvider{}
+	upstream := &config.UpstreamConfig{
+		BaseURL: "https://example.com",
+	}
+
+	body := []byte(`{
+		"model":"claude-opus-4-6",
+		"speed":"fast",
+		"stream":true,
+		"max_tokens":64,
+		"messages":[{"role":"user","content":"hello"}]
+	}`)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	req := httptest.NewRequest("POST", "/v1/messages", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	providerReq, _, err := p.ConvertToProviderRequest(c, upstream, "test-key")
+	if err != nil {
+		t.Fatalf("ConvertToProviderRequest returned error: %v", err)
+	}
+	defer providerReq.Body.Close()
+
+	outBytes, err := io.ReadAll(providerReq.Body)
+	if err != nil {
+		t.Fatalf("failed to read converted provider body: %v", err)
+	}
+
+	var out map[string]interface{}
+	if err := json.Unmarshal(outBytes, &out); err != nil {
+		t.Fatalf("failed to parse converted provider body: %v", err)
+	}
+
+	if out["service_tier"] != "priority" {
+		t.Fatalf("expected service_tier=priority for Claude speed=fast, got %#v", out["service_tier"])
 	}
 }
 
