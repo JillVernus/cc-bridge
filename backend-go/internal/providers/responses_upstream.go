@@ -834,6 +834,7 @@ func (p *ResponsesUpstreamProvider) HandleStreamResponse(body io.ReadCloser) (<-
 
 	go func() {
 		defer close(eventChan)
+		defer close(errChan)
 		defer body.Close()
 
 		scanner := bufio.NewScanner(body)
@@ -1265,6 +1266,12 @@ func (p *ResponsesUpstreamProvider) HandleStreamResponse(body io.ReadCloser) (<-
 					usage.OutputTokens = 1
 				}
 				emitMessageStop(stopReason, usage)
+				// Some Responses-compatible upstreams do not close the SSE connection
+				// promptly after the terminal event. Once we have emitted Claude's
+				// terminal envelope, close this bridge stream immediately so
+				// downstream handlers can finalize request logs instead of leaving
+				// rows stuck in pending until timeout/EOF.
+				return
 			}
 		}
 

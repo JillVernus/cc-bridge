@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/JillVernus/cc-bridge/internal/config"
 	"github.com/JillVernus/cc-bridge/internal/types"
@@ -662,6 +663,52 @@ func TestHandleStreamResponse_CompletedWithoutDeltaStillHasMessageStop(t *testin
 	if strings.Count(out, "event: message_stop") != 1 {
 		t.Fatalf("expected exactly one message_stop, got output: %s", out)
 	}
+}
+
+func TestHandleStreamResponse_ClosesAfterCompletedWithoutWaitingForEOF(t *testing.T) {
+	p := &ResponsesUpstreamProvider{}
+
+	reader, writer := io.Pipe()
+	eventChan, errChan, err := p.HandleStreamResponse(reader)
+	if err != nil {
+		t.Fatalf("HandleStreamResponse returned error: %v", err)
+	}
+
+	done := make(chan string, 1)
+	go func() {
+		var out strings.Builder
+		for ev := range eventChan {
+			out.WriteString(ev)
+		}
+		done <- out.String()
+	}()
+
+	_, _ = io.WriteString(writer, strings.Join([]string{
+		`data: {"type":"response.output_text.delta","delta":"Hi"}`,
+		``,
+		`data: {"type":"response.completed","response":{"model":"gpt-5.3-codex","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"Hi"}]}],"usage":{"input_tokens":5,"output_tokens":1,"total_tokens":6}}}`,
+		``,
+	}, "\n"))
+
+	select {
+	case out := <-done:
+		if strings.Count(out, "event: message_stop") != 1 {
+			t.Fatalf("expected exactly one message_stop, got output: %s", out)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected stream to close after response.completed without waiting for EOF")
+	}
+
+	select {
+	case streamErr, ok := <-errChan:
+		if ok && streamErr != nil {
+			t.Fatalf("unexpected stream error: %v", streamErr)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected err channel to close after response.completed")
+	}
+
+	_ = writer.Close()
 }
 
 func TestHandleStreamResponse_MessageStartUsesUpstreamModel(t *testing.T) {
