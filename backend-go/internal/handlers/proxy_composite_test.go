@@ -862,6 +862,8 @@ func TestHandleSingleChannelProxy_CompositeOAuthTarget_HeaderAndUAParity(t *test
 		ContentType     string
 		StreamInPayload bool
 		PromptCacheKey  string
+		StoreSet        bool
+		Store           bool
 	}
 
 	testCases := []struct {
@@ -922,6 +924,16 @@ func TestHandleSingleChannelProxy_CompositeOAuthTarget_HeaderAndUAParity(t *test
 				}
 				if promptCacheKey, ok := payload["prompt_cache_key"].(string); ok {
 					observed.PromptCacheKey = promptCacheKey
+				}
+				if store, ok := payload["store"].(bool); ok {
+					observed.StoreSet = true
+					observed.Store = store
+				}
+				if _, exists := payload["max_tokens"]; exists {
+					t.Fatalf("did not expect max_tokens in OAuth payload: %s", string(bodyBytes))
+				}
+				if _, exists := payload["max_output_tokens"]; exists {
+					t.Fatalf("did not expect max_output_tokens in OAuth payload: %s", string(bodyBytes))
 				}
 
 				observed.Authorization = r.Header.Get("Authorization")
@@ -1089,6 +1101,12 @@ func TestHandleSingleChannelProxy_CompositeOAuthTarget_HeaderAndUAParity(t *test
 			}
 			if observed.StreamInPayload != tc.stream {
 				t.Fatalf("expected stream in payload to be %v, got %v", tc.stream, observed.StreamInPayload)
+			}
+			if !observed.StoreSet {
+				t.Fatal("expected OAuth payload to include store")
+			}
+			if observed.Store {
+				t.Fatalf("expected OAuth payload store=false, got true")
 			}
 
 			if tc.stream {

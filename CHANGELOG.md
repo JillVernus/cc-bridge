@@ -4,6 +4,27 @@
 
 ---
 
+## [v1.5.8] - 2026-03-06
+
+### 🐛 修复
+
+- **Claude Messages -> Responses 桥接请求日志卡在 pending**:
+  - `ResponsesUpstreamProvider` 在收到终止事件 `response.completed` / `response.done` 后立即关闭桥接流，避免等待上游 EOF 才完成请求日志。
+  - 修复 `/v1/messages` 经 Responses 渠道返回内容后，主日志表仍停留在 `pending` 的问题。
+  - 新增回归测试覆盖：终止事件已到达但上游连接未及时关闭的场景。
+
+- **流式提供商 clean EOF 未关闭错误通道**:
+  - `OpenAIProvider`、`OpenAIChatProvider`、`GeminiProvider` 在正常结束流式响应时统一关闭 `errChan`。
+  - 避免 `handleStreamResponse` 等待错误通道关闭时卡住，降低流式日志/收尾状态异常风险。
+  - 新增共享回归测试覆盖 clean EOF 下 `eventChan` 与 `errChan` 的关闭行为。
+
+- **Codex OAuth 渠道兼容性修复（Claude Code -> OAuth Responses）**:
+  - `buildCodexOAuthRequest` 强制发送 `store: false`，修复 ChatGPT Codex OAuth 端点返回 `Store must be set to false`。
+  - 同步剥离 `max_output_tokens` 与 `max_tokens`，修复 OAuth 端点返回 `Unsupported parameter`。
+  - 保持模型、stream、metadata、prompt cache key 与请求头转发行为不变，并补齐 direct builder 与 `/v1/messages` composite OAuth 回归测试。
+
+---
+
 ## [v1.5.7] - 2026-03-05
 
 ### 🐛 修复

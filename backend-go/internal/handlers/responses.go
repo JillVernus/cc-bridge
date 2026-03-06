@@ -913,8 +913,8 @@ func tryResponsesChannelWithAllKeys(
 					select {
 					case <-time.After(decision.Wait):
 						currentStartTime = time.Now() // exclude on-hold wait from duration metrics
-						pinnedKey = apiKey      // Pin for next attempt
-						retryWaitPending = true // Allow loop to continue
+						pinnedKey = apiKey            // Pin for next attempt
+						retryWaitPending = true       // Allow loop to continue
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
@@ -1091,8 +1091,8 @@ func tryResponsesChannelWithAllKeys(
 					select {
 					case <-time.After(decision.Wait):
 						currentStartTime = time.Now() // exclude on-hold wait from duration metrics
-						pinnedKey = apiKey      // Pin for next attempt
-						retryWaitPending = true // Allow loop to continue
+						pinnedKey = apiKey            // Pin for next attempt
+						retryWaitPending = true       // Allow loop to continue
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
@@ -1458,6 +1458,18 @@ func buildCodexOAuthRequest(
 			reqMap["model"] = config.RedirectModel(model, upstream)
 		}
 	}
+
+	// ChatGPT Codex OAuth endpoint rejects token-limit parameters that are
+	// accepted by normal Responses API upstreams. Successful live OAuth
+	// requests on the same instance also omit these fields entirely, so strip
+	// both names here for this OAuth-specific endpoint.
+	delete(reqMap, "max_output_tokens")
+	delete(reqMap, "max_tokens")
+
+	// ChatGPT Codex OAuth endpoint requires explicit opt-out of server-side
+	// storage. Preserve all other fields, but force `store: false` for both
+	// direct `/v1/responses` OAuth requests and `/v1/messages` bridge requests.
+	reqMap["store"] = false
 
 	// 序列化请求体
 	reqBody, err := json.Marshal(reqMap)
@@ -1885,8 +1897,8 @@ func handleSingleChannelResponses(
 					select {
 					case <-time.After(decision.Wait):
 						currentStartTime = time.Now() // exclude on-hold wait from duration metrics
-						pinnedKey = apiKey      // Pin for next attempt
-						retryWaitPending = true // Allow loop to continue
+						pinnedKey = apiKey            // Pin for next attempt
+						retryWaitPending = true       // Allow loop to continue
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
@@ -2072,8 +2084,8 @@ func handleSingleChannelResponses(
 					select {
 					case <-time.After(decision.Wait):
 						currentStartTime = time.Now() // exclude on-hold wait from duration metrics
-						pinnedKey = apiKey      // Pin for next attempt
-						retryWaitPending = true // Allow loop to continue
+						pinnedKey = apiKey            // Pin for next attempt
+						retryWaitPending = true       // Allow loop to continue
 						continue
 					case <-c.Request.Context().Done():
 						// Client disconnected
