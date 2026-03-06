@@ -326,7 +326,7 @@ func (p *GeminiProvider) HandleStreamResponse(body io.ReadCloser) (<-chan string
 
 	go func() {
 		defer close(eventChan)
-		// defer close(errChan) // 移除此行，避免竞态条件
+		defer close(errChan)
 		defer body.Close()
 
 		scanner := bufio.NewScanner(body)

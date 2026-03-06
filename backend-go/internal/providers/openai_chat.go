@@ -252,6 +252,7 @@ func (p *OpenAIChatProvider) HandleStreamResponse(body io.ReadCloser) (<-chan st
 
 	go func() {
 		defer close(eventChan)
+		defer close(errChan)
 		defer body.Close()
 
 		emitter := newOpenAIChatClaudeStreamEmitter(eventChan)

@@ -105,6 +105,81 @@ func TestHandleStreamResponse_WaitsForErrorChannelBeforeCompleting(t *testing.T)
 	}
 }
 
+func TestHandleStreamResponse_CompletesResponsesBridgeRequestLog(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cfgManager := newTestConfigManager(t)
+	reqLogManager := newTestRequestLogManager(t)
+
+	startTime := time.Now().Add(-120 * time.Millisecond)
+	requestLogID := addPendingLogForTest(t, reqLogManager, startTime, "/v1/messages", "openai-oauth", "gpt-5.3-codex", true, 7, "codex-oauth")
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"stream":true}`))
+
+	sse := strings.Join([]string{
+		`data: {"type":"response.output_text.delta","delta":"Hi"}`,
+		``,
+		`data: {"type":"response.completed","response":{"model":"gpt-5.3-codex","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"Hi"}]}],"usage":{"input_tokens":5,"output_tokens":1,"total_tokens":6}}}`,
+		``,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+		},
+		Body: io.NopCloser(strings.NewReader(sse)),
+	}
+
+	upstream := &config.UpstreamConfig{
+		Index:       7,
+		Name:        "codex-oauth",
+		ServiceType: "openai-oauth",
+	}
+	envCfg := &config.EnvConfig{LogLevel: "error"}
+
+	done := make(chan struct{})
+	go func() {
+		handleStreamResponse(
+			c,
+			resp,
+			&providers.ResponsesUpstreamProvider{},
+			envCfg,
+			cfgManager,
+			startTime,
+			upstream,
+			reqLogManager,
+			requestLogID,
+			"gpt-5.3-codex",
+			nil,
+			7,
+			"codex-oauth",
+		)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("handleStreamResponse did not return after Responses bridge stream completed")
+	}
+
+	recent := mustGetRecentLogByID(t, reqLogManager, requestLogID)
+	if recent.Status != requestlog.StatusCompleted {
+		t.Fatalf("expected status %q, got %q", requestlog.StatusCompleted, recent.Status)
+	}
+	if recent.HTTPStatus != http.StatusOK {
+		t.Fatalf("expected http status %d, got %d", http.StatusOK, recent.HTTPStatus)
+	}
+	if recent.OutputTokens != 1 {
+		t.Fatalf("expected output tokens 1, got %d", recent.OutputTokens)
+	}
+}
+
 func TestSendRequest_ClaudeStreamForcesSSEAcceptHeader(t *testing.T) {
 	t.Parallel()
 
