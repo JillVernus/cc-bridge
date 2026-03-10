@@ -4,6 +4,21 @@
 
 ---
 
+## [v1.5.10] - 2026-03-10
+
+### 🐛 修复
+
+- **生产环境历史日志“消失”兼容性修复**:
+  - 为共享数据库 / PostgreSQL 路径新增 `request_logs.service_tier` 迁移，修复升级到 v1.5.9 后请求日志查询引用新列但旧 schema 尚未补齐的问题。
+  - 请求日志读取路径（列表、详情、SSE、跨实例通知）增加缺列回退，即使数据库暂未完成迁移，也不会因 `service_tier` 缺失而导致历史记录整体不可见。
+  - 该修复恢复的是“可见性”，不是重新生成数据；已有历史记录不会被删除。
+
+### ✅ 测试
+
+- `go test ./internal/requestlog ./internal/database ./internal/handlers ./internal/pricing`
+
+---
+
 ## [v1.5.9] - 2026-03-10
 
 ### 🐛 修复

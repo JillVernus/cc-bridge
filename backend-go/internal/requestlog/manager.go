@@ -881,6 +881,19 @@ func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 		LEFT JOIN request_debug_logs d ON r.id = d.request_id
 		WHERE r.id = ?
 	`)
+	legacyQuery := m.convertQuery(`
+		SELECT r.id, r.status, r.initial_time, r.first_token_time, r.first_token_duration_ms, r.complete_time, r.duration_ms,
+			   r.provider, r.provider_name, r.model, r.response_model, r.reasoning_effort,
+			   r.input_tokens, r.output_tokens,
+			   r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
+			   r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
+			   r.http_status, r.stream, r.channel_id, r.channel_uid, r.channel_name,
+			   r.endpoint, r.client_id, r.session_id, r.api_key_id, r.error, r.upstream_error, r.failover_info,
+			   CASE WHEN d.request_id IS NOT NULL THEN 1 ELSE 0 END as has_debug_data
+		FROM request_logs r
+		LEFT JOIN request_debug_logs d ON r.id = d.request_id
+		WHERE r.id = ?
+	`)
 
 	var r RequestLog
 	var channelID, apiKeyID sql.NullInt64
@@ -898,6 +911,19 @@ func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 		&endpoint, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr,
 		&hasDebugData,
 	)
+	if err != nil && isMissingColumnErr(err, "service_tier") {
+		serviceTier = sql.NullString{}
+		err = m.db.QueryRow(legacyQuery, id).Scan(
+			&r.ID, &status, &initialTime, &firstTokenTime, &r.FirstTokenDurationMs, &completeTime, &r.DurationMs,
+			&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort,
+			&r.InputTokens, &r.OutputTokens,
+			&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
+			&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
+			&r.HTTPStatus, &r.Stream, &channelID, &channelUID, &channelName,
+			&endpoint, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr,
+			&hasDebugData,
+		)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1043,10 +1069,29 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		ORDER BY r.initial_time DESC
 		LIMIT ? OFFSET ?
 	`, whereClause))
+	legacyQuery := m.convertQuery(fmt.Sprintf(`
+		SELECT r.id, r.status, r.initial_time, r.first_token_time, r.first_token_duration_ms, r.complete_time, r.duration_ms,
+			   r.provider, r.provider_name, r.model, r.response_model, r.reasoning_effort, r.input_tokens, r.output_tokens,
+			   r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
+			   r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
+			   r.http_status, r.stream, r.channel_id, r.channel_uid, r.channel_name,
+			   r.endpoint, r.client_id, r.session_id, r.api_key_id, r.error, r.upstream_error, r.failover_info, r.created_at,
+			   CASE WHEN d.request_id IS NOT NULL THEN 1 ELSE 0 END as has_debug_data
+		FROM request_logs r
+		LEFT JOIN request_debug_logs d ON r.id = d.request_id
+		%s
+		ORDER BY r.initial_time DESC
+		LIMIT ? OFFSET ?
+	`, whereClause))
 
 	args = append(args, filter.Limit, filter.Offset)
 
 	rows, err := m.db.Query(query, args...)
+	legacyMode := false
+	if err != nil && isMissingColumnErr(err, "service_tier") {
+		rows, err = m.db.Query(legacyQuery, args...)
+		legacyMode = true
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query request logs: %w", err)
 	}
@@ -1060,15 +1105,29 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		var initialTime, firstTokenTime, completeTime, createdAt sql.NullString
 		var hasDebugData int
 
-		err := rows.Scan(
-			&r.ID, &status, &initialTime, &firstTokenTime, &r.FirstTokenDurationMs, &completeTime, &r.DurationMs,
-			&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort, &serviceTier, &r.InputTokens, &r.OutputTokens,
-			&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
-			&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
-			&r.HTTPStatus, &r.Stream, &channelID, &channelUID, &channelName,
-			&endpoint, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr, &createdAt,
-			&hasDebugData,
-		)
+		var err error
+		if legacyMode {
+			err = rows.Scan(
+				&r.ID, &status, &initialTime, &firstTokenTime, &r.FirstTokenDurationMs, &completeTime, &r.DurationMs,
+				&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort, &r.InputTokens, &r.OutputTokens,
+				&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
+				&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
+				&r.HTTPStatus, &r.Stream, &channelID, &channelUID, &channelName,
+				&endpoint, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr, &createdAt,
+				&hasDebugData,
+			)
+			serviceTier = sql.NullString{}
+		} else {
+			err = rows.Scan(
+				&r.ID, &status, &initialTime, &firstTokenTime, &r.FirstTokenDurationMs, &completeTime, &r.DurationMs,
+				&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort, &serviceTier, &r.InputTokens, &r.OutputTokens,
+				&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
+				&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
+				&r.HTTPStatus, &r.Stream, &channelID, &channelUID, &channelName,
+				&endpoint, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr, &createdAt,
+				&hasDebugData,
+			)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan request log: %w", err)
 		}
@@ -1550,6 +1609,19 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 		LEFT JOIN request_debug_logs d ON r.id = d.request_id
 		WHERE r.id = ?
 	`
+	legacyQuery := `
+		SELECT r.id, r.initial_time, r.first_token_time, r.first_token_duration_ms, r.complete_time, r.duration_ms,
+			   r.provider, r.provider_name, r.model, r.response_model, r.reasoning_effort,
+			   r.input_tokens, r.output_tokens,
+			   r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
+			   r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
+			   r.http_status, r.stream, r.channel_id, r.channel_uid, r.channel_name,
+			   r.endpoint, r.client_id, r.session_id, r.api_key_id, r.error, r.upstream_error, r.failover_info, r.created_at,
+			   CASE WHEN d.request_id IS NOT NULL THEN 1 ELSE 0 END as has_debug_data
+		FROM request_logs r
+		LEFT JOIN request_debug_logs d ON r.id = d.request_id
+		WHERE r.id = ?
+	`
 
 	var r RequestLog
 	var channelID, apiKeyID sql.NullInt64
@@ -1568,6 +1640,19 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 		&endpoint, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr, &r.CreatedAt,
 		&hasDebugData,
 	)
+	if err != nil && isMissingColumnErr(err, "service_tier") {
+		serviceTier = sql.NullString{}
+		err = m.db.QueryRow(m.convertQuery(legacyQuery), id).Scan(
+			&r.ID, &r.InitialTime, &firstTokenTime, &r.FirstTokenDurationMs, &r.CompleteTime, &r.DurationMs,
+			&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort,
+			&r.InputTokens, &r.OutputTokens,
+			&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
+			&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
+			&r.HTTPStatus, &r.Stream, &channelID, &channelUID, &channelName,
+			&endpoint, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr, &r.CreatedAt,
+			&hasDebugData,
+		)
+	}
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

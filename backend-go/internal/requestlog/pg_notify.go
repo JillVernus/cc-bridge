@@ -179,6 +179,19 @@ func (m *Manager) getPartialRecordForSSE(id string) (*RequestLog, error) {
 		LEFT JOIN request_debug_logs d ON r.id = d.request_id
 		WHERE r.id = ?
 	`)
+	legacyQuery := m.convertQuery(`
+		SELECT r.id, r.status, r.provider, r.provider_name, r.model, r.response_model,
+		       r.first_token_time, r.first_token_duration_ms, r.duration_ms, r.http_status, r.input_tokens, r.output_tokens,
+		       r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
+		       r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
+		       r.api_key_id, r.error, r.upstream_error, r.failover_info, r.complete_time,
+		       r.channel_id, r.channel_uid, r.channel_name, r.endpoint, r.stream,
+		       r.client_id, r.session_id, r.reasoning_effort, r.initial_time,
+		       CASE WHEN d.request_id IS NOT NULL THEN 1 ELSE 0 END as has_debug_data
+		FROM request_logs r
+		LEFT JOIN request_debug_logs d ON r.id = d.request_id
+		WHERE r.id = ?
+	`)
 
 	var r RequestLog
 	var hasDebugData int
@@ -198,6 +211,19 @@ func (m *Manager) getPartialRecordForSSE(id string) (*RequestLog, error) {
 		&clientID, &sessionID, &reasoningEffort, &r.InitialTime,
 		&hasDebugData,
 	)
+	if err != nil && isMissingColumnErr(err, "service_tier") {
+		serviceTier = sql.NullString{}
+		err = m.db.QueryRow(legacyQuery, id).Scan(
+			&r.ID, &r.Status, &r.Type, &providerName, &model, &responseModel,
+			&firstTokenTime, &r.FirstTokenDurationMs, &r.DurationMs, &r.HTTPStatus, &r.InputTokens, &r.OutputTokens,
+			&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
+			&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
+			&apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr, &completeTime,
+			&channelID, &channelUID, &channelName, &endpoint, &r.Stream,
+			&clientID, &sessionID, &reasoningEffort, &r.InitialTime,
+			&hasDebugData,
+		)
+	}
 
 	if err != nil {
 		return nil, err
