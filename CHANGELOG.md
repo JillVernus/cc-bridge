@@ -4,6 +4,27 @@
 
 ---
 
+## [v1.5.9] - 2026-03-10
+
+### 🐛 修复
+
+- **Codex Fast Mode 成本与日志一致性修复**:
+  - `/v1/messages` -> Responses/Codex 桥接仅在实际路由到 `responses` / `openai-oauth` 渠道时，才将 Claude `speed: "fast"` 视为 fast mode 并应用 `2x` 成本倍率。
+  - 原生 `/v1/responses` 请求继续使用 `service_tier: "priority"` 触发 fast mode，成本仍基于实际 Responses 模型（优先响应模型，回退请求模型）计算。
+  - 修复 retry/failover 重建 pending 日志时 `serviceTier` 丢失，避免 fast mode 请求在日志链路中失真。
+
+- **请求日志 SSE 与详情字段补齐**:
+  - 恢复 `log:updated` 事件中的 `hasDebugData`，修复调试数据图标在实时更新后丢失的问题。
+  - `serviceTier` 现已打通请求日志详情、列表、SSE 事件与跨实例通知路径，前端实时状态与后端存储保持一致。
+  - 新增回归测试覆盖：service tier round-trip、Responses fast mode 日志持久化、桥接流式 priority 记录。
+
+### ✅ 测试
+
+- `go test ./internal/requestlog ./internal/handlers ./internal/pricing`
+- `bun run type-check`
+
+---
+
 ## [v1.5.8] - 2026-03-06
 
 ### 🐛 修复

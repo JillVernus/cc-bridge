@@ -94,6 +94,7 @@ func TestHandleStreamResponse_WaitsForErrorChannelBeforeCompleting(t *testing.T)
 		nil,
 		1,
 		"messages-1",
+		false,
 	)
 
 	recent := mustGetRecentLogByID(t, reqLogManager, requestLogID)
@@ -158,6 +159,7 @@ func TestHandleStreamResponse_CompletesResponsesBridgeRequestLog(t *testing.T) {
 			nil,
 			7,
 			"codex-oauth",
+			true,
 		)
 		close(done)
 	}()
@@ -177,6 +179,9 @@ func TestHandleStreamResponse_CompletesResponsesBridgeRequestLog(t *testing.T) {
 	}
 	if recent.OutputTokens != 1 {
 		t.Fatalf("expected output tokens 1, got %d", recent.OutputTokens)
+	}
+	if recent.ServiceTier != "priority" {
+		t.Fatalf("expected serviceTier priority, got %q", recent.ServiceTier)
 	}
 }
 

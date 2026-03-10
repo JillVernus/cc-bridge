@@ -33,6 +33,7 @@ type LogCreatedPayload struct {
 	ProviderName             string     `json:"providerName"`
 	Model                    string     `json:"model"`
 	ResponseModel            string     `json:"responseModel,omitempty"`
+	ServiceTier              string     `json:"serviceTier,omitempty"`
 	ChannelID                int        `json:"channelId"`
 	ChannelUID               string     `json:"channelUid,omitempty"`
 	ChannelName              string     `json:"channelName"`
@@ -92,6 +93,7 @@ type LogUpdatedPayload struct {
 	FailoverInfo    string    `json:"failoverInfo,omitempty"`
 	ResponseModel   string    `json:"responseModel,omitempty"`
 	ReasoningEffort string    `json:"reasoningEffort,omitempty"`
+	ServiceTier     string    `json:"serviceTier,omitempty"`
 	CompleteTime    time.Time `json:"completeTime"`
 }
 
@@ -118,6 +120,7 @@ func NewLogCreatedEvent(record *RequestLog) *LogEvent {
 			ProviderName:             record.ProviderName,
 			Model:                    record.Model,
 			ResponseModel:            record.ResponseModel,
+			ServiceTier:              record.ServiceTier,
 			ChannelID:                record.ChannelID,
 			ChannelUID:               record.ChannelUID,
 			ChannelName:              record.ChannelName,
@@ -181,6 +184,7 @@ func NewLogUpdatedEvent(id string, record *RequestLog) *LogEvent {
 			FailoverInfo:             record.FailoverInfo,
 			ResponseModel:            record.ResponseModel,
 			ReasoningEffort:          record.ReasoningEffort,
+			ServiceTier:              record.ServiceTier,
 			CompleteTime:             record.CompleteTime,
 		},
 		Timestamp: time.Now(),

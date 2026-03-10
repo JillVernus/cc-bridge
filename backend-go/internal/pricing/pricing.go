@@ -141,6 +141,30 @@ type PriceMultipliers struct {
 	CacheReadMultiplier     float64
 }
 
+// ApplyFastModeMultiplier applies a 2x cost multiplier for Codex fast mode
+// (service_tier: "priority"). When isFastMode is true, all multiplier fields
+// are doubled. This composes with any existing channel-level multipliers.
+// Returns the original pointer unchanged when isFastMode is false.
+func ApplyFastModeMultiplier(multipliers *PriceMultipliers, isFastMode bool) *PriceMultipliers {
+	if !isFastMode {
+		return multipliers
+	}
+	if multipliers == nil {
+		return &PriceMultipliers{
+			InputMultiplier:         2.0,
+			OutputMultiplier:        2.0,
+			CacheCreationMultiplier: 2.0,
+			CacheReadMultiplier:     2.0,
+		}
+	}
+	return &PriceMultipliers{
+		InputMultiplier:         getEffectiveMultiplier(multipliers.InputMultiplier) * 2.0,
+		OutputMultiplier:        getEffectiveMultiplier(multipliers.OutputMultiplier) * 2.0,
+		CacheCreationMultiplier: getEffectiveMultiplier(multipliers.CacheCreationMultiplier) * 2.0,
+		CacheReadMultiplier:     getEffectiveMultiplier(multipliers.CacheReadMultiplier) * 2.0,
+	}
+}
+
 // getEffectiveMultiplier 获取有效乘数（0 时返回 1.0）
 func getEffectiveMultiplier(m float64) float64 {
 	if m == 0 {

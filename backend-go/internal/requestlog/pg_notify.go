@@ -167,7 +167,7 @@ func (m *Manager) StopListener() {
 // getPartialRecordForSSE fetches minimal fields for log:created event
 func (m *Manager) getPartialRecordForSSE(id string) (*RequestLog, error) {
 	query := m.convertQuery(`
-		SELECT r.id, r.status, r.provider, r.provider_name, r.model, r.response_model,
+		SELECT r.id, r.status, r.provider, r.provider_name, r.model, r.response_model, r.service_tier,
 		       r.first_token_time, r.first_token_duration_ms, r.duration_ms, r.http_status, r.input_tokens, r.output_tokens,
 		       r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
 		       r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
@@ -184,12 +184,12 @@ func (m *Manager) getPartialRecordForSSE(id string) (*RequestLog, error) {
 	var hasDebugData int
 	var channelID, apiKeyID sql.NullInt64
 	var completeTime, firstTokenTime sql.NullTime
-	var providerName, model, responseModel sql.NullString
+	var providerName, model, responseModel, serviceTier sql.NullString
 	var channelUID, channelName, endpoint, clientID, sessionID, reasoningEffort sql.NullString
 	var errorStr, upstreamErrorStr, failoverInfoStr sql.NullString
 
 	err := m.db.QueryRow(query, id).Scan(
-		&r.ID, &r.Status, &r.Type, &providerName, &model, &responseModel,
+		&r.ID, &r.Status, &r.Type, &providerName, &model, &responseModel, &serviceTier,
 		&firstTokenTime, &r.FirstTokenDurationMs, &r.DurationMs, &r.HTTPStatus, &r.InputTokens, &r.OutputTokens,
 		&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 		&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
@@ -215,6 +215,9 @@ func (m *Manager) getPartialRecordForSSE(id string) (*RequestLog, error) {
 	}
 	if responseModel.Valid {
 		r.ResponseModel = responseModel.String
+	}
+	if serviceTier.Valid {
+		r.ServiceTier = serviceTier.String
 	}
 	if firstTokenTime.Valid {
 		parsedFirstTokenTime := firstTokenTime.Time

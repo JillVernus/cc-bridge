@@ -15,6 +15,7 @@ export interface LogCreatedPayload {
   providerName: string
   model: string
   responseModel?: string
+  serviceTier?: string
   channelId: number
   channelUid?: string
   channelName: string
@@ -71,6 +72,7 @@ export interface LogUpdatedPayload {
   failoverInfo?: string
   responseModel?: string
   reasoningEffort?: string
+  serviceTier?: string
   completeTime: string
 }
 

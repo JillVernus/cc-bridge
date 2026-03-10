@@ -190,6 +190,17 @@ func ResponsesHandlerWithAPIKey(
 		// 提取 reasoning.effort 用于日志显示
 		reasoningEffort := gjson.GetBytes(bodyBytes, "reasoning.effort").String()
 
+		// 提取 service_tier 用于 fast mode 成本计算
+		serviceTier := normalizeResponsesServiceTier(gjson.GetBytes(bodyBytes, "service_tier").String())
+		if serviceTier == "" {
+			// Messages→Responses bridge: check speed field
+			speed := gjson.GetBytes(bodyBytes, "speed").String()
+			if strings.EqualFold(speed, "fast") {
+				serviceTier = "priority"
+			}
+		}
+		isFastMode := normalizeResponsesServiceTier(serviceTier) == "priority"
+
 		// 提取 API Key ID 用于请求日志 (nil 表示未设置)
 		var apiKeyID *int64
 		if id, exists := c.Get(middleware.ContextKeyAPIKeyID); exists {
@@ -206,6 +217,7 @@ func ResponsesHandlerWithAPIKey(
 				InitialTime:     startTime,
 				Model:           responsesReq.Model,
 				ReasoningEffort: reasoningEffort,
+				ServiceTier:     serviceTier,
 				Stream:          responsesReq.Stream,
 				Endpoint:        "/v1/responses",
 				ClientID:        userID,
@@ -232,10 +244,10 @@ func ResponsesHandlerWithAPIKey(
 
 		if isMultiChannel {
 			// Multi-channel mode: use scheduler with failover
-			handleMultiChannelResponses(c, envCfg, cfgManager, channelScheduler, sessionManager, bodyBytes, responsesReq, userID, sessionID, apiKeyID, reasoningEffort, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker, channelRateLimiter)
+			handleMultiChannelResponses(c, envCfg, cfgManager, channelScheduler, sessionManager, bodyBytes, responsesReq, userID, sessionID, apiKeyID, reasoningEffort, serviceTier, isFastMode, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker, channelRateLimiter)
 		} else {
 			// 单渠道模式：使用现有逻辑
-			handleSingleChannelResponses(c, envCfg, cfgManager, channelScheduler, sessionManager, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker, userID, sessionID, apiKeyID, channelRateLimiter)
+			handleSingleChannelResponses(c, envCfg, cfgManager, channelScheduler, sessionManager, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager, allowedChannels, failoverTracker, userID, sessionID, apiKeyID, channelRateLimiter, serviceTier, isFastMode)
 		}
 	})
 }
@@ -255,6 +267,8 @@ func handleMultiChannelResponses(
 	sessionID string,
 	apiKeyID *int64,
 	reasoningEffort string,
+	serviceTier string,
+	isFastMode bool,
 	startTime time.Time,
 	reqLogManager *requestlog.Manager,
 	requestLogID string,
@@ -436,7 +450,7 @@ func handleMultiChannelResponses(
 			}
 		}
 
-		success, failoverErr, updatedLogID := tryResponsesChannelWithAllKeys(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, &startTime, reqLogManager, requestLogID, usageManager, failoverTracker, clientID, sessionID, apiKeyID, logChannelIndex, logChannelName)
+		success, failoverErr, updatedLogID := tryResponsesChannelWithAllKeys(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, &startTime, reqLogManager, requestLogID, usageManager, failoverTracker, clientID, sessionID, apiKeyID, logChannelIndex, logChannelName, isFastMode)
 		requestLogID = updatedLogID // Update requestLogID in case it was changed during retry_wait
 
 		if c.Request.Context().Err() != nil {
@@ -529,6 +543,7 @@ func handleMultiChannelResponses(
 					InitialTime:     time.Now(),
 					Model:           responsesReq.Model,
 					ReasoningEffort: reasoningEffort,
+					ServiceTier:     serviceTier,
 					Stream:          responsesReq.Stream,
 					Endpoint:        "/v1/responses",
 					ChannelID:       logChannelIndex,
@@ -609,6 +624,7 @@ func handleMultiChannelResponses(
 					InitialTime:     time.Now(),
 					Model:           responsesReq.Model,
 					ReasoningEffort: reasoningEffort,
+					ServiceTier:     serviceTier,
 					Stream:          responsesReq.Stream,
 					Endpoint:        "/v1/responses",
 					ChannelID:       logChannelIndex,
@@ -739,6 +755,7 @@ func tryResponsesChannelWithAllKeys(
 	apiKeyID *int64,
 	logChannelIndex int,
 	logChannelName string,
+	isFastMode bool,
 ) (bool, *struct {
 	Status       int
 	Body         []byte
@@ -753,7 +770,7 @@ func tryResponsesChannelWithAllKeys(
 
 	// 处理 OpenAI OAuth 渠道（Codex）
 	if upstream.ServiceType == "openai-oauth" {
-		success, failoverErr := tryResponsesChannelWithOAuth(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, *startTime, reqLogManager, requestLogID, usageManager, logChannelIndex, logChannelName)
+		success, failoverErr := tryResponsesChannelWithOAuth(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, *startTime, reqLogManager, requestLogID, usageManager, logChannelIndex, logChannelName, isFastMode)
 		return success, failoverErr, requestLogID
 	}
 
@@ -883,6 +900,7 @@ func tryResponsesChannelWithAllKeys(
 							Status:      requestlog.StatusPending,
 							InitialTime: time.Now(),
 							Model:       responsesReq.Model,
+							ServiceTier: serviceTierForFastMode(isFastMode),
 							Stream:      responsesReq.Stream,
 							Endpoint:    "/v1/responses",
 							ChannelID:   logChannelIndex,
@@ -1061,6 +1079,7 @@ func tryResponsesChannelWithAllKeys(
 							Status:      requestlog.StatusPending,
 							InitialTime: time.Now(),
 							Model:       responsesReq.Model,
+							ServiceTier: serviceTierForFastMode(isFastMode),
 							Stream:      responsesReq.Stream,
 							Endpoint:    "/v1/responses",
 							ChannelID:   logChannelIndex,
@@ -1248,7 +1267,7 @@ func tryResponsesChannelWithAllKeys(
 			failoverTracker.ResetOnSuccess(upstream.Index, apiKey)
 		}
 
-		handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, currentStartTime, &responsesReq, bodyBytes, reqLogManager, currentRequestLogID, usageManager, logChannelIndex, logChannelName)
+		handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, currentStartTime, &responsesReq, bodyBytes, reqLogManager, currentRequestLogID, usageManager, logChannelIndex, logChannelName, isFastMode)
 		return true, nil, currentRequestLogID
 	}
 
@@ -1270,6 +1289,7 @@ func tryResponsesChannelWithOAuth(
 	usageManager *quota.UsageManager,
 	logChannelIndex int,
 	logChannelName string,
+	isFastMode bool,
 ) (bool, *struct {
 	Status       int
 	Body         []byte
@@ -1431,7 +1451,7 @@ func tryResponsesChannelWithOAuth(
 	quota.GetManager().UpdateFromHeaders(upstream.Index, upstream.Name, resp.Header)
 
 	provider := &providers.ResponsesProvider{SessionManager: sessionManager}
-	handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID, usageManager, logChannelIndex, logChannelName)
+	handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID, usageManager, logChannelIndex, logChannelName, isFastMode)
 	return true, nil
 }
 
@@ -1529,6 +1549,8 @@ func handleSingleChannelResponses(
 	sessionID string,
 	apiKeyID *int64,
 	channelRateLimiter *middleware.ChannelRateLimiter,
+	serviceTier string,
+	isFastMode bool,
 ) {
 	finalizePendingWithError := func(status int, errMsg string, channel *config.UpstreamConfig, channelIndex *int, channelName string) {
 		if reqLogManager == nil || requestLogID == "" {
@@ -1540,6 +1562,7 @@ func handleSingleChannelResponses(
 			CompleteTime: completeTime,
 			DurationMs:   completeTime.Sub(startTime).Milliseconds(),
 			Model:        responsesReq.Model,
+			ServiceTier:  serviceTier,
 			Endpoint:     "/v1/responses",
 			HTTPStatus:   status,
 			Error:        errMsg,
@@ -1634,7 +1657,7 @@ func handleSingleChannelResponses(
 
 	// 处理 OpenAI OAuth 渠道（Codex）
 	if upstream.ServiceType == "openai-oauth" {
-		success, failoverErr := tryResponsesChannelWithOAuth(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager, logChannelIndex, logChannelName)
+		success, failoverErr := tryResponsesChannelWithOAuth(c, envCfg, cfgManager, sessionManager, upstream, bodyBytes, responsesReq, startTime, reqLogManager, requestLogID, usageManager, logChannelIndex, logChannelName, isFastMode)
 		if !success && failoverErr != nil {
 			status := failoverErr.Status
 			if status == 0 {
@@ -1867,6 +1890,7 @@ func handleSingleChannelResponses(
 							Status:      requestlog.StatusPending,
 							InitialTime: time.Now(),
 							Model:       responsesReq.Model,
+							ServiceTier: serviceTierForFastMode(isFastMode),
 							Stream:      responsesReq.Stream,
 							Endpoint:    "/v1/responses",
 							ChannelID:   logChannelIndex,
@@ -2054,6 +2078,7 @@ func handleSingleChannelResponses(
 							Status:      requestlog.StatusPending,
 							InitialTime: time.Now(),
 							Model:       responsesReq.Model,
+							ServiceTier: serviceTierForFastMode(isFastMode),
 							Stream:      responsesReq.Stream,
 							Endpoint:    "/v1/responses",
 							ChannelID:   logChannelIndex,
@@ -2269,7 +2294,7 @@ func handleSingleChannelResponses(
 		}
 
 		recordSingleSuccess(resp.StatusCode)
-		handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, currentStartTime, &responsesReq, bodyBytes, reqLogManager, currentRequestLogID, usageManager, logChannelIndex, logChannelName)
+		handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, currentStartTime, &responsesReq, bodyBytes, reqLogManager, currentRequestLogID, usageManager, logChannelIndex, logChannelName, isFastMode)
 		return
 	}
 
@@ -2404,6 +2429,7 @@ func handleResponsesSuccess(
 	usageManager *quota.UsageManager,
 	logChannelIndex int,
 	logChannelName string,
+	isFastMode bool,
 ) {
 	if strings.TrimSpace(logChannelName) == "" {
 		logChannelName = strings.TrimSpace(upstream.Name)
@@ -2594,6 +2620,7 @@ func handleResponsesSuccess(
 				FirstTokenDurationMs: firstTokenDurationFromStart(startTime, firstTokenTime),
 				Type:                 upstreamType,
 				ProviderName:         upstream.Name,
+				ServiceTier:          serviceTierForFastMode(isFastMode),
 				ResponseModel:        responseModel,
 				HTTPStatus:           recordHTTPStatus,
 				ChannelID:            logChannelIndex,
@@ -2623,6 +2650,7 @@ func handleResponsesSuccess(
 							CacheReadMultiplier:     channelMult.GetEffectiveMultiplier("cacheRead"),
 						}
 					}
+					multipliers = pricing.ApplyFastModeMultiplier(multipliers, isFastMode)
 					breakdown := pm.CalculateCostWithBreakdown(
 						pricingModel,
 						actualInput,
@@ -2716,6 +2744,7 @@ func handleResponsesSuccess(
 			DurationMs:    durationMs,
 			Type:          upstreamType,
 			ProviderName:  upstream.Name,
+			ServiceTier:   serviceTierForFastMode(isFastMode),
 			ResponseModel: responseModel,
 			HTTPStatus:    resp.StatusCode,
 			ChannelID:     logChannelIndex,
@@ -2744,6 +2773,7 @@ func handleResponsesSuccess(
 						CacheReadMultiplier:     channelMult.GetEffectiveMultiplier("cacheRead"),
 					}
 				}
+				multipliers = pricing.ApplyFastModeMultiplier(multipliers, isFastMode)
 				breakdown := pm.CalculateCostWithBreakdown(
 					pricingModel,
 					actualInput,

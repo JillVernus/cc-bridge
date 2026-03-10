@@ -78,6 +78,7 @@ func TestHandleStreamResponse_RecordsFirstTokenForMessagesPath(t *testing.T) {
 		nil,
 		1,
 		"messages-1",
+		false,
 	)
 
 	got, err := reqLogManager.GetByID(requestLogID)
@@ -146,6 +147,7 @@ func TestHandleStreamResponse_FallsBackToFirstPayloadForMessagesPath(t *testing.
 		nil,
 		1,
 		"messages-1",
+		false,
 	)
 
 	got, err := reqLogManager.GetByID(requestLogID)
@@ -245,6 +247,7 @@ func TestHandleResponsesSuccess_StreamRecordsFirstToken(t *testing.T) {
 				nil,
 				2,
 				"responses-2",
+				false,
 			)
 
 			got, err := reqLogManager.GetByID(requestLogID)
@@ -261,6 +264,70 @@ func TestHandleResponsesSuccess_StreamRecordsFirstToken(t *testing.T) {
 				t.Fatalf("expected positive firstTokenDurationMs, got %d", got.FirstTokenDurationMs)
 			}
 		})
+	}
+}
+
+func TestHandleResponsesSuccess_StoresPriorityServiceTierForFastMode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cfgManager := newTestConfigManager(t)
+	reqLogManager := newTestRequestLogManager(t)
+
+	startTime := time.Now().Add(-120 * time.Millisecond)
+	requestLogID := addPendingLogForTest(t, reqLogManager, startTime, "/v1/responses", "responses", "gpt-5", true, 2, "responses-2")
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"stream":true}`))
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+		},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`data: {"type":"response.output_text.delta","delta":"Hi"}`,
+			`data: {"type":"response.completed","response":{"id":"resp_1","model":"gpt-5","output":[{"type":"message","content":[{"type":"output_text","text":"Hi"}]}],"usage":{"input_tokens":10,"output_tokens":5,"cached_tokens":2}}}`,
+			`data: [DONE]`,
+			"",
+		}, "\n"))),
+	}
+
+	upstream := &config.UpstreamConfig{
+		Index:       2,
+		Name:        "responses-2",
+		ServiceType: "responses",
+	}
+	envCfg := &config.EnvConfig{LogLevel: "error"}
+
+	handleResponsesSuccess(
+		c,
+		resp,
+		nil,
+		upstream,
+		envCfg,
+		cfgManager,
+		nil,
+		startTime,
+		&types.ResponsesRequest{Model: "gpt-5", Stream: true},
+		nil,
+		reqLogManager,
+		requestLogID,
+		nil,
+		2,
+		"responses-2",
+		true,
+	)
+
+	got, err := reqLogManager.GetByID(requestLogID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	if got == nil {
+		t.Fatalf("expected request log")
+	}
+	if got.ServiceTier != "priority" {
+		t.Fatalf("expected serviceTier priority, got %q", got.ServiceTier)
 	}
 }
 

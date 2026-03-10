@@ -2570,6 +2570,7 @@ const handleLogCreated = (payload: LogCreatedPayload) => {
     model: payload.model,
     responseModel: payload.responseModel,
     reasoningEffort: payload.reasoningEffort,
+    serviceTier: payload.serviceTier,
     inputTokens,
     outputTokens,
     cacheCreationInputTokens,
@@ -2685,6 +2686,7 @@ const handleLogUpdated = (payload: LogUpdatedPayload) => {
     updated.failoverInfo = payload.failoverInfo
     updated.responseModel = payload.responseModel
     updated.reasoningEffort = payload.reasoningEffort
+    updated.serviceTier = payload.serviceTier ?? oldLog.serviceTier
     updated.completeTime = payload.completeTime
     logs.value = [...logs.value.slice(0, index), updated, ...logs.value.slice(index + 1)]
 

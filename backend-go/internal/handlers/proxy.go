@@ -606,6 +606,7 @@ func handleMultiChannelProxy(
 					DurationMs:    completeTime.Sub(startTime).Milliseconds(),
 					Type:          upstream.ServiceType,
 					ProviderName:  upstream.Name,
+					ServiceTier:   serviceTierForFastMode(isFastModeForMessagesBridge(claudeReq.Speed, upstream.ServiceType)),
 					Model:         claudeReq.Model,
 					ChannelID:     logChannelIndex,
 					ChannelName:   logChannelName,
@@ -682,6 +683,7 @@ func handleMultiChannelProxy(
 					DurationMs:    completeTime.Sub(startTime).Milliseconds(),
 					Type:          upstream.ServiceType,
 					ProviderName:  upstream.Name,
+					ServiceTier:   serviceTierForFastMode(isFastModeForMessagesBridge(claudeReq.Speed, upstream.ServiceType)),
 					Model:         claudeReq.Model,
 					ChannelID:     logChannelIndex,
 					ChannelName:   logChannelName,
@@ -861,6 +863,7 @@ func tryChannelWithAllKeys(
 	if logChannelIndex < 0 {
 		logChannelIndex = upstream.Index
 	}
+	currentServiceTier := serviceTierForFastMode(isFastModeForMessagesBridge(claudeReq.Speed, upstream.ServiceType))
 
 	maxRetries := len(upstream.APIKeys)
 	failedKeys := make(map[string]bool)
@@ -924,6 +927,7 @@ func tryChannelWithAllKeys(
 						DurationMs:   completeTime.Sub(currentStartTime).Milliseconds(),
 						Type:         upstream.ServiceType,
 						ProviderName: upstream.Name,
+						ServiceTier:  currentServiceTier,
 						HTTPStatus:   499,
 						ChannelID:    logChannelIndex,
 						ChannelName:  logChannelName,
@@ -1015,6 +1019,7 @@ func tryChannelWithAllKeys(
 							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
+							ServiceTier:   currentServiceTier,
 							HTTPStatus:    resp.StatusCode,
 							ChannelID:     logChannelIndex,
 							ChannelName:   logChannelName,
@@ -1034,6 +1039,7 @@ func tryChannelWithAllKeys(
 							Status:      requestlog.StatusPending,
 							InitialTime: time.Now(),
 							Model:       claudeReq.Model,
+							ServiceTier: currentServiceTier,
 							Stream:      claudeReq.Stream,
 							Endpoint:    "/v1/messages",
 							ChannelID:   logChannelIndex,
@@ -1077,6 +1083,7 @@ func tryChannelWithAllKeys(
 								DurationMs:   completeTime.Sub(currentStartTime).Milliseconds(),
 								Type:         upstream.ServiceType,
 								ProviderName: upstream.Name,
+								ServiceTier:  currentServiceTier,
 								HTTPStatus:   499,
 								ChannelID:    logChannelIndex,
 								ChannelName:  logChannelName,
@@ -1151,6 +1158,7 @@ func tryChannelWithAllKeys(
 							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
+							ServiceTier:   currentServiceTier,
 							HTTPStatus:    resp.StatusCode,
 							ChannelID:     logChannelIndex,
 							ChannelName:   logChannelName,
@@ -1195,6 +1203,7 @@ func tryChannelWithAllKeys(
 							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
+							ServiceTier:   currentServiceTier,
 							HTTPStatus:    resp.StatusCode,
 							ChannelID:     logChannelIndex,
 							ChannelName:   logChannelName,
@@ -1214,6 +1223,7 @@ func tryChannelWithAllKeys(
 							Status:      requestlog.StatusPending,
 							InitialTime: time.Now(),
 							Model:       claudeReq.Model,
+							ServiceTier: currentServiceTier,
 							Stream:      claudeReq.Stream,
 							Endpoint:    "/v1/messages",
 							ChannelID:   logChannelIndex,
@@ -1257,6 +1267,7 @@ func tryChannelWithAllKeys(
 								DurationMs:   completeTime.Sub(currentStartTime).Milliseconds(),
 								Type:         upstream.ServiceType,
 								ProviderName: upstream.Name,
+								ServiceTier:  currentServiceTier,
 								HTTPStatus:   499,
 								ChannelID:    logChannelIndex,
 								ChannelName:  logChannelName,
@@ -1335,6 +1346,7 @@ func tryChannelWithAllKeys(
 							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
+							ServiceTier:   currentServiceTier,
 							HTTPStatus:    resp.StatusCode,
 							ChannelID:     logChannelIndex,
 							ChannelName:   logChannelName,
@@ -1366,6 +1378,7 @@ func tryChannelWithAllKeys(
 						DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
 						Type:          upstream.ServiceType,
 						ProviderName:  upstream.Name,
+						ServiceTier:   currentServiceTier,
 						HTTPStatus:    resp.StatusCode,
 						ChannelID:     logChannelIndex,
 						ChannelName:   logChannelName,
@@ -1399,10 +1412,11 @@ func tryChannelWithAllKeys(
 			}
 		}
 
+		isFastMode := isFastModeForMessagesBridge(claudeReq.Speed, upstream.ServiceType)
 		if claudeReq.Stream {
-			handleStreamResponse(c, resp, provider, envCfg, cfgManager, currentStartTime, upstream, reqLogManager, currentRequestLogID, claudeReq.Model, usageManager, logChannelIndex, logChannelName)
+			handleStreamResponse(c, resp, provider, envCfg, cfgManager, currentStartTime, upstream, reqLogManager, currentRequestLogID, claudeReq.Model, usageManager, logChannelIndex, logChannelName, isFastMode)
 		} else {
-			handleNormalResponse(c, resp, provider, envCfg, cfgManager, currentStartTime, upstream, reqLogManager, currentRequestLogID, claudeReq.Model, usageManager, logChannelIndex, logChannelName)
+			handleNormalResponse(c, resp, provider, envCfg, cfgManager, currentStartTime, upstream, reqLogManager, currentRequestLogID, claudeReq.Model, usageManager, logChannelIndex, logChannelName, isFastMode)
 		}
 		return true, nil, currentRequestLogID
 	}
@@ -1540,10 +1554,11 @@ func tryMessagesChannelWithOAuth(
 	quota.GetManager().UpdateFromHeaders(upstream.Index, upstream.Name, resp.Header)
 
 	provider := &providers.ResponsesUpstreamProvider{}
+	isFastMode := isFastModeForMessagesBridge(claudeReq.Speed, upstream.ServiceType)
 	if claudeReq.Stream {
-		handleStreamResponse(c, resp, provider, envCfg, cfgManager, startTime, upstream, reqLogManager, requestLogID, claudeReq.Model, usageManager, logChannelIndex, logChannelName)
+		handleStreamResponse(c, resp, provider, envCfg, cfgManager, startTime, upstream, reqLogManager, requestLogID, claudeReq.Model, usageManager, logChannelIndex, logChannelName, isFastMode)
 	} else {
-		handleNormalResponse(c, resp, provider, envCfg, cfgManager, startTime, upstream, reqLogManager, requestLogID, claudeReq.Model, usageManager, logChannelIndex, logChannelName)
+		handleNormalResponse(c, resp, provider, envCfg, cfgManager, startTime, upstream, reqLogManager, requestLogID, claudeReq.Model, usageManager, logChannelIndex, logChannelName, isFastMode)
 	}
 
 	return true, nil
@@ -1586,6 +1601,7 @@ func handleSingleChannelProxy(
 		if channel != nil {
 			record.Type = channel.ServiceType
 			record.ProviderName = channel.Name
+			record.ServiceTier = serviceTierForFastMode(isFastModeForMessagesBridge(claudeReq.Speed, channel.ServiceType))
 		}
 		if channelIndex != nil {
 			record.ChannelID = *channelIndex
@@ -1729,6 +1745,7 @@ func handleSingleChannelProxy(
 					Model:        claudeReq.Model,
 					Type:         upstream.ServiceType,
 					ProviderName: upstream.Name,
+					ServiceTier:  serviceTierForFastMode(isFastModeForMessagesBridge(claudeReq.Speed, upstream.ServiceType)),
 					HTTPStatus:   429,
 					ChannelID:    logChannelIndex,
 					ChannelName:  logChannelName,
@@ -1813,6 +1830,7 @@ func handleSingleChannelProxy(
 	var retryWaitPending bool // Allows loop to continue for one retry after wait
 	currentStartTime := startTime
 	currentRequestLogID := requestLogID
+	currentServiceTier := serviceTierForFastMode(isFastModeForMessagesBridge(claudeReq.Speed, upstream.ServiceType))
 
 	for attempt := 0; attempt < maxRetries || retryWaitPending; {
 		retryWaitPending = false // Clear at start of each iteration
@@ -1970,6 +1988,7 @@ func handleSingleChannelProxy(
 							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
+							ServiceTier:   currentServiceTier,
 							HTTPStatus:    resp.StatusCode,
 							ChannelID:     logChannelIndex,
 							ChannelName:   logChannelName,
@@ -1989,6 +2008,7 @@ func handleSingleChannelProxy(
 							Status:      requestlog.StatusPending,
 							InitialTime: time.Now(),
 							Model:       claudeReq.Model,
+							ServiceTier: currentServiceTier,
 							Stream:      claudeReq.Stream,
 							Endpoint:    "/v1/messages",
 							ChannelID:   logChannelIndex,
@@ -2069,6 +2089,7 @@ func handleSingleChannelProxy(
 							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
+							ServiceTier:   currentServiceTier,
 							HTTPStatus:    resp.StatusCode,
 							ChannelID:     logChannelIndex,
 							ChannelName:   logChannelName,
@@ -2096,6 +2117,7 @@ func handleSingleChannelProxy(
 							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
+							ServiceTier:   currentServiceTier,
 							HTTPStatus:    resp.StatusCode,
 							ChannelID:     logChannelIndex,
 							ChannelName:   logChannelName,
@@ -2133,6 +2155,7 @@ func handleSingleChannelProxy(
 							DurationMs:    completeTime.Sub(currentStartTime).Milliseconds(),
 							Type:          upstream.ServiceType,
 							ProviderName:  upstream.Name,
+							ServiceTier:   currentServiceTier,
 							HTTPStatus:    resp.StatusCode,
 							ChannelID:     logChannelIndex,
 							ChannelName:   logChannelName,
@@ -2152,6 +2175,7 @@ func handleSingleChannelProxy(
 							Status:      requestlog.StatusPending,
 							InitialTime: time.Now(),
 							Model:       claudeReq.Model,
+							ServiceTier: currentServiceTier,
 							Stream:      claudeReq.Stream,
 							Endpoint:    "/v1/messages",
 							ChannelID:   logChannelIndex,
@@ -2351,12 +2375,13 @@ func handleSingleChannelProxy(
 			}
 		}
 
+		isFastMode := isFastModeForMessagesBridge(claudeReq.Speed, upstream.ServiceType)
 		if claudeReq.Stream {
 			recordSingleSuccess(resp.StatusCode)
-			handleStreamResponse(c, resp, provider, envCfg, cfgManager, currentStartTime, upstream, reqLogManager, currentRequestLogID, claudeReq.Model, usageManager, logChannelIndex, logChannelName)
+			handleStreamResponse(c, resp, provider, envCfg, cfgManager, currentStartTime, upstream, reqLogManager, currentRequestLogID, claudeReq.Model, usageManager, logChannelIndex, logChannelName, isFastMode)
 		} else {
 			recordSingleSuccess(resp.StatusCode)
-			handleNormalResponse(c, resp, provider, envCfg, cfgManager, currentStartTime, upstream, reqLogManager, currentRequestLogID, claudeReq.Model, usageManager, logChannelIndex, logChannelName)
+			handleNormalResponse(c, resp, provider, envCfg, cfgManager, currentStartTime, upstream, reqLogManager, currentRequestLogID, claudeReq.Model, usageManager, logChannelIndex, logChannelName, isFastMode)
 		}
 		return
 	}
@@ -2522,6 +2547,7 @@ func handleNormalResponse(
 	usageManager *quota.UsageManager,
 	logChannelIndex int,
 	logChannelName string,
+	isFastMode bool,
 ) {
 	defer resp.Body.Close()
 
@@ -2626,6 +2652,7 @@ func handleNormalResponse(
 			DurationMs:    durationMs,
 			Type:          upstream.ServiceType,
 			ProviderName:  upstream.Name,
+			ServiceTier:   serviceTierForFastMode(isFastMode),
 			ResponseModel: responseModel,
 			HTTPStatus:    resp.StatusCode,
 			ChannelID:     logChannelIndex,
@@ -2649,6 +2676,7 @@ func handleNormalResponse(
 						CacheReadMultiplier:     channelMult.GetEffectiveMultiplier("cacheRead"),
 					}
 				}
+				multipliers = pricing.ApplyFastModeMultiplier(multipliers, isFastMode)
 				breakdown := pm.CalculateCostWithBreakdown(
 					pricingModel,
 					usage.InputTokens,
@@ -2694,6 +2722,7 @@ func handleStreamResponse(
 	usageManager *quota.UsageManager,
 	logChannelIndex int,
 	logChannelName string,
+	isFastMode bool,
 ) {
 	defer resp.Body.Close()
 
@@ -2860,6 +2889,7 @@ func handleStreamResponse(
 				FirstTokenDurationMs: firstTokenDurationFromStart(startTime, firstTokenTime),
 				Type:                 upstream.ServiceType,
 				ProviderName:         upstream.Name,
+				ServiceTier:          serviceTierForFastMode(isFastMode),
 				ResponseModel:        responseModel,
 				HTTPStatus:           resp.StatusCode,
 				ChannelID:            logChannelIndex,
@@ -2883,6 +2913,7 @@ func handleStreamResponse(
 							CacheReadMultiplier:     channelMult.GetEffectiveMultiplier("cacheRead"),
 						}
 					}
+					multipliers = pricing.ApplyFastModeMultiplier(multipliers, isFastMode)
 					breakdown := pm.CalculateCostWithBreakdown(
 						pricingModel,
 						usage.InputTokens,
@@ -2939,6 +2970,7 @@ func handleStreamResponse(
 				FirstTokenDurationMs: firstTokenDurationFromStart(startTime, firstTokenTime),
 				Type:                 upstream.ServiceType,
 				ProviderName:         upstream.Name,
+				ServiceTier:          serviceTierForFastMode(isFastMode),
 				HTTPStatus:           resp.StatusCode,
 				ChannelID:            logChannelIndex,
 				ChannelName:          logChannelName,

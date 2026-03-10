@@ -55,6 +55,7 @@ type RequestLog struct {
 	Model                    string     `json:"model"`                     // 请求的模型名称
 	ResponseModel            string     `json:"responseModel"`             // 响应中的模型名称（可能与请求不同）
 	ReasoningEffort          string     `json:"reasoningEffort,omitempty"` // Codex reasoning effort (low/medium/high/xhigh)
+	ServiceTier              string     `json:"serviceTier,omitempty"`     // Codex service tier (e.g. "priority" for fast mode)
 	InputTokens              int        `json:"inputTokens"`
 	OutputTokens             int        `json:"outputTokens"`
 	CacheCreationInputTokens int        `json:"cacheCreationInputTokens"`

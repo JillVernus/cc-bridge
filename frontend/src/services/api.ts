@@ -1225,6 +1225,7 @@ export interface RequestLog {
   model: string
   responseModel?: string // 响应中的模型名称（可能与请求不同）
   reasoningEffort?: string // Codex reasoning effort (low/medium/high/xhigh)
+  serviceTier?: string // Codex service tier (e.g. priority for fast mode)
   inputTokens: number
   outputTokens: number
   cacheCreationInputTokens: number
