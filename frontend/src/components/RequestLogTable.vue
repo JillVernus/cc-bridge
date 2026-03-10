@@ -1119,6 +1119,9 @@
                   <v-icon v-else-if="item.responseModel && item.responseModel !== item.model" size="10" class="ml-1"
                     >mdi-swap-horizontal</v-icon
                   >
+                  <v-icon v-if="item.serviceTier === 'priority'" size="12" class="ml-1" color="warning"
+                    >mdi-flash</v-icon
+                  >
                 </span>
               </div>
             </template>
@@ -1135,6 +1138,9 @@
               </div>
               <div v-if="item.responseModel && item.responseModel !== item.model">
                 <strong>Mapped:</strong> {{ item.model }} → {{ item.responseModel }}
+              </div>
+              <div v-if="item.serviceTier === 'priority'">
+                <strong>{{ t('requestLog.fastMode') }}:</strong> {{ t('common.yes') }}
               </div>
             </div>
           </v-tooltip>
@@ -1174,6 +1180,7 @@
                 <v-icon size="20" class="ml-1" :color="getReasoningEffortColor(item.reasoningEffort)">
                   {{ getReasoningEffortIcon(item.reasoningEffort) }}
                 </v-icon>
+                <v-icon v-if="item.serviceTier === 'priority'" size="12" class="ml-1" color="warning">mdi-flash</v-icon>
               </span>
             </template>
             <div class="reasoning-effort-tooltip">
@@ -1181,6 +1188,8 @@
               <span class="effort-value" :class="'effort-' + item.reasoningEffort.toLowerCase()">
                 {{ item.reasoningEffort }}
               </span>
+              <v-icon v-if="item.serviceTier === 'priority'" size="14" color="warning">mdi-flash</v-icon>
+              <span v-if="item.serviceTier === 'priority'" class="effort-label">{{ t('requestLog.fastMode') }}</span>
             </div>
           </v-tooltip>
           <!-- Model with response model mapping tooltip -->
@@ -1189,13 +1198,25 @@
               <span v-bind="props" class="text-caption font-weight-medium model-with-mapping">
                 {{ item.model }}
                 <v-icon size="12" class="ml-1">mdi-swap-horizontal</v-icon>
+                <v-icon v-if="item.serviceTier === 'priority'" size="12" class="ml-1" color="warning">mdi-flash</v-icon>
               </span>
             </template>
             <div class="model-mapping-tooltip">
               <span class="request-model">{{ item.model }}</span>
               <v-icon size="14" class="mx-1">mdi-arrow-right</v-icon>
               <span class="response-model">{{ item.responseModel }}</span>
+              <v-icon v-if="item.serviceTier === 'priority'" size="14" class="ml-2" color="warning">mdi-flash</v-icon>
+              <span v-if="item.serviceTier === 'priority'" class="ml-1">{{ t('requestLog.fastMode') }}</span>
             </div>
+          </v-tooltip>
+          <v-tooltip v-else-if="item.serviceTier === 'priority'" location="top">
+            <template v-slot:activator="{ props }">
+              <span v-bind="props" class="text-caption font-weight-medium">
+                {{ item.model }}
+                <v-icon size="12" class="ml-1" color="warning">mdi-flash</v-icon>
+              </span>
+            </template>
+            {{ t('requestLog.fastMode') }}
           </v-tooltip>
           <span v-else class="text-caption font-weight-medium">{{ item.model }}</span>
         </template>

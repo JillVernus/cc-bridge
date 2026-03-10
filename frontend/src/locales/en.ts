@@ -498,6 +498,7 @@ export default {
     upstreamResponse: 'Upstream Response',
     failoverInfo: 'Failover',
     reasoningEffort: 'Reasoning Effort:',
+    fastMode: 'Fast mode',
     costBreakdown: 'Cost Breakdown',
     inputCost: 'Input:',
     outputCost: 'Output:',

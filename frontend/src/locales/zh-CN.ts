@@ -489,6 +489,7 @@ export default {
     upstreamResponse: '上游响应',
     failoverInfo: '故障转移',
     reasoningEffort: 'Reasoning Effort:',
+    fastMode: '快速模式',
     costBreakdown: 'Cost Breakdown',
     inputCost: 'Input:',
     outputCost: 'Output:',
