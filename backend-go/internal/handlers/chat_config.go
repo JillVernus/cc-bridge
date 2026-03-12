@@ -331,36 +331,7 @@ func ReorderChatChannels(cfgManager *config.ConfigManager) gin.HandlerFunc {
 
 // GetChatChannelMetrics 获取 Chat 渠道指标
 func GetChatChannelMetrics(cfgManager *config.ConfigManager, channelScheduler *scheduler.ChannelScheduler) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		cfg := cfgManager.GetConfig()
-		metricsManager := channelScheduler.GetChatMetricsManager()
-
-		channelMetrics := make([]gin.H, len(cfg.ChatUpstream))
-		for i, up := range cfg.ChatUpstream {
-			metrics := metricsManager.GetMetrics(i)
-			isHealthy := metricsManager.IsChannelHealthyByIdentity(i, up.ID)
-			
-			metricsData := gin.H{
-				"index":     i,
-				"id":        up.ID,
-				"name":      up.Name,
-				"isHealthy": isHealthy,
-			}
-			
-			if metrics != nil {
-				metricsData["requestCount"] = metrics.RequestCount
-				metricsData["successCount"] = metrics.SuccessCount
-				metricsData["failureCount"] = metrics.FailureCount
-				metricsData["failureRate"] = metricsManager.CalculateFailureRateByIdentity(i, up.ID)
-			}
-			
-			channelMetrics[i] = metricsData
-		}
-
-		c.JSON(200, gin.H{
-			"channels": channelMetrics,
-		})
-	}
+	return getChannelMetricsByType(channelScheduler.GetChatMetricsManager(), cfgManager, metricsChannelTypeChat)
 }
 
 // SetChatLoadBalance 设置 Chat 负载均衡策略

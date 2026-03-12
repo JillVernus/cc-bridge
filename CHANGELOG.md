@@ -4,6 +4,32 @@
 
 ---
 
+## [v1.5.12] - 2026-03-12
+
+### 🐛 修复
+
+- **数据库模式下 Chat 渠道配置持久化修复**:
+  - 补齐数据库存储对 `ChatUpstream` 与 `chat_load_balance` 的保存、读取、轮询重载和 JSON 迁移支持，修复新建 Chat 渠道后刷新丢失的问题。
+  - 数据库轮询重载同时补齐 Gemini / Chat 渠道索引回填，避免重载后索引错位影响后续管理操作。
+  - 新增回归测试覆盖 Chat 渠道数据库 round-trip 持久化与轮询重载行为。
+
+- **Chat 渠道编排面板渲染修复**:
+  - 统一 `/api/chat/channels/metrics` 返回格式到共享 `ChannelMetrics[]` 结构，修复故障转移序列区域因指标结构不匹配而报错的问题。
+  - 前端指标读取增加兼容归一化，旧的 `{ channels: [...] }` 形态也不会再导致界面崩溃。
+  - 新增后端回归测试覆盖 Chat 渠道指标响应结构。
+
+- **Chat 渠道“获取模型列表”串到其他渠道修复**:
+  - 新增专用接口 `/api/chat/channels/:id/models`，确保 Chat 标签页只从 `ChatUpstream` 对应的 `baseUrl` 拉取模型列表。
+  - 前端编辑弹窗在 `chat` 渠道类型下改为调用专用模型接口，不再误用 messages 渠道的 `/api/channels/:id/models`。
+  - 新增回归测试覆盖 Chat 渠道与 Messages 渠道索引相同但模型来源必须隔离的场景。
+
+### ✅ 测试
+
+- `go test ./internal/config ./internal/handlers`
+- `bun run type-check`
+
+---
+
 ## [v1.5.11] - 2026-03-10
 
 ### ✨ 新功能

@@ -17,6 +17,7 @@ const (
 	metricsChannelTypeMessages  metricsChannelType = "messages"
 	metricsChannelTypeResponses metricsChannelType = "responses"
 	metricsChannelTypeGemini    metricsChannelType = "gemini"
+	metricsChannelTypeChat      metricsChannelType = "chat"
 )
 
 // GetChannelMetrics 获取渠道指标
@@ -93,6 +94,8 @@ func reconcileMetricsWithConfig(metricsManager *metrics.MetricsManager, cfgManag
 		upstreams = cfg.ResponsesUpstream
 	case metricsChannelTypeGemini:
 		upstreams = cfg.GeminiUpstream
+	case metricsChannelTypeChat:
+		upstreams = cfg.ChatUpstream
 	default:
 		upstreams = cfg.Upstream
 	}

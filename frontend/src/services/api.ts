@@ -247,6 +247,48 @@ export interface PingResult {
   error?: string
 }
 
+const asFiniteNumber = (value: unknown, fallback = 0): number => {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+const normalizeChannelMetricsEntry = (entry: Record<string, unknown>): ChannelMetrics => {
+  const failureRate = asFiniteNumber(entry.failureRate)
+
+  return {
+    channelIndex: asFiniteNumber(entry.channelIndex, asFiniteNumber(entry.index)),
+    requestCount: asFiniteNumber(entry.requestCount),
+    successCount: asFiniteNumber(entry.successCount),
+    failureCount: asFiniteNumber(entry.failureCount),
+    successRate: asFiniteNumber(entry.successRate, Math.max(0, 100 - failureRate * 100)),
+    errorRate: asFiniteNumber(entry.errorRate, failureRate * 100),
+    consecutiveFailures: asFiniteNumber(entry.consecutiveFailures),
+    latency: asFiniteNumber(entry.latency),
+    lastSuccessAt: typeof entry.lastSuccessAt === 'string' ? entry.lastSuccessAt : undefined,
+    lastFailureAt: typeof entry.lastFailureAt === 'string' ? entry.lastFailureAt : undefined,
+    timeWindows: entry.timeWindows as ChannelMetrics['timeWindows'],
+    recentCalls: Array.isArray(entry.recentCalls) ? (entry.recentCalls as RecentCallStat[]) : []
+  }
+}
+
+const normalizeChannelMetricsResponse = (payload: unknown): ChannelMetrics[] => {
+  if (Array.isArray(payload)) {
+    return payload.map(item => normalizeChannelMetricsEntry((item ?? {}) as Record<string, unknown>))
+  }
+
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    'channels' in payload &&
+    Array.isArray((payload as { channels?: unknown }).channels)
+  ) {
+    return (payload as { channels: unknown[] }).channels.map(item =>
+      normalizeChannelMetricsEntry((item ?? {}) as Record<string, unknown>)
+    )
+  }
+
+  return []
+}
+
 class ApiService {
   private apiKey: string | null = null
 
@@ -391,6 +433,13 @@ class ApiService {
     channelId: number
   ): Promise<{ success: boolean; models?: Array<{ id: string; object?: string; owned_by?: string }>; error?: string }> {
     return this.request(`/gemini/channels/${channelId}/models`)
+  }
+
+  // Fetch models from Chat upstream provider
+  async fetchChatUpstreamModels(
+    channelId: number
+  ): Promise<{ success: boolean; models?: Array<{ id: string; object?: string; owned_by?: string }>; error?: string }> {
+    return this.request(`/chat/channels/${channelId}/models`)
   }
 
   async updateLoadBalance(strategy: string): Promise<void> {
@@ -539,7 +588,7 @@ class ApiService {
 
   // 获取渠道指标
   async getChannelMetrics(): Promise<ChannelMetrics[]> {
-    return this.request('/channels/metrics')
+    return normalizeChannelMetricsResponse(await this.request('/channels/metrics'))
   }
 
   // 获取调度器统计信息
@@ -585,7 +634,7 @@ class ApiService {
 
   // 获取 Responses 渠道指标
   async getResponsesChannelMetrics(): Promise<ChannelMetrics[]> {
-    return this.request('/responses/channels/metrics')
+    return normalizeChannelMetricsResponse(await this.request('/responses/channels/metrics'))
   }
 
   // 获取 Responses 渠道 OAuth 状态（仅适用于 openai-oauth 类型）
@@ -668,7 +717,7 @@ class ApiService {
 
   // 获取 Gemini 渠道指标
   async getGeminiChannelMetrics(): Promise<ChannelMetrics[]> {
-    return this.request('/gemini/channels/metrics')
+    return normalizeChannelMetricsResponse(await this.request('/gemini/channels/metrics'))
   }
 
   // ============== Chat (OpenAI Chat Completions) 渠道管理 API ==============
@@ -728,7 +777,7 @@ class ApiService {
 
   // 获取 Chat 渠道指标
   async getChatChannelMetrics(): Promise<ChannelMetrics[]> {
-    return this.request('/chat/channels/metrics')
+    return normalizeChannelMetricsResponse(await this.request('/chat/channels/metrics'))
   }
 
   async updateChatLoadBalance(strategy: string): Promise<void> {
@@ -1199,7 +1248,7 @@ class ApiService {
   // Download CA certificate (returns blob URL for download)
   async downloadForwardProxyCACert(): Promise<Blob> {
     const baseUrl = API_BASE
-    const headers: Record<string, string> = { 'Accept': 'application/x-pem-file' }
+    const headers: Record<string, string> = { Accept: 'application/x-pem-file' }
     if (this.apiKey) {
       headers['x-api-key'] = this.apiKey
     }

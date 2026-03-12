@@ -2007,7 +2007,9 @@ const fetchUpstreamModels = async () => {
         ? await api.fetchResponsesUpstreamModels(props.channel.index)
         : props.channelType === 'gemini'
           ? await api.fetchGeminiUpstreamModels(props.channel.index)
-          : await api.fetchUpstreamModels(props.channel.index)
+          : props.channelType === 'chat'
+            ? await api.fetchChatUpstreamModels(props.channel.index)
+            : await api.fetchUpstreamModels(props.channel.index)
 
     if (result.success && result.models) {
       upstreamModels.value = result.models

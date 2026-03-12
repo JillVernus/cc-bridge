@@ -90,11 +90,26 @@ func (s *DBConfigStorage) MigrateFromJSONIfNeeded(jsonPath string) error {
 		}
 	}
 
+	// Migrate Gemini channels
+	for i, upstream := range config.GeminiUpstream {
+		if err := s.insertChannelTx(tx, "gemini", i, &upstream); err != nil {
+			return fmt.Errorf("failed to insert gemini channel %d: %w", i, err)
+		}
+	}
+
+	// Migrate Chat channels
+	for i, upstream := range config.ChatUpstream {
+		if err := s.insertChannelTx(tx, "chat", i, &upstream); err != nil {
+			return fmt.Errorf("failed to insert chat channel %d: %w", i, err)
+		}
+	}
+
 	// Migrate settings
 	settings := map[string]string{
 		"messages_load_balance":  config.LoadBalance,
 		"responses_load_balance": config.ResponsesLoadBalance,
 		"gemini_load_balance":    config.GeminiLoadBalance,
+		"chat_load_balance":      config.ChatLoadBalance,
 	}
 
 	// Migrate debug log config
@@ -243,6 +258,8 @@ func (s *DBConfigStorage) LoadConfigFromDB() (*Config, error) {
 			config.ResponsesLoadBalance = value
 		case "gemini_load_balance":
 			config.GeminiLoadBalance = value
+		case "chat_load_balance":
+			config.ChatLoadBalance = value
 		case "debug_log":
 			json.Unmarshal([]byte(value), &config.DebugLog)
 		case "failover":
@@ -268,6 +285,12 @@ func (s *DBConfigStorage) LoadConfigFromDB() (*Config, error) {
 	config.GeminiUpstream, err = s.loadChannels("gemini")
 	if err != nil {
 		return nil, fmt.Errorf("failed to load gemini channels: %w", err)
+	}
+
+	// Load Chat channels
+	config.ChatUpstream, err = s.loadChannels("chat")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load chat channels: %w", err)
 	}
 
 	// Ensure defaults are present for missing/legacy records.
@@ -445,11 +468,17 @@ func (s *DBConfigStorage) SaveConfigToDB(config *Config) error {
 		return fmt.Errorf("failed to sync gemini channels: %w", err)
 	}
 
+	// Sync Chat channels
+	if err := s.syncChannelsTx(tx, "chat", config.ChatUpstream); err != nil {
+		return fmt.Errorf("failed to sync chat channels: %w", err)
+	}
+
 	// Update settings
 	settings := map[string]string{
 		"messages_load_balance":  config.LoadBalance,
 		"responses_load_balance": config.ResponsesLoadBalance,
 		"gemini_load_balance":    config.GeminiLoadBalance,
+		"chat_load_balance":      config.ChatLoadBalance,
 	}
 
 	debugConfig, _ := json.Marshal(config.DebugLog)
@@ -724,6 +753,12 @@ func (s *DBConfigStorage) checkForChanges() {
 			}
 			for i := range s.cm.config.ResponsesUpstream {
 				s.cm.config.ResponsesUpstream[i].Index = i
+			}
+			for i := range s.cm.config.GeminiUpstream {
+				s.cm.config.GeminiUpstream[i].Index = i
+			}
+			for i := range s.cm.config.ChatUpstream {
+				s.cm.config.ChatUpstream[i].Index = i
 			}
 			s.cm.mu.Unlock()
 

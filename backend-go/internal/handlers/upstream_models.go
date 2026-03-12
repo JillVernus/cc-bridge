@@ -167,6 +167,46 @@ func FetchGeminiUpstreamModels(cfgManager *config.ConfigManager) gin.HandlerFunc
 	}
 }
 
+// FetchChatUpstreamModels fetches the model list from a Chat upstream channel
+// GET /api/chat/channels/:id/models
+func FetchChatUpstreamModels(cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		idStr := c.Param("id")
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, UpstreamModelsResponse{
+				Success: false,
+				Error:   "Invalid channel ID",
+			})
+			return
+		}
+
+		cfg := cfgManager.GetConfig()
+		if id < 0 || id >= len(cfg.ChatUpstream) {
+			c.JSON(http.StatusNotFound, UpstreamModelsResponse{
+				Success: false,
+				Error:   "Channel not found",
+			})
+			return
+		}
+
+		channel := cfg.ChatUpstream[id]
+		models, err := fetchModelsFromUpstream(&channel)
+		if err != nil {
+			c.JSON(http.StatusOK, UpstreamModelsResponse{
+				Success: false,
+				Error:   err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, UpstreamModelsResponse{
+			Success: true,
+			Models:  models,
+		})
+	}
+}
+
 // fetchModelsFromUpstream fetches models from an upstream provider
 func fetchModelsFromUpstream(channel *config.UpstreamConfig) ([]UpstreamModel, error) {
 	// Check if channel has API keys

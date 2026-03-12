@@ -540,6 +540,7 @@ func main() {
 		apiGroup.POST("/chat/channels/reorder", handlers.ReorderChatChannels(cfgManager))
 		apiGroup.PATCH("/chat/channels/:id/status", handlers.SetChatChannelStatus(cfgManager))
 		apiGroup.GET("/chat/channels/metrics", handlers.GetChatChannelMetrics(cfgManager, channelScheduler))
+		apiGroup.GET("/chat/channels/:id/models", handlers.FetchChatUpstreamModels(cfgManager))
 		apiGroup.PUT("/chat/loadbalance", handlers.SetChatLoadBalance(cfgManager))
 
 		// 负载均衡
