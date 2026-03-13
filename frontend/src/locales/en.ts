@@ -1023,6 +1023,45 @@ export default {
     parsed: 'Parsed'
   },
 
+  // Report
+  report: {
+    tabTitle: 'Report',
+    totalRequests: 'Total Requests',
+    successRate: 'Success Rate',
+    successRateShort: 'Success%',
+    totalCost: 'Total Cost',
+    totalTokens: 'Total Tokens',
+    totalTokensShort: 'Tokens',
+    inputOutput: 'In: {input} / Out: {output}',
+    cacheHitRate: 'Cache Hit Rate',
+    avgLatency: 'Avg Latency',
+    avgLatencyShort: 'Avg Latency',
+    dailyCostTrend: 'Daily Cost Trend',
+    modelDistribution: 'Model Distribution (by Cost)',
+    tokenBreakdown: 'Token Breakdown',
+    byChannel: 'By Channel',
+    byModel: 'By Model',
+    byApiKey: 'By API Key',
+    byClient: 'By Client',
+    channelName: 'Channel',
+    modelName: 'Model',
+    apiKeyId: 'API Key',
+    clientId: 'Client',
+    requests: 'Requests',
+    inputTokensShort: 'Input',
+    outputTokensShort: 'Output',
+    cacheTokens: 'Cache',
+    cost: 'Cost',
+    avgCostPerReq: 'Avg $/Req',
+    exportCsv: 'Export CSV',
+    today: 'Today',
+    yesterday: 'Yesterday',
+    last7Days: 'Last 7 Days',
+    last30Days: 'Last 30 Days',
+    thisMonth: 'This Month',
+    lastMonth: 'Last Month'
+  },
+
   // Forward Proxy
   forwardProxy: {
     title: 'Forward Proxy',

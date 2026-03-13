@@ -2724,11 +2724,14 @@ const handleLogUpdated = (payload: LogUpdatedPayload) => {
         if (!group[key]) {
           group[key] = {
             count: 0,
+            success: 0,
+            failure: 0,
             inputTokens: 0,
             outputTokens: 0,
             cacheCreationInputTokens: 0,
             cacheReadInputTokens: 0,
-            cost: 0
+            cost: 0,
+            avgLatencyMs: 0
           }
         }
         group[key].count++

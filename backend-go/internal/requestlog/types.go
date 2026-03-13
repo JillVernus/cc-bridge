@@ -110,8 +110,12 @@ type RequestLogFilter struct {
 // RequestLogStats represents aggregated statistics
 type RequestLogStats struct {
 	TotalRequests int64                    `json:"totalRequests"`
+	TotalSuccess  int64                    `json:"totalSuccess"`
+	TotalFailure  int64                    `json:"totalFailure"`
 	TotalTokens   UsageData                `json:"totalTokens"`
 	TotalCost     float64                  `json:"totalCost"`
+	AvgLatencyMs  float64                  `json:"avgLatencyMs"`
+	P95LatencyMs  int64                    `json:"p95LatencyMs"`
 	ByProvider    map[string]ProviderStats `json:"byProvider"`
 	ByModel       map[string]ModelStats    `json:"byModel"`
 	ByClient      map[string]GroupStats    `json:"byClient"`
@@ -123,37 +127,65 @@ type RequestLogStats struct {
 // GroupStats represents statistics for a generic group (user, session, etc.)
 type GroupStats struct {
 	Count                    int64   `json:"count"`
+	Success                  int64   `json:"success"`
+	Failure                  int64   `json:"failure"`
 	InputTokens              int     `json:"inputTokens"`
 	OutputTokens             int     `json:"outputTokens"`
 	CacheCreationInputTokens int     `json:"cacheCreationInputTokens"`
 	CacheReadInputTokens     int     `json:"cacheReadInputTokens"`
 	Cost                     float64 `json:"cost"`
+	AvgLatencyMs             float64 `json:"avgLatencyMs"`
 }
 
 // ProviderStats represents statistics for a single provider
 type ProviderStats struct {
 	Count                    int64   `json:"count"`
+	Success                  int64   `json:"success"`
+	Failure                  int64   `json:"failure"`
 	InputTokens              int     `json:"inputTokens"`
 	OutputTokens             int     `json:"outputTokens"`
 	CacheCreationInputTokens int     `json:"cacheCreationInputTokens"`
 	CacheReadInputTokens     int     `json:"cacheReadInputTokens"`
 	Cost                     float64 `json:"cost"`
+	AvgLatencyMs             float64 `json:"avgLatencyMs"`
 }
 
 // ModelStats represents statistics for a single model
 type ModelStats struct {
 	Count                    int64   `json:"count"`
+	Success                  int64   `json:"success"`
+	Failure                  int64   `json:"failure"`
 	InputTokens              int     `json:"inputTokens"`
 	OutputTokens             int     `json:"outputTokens"`
 	CacheCreationInputTokens int     `json:"cacheCreationInputTokens"`
 	CacheReadInputTokens     int     `json:"cacheReadInputTokens"`
 	Cost                     float64 `json:"cost"`
+	AvgLatencyMs             float64 `json:"avgLatencyMs"`
 }
 
 // TimeRange represents a time range for statistics
 type TimeRange struct {
 	From time.Time `json:"from"`
 	To   time.Time `json:"to"`
+}
+
+// DailyStatsDataPoint represents aggregated stats for a single day
+type DailyStatsDataPoint struct {
+	Date                     string  `json:"date"` // YYYY-MM-DD
+	Requests                 int64   `json:"requests"`
+	Success                  int64   `json:"success"`
+	Failure                  int64   `json:"failure"`
+	InputTokens              int64   `json:"inputTokens"`
+	OutputTokens             int64   `json:"outputTokens"`
+	CacheCreationInputTokens int64   `json:"cacheCreationInputTokens"`
+	CacheReadInputTokens     int64   `json:"cacheReadInputTokens"`
+	Cost                     float64 `json:"cost"`
+	AvgDurationMs            float64 `json:"avgDurationMs"`
+}
+
+// DailyStatsResponse is the response for the daily stats endpoint
+type DailyStatsResponse struct {
+	DataPoints []DailyStatsDataPoint `json:"dataPoints"`
 }
 
 // RequestLogListResponse represents the API response for listing request logs

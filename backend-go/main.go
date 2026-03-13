@@ -557,6 +557,7 @@ func main() {
 			apiGroup.POST("/logs/hooks/anthropic", reqLogHandler.IngestAnthropicHookLog)
 			apiGroup.GET("/logs/stream", reqLogHandler.StreamLogs) // SSE real-time updates
 			apiGroup.GET("/logs/stats", reqLogHandler.GetStats)
+			apiGroup.GET("/logs/stats/daily", reqLogHandler.GetDailyStats)
 			apiGroup.GET("/logs/stats/history", reqLogHandler.GetStatsHistory)
 			apiGroup.GET("/logs/providers/stats/history", reqLogHandler.GetProviderStatsHistory)
 			apiGroup.GET("/logs/channels/:id/stats/history", reqLogHandler.GetChannelStatsHistory)

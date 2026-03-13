@@ -1359,13 +1359,13 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 		filter = &RequestLogFilter{}
 	}
 
-	// Build where clause - exclude pending, timeout, and failover requests from statistics
+	// Build where clause - exclude non-terminal audit/in-flight request states from statistics.
 	var conditions []string
 	var args []interface{}
 
-	// Only count completed/error requests in statistics (exclude pending/timeout/failover)
-	conditions = append(conditions, "status NOT IN (?, ?, ?)")
-	args = append(args, StatusPending, StatusTimeout, StatusFailover)
+	// Only count terminal request outcomes in statistics.
+	conditions = append(conditions, "status NOT IN (?, ?, ?, ?)")
+	args = append(args, StatusPending, StatusTimeout, StatusFailover, StatusRetryWait)
 
 	if filter.From != nil {
 		conditions = append(conditions, "initial_time >= ?")
@@ -1383,6 +1383,10 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 		conditions = append(conditions, "session_id = ?")
 		args = append(args, filter.SessionID)
 	}
+	if filter.Endpoint != "" {
+		conditions = append(conditions, "endpoint = ?")
+		args = append(args, filter.Endpoint)
+	}
 
 	whereClause := "WHERE " + strings.Join(conditions, " AND ")
 
@@ -1398,31 +1402,62 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 	query := m.convertQuery(fmt.Sprintf(`
 		SELECT
 			COUNT(*),
+			COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0),
 			COALESCE(SUM(input_tokens), 0),
 			COALESCE(SUM(output_tokens), 0),
 			COALESCE(SUM(cache_creation_input_tokens), 0),
 			COALESCE(SUM(cache_read_input_tokens), 0),
 			COALESCE(SUM(total_tokens), 0),
 			COALESCE(SUM(price), 0),
+			COALESCE(AVG(CASE WHEN duration_ms > 0 THEN duration_ms END), 0),
 			MIN(initial_time),
 			MAX(initial_time)
 		FROM request_logs %s
 	`, whereClause))
 
+	var avgLatency float64
 	var minTimeStr, maxTimeStr sql.NullString
 	err := m.db.QueryRow(query, args...).Scan(
 		&stats.TotalRequests,
+		&stats.TotalSuccess,
+		&stats.TotalFailure,
 		&stats.TotalTokens.InputTokens,
 		&stats.TotalTokens.OutputTokens,
 		&stats.TotalTokens.CacheCreationInputTokens,
 		&stats.TotalTokens.CacheReadInputTokens,
 		&stats.TotalTokens.TotalTokens,
 		&stats.TotalCost,
+		&avgLatency,
 		&minTimeStr,
 		&maxTimeStr,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total stats: %w", err)
+	}
+	stats.AvgLatencyMs = avgLatency
+
+	// Calculate P95 latency from individual durations
+	if stats.TotalRequests > 0 {
+		p95Query := m.convertQuery(fmt.Sprintf(`
+			SELECT COALESCE(duration_ms, 0)
+			FROM request_logs %s AND duration_ms > 0
+			ORDER BY duration_ms ASC
+		`, whereClause))
+		p95Rows, p95Err := m.db.Query(p95Query, args...)
+		if p95Err == nil {
+			defer p95Rows.Close()
+			var durations []int64
+			for p95Rows.Next() {
+				var d int64
+				if err := p95Rows.Scan(&d); err == nil {
+					durations = append(durations, d)
+				}
+			}
+			if len(durations) > 0 {
+				stats.P95LatencyMs = percentileMs(durations, 95)
+			}
+		}
 	}
 
 	// Parse time strings from SQLite
@@ -1441,17 +1476,23 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 		}
 	}
 
-	// Get stats by provider (group by provider_name, the actual channel name)
-	providerQuery := m.convertQuery(fmt.Sprintf(`
-		SELECT COALESCE(provider_name, provider), COUNT(*),
+	// Enhanced group query template with success/failure/latency
+	const groupSelectCols = `COUNT(*),
+			COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0),
 			COALESCE(SUM(input_tokens), 0),
 			COALESCE(SUM(output_tokens), 0),
 			COALESCE(SUM(cache_creation_input_tokens), 0),
 			COALESCE(SUM(cache_read_input_tokens), 0),
-			COALESCE(SUM(price), 0)
+			COALESCE(SUM(price), 0),
+			COALESCE(AVG(CASE WHEN duration_ms > 0 THEN duration_ms END), 0)`
+
+	// Get stats by provider (group by provider_name, the actual channel name)
+	providerQuery := m.convertQuery(fmt.Sprintf(`
+		SELECT COALESCE(provider_name, provider), %s
 		FROM request_logs %s
 		GROUP BY COALESCE(provider_name, provider)
-	`, whereClause))
+	`, groupSelectCols, whereClause))
 
 	providerRows, err := m.db.Query(providerQuery, args...)
 	if err != nil {
@@ -1462,7 +1503,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 	for providerRows.Next() {
 		var provider string
 		var ps ProviderStats
-		if err := providerRows.Scan(&provider, &ps.Count, &ps.InputTokens, &ps.OutputTokens, &ps.CacheCreationInputTokens, &ps.CacheReadInputTokens, &ps.Cost); err != nil {
+		if err := providerRows.Scan(&provider, &ps.Count, &ps.Success, &ps.Failure, &ps.InputTokens, &ps.OutputTokens, &ps.CacheCreationInputTokens, &ps.CacheReadInputTokens, &ps.Cost, &ps.AvgLatencyMs); err != nil {
 			return nil, fmt.Errorf("failed to scan provider stats: %w", err)
 		}
 		stats.ByProvider[provider] = ps
@@ -1470,15 +1511,10 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 
 	// Get stats by model
 	modelQuery := m.convertQuery(fmt.Sprintf(`
-		SELECT model, COUNT(*),
-			COALESCE(SUM(input_tokens), 0),
-			COALESCE(SUM(output_tokens), 0),
-			COALESCE(SUM(cache_creation_input_tokens), 0),
-			COALESCE(SUM(cache_read_input_tokens), 0),
-			COALESCE(SUM(price), 0)
+		SELECT model, %s
 		FROM request_logs %s
 		GROUP BY model
-	`, whereClause))
+	`, groupSelectCols, whereClause))
 
 	modelRows, err := m.db.Query(modelQuery, args...)
 	if err != nil {
@@ -1489,7 +1525,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 	for modelRows.Next() {
 		var model string
 		var ms ModelStats
-		if err := modelRows.Scan(&model, &ms.Count, &ms.InputTokens, &ms.OutputTokens, &ms.CacheCreationInputTokens, &ms.CacheReadInputTokens, &ms.Cost); err != nil {
+		if err := modelRows.Scan(&model, &ms.Count, &ms.Success, &ms.Failure, &ms.InputTokens, &ms.OutputTokens, &ms.CacheCreationInputTokens, &ms.CacheReadInputTokens, &ms.Cost, &ms.AvgLatencyMs); err != nil {
 			return nil, fmt.Errorf("failed to scan model stats: %w", err)
 		}
 		stats.ByModel[model] = ms
@@ -1497,15 +1533,10 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 
 	// Get stats by user
 	userQuery := m.convertQuery(fmt.Sprintf(`
-		SELECT COALESCE(NULLIF(TRIM(client_id), ''), '<unknown>'), COUNT(*),
-			COALESCE(SUM(input_tokens), 0),
-			COALESCE(SUM(output_tokens), 0),
-			COALESCE(SUM(cache_creation_input_tokens), 0),
-			COALESCE(SUM(cache_read_input_tokens), 0),
-			COALESCE(SUM(price), 0)
+		SELECT COALESCE(NULLIF(TRIM(client_id), ''), '<unknown>'), %s
 		FROM request_logs %s
 		GROUP BY COALESCE(NULLIF(TRIM(client_id), ''), '<unknown>')
-	`, whereClause))
+	`, groupSelectCols, whereClause))
 
 	userRows, err := m.db.Query(userQuery, args...)
 	if err != nil {
@@ -1516,7 +1547,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 	for userRows.Next() {
 		var client string
 		var us GroupStats
-		if err := userRows.Scan(&client, &us.Count, &us.InputTokens, &us.OutputTokens, &us.CacheCreationInputTokens, &us.CacheReadInputTokens, &us.Cost); err != nil {
+		if err := userRows.Scan(&client, &us.Count, &us.Success, &us.Failure, &us.InputTokens, &us.OutputTokens, &us.CacheCreationInputTokens, &us.CacheReadInputTokens, &us.Cost, &us.AvgLatencyMs); err != nil {
 			return nil, fmt.Errorf("failed to scan client stats: %w", err)
 		}
 		stats.ByClient[client] = us
@@ -1524,15 +1555,10 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 
 	// Get stats by session
 	sessionQuery := m.convertQuery(fmt.Sprintf(`
-		SELECT COALESCE(NULLIF(TRIM(session_id), ''), '<unknown>'), COUNT(*),
-			COALESCE(SUM(input_tokens), 0),
-			COALESCE(SUM(output_tokens), 0),
-			COALESCE(SUM(cache_creation_input_tokens), 0),
-			COALESCE(SUM(cache_read_input_tokens), 0),
-			COALESCE(SUM(price), 0)
+		SELECT COALESCE(NULLIF(TRIM(session_id), ''), '<unknown>'), %s
 		FROM request_logs %s
 		GROUP BY COALESCE(NULLIF(TRIM(session_id), ''), '<unknown>')
-	`, whereClause))
+	`, groupSelectCols, whereClause))
 
 	sessionRows, err := m.db.Query(sessionQuery, args...)
 	if err != nil {
@@ -1543,7 +1569,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 	for sessionRows.Next() {
 		var session string
 		var ss GroupStats
-		if err := sessionRows.Scan(&session, &ss.Count, &ss.InputTokens, &ss.OutputTokens, &ss.CacheCreationInputTokens, &ss.CacheReadInputTokens, &ss.Cost); err != nil {
+		if err := sessionRows.Scan(&session, &ss.Count, &ss.Success, &ss.Failure, &ss.InputTokens, &ss.OutputTokens, &ss.CacheCreationInputTokens, &ss.CacheReadInputTokens, &ss.Cost, &ss.AvgLatencyMs); err != nil {
 			return nil, fmt.Errorf("failed to scan session stats: %w", err)
 		}
 		stats.BySession[session] = ss
@@ -1551,15 +1577,10 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 
 	// Get stats by API key (0 = master, NULL = unknown)
 	apiKeyQuery := m.convertQuery(fmt.Sprintf(`
-		SELECT CASE WHEN api_key_id IS NULL THEN '<unknown>' WHEN api_key_id = 0 THEN 'master' ELSE CAST(api_key_id AS TEXT) END, COUNT(*),
-			COALESCE(SUM(input_tokens), 0),
-			COALESCE(SUM(output_tokens), 0),
-			COALESCE(SUM(cache_creation_input_tokens), 0),
-			COALESCE(SUM(cache_read_input_tokens), 0),
-			COALESCE(SUM(price), 0)
+		SELECT CASE WHEN api_key_id IS NULL THEN '<unknown>' WHEN api_key_id = 0 THEN 'master' ELSE CAST(api_key_id AS TEXT) END, %s
 		FROM request_logs %s
 		GROUP BY CASE WHEN api_key_id IS NULL THEN '<unknown>' WHEN api_key_id = 0 THEN 'master' ELSE CAST(api_key_id AS TEXT) END
-	`, whereClause))
+	`, groupSelectCols, whereClause))
 
 	apiKeyRows, err := m.db.Query(apiKeyQuery, args...)
 	if err != nil {
@@ -1570,13 +1591,126 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 	for apiKeyRows.Next() {
 		var apiKey string
 		var aks GroupStats
-		if err := apiKeyRows.Scan(&apiKey, &aks.Count, &aks.InputTokens, &aks.OutputTokens, &aks.CacheCreationInputTokens, &aks.CacheReadInputTokens, &aks.Cost); err != nil {
+		if err := apiKeyRows.Scan(&apiKey, &aks.Count, &aks.Success, &aks.Failure, &aks.InputTokens, &aks.OutputTokens, &aks.CacheCreationInputTokens, &aks.CacheReadInputTokens, &aks.Cost, &aks.AvgLatencyMs); err != nil {
 			return nil, fmt.Errorf("failed to scan api key stats: %w", err)
 		}
 		stats.ByAPIKey[apiKey] = aks
 	}
 
 	return stats, nil
+}
+
+// GetDailyStats returns daily aggregated data points for a date range.
+// from/to are RFC3339 timestamps. Optional endpoint filter.
+func (m *Manager) GetDailyStats(from, to time.Time, endpoint string) (*DailyStatsResponse, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	now := time.Now()
+	if to.After(now) {
+		to = now
+	}
+	if to.Before(from) {
+		return &DailyStatsResponse{DataPoints: []DailyStatsDataPoint{}}, nil
+	}
+
+	query := `
+		SELECT
+			initial_time,
+			status,
+			COALESCE(input_tokens, 0),
+			COALESCE(output_tokens, 0),
+			COALESCE(cache_creation_input_tokens, 0),
+			COALESCE(cache_read_input_tokens, 0),
+			COALESCE(price, 0),
+			COALESCE(duration_ms, 0)
+		FROM request_logs
+		WHERE status NOT IN (?, ?, ?, ?)
+		  AND initial_time >= ? AND initial_time <= ?
+	`
+	args := []interface{}{StatusPending, StatusTimeout, StatusFailover, StatusRetryWait, from, to}
+
+	if endpoint != "" {
+		query += ` AND endpoint = ?`
+		args = append(args, endpoint)
+	}
+
+	query += ` ORDER BY initial_time ASC`
+
+	rows, err := m.db.Query(m.convertQuery(query), args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query daily stats: %w", err)
+	}
+	defer rows.Close()
+
+	dayBuckets := make(map[string]*DailyStatsDataPoint)
+	dayDurationSums := make(map[string]float64)
+	dayDurationCounts := make(map[string]int64)
+	var dayKeys []string
+	for rows.Next() {
+		var initialTimeStr string
+		var status string
+		var inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens int64
+		var cost float64
+		var durationMs int64
+
+		if err := rows.Scan(
+			&initialTimeStr,
+			&status,
+			&inputTokens,
+			&outputTokens,
+			&cacheCreationTokens,
+			&cacheReadTokens,
+			&cost,
+			&durationMs,
+		); err != nil {
+			continue
+		}
+
+		initialTime := parseTimeString(initialTimeStr)
+		if initialTime.IsZero() {
+			continue
+		}
+		dayKey := initialTime.UTC().Format("2006-01-02")
+
+		dp, exists := dayBuckets[dayKey]
+		if !exists {
+			dp = &DailyStatsDataPoint{Date: dayKey}
+			dayBuckets[dayKey] = dp
+			dayKeys = append(dayKeys, dayKey)
+		}
+
+		dp.Requests++
+		dp.InputTokens += inputTokens
+		dp.OutputTokens += outputTokens
+		dp.CacheCreationInputTokens += cacheCreationTokens
+		dp.CacheReadInputTokens += cacheReadTokens
+		dp.Cost += cost
+
+		if status == StatusCompleted {
+			dp.Success++
+		} else if status == StatusError {
+			dp.Failure++
+		}
+
+		if durationMs > 0 {
+			dayDurationSums[dayKey] += float64(durationMs)
+			dayDurationCounts[dayKey]++
+		}
+	}
+
+	sort.Strings(dayKeys)
+
+	dataPoints := make([]DailyStatsDataPoint, 0, len(dayKeys))
+	for _, dayKey := range dayKeys {
+		dp := dayBuckets[dayKey]
+		if dayDurationCounts[dayKey] > 0 {
+			dp.AvgDurationMs = dayDurationSums[dayKey] / float64(dayDurationCounts[dayKey])
+		}
+		dataPoints = append(dataPoints, *dp)
+	}
+
+	return &DailyStatsResponse{DataPoints: dataPoints}, nil
 }
 
 // ClearAll deletes all request logs

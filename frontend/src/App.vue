@@ -149,6 +149,10 @@
             <v-icon start :size="$vuetify.display.mobile ? 16 : 20">mdi-format-list-bulleted</v-icon>
             <span>Logs</span>
           </v-btn>
+          <v-btn value="report" class="nav-btn" :size="$vuetify.display.mobile ? 'small' : 'default'">
+            <v-icon start :size="$vuetify.display.mobile ? 16 : 20">mdi-chart-box-outline</v-icon>
+            <span>{{ t('report.tabTitle') }}</span>
+          </v-btn>
         </v-btn-toggle>
       </div>
 
@@ -271,8 +275,11 @@
         <!-- API Keys 视图 -->
         <APIKeyManagement v-if="activeTab === 'apikeys'" />
 
+        <!-- Report 视图 -->
+        <ReportView v-if="activeTab === 'report'" />
+
         <!-- 渠道管理视图 -->
-        <template v-if="activeTab !== 'logs' && activeTab !== 'apikeys'">
+        <template v-if="activeTab !== 'logs' && activeTab !== 'apikeys' && activeTab !== 'report'">
         <!-- 统计卡片 - 玻璃拟态风格 -->
         <div class="stats-container mb-6">
           <v-row class="stat-cards-row">
@@ -653,6 +660,7 @@ import UserAgentSettings from './components/UserAgentSettings.vue'
 import FailoverSettings from './components/FailoverSettings.vue'
 import ForwardProxySettings from './components/ForwardProxySettings.vue'
 import GlobalStatsChart from './components/GlobalStatsChart.vue'
+import ReportView from './components/ReportView.vue'
 import { useAppTheme } from './composables/useTheme'
 import { useLocale } from './composables/useLocale'
 
@@ -684,7 +692,7 @@ let channelsRefreshInFlight = false
 let metricsRefreshInFlight = false
 
 // 响应式数据
-const activeTab = ref<'messages' | 'responses' | 'gemini' | 'chat' | 'logs' | 'apikeys'>('messages') // Tab 切换状态
+const activeTab = ref<'messages' | 'responses' | 'gemini' | 'chat' | 'logs' | 'apikeys' | 'report'>('messages') // Tab 切换状态
 const channelsData = ref<ChannelsResponse>({ channels: [], current: -1, loadBalance: 'round-robin' })
 const responsesChannelsData = ref<ChannelsResponse>({ channels: [], current: -1, loadBalance: 'round-robin' }) // Responses渠道数据
 const geminiChannelsData = ref<ChannelsResponse>({ channels: [], current: -1, loadBalance: 'round-robin' }) // Gemini渠道数据
@@ -746,7 +754,7 @@ const isDeleting = ref(false)
 
 // 用于传递给子组件的 channelType (排除 'logs' 和 'apikeys')
 const channelTypeForComponents = computed((): 'messages' | 'responses' | 'gemini' | 'chat' => {
-  if (activeTab.value === 'logs' || activeTab.value === 'apikeys') {
+  if (activeTab.value === 'logs' || activeTab.value === 'apikeys' || activeTab.value === 'report') {
     return 'messages'
   }
   return activeTab.value

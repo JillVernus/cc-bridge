@@ -4,6 +4,37 @@
 
 ---
 
+## [v1.5.13] - 2026-03-13
+
+### ✨ 新功能
+
+- **报表标签页（按时间段用量与费用汇总）**:
+  - 新增独立 `Report` 标签页，支持 Today / Yesterday / Last 7 Days / Last 30 Days / This Month / Last Month / 自定义区间。
+  - 汇总展示请求数、成功率、总费用、总 Tokens、缓存命中率、平均延迟与 P95 延迟。
+  - 新增每日费用趋势、模型费用分布、Token 分布图，以及按渠道 / 模型 / API Key / 客户端的明细表与 CSV 导出。
+  - 后端新增按 `endpoint` 过滤的统计增强与 `GET /api/logs/stats/daily` 每日聚合接口。
+
+### 🐛 修复
+
+- **报表统计口径修复**:
+  - 请求日志聚合与每日报表均排除 `retry_wait` 审计记录，避免成功请求在重试后被额外计为失败或重复计数。
+  - 失败数仅统计最终 `error` 结果，避免非终态 / 审计态干扰成功率与失败率。
+  - 每日报表改为复用请求日志现有的解析与分桶方式，提升 SQLite / PostgreSQL 下的一致性。
+
+- **报表交互与展示修复**:
+  - 自定义时间范围下切换 endpoint 时会立即刷新，不再停留在上一次筛选结果。
+  - `7d` / `30d` 预设窗口修正为真正包含当天的 7 / 30 个自然日。
+  - 渠道明细与 CSV 导出的缓存列改为汇总 `cache creation + cache read`，不再漏算缓存创建 tokens。
+  - “By API Key” 报表改为优先显示 API Key 名称，找不到映射时再回退到原始 ID。
+
+### ✅ 测试
+
+- `go test ./internal/requestlog/...`
+- `cd frontend && bun run type-check`
+- `cd frontend && bun run build`
+
+---
+
 ## [v1.5.12] - 2026-03-12
 
 ### 🐛 修复

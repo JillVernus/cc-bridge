@@ -1006,6 +1006,45 @@ export default {
     parsed: '已解析'
   },
 
+  // Report
+  report: {
+    tabTitle: '报表',
+    totalRequests: '总请求数',
+    successRate: '成功率',
+    successRateShort: '成功率',
+    totalCost: '总费用',
+    totalTokens: '总 Tokens',
+    totalTokensShort: 'Tokens',
+    inputOutput: '输入: {input} / 输出: {output}',
+    cacheHitRate: '缓存命中率',
+    avgLatency: '平均延迟',
+    avgLatencyShort: '平均延迟',
+    dailyCostTrend: '每日费用趋势',
+    modelDistribution: '模型分布（按费用）',
+    tokenBreakdown: 'Token 分布',
+    byChannel: '按渠道',
+    byModel: '按模型',
+    byApiKey: '按 API Key',
+    byClient: '按客户端',
+    channelName: '渠道',
+    modelName: '模型',
+    apiKeyId: 'API Key',
+    clientId: '客户端',
+    requests: '请求数',
+    inputTokensShort: '输入',
+    outputTokensShort: '输出',
+    cacheTokens: '缓存',
+    cost: '费用',
+    avgCostPerReq: '平均$/请求',
+    exportCsv: '导出 CSV',
+    today: '今天',
+    yesterday: '昨天',
+    last7Days: '近 7 天',
+    last30Days: '近 30 天',
+    thisMonth: '本月',
+    lastMonth: '上月'
+  },
+
   // Forward Proxy
   forwardProxy: {
     title: '正向代理',

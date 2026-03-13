@@ -1135,6 +1135,32 @@ class ApiService {
     return this.apiKey
   }
 
+  // 获取报表统计数据 (enhanced GetStats with endpoint filter)
+  async getReportStats(
+    from: string,
+    to: string,
+    endpoint?: string
+  ): Promise<RequestLogStats> {
+    const params = new URLSearchParams()
+    params.set('from', from)
+    params.set('to', to)
+    if (endpoint) params.set('endpoint', endpoint)
+    return this.request(`/logs/stats?${params.toString()}`)
+  }
+
+  // 获取每日聚合统计数据 (for report charts)
+  async getReportDailyStats(
+    from: string,
+    to: string,
+    endpoint?: string
+  ): Promise<DailyStatsResponse> {
+    const params = new URLSearchParams()
+    params.set('from', from)
+    params.set('to', to)
+    if (endpoint) params.set('endpoint', endpoint)
+    return this.request(`/logs/stats/daily?${params.toString()}`)
+  }
+
   // 获取全局统计历史数据
   async getStatsHistory(
     duration: Duration = '1h',
@@ -1324,15 +1350,20 @@ export interface RequestLogListResponse {
 
 export interface GroupStats {
   count: number
+  success: number
+  failure: number
   inputTokens: number
   outputTokens: number
   cacheCreationInputTokens: number
   cacheReadInputTokens: number
   cost: number
+  avgLatencyMs: number
 }
 
 export interface RequestLogStats {
   totalRequests: number
+  totalSuccess: number
+  totalFailure: number
   totalTokens: {
     inputTokens: number
     outputTokens: number
@@ -1341,12 +1372,32 @@ export interface RequestLogStats {
     totalTokens: number
   }
   totalCost: number
+  avgLatencyMs: number
+  p95LatencyMs: number
   byProvider: Record<string, GroupStats>
   byModel: Record<string, GroupStats>
   byClient: Record<string, GroupStats>
   bySession: Record<string, GroupStats>
   byApiKey: Record<string, GroupStats>
   timeRange: { from: string; to: string }
+}
+
+// Daily stats types for report
+export interface DailyStatsDataPoint {
+  date: string // YYYY-MM-DD
+  requests: number
+  success: number
+  failure: number
+  inputTokens: number
+  outputTokens: number
+  cacheCreationInputTokens: number
+  cacheReadInputTokens: number
+  cost: number
+  avgDurationMs: number
+}
+
+export interface DailyStatsResponse {
+  dataPoints: DailyStatsDataPoint[]
 }
 
 // 定价配置类型

@@ -471,6 +471,9 @@ func (h *RequestLogHandler) GetStats(c *gin.Context) {
 	if sessionID := c.Query("sessionId"); sessionID != "" {
 		filter.SessionID = sessionID
 	}
+	if endpoint := c.Query("endpoint"); endpoint != "" {
+		filter.Endpoint = endpoint
+	}
 
 	stats, err := h.manager.GetStats(filter)
 	if err != nil {
@@ -656,6 +659,37 @@ func (h *RequestLogHandler) ImportAliases(c *gin.Context) {
 }
 
 // ========== Stats History Handlers (for Charts) ==========
+
+// GetDailyStats returns daily aggregated data points for a date range.
+// GET /api/logs/stats/daily?from=...&to=...&endpoint=...
+func (h *RequestLogHandler) GetDailyStats(c *gin.Context) {
+	fromStr := c.Query("from")
+	toStr := c.Query("to")
+	if fromStr == "" || toStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Both from and to are required (RFC3339)"})
+		return
+	}
+	from, err := time.Parse(time.RFC3339, fromStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid from. Expected RFC3339 timestamp"})
+		return
+	}
+	to, err := time.Parse(time.RFC3339, toStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid to. Expected RFC3339 timestamp"})
+		return
+	}
+
+	endpoint := c.Query("endpoint")
+
+	result, err := h.manager.GetDailyStats(from, to, endpoint)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
 
 // GetStatsHistory 获取统计历史数据（用于图表）
 // GET /api/logs/stats/history?duration=1h&endpoint=/v1/messages
