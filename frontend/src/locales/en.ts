@@ -1072,7 +1072,7 @@ export default {
     interceptDomains: 'Intercept Domains',
     domainPlaceholder: 'e.g. api.anthropic.com',
     addDomain: 'Add Domain',
-    domainsDescription: 'Domains to intercept via TLS MITM. All other domains pass through as blind tunnels.',
+    domainsDescription: 'Domains to inspect via TLS MITM. Other proxied domains still go through this proxy as blind tunnels.',
     caCertSection: 'CA Certificate',
     caCertDescription:
       'Download the CA certificate and install it on clients that use this proxy. Required for HTTPS interception to work without certificate errors.',
@@ -1080,8 +1080,13 @@ export default {
     certDownloaded: 'CA certificate downloaded',
     certDownloadFailed: 'Failed to download CA certificate',
     usageTitle: 'Usage',
+    usageBasicLabel: 'Launch Claude Code through the proxy:',
+    usageRecommendedLabel: 'Launch Claude Code with local/test hosts bypassed:',
+    usageExportLabel: 'Or export the variables in your current shell first:',
     usageNote:
-      'Set HTTPS_PROXY environment variable to route traffic through this proxy. Install the CA certificate on the client system.',
+      'HTTPS_PROXY is inherited by child tool processes. This proxy can choose MITM parsing or blind tunneling, but it cannot force selected requests to bypass the proxy after the client opted in.',
+    noProxyNote:
+      'Add local or test hosts to NO_PROXY to keep bash/curl checks direct, for example localhost, 127.0.0.1, ::1, .local, or internal dev domains.',
     loadFailed: 'Failed to load forward proxy config',
     saveFailed: 'Failed to save forward proxy config'
   }

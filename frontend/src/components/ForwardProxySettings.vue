@@ -93,8 +93,20 @@
           <v-card variant="outlined" class="mt-4 pa-3">
             <div class="section-title mb-2">{{ t('forwardProxy.usageTitle') }}</div>
             <div class="text-caption text-grey">
-              <code class="d-block mb-1" style="white-space: pre-wrap; font-size: 0.8rem;">HTTPS_PROXY=http://localhost:{{ proxyPort }} claude</code>
-              <div class="mt-2">{{ t('forwardProxy.usageNote') }}</div>
+              <div class="mb-1">{{ t('forwardProxy.usageBasicLabel') }}</div>
+              <code class="d-block mb-2" style="white-space: pre-wrap; font-size: 0.8rem;">HTTPS_PROXY=http://localhost:{{ proxyPort }} claude</code>
+              <div class="mb-1">{{ t('forwardProxy.usageRecommendedLabel') }}</div>
+              <code class="d-block mb-2" style="white-space: pre-wrap; font-size: 0.8rem;"
+                >HTTPS_PROXY=http://localhost:{{ proxyPort }} NO_PROXY=127.0.0.1,localhost,::1,.local claude</code
+              >
+              <div class="mb-1">{{ t('forwardProxy.usageExportLabel') }}</div>
+              <code class="d-block mb-2" style="white-space: pre-wrap; font-size: 0.8rem;"
+                >export HTTPS_PROXY=http://localhost:{{ proxyPort }}
+export NO_PROXY=127.0.0.1,localhost,::1,.local
+claude</code
+              >
+              <div>{{ t('forwardProxy.usageNote') }}</div>
+              <div class="mt-2">{{ t('forwardProxy.noProxyNote') }}</div>
             </div>
           </v-card>
         </div>

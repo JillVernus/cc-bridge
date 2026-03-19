@@ -1055,14 +1055,20 @@ export default {
     interceptDomains: '拦截域名',
     domainPlaceholder: '例如 api.anthropic.com',
     addDomain: '添加域名',
-    domainsDescription: '通过 TLS MITM 拦截的域名。其他域名将通过盲隧道直接转发。',
+    domainsDescription: '这些域名会通过 TLS MITM 解析。其他已走代理的域名仍会通过该代理以盲隧道方式转发，不会直接绕过。',
     caCertSection: 'CA 证书',
     caCertDescription: '下载 CA 证书并安装到使用此代理的客户端。HTTPS 拦截需要安装此证书以避免证书错误。',
     downloadCACert: '下载 CA 证书',
     certDownloaded: 'CA 证书已下载',
     certDownloadFailed: '下载 CA 证书失败',
     usageTitle: '使用说明',
-    usageNote: '设置 HTTPS_PROXY 环境变量来将流量路由通过此代理。请在客户端系统上安装 CA 证书。',
+    usageBasicLabel: '通过代理启动 Claude Code：',
+    usageRecommendedLabel: '启动 Claude Code 并让本地/测试主机直连：',
+    usageExportLabel: '或者先在当前 shell 中导出环境变量：',
+    usageNote:
+      'HTTPS_PROXY 会被子进程继承。代理端只能决定 MITM 拦截还是盲隧道，无法在客户端已经启用代理后再让部分请求自动直连。',
+    noProxyNote:
+      '如需让 bash/curl 的本地或测试请求直连，请把目标主机加入 NO_PROXY，例如 localhost、127.0.0.1、::1、.local 或内部开发域名。',
     loadFailed: '加载正向代理配置失败',
     saveFailed: '保存正向代理配置失败'
   }
