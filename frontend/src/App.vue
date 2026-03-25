@@ -1423,18 +1423,6 @@ const handleKeydown = (event: KeyboardEvent) => {
     return
   }
 
-  // 数字键切换 Tab（仅在已认证时）
-  if (isAuthenticated.value) {
-    if (event.key === '1') {
-      activeTab.value = 'messages'
-    } else if (event.key === '2') {
-      activeTab.value = 'responses'
-    } else if (event.key === '3') {
-      activeTab.value = 'apikeys'
-    } else if (event.key === '4') {
-      activeTab.value = 'logs'
-    }
-  }
 }
 
 // 初始化
