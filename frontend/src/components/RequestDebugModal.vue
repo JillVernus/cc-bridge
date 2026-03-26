@@ -160,19 +160,30 @@
                 <div class="section-title mb-2">
                   <v-icon size="small" class="mr-1">mdi-format-list-bulleted</v-icon>
                   {{ t('debugModal.headers') }}
-                  <v-chip size="x-small" class="ml-2">{{ Object.keys(debugData.requestHeaders || {}).length }}</v-chip>
+                  <v-chip size="x-small" class="ml-2">{{ Object.keys(displayedRequestHeaders).length }}</v-chip>
+                  <v-btn
+                    v-if="canRevealRequestHeaders"
+                    icon
+                    variant="text"
+                    size="x-small"
+                    class="ml-2"
+                    @click="requestHeadersRevealed = !requestHeadersRevealed"
+                    :title="requestHeadersRevealed ? t('debugModal.hideSensitiveHeaders') : t('debugModal.showSensitiveHeaders')"
+                  >
+                    <v-icon size="small">{{ requestHeadersRevealed ? 'mdi-eye-off' : 'mdi-eye' }}</v-icon>
+                  </v-btn>
                 </div>
                 <v-card variant="outlined" class="mb-4">
                   <div class="headers-container">
                     <table class="headers-table">
                       <tbody>
-                        <tr v-for="(value, key) in debugData.requestHeaders" :key="key">
+                        <tr v-for="(value, key) in displayedRequestHeaders" :key="key">
                           <td class="header-key">{{ key }}</td>
                           <td class="header-value">{{ value }}</td>
                         </tr>
                       </tbody>
                     </table>
-                    <div v-if="!debugData.requestHeaders || Object.keys(debugData.requestHeaders).length === 0" class="pa-4 text-center text-medium-emphasis">
+                    <div v-if="Object.keys(displayedRequestHeaders).length === 0" class="pa-4 text-center text-medium-emphasis">
                       {{ t('debugModal.noHeaders') }}
                     </div>
                   </div>
@@ -303,7 +314,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api, type DebugLogEntry, type RequestLog } from '../services/api'
 import ParsedBody from './ParsedBody.vue'
@@ -326,6 +337,7 @@ const activeTab = ref('metadata')
 const showCopySnackbar = ref(false)
 const requestParsed = ref(false)
 const responseParsed = ref(false)
+const requestHeadersRevealed = ref(false)
 
 // Load debug data when dialog opens
 watch(() => props.modelValue, (newVal) => {
@@ -337,6 +349,7 @@ watch(() => props.modelValue, (newVal) => {
     activeTab.value = 'metadata'
     requestParsed.value = false
     responseParsed.value = false
+    requestHeadersRevealed.value = false
   }
 })
 
@@ -344,6 +357,7 @@ const loadDebugData = async (requestId: string) => {
   loading.value = true
   try {
     debugData.value = await api.getDebugLog(requestId)
+    requestHeadersRevealed.value = false
   } catch (err) {
     // Debug data not available (debug mode was off) - this is expected
     debugData.value = null
@@ -351,6 +365,29 @@ const loadDebugData = async (requestId: string) => {
     loading.value = false
   }
 }
+
+const sensitiveHeaderKeys = new Set([
+  'authorization',
+  'x-api-key',
+  'cookie',
+  'set-cookie',
+  'proxy-authorization'
+])
+
+const hasSensitiveRequestHeaders = (headers: Record<string, string> | undefined): boolean =>
+  Object.keys(headers ?? {}).some(key => sensitiveHeaderKeys.has(key.trim().toLowerCase()))
+
+const canRevealRequestHeaders = computed(() =>
+  hasSensitiveRequestHeaders(debugData.value?.requestHeadersRaw) || hasSensitiveRequestHeaders(debugData.value?.requestHeaders)
+)
+
+const displayedRequestHeaders = computed(() => {
+  if (!debugData.value) return {}
+  if (requestHeadersRevealed.value && debugData.value.requestHeadersRaw) {
+    return debugData.value.requestHeadersRaw
+  }
+  return debugData.value.requestHeaders ?? {}
+})
 
 const formatJson = (str: string | undefined): string => {
   if (!str) return ''

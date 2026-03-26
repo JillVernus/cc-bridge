@@ -15,17 +15,19 @@ import (
 
 // DebugLogEntry represents full request/response data for debugging
 type DebugLogEntry struct {
-	RequestID        string            `json:"requestId"`
-	RequestMethod    string            `json:"requestMethod"`
-	RequestPath      string            `json:"requestPath"`
-	RequestHeaders   map[string]string `json:"requestHeaders"`
-	RequestBody      string            `json:"requestBody"`
-	RequestBodySize  int               `json:"requestBodySize"`
-	ResponseStatus   int               `json:"responseStatus"`
-	ResponseHeaders  map[string]string `json:"responseHeaders"`
-	ResponseBody     string            `json:"responseBody"`
-	ResponseBodySize int               `json:"responseBodySize"`
-	CreatedAt        time.Time         `json:"createdAt"`
+	RequestID          string            `json:"requestId"`
+	RequestMethod      string            `json:"requestMethod"`
+	RequestPath        string            `json:"requestPath"`
+	RequestHeaders     map[string]string `json:"requestHeaders"`
+	RequestHeadersRaw  map[string]string `json:"requestHeadersRaw,omitempty"`
+	RequestBody        string            `json:"requestBody"`
+	RequestBodySize    int               `json:"requestBodySize"`
+	ResponseStatus     int               `json:"responseStatus"`
+	ResponseHeaders    map[string]string `json:"responseHeaders"`
+	ResponseHeadersRaw map[string]string `json:"responseHeadersRaw,omitempty"`
+	ResponseBody       string            `json:"responseBody"`
+	ResponseBodySize   int               `json:"responseBodySize"`
+	CreatedAt          time.Time         `json:"createdAt"`
 }
 
 // sensitiveHeaders are headers that should be masked in debug logs
@@ -123,16 +125,13 @@ func (m *Manager) AddDebugLog(entry *DebugLogEntry) error {
 		return fmt.Errorf("invalid debug log entry")
 	}
 
-	// Mask sensitive headers
-	maskedReqHeaders := maskSensitiveHeaders(entry.RequestHeaders)
-	maskedRespHeaders := maskSensitiveHeaders(entry.ResponseHeaders)
-
-	// Serialize headers to JSON
-	reqHeadersJSON, err := json.Marshal(maskedReqHeaders)
+	// Serialize raw headers to JSON. Masking is applied on read so the API can expose
+	// both masked and raw views to admin-only consumers.
+	reqHeadersJSON, err := json.Marshal(entry.RequestHeaders)
 	if err != nil {
 		return fmt.Errorf("failed to marshal request headers: %w", err)
 	}
-	respHeadersJSON, err := json.Marshal(maskedRespHeaders)
+	respHeadersJSON, err := json.Marshal(entry.ResponseHeaders)
 	if err != nil {
 		return fmt.Errorf("failed to marshal response headers: %w", err)
 	}
@@ -254,10 +253,12 @@ func (m *Manager) GetDebugLog(requestID string) (*DebugLogEntry, error) {
 
 	// Decompress and unmarshal headers
 	if reqHeadersData, err := decompressData(reqHeadersBlob); err == nil && len(reqHeadersData) > 0 {
-		json.Unmarshal(reqHeadersData, &entry.RequestHeaders)
+		json.Unmarshal(reqHeadersData, &entry.RequestHeadersRaw)
+		entry.RequestHeaders = maskSensitiveHeaders(entry.RequestHeadersRaw)
 	}
 	if respHeadersData, err := decompressData(respHeadersBlob); err == nil && len(respHeadersData) > 0 {
-		json.Unmarshal(respHeadersData, &entry.ResponseHeaders)
+		json.Unmarshal(respHeadersData, &entry.ResponseHeadersRaw)
+		entry.ResponseHeaders = maskSensitiveHeaders(entry.ResponseHeadersRaw)
 	}
 
 	// Decompress bodies

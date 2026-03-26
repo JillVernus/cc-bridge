@@ -1515,8 +1515,10 @@ export interface UserAgentConfig {
 export interface DebugLogEntry {
   requestId: string
   requestHeaders: Record<string, string>
+  requestHeadersRaw?: Record<string, string>
   requestBody: string
   responseHeaders: Record<string, string>
+  responseHeadersRaw?: Record<string, string>
   responseBody: string
   createdAt: string
 }

@@ -1007,6 +1007,8 @@ export default {
     headers: 'Headers',
     body: 'Body',
     noHeaders: 'No headers captured',
+    showSensitiveHeaders: 'Show sensitive headers',
+    hideSensitiveHeaders: 'Hide sensitive headers',
     noData: 'No debug data available for this request',
     noMetadata: 'No metadata available',
     loadFailed: 'Failed to load debug data',

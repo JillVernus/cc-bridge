@@ -990,6 +990,8 @@ export default {
     headers: '请求头',
     body: '请求体',
     noHeaders: '未捕获请求头',
+    showSensitiveHeaders: '显示敏感请求头',
+    hideSensitiveHeaders: '隐藏敏感请求头',
     noData: '该请求没有调试数据',
     noMetadata: '无元数据',
     loadFailed: '加载调试数据失败',
