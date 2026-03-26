@@ -238,6 +238,9 @@ func parseResponsesJSONUsage(body []byte) *utils.StreamUsage {
 	if cacheReadTokens == 0 {
 		cacheReadTokens = int(gjson.GetBytes(body, "usage.input_tokens_details.cached_tokens").Int())
 	}
+	if cacheReadTokens == 0 {
+		cacheReadTokens = int(gjson.GetBytes(body, "usage.prompt_tokens_details.cached_tokens").Int())
+	}
 
 	usage.InputTokens = rawInputTokens
 	if cacheReadTokens > 0 {
@@ -254,11 +257,22 @@ func parseResponsesJSONUsage(body []byte) *utils.StreamUsage {
 }
 
 func parseOpenAIChatJSONUsage(body []byte) *utils.StreamUsage {
+	rawInputTokens := int(gjson.GetBytes(body, "usage.prompt_tokens").Int())
+	cacheReadTokens := int(gjson.GetBytes(body, "usage.prompt_tokens_details.cached_tokens").Int())
+	inputTokens := rawInputTokens
+	if cacheReadTokens > 0 {
+		inputTokens -= cacheReadTokens
+		if inputTokens < 0 {
+			inputTokens = 0
+		}
+	}
+
 	return &utils.StreamUsage{
-		Model:        strings.TrimSpace(gjson.GetBytes(body, "model").String()),
-		InputTokens:  int(gjson.GetBytes(body, "usage.prompt_tokens").Int()),
-		OutputTokens: int(gjson.GetBytes(body, "usage.completion_tokens").Int()),
-		TotalTokens:  int(gjson.GetBytes(body, "usage.total_tokens").Int()),
+		Model:                strings.TrimSpace(gjson.GetBytes(body, "model").String()),
+		InputTokens:          inputTokens,
+		OutputTokens:         int(gjson.GetBytes(body, "usage.completion_tokens").Int()),
+		CacheReadInputTokens: cacheReadTokens,
+		TotalTokens:          int(gjson.GetBytes(body, "usage.total_tokens").Int()),
 	}
 }
 

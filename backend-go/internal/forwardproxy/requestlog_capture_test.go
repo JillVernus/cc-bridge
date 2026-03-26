@@ -326,3 +326,69 @@ func TestHandleHTTPForward_UnknownSSEStreamStillParsesClaudeStyleUsage(t *testin
 		t.Fatalf("expected cache read tokens 510, got %d", got.CacheReadInputTokens)
 	}
 }
+
+func TestHandleHTTPForward_InterceptedOpenAIChatSSEParsesFinalUsageAndModel(t *testing.T) {
+	reqLogManager := newForwardProxyTestRequestLogManager(t)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `data: {"id":"chatcmpl-1","choices":[{"index":0,"delta":{"role":"assistant","content":"hello"}}]}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"id":"chatcmpl-1","choices":[{"finish_reason":"tool_calls","index":0,"delta":{"content":null}}],"usage":{"completion_tokens":279,"prompt_tokens":15666,"prompt_tokens_details":{"cached_tokens":15466},"total_tokens":15945},"model":"claude-haiku-4.5"}`+"\n\n")
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}))
+	defer upstream.Close()
+
+	upstreamURL, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatalf("failed to parse upstream URL: %v", err)
+	}
+	hostOnly := strings.ToLower(upstreamURL.Hostname())
+
+	s := &Server{
+		requestLogManager: reqLogManager,
+		httpClient:        upstream.Client(),
+		enabled:           true,
+		interceptDomains: map[string]bool{
+			hostOnly: true,
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, upstream.URL+"/chat/completions", strings.NewReader(`{"model":"claude-haiku-4.5","stream":true}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	s.handleHTTPForward(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	recent, err := reqLogManager.GetRecent(&requestlog.RequestLogFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("GetRecent failed: %v", err)
+	}
+	if len(recent.Requests) != 1 {
+		t.Fatalf("expected exactly one request log, got %d", len(recent.Requests))
+	}
+
+	got := recent.Requests[0]
+	if got.Type != "openai" {
+		t.Fatalf("expected openai type, got %q", got.Type)
+	}
+	if got.Status != requestlog.StatusCompleted {
+		t.Fatalf("expected completed status, got %s", got.Status)
+	}
+	if got.InputTokens != 200 {
+		t.Fatalf("expected normalized input tokens 200, got %d", got.InputTokens)
+	}
+	if got.CacheReadInputTokens != 15466 {
+		t.Fatalf("expected cache read tokens 15466, got %d", got.CacheReadInputTokens)
+	}
+	if got.OutputTokens != 279 {
+		t.Fatalf("expected output tokens 279, got %d", got.OutputTokens)
+	}
+	if got.ResponseModel != "claude-haiku-4.5" {
+		t.Fatalf("expected responseModel claude-haiku-4.5, got %q", got.ResponseModel)
+	}
+}

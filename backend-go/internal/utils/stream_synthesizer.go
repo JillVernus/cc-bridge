@@ -306,6 +306,13 @@ func (s *StreamSynthesizer) processGemini(data map[string]interface{}) {
 
 // processOpenAI 处理OpenAI格式
 func (s *StreamSynthesizer) processOpenAI(data map[string]interface{}) {
+	if model, ok := data["model"].(string); ok && model != "" {
+		s.model = model
+	}
+	if usage, ok := data["usage"].(map[string]interface{}); ok {
+		s.extractResponsesUsage(usage)
+	}
+
 	choices, ok := data["choices"].([]interface{})
 	if !ok || len(choices) == 0 {
 		return
@@ -502,6 +509,12 @@ func (s *StreamSynthesizer) extractResponsesUsage(usage map[string]interface{}) 
 
 	cacheReadTokens, hasCacheRead := parseIntFromAny(usage["cache_read_input_tokens"])
 	if details, ok := usage["input_tokens_details"].(map[string]interface{}); ok {
+		if cachedTokens, ok := parseIntFromAny(details["cached_tokens"]); ok {
+			cacheReadTokens = cachedTokens
+			hasCacheRead = true
+		}
+	}
+	if details, ok := usage["prompt_tokens_details"].(map[string]interface{}); ok {
 		if cachedTokens, ok := parseIntFromAny(details["cached_tokens"]); ok {
 			cacheReadTokens = cachedTokens
 			hasCacheRead = true
