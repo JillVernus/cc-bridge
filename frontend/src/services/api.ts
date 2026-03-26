@@ -1286,6 +1286,16 @@ class ApiService {
     }
     return response.blob()
   }
+
+  async getForwardProxyDiscovery(): Promise<ForwardProxyDiscoveryResponse> {
+    return this.request('/forward-proxy/discovery')
+  }
+
+  async clearForwardProxyDiscovery(): Promise<ForwardProxyDiscoveryResponse> {
+    return this.request('/forward-proxy/discovery', {
+      method: 'DELETE'
+    })
+  }
 }
 
 // 请求日志类型
@@ -1682,6 +1692,23 @@ export interface ForwardProxyConfig {
   interceptDomains: string[]
   running: boolean
   port: number
+}
+
+export interface ForwardProxyDiscoveryEntry {
+  host: string
+  port: string
+  transport: string
+  intercepted: boolean
+  seenCount: number
+  firstSeenAt: string
+  lastSeenAt: string
+  lastMethod?: string
+  lastPath?: string
+}
+
+export interface ForwardProxyDiscoveryResponse {
+  entries: ForwardProxyDiscoveryEntry[]
+  running: boolean
 }
 
 export const api = new ApiService()

@@ -101,6 +101,15 @@ func (s *Server) handleMITMConnect(w http.ResponseWriter, _ *http.Request, targe
 // upstreamReader must be reused across the keep-alive connection lifecycle.
 func (s *Server) proxyRequest(clientConn io.Writer, upstreamConn net.Conn, upstreamReader *bufio.Reader, req *http.Request, hostOnly string) error {
 	startTime := time.Now()
+	s.recordDiscovery(DiscoveryEvent{
+		Host:        hostOnly,
+		Port:        extractPort(req.URL.Host, "443"),
+		Transport:   DiscoveryTransportMITM,
+		Intercepted: true,
+		Method:      req.Method,
+		Path:        req.URL.Path,
+		SeenAt:      startTime,
+	})
 
 	// Read request body eagerly for metadata extraction (matches normal proxy path).
 	// metadata.user_id is at the end of the JSON body, after tool schemas and system

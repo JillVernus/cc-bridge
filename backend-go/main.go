@@ -648,6 +648,8 @@ func main() {
 		apiGroup.GET("/forward-proxy/config", handlers.GetForwardProxyConfig(fpServer))
 		apiGroup.PUT("/forward-proxy/config", handlers.UpdateForwardProxyConfig(fpServer))
 		apiGroup.GET("/forward-proxy/ca-cert", handlers.DownloadForwardProxyCACert(fpServer))
+		apiGroup.GET("/forward-proxy/discovery", handlers.GetForwardProxyDiscovery(fpServer))
+		apiGroup.DELETE("/forward-proxy/discovery", handlers.ClearForwardProxyDiscovery(fpServer))
 	}
 
 	// 代理端点 - 统一入口（带 API 速率限制）

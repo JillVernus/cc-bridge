@@ -47,6 +47,7 @@ type Server struct {
 	certManager       *CertManager
 	requestLogManager *requestlog.Manager
 	configProvider    ConfigProvider
+	discoveryStore    *DiscoveryStore
 	httpClient        *http.Client // dedicated client for upstream requests (no proxy env vars)
 	port              int
 	bindAddress       string
@@ -70,6 +71,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		configDir = ".config"
 	}
 	configPath := filepath.Join(configDir, "forward-proxy.json")
+	discoveryPath := filepath.Join(configDir, "forward-proxy-discovery.json")
 
 	bindAddr := cfg.BindAddress
 	if bindAddr == "" {
@@ -99,6 +101,12 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		interceptDomains: make(map[string]bool),
 		enabled:          cfg.Enabled,
 	}
+
+	discoveryStore, err := NewDiscoveryStore(discoveryPath)
+	if err != nil {
+		return nil, fmt.Errorf("init discovery store: %w", err)
+	}
+	s.discoveryStore = discoveryStore
 
 	// Try to load persisted config, fall back to env defaults
 	if err := s.loadConfig(); err != nil {
@@ -171,9 +179,23 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	if intercept {
 		log.Printf("[fwd-proxy] MITM intercept for %s", hostOnly)
+		s.recordDiscovery(DiscoveryEvent{
+			Host:        hostOnly,
+			Port:        extractPort(targetHost, "443"),
+			Transport:   DiscoveryTransportConnect,
+			Intercepted: true,
+			Method:      http.MethodConnect,
+		})
 		s.handleMITMConnect(w, r, targetHost, hostOnly)
 	} else {
 		log.Printf("[fwd-proxy] blind tunnel for %s (enabled=%v, domainMatch=%v)", hostOnly, enabled, s.interceptDomains[strings.ToLower(hostOnly)])
+		s.recordDiscovery(DiscoveryEvent{
+			Host:        hostOnly,
+			Port:        extractPort(targetHost, "443"),
+			Transport:   DiscoveryTransportConnect,
+			Intercepted: false,
+			Method:      http.MethodConnect,
+		})
 		s.handleBlindTunnel(w, r, targetHost)
 	}
 }
@@ -233,12 +255,25 @@ func (s *Server) handleBlindTunnel(w http.ResponseWriter, _ *http.Request, targe
 // We forward the request over HTTPS to the upstream and stream the response back.
 func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 	hostOnly := r.URL.Hostname()
+	port := r.URL.Port()
+	if port == "" {
+		port = "443"
+	}
 
 	s.mu.RLock()
 	intercept := s.enabled && s.interceptDomains[strings.ToLower(hostOnly)]
 	s.mu.RUnlock()
 
 	log.Printf("[fwd-proxy] HTTP forward (absolute URL) for %s (intercept=%v)", hostOnly, intercept)
+	s.recordDiscovery(DiscoveryEvent{
+		Host:        hostOnly,
+		Port:        port,
+		Transport:   DiscoveryTransportHTTPForward,
+		Intercepted: intercept,
+		Method:      r.Method,
+		Path:        r.URL.Path,
+		SeenAt:      time.Now(),
+	})
 
 	startTime := time.Now()
 
@@ -401,6 +436,20 @@ func (s *Server) GetConfig() Config {
 	}
 }
 
+func (s *Server) GetDiscoveryEntries() []DiscoveryEntry {
+	if s == nil || s.discoveryStore == nil {
+		return nil
+	}
+	return s.discoveryStore.List()
+}
+
+func (s *Server) ClearDiscoveryEntries() error {
+	if s == nil || s.discoveryStore == nil {
+		return nil
+	}
+	return s.discoveryStore.Clear()
+}
+
 // UpdateConfig updates the forward proxy configuration and persists it.
 // Persists first from the new config; only applies in-memory changes on successful save.
 func (s *Server) UpdateConfig(cfg Config) error {
@@ -431,6 +480,20 @@ func (s *Server) UpdateConfig(cfg Config) error {
 	s.interceptDomains = newDomains
 	s.mu.Unlock()
 	return nil
+}
+
+func (s *Server) recordDiscovery(event DiscoveryEvent) {
+	if s == nil || s.discoveryStore == nil {
+		return
+	}
+	s.discoveryStore.Record(event)
+}
+
+func extractPort(hostport string, fallback string) string {
+	if _, port, err := net.SplitHostPort(hostport); err == nil && strings.TrimSpace(port) != "" {
+		return port
+	}
+	return fallback
 }
 
 // GetCertManager returns the certificate manager for CA cert download.

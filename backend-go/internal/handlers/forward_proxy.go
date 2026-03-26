@@ -87,3 +87,36 @@ func DownloadForwardProxyCACert(fpServer *forwardproxy.Server) gin.HandlerFunc {
 		c.Data(http.StatusOK, "application/x-pem-file", certPEM)
 	}
 }
+
+// GetForwardProxyDiscovery returns aggregated forward proxy discovery entries.
+func GetForwardProxyDiscovery(fpServer *forwardproxy.Server) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if fpServer == nil {
+			c.JSON(http.StatusOK, gin.H{"entries": []forwardproxy.DiscoveryEntry{}})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"entries": fpServer.GetDiscoveryEntries(),
+			"running": fpServer.IsRunning(),
+		})
+	}
+}
+
+// ClearForwardProxyDiscovery clears persisted forward proxy discovery entries.
+func ClearForwardProxyDiscovery(fpServer *forwardproxy.Server) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if fpServer == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Forward proxy is not running"})
+			return
+		}
+		if err := fpServer.ClearDiscoveryEntries(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to clear discovery entries: " + err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"message": "Forward proxy discovery cleared",
+			"entries": []forwardproxy.DiscoveryEntry{},
+			"running": fpServer.IsRunning(),
+		})
+	}
+}
