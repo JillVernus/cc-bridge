@@ -133,7 +133,8 @@ func (s *Server) proxyRequest(clientConn io.Writer, upstreamConn net.Conn, upstr
 	// Create pending log entry before forwarding (makes request visible in UI immediately)
 	var pendingLogID string
 	if s.requestLogManager != nil {
-		pendingLog := createInterceptedPendingLog(req, startTime, hostOnly, reqBody)
+		providerDisplayName := s.resolveInterceptedProviderName(hostOnly)
+		pendingLog := createInterceptedPendingLog(req, startTime, providerDisplayName, reqBody)
 		if err := s.requestLogManager.Add(pendingLog); err != nil {
 			log.Printf("[fwd-proxy] failed to create pending log: %v", err)
 		} else {
@@ -203,7 +204,7 @@ func (s *Server) proxySSEResponse(clientConn io.Writer, resp *http.Response, req
 	}
 
 	if s.requestLogManager != nil && pendingLogID != "" {
-		record := createInterceptedCompletionRecord(req.URL.Path, usage, resp.StatusCode, startTime, endTime, hostOnly, firstTokenTime)
+		record := createInterceptedCompletionRecord(req.URL.Path, usage, resp.StatusCode, startTime, endTime, s.resolveInterceptedProviderName(hostOnly), firstTokenTime)
 		if err := s.requestLogManager.Update(pendingLogID, record); err != nil {
 			log.Printf("[fwd-proxy] failed to update request log: %v", err)
 		}
@@ -228,7 +229,7 @@ func (s *Server) proxyJSONResponse(clientConn io.Writer, resp *http.Response, re
 	usage := parseInterceptedJSONResponse(req.URL.Path, captureBuf.Bytes())
 
 	if s.requestLogManager != nil && pendingLogID != "" {
-		record := createInterceptedCompletionRecord(req.URL.Path, usage, resp.StatusCode, startTime, endTime, hostOnly, nil)
+		record := createInterceptedCompletionRecord(req.URL.Path, usage, resp.StatusCode, startTime, endTime, s.resolveInterceptedProviderName(hostOnly), nil)
 		record.Stream = false
 		if err := s.requestLogManager.Update(pendingLogID, record); err != nil {
 			log.Printf("[fwd-proxy] failed to update request log: %v", err)

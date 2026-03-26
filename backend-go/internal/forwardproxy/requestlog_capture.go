@@ -61,7 +61,7 @@ func isGeminiEndpoint(path string) bool {
 		strings.Contains(path, "/v1/gemini")
 }
 
-func createInterceptedPendingLog(req *http.Request, startTime time.Time, hostOnly string, reqBody []byte) *requestlog.RequestLog {
+func createInterceptedPendingLog(req *http.Request, startTime time.Time, providerDisplayName string, reqBody []byte) *requestlog.RequestLog {
 	kind := detectInterceptedRequestKind(req.URL.Path)
 	clientID, sessionID := extractInterceptedClientSession(kind.logType, reqBody)
 	model, stream := extractInterceptedRequestMeta(kind.logType, req.URL.Path, reqBody)
@@ -70,7 +70,7 @@ func createInterceptedPendingLog(req *http.Request, startTime time.Time, hostOnl
 		Status:       requestlog.StatusPending,
 		InitialTime:  startTime,
 		Type:         kind.logType,
-		ProviderName: hostOnly,
+		ProviderName: providerDisplayName,
 		Model:        model,
 		Stream:       stream,
 		Endpoint:     req.URL.Path,
@@ -83,7 +83,7 @@ func createInterceptedPendingLog(req *http.Request, startTime time.Time, hostOnl
 	}
 }
 
-func createInterceptedCompletionRecord(path string, usage *utils.StreamUsage, httpStatus int, startTime, endTime time.Time, hostOnly string, firstTokenTime *time.Time) *requestlog.RequestLog {
+func createInterceptedCompletionRecord(path string, usage *utils.StreamUsage, httpStatus int, startTime, endTime time.Time, providerDisplayName string, firstTokenTime *time.Time) *requestlog.RequestLog {
 	kind := detectInterceptedRequestKind(path)
 	if usage == nil {
 		usage = &utils.StreamUsage{}
@@ -130,7 +130,7 @@ func createInterceptedCompletionRecord(path string, usage *utils.StreamUsage, ht
 		FirstTokenTime:           firstTokenTime,
 		FirstTokenDurationMs:     firstTokenDurationMs,
 		Type:                     kind.logType,
-		ProviderName:             hostOnly,
+		ProviderName:             providerDisplayName,
 		ResponseModel:            usage.Model,
 		InputTokens:              usage.InputTokens,
 		OutputTokens:             usage.OutputTokens,

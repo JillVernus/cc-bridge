@@ -14,6 +14,7 @@ func GetForwardProxyConfig(fpServer *forwardproxy.Server) gin.HandlerFunc {
 			c.JSON(http.StatusOK, gin.H{
 				"enabled":          false,
 				"interceptDomains": []string{},
+				"domainAliases":    map[string]string{},
 				"xInitiatorOverride": forwardproxy.XInitiatorOverrideConfig{
 					Enabled:         false,
 					Mode:            forwardproxy.XInitiatorOverrideModeFixedWindow,
@@ -31,6 +32,7 @@ func GetForwardProxyConfig(fpServer *forwardproxy.Server) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{
 			"enabled":                   cfg.Enabled,
 			"interceptDomains":          cfg.InterceptDomains,
+			"domainAliases":             cfg.DomainAliases,
 			"xInitiatorOverride":        cfg.XInitiatorOverride,
 			"xInitiatorOverrideRuntime": fpServer.GetXInitiatorOverrideRuntimeStatus(),
 			"running":                   fpServer.IsRunning(),
@@ -50,6 +52,7 @@ func UpdateForwardProxyConfig(fpServer *forwardproxy.Server) gin.HandlerFunc {
 		var req struct {
 			Enabled            *bool                                  `json:"enabled"`
 			InterceptDomains   []string                               `json:"interceptDomains"`
+			DomainAliases      map[string]string                      `json:"domainAliases"`
 			XInitiatorOverride *forwardproxy.XInitiatorOverrideConfig `json:"xInitiatorOverride"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -63,6 +66,9 @@ func UpdateForwardProxyConfig(fpServer *forwardproxy.Server) gin.HandlerFunc {
 		}
 		if req.InterceptDomains != nil {
 			cfg.InterceptDomains = req.InterceptDomains
+		}
+		if req.DomainAliases != nil {
+			cfg.DomainAliases = req.DomainAliases
 		}
 		if req.XInitiatorOverride != nil {
 			cfg.XInitiatorOverride = *req.XInitiatorOverride
@@ -78,6 +84,7 @@ func UpdateForwardProxyConfig(fpServer *forwardproxy.Server) gin.HandlerFunc {
 			"message":                   "Forward proxy config updated",
 			"enabled":                   updatedCfg.Enabled,
 			"interceptDomains":          updatedCfg.InterceptDomains,
+			"domainAliases":             updatedCfg.DomainAliases,
 			"xInitiatorOverride":        updatedCfg.XInitiatorOverride,
 			"xInitiatorOverrideRuntime": fpServer.GetXInitiatorOverrideRuntimeStatus(),
 			"running":                   fpServer.IsRunning(),

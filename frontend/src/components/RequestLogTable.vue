@@ -1124,7 +1124,7 @@
                     icon="custom:gemini"
                     class="provider-icon mr-1"
                   />
-                  {{ item.providerName || item.type }}
+                  {{ getProviderDisplayName(item) }}
                   <v-tooltip v-if="isForwardProxyLog(item)" location="top">
                     <template v-slot:activator="{ props: fwdProps }">
                       <v-icon v-bind="fwdProps" size="12" class="ml-1" color="grey">mdi-shield-lock-outline</v-icon>
@@ -1153,7 +1153,7 @@
             </template>
             <div class="stacked-tooltip">
               <div>
-                <strong>{{ t('requestLog.channel') }}:</strong> {{ item.providerName || item.type
+                <strong>{{ t('requestLog.channel') }}:</strong> {{ getProviderDisplayName(item)
                 }}<span v-if="isForwardProxyLog(item)"> ({{ t('forwardProxy.title') }})</span>
               </div>
               <div>
@@ -1190,7 +1190,7 @@
               icon="custom:gemini"
               class="provider-icon mr-1"
             />
-            {{ item.providerName || item.type }}
+            {{ getProviderDisplayName(item) }}
             <v-tooltip v-if="isForwardProxyLog(item)" location="top">
               <template v-slot:activator="{ props: fwdProps }">
                 <v-icon v-bind="fwdProps" size="12" class="ml-1" color="grey">mdi-shield-lock-outline</v-icon>
@@ -3022,6 +3022,23 @@ const isForwardProxyLog = (item: RequestLog): boolean => {
   return item.channelId === 0 && item.channelName === FORWARD_PROXY_CHANNEL_NAME
 }
 
+const normalizeForwardProxyHost = (value?: string): string => {
+  return value?.trim().toLowerCase() || ''
+}
+
+const getForwardProxyDomainAlias = (host?: string): string | null => {
+  const normalizedHost = normalizeForwardProxyHost(host)
+  if (!normalizedHost) return null
+  return forwardProxyConfig.value?.domainAliases?.[normalizedHost] || null
+}
+
+const getProviderDisplayName = (item: RequestLog): string => {
+  const providerName = item.providerName || item.type
+  if (!providerName) return '—'
+  if (!isForwardProxyLog(item)) return providerName
+  return getForwardProxyDomainAlias(providerName) || providerName
+}
+
 // Returns true if a secondary column should be hidden from headers
 const isSecondaryHidden = (key: string): boolean => {
   const config = stackPairConfigs.find(p => p.secondary === key)
@@ -3472,6 +3489,8 @@ const formatUserId = (userID?: string) => {
 const formatSummaryKey = (key: string) => {
   if (key === '<unknown>') return key
   switch (summaryGroupBy.value) {
+    case 'provider':
+      return getForwardProxyDomainAlias(key) || key
     case 'client':
       return getUserAlias(key) || formatUserId(key)
     case 'session':

@@ -1087,6 +1087,10 @@ export default {
     addDomain: '添加域名',
     domainsDescription:
       '这些域名会通过 TLS MITM 解析。其他已走代理的域名仍会通过该代理以盲隧道方式转发，不会直接绕过。',
+    domainAliasesSection: '域名别名',
+    domainAliasPlaceholder: '例如 OpenAI',
+    addDomainAlias: '添加别名',
+    domainAliasesDescription: '为拦截域名设置显示别名，正向代理相关的日志和发现视图都会复用这些名称。',
     xInitiatorOverrideSection: 'X-Initiator 覆写',
     xInitiatorOverrideEnabled: '已启用 X-Initiator 覆写',
     xInitiatorOverrideDisabled: '已禁用 X-Initiator 覆写',

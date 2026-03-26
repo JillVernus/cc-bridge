@@ -46,13 +46,25 @@
           <!-- Intercept Domains -->
           <div class="section-title mb-2">{{ t('forwardProxy.interceptDomains') }}</div>
           <v-card variant="outlined" class="mb-4 pa-3">
-            <div v-for="(domain, index) in config.interceptDomains" :key="index" class="d-flex align-center mb-2">
+            <div
+              v-for="(row, index) in interceptDomainRows"
+              :key="`intercept-domain-${index}`"
+              class="d-flex align-center ga-2 mb-2 flex-wrap"
+            >
               <v-text-field
-                v-model="config.interceptDomains[index]"
+                v-model="row.domain"
                 density="compact"
                 variant="outlined"
                 hide-details
                 :placeholder="t('forwardProxy.domainPlaceholder')"
+                :disabled="!config.running"
+              />
+              <v-text-field
+                v-model="row.alias"
+                density="compact"
+                variant="outlined"
+                hide-details
+                :placeholder="t('forwardProxy.domainAliasPlaceholder')"
                 :disabled="!config.running"
               />
               <v-btn
@@ -60,8 +72,7 @@
                 variant="text"
                 size="small"
                 color="error"
-                class="ml-1"
-                @click="removeDomain(index)"
+                @click="removeInterceptDomainRow(index)"
                 :disabled="!config.running"
               >
                 <v-icon size="small">mdi-close</v-icon>
@@ -72,7 +83,7 @@
               variant="tonal"
               color="primary"
               prepend-icon="mdi-plus"
-              @click="addDomain"
+              @click="addInterceptDomainRow"
               :disabled="!config.running"
             >
               {{ t('forwardProxy.addDomain') }}
@@ -192,6 +203,7 @@ const emit = defineEmits<{
 }>()
 
 const config = ref<ForwardProxyConfig | null>(null)
+const interceptDomainRows = ref<Array<{ domain: string; alias: string }>>([])
 const loading = ref(false)
 const saving = ref(false)
 const downloading = ref(false)
@@ -215,6 +227,7 @@ const showSnackbar = (text: string, color: string = 'error') => {
 const defaultForwardProxyConfig = (): ForwardProxyConfig => ({
   enabled: false,
   interceptDomains: [],
+  domainAliases: {},
   xInitiatorOverride: {
     enabled: false,
     mode: 'fixed_window',
@@ -229,6 +242,26 @@ const defaultForwardProxyConfig = (): ForwardProxyConfig => ({
   running: false,
   port: 3001
 })
+
+const syncInterceptDomainRows = (cfg: ForwardProxyConfig) => {
+  const rows = new Map<string, string>()
+
+  for (const domain of cfg.interceptDomains ?? []) {
+    const normalizedDomain = domain.trim().toLowerCase()
+    if (!normalizedDomain) continue
+    rows.set(normalizedDomain, cfg.domainAliases?.[normalizedDomain] || '')
+  }
+
+  for (const [domain, alias] of Object.entries(cfg.domainAliases ?? {})) {
+    const normalizedDomain = domain.trim().toLowerCase()
+    if (!normalizedDomain) continue
+    rows.set(normalizedDomain, alias)
+  }
+
+  interceptDomainRows.value = Array.from(rows.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([domain, alias]) => ({ domain, alias }))
+}
 
 // Load config when dialog opens
 watch(
@@ -247,11 +280,16 @@ const loadConfig = async () => {
     config.value = {
       ...defaultForwardProxyConfig(),
       ...loaded,
+      domainAliases: {
+        ...defaultForwardProxyConfig().domainAliases,
+        ...(loaded.domainAliases ?? {})
+      },
       xInitiatorOverride: {
         ...defaultForwardProxyConfig().xInitiatorOverride,
         ...loaded.xInitiatorOverride
       }
     }
+    syncInterceptDomainRows(config.value)
   } catch (error) {
     console.error('Failed to load forward proxy config:', error)
     showSnackbar(t('forwardProxy.loadFailed'), 'error')
@@ -263,14 +301,26 @@ const loadConfig = async () => {
 const saveConfig = async () => {
   if (!config.value) return
 
-  // Filter out empty domains
-  config.value.interceptDomains = config.value.interceptDomains.filter(d => d.trim() !== '')
+  const interceptDomains: string[] = []
+  const cleanedDomainAliases: Record<string, string> = {}
+  for (const row of interceptDomainRows.value) {
+    const domain = row.domain.trim().toLowerCase()
+    const alias = row.alias.trim()
+    if (!domain) continue
+    interceptDomains.push(domain)
+    if (alias) {
+      cleanedDomainAliases[domain] = alias
+    }
+  }
+  config.value.interceptDomains = [...new Set(interceptDomains)].sort((a, b) => a.localeCompare(b))
+  config.value.domainAliases = cleanedDomainAliases
 
   saving.value = true
   try {
     await api.updateForwardProxyConfig({
       enabled: config.value.enabled,
       interceptDomains: config.value.interceptDomains,
+      domainAliases: cleanedDomainAliases,
       xInitiatorOverride: {
         ...config.value.xInitiatorOverride,
         durationSeconds: Math.max(1, Number(config.value.xInitiatorOverride.durationSeconds) || 300)
@@ -286,16 +336,12 @@ const saveConfig = async () => {
   }
 }
 
-const addDomain = () => {
-  if (config.value) {
-    config.value.interceptDomains.push('')
-  }
+const addInterceptDomainRow = () => {
+  interceptDomainRows.value.push({ domain: '', alias: '' })
 }
 
-const removeDomain = (index: number) => {
-  if (config.value) {
-    config.value.interceptDomains.splice(index, 1)
-  }
+const removeInterceptDomainRow = (index: number) => {
+  interceptDomainRows.value.splice(index, 1)
 }
 
 const downloadCACert = async () => {

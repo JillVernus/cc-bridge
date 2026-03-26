@@ -1698,6 +1698,7 @@ export interface XInitiatorOverrideRuntimeStatus {
 export interface ForwardProxyConfig {
   enabled: boolean
   interceptDomains: string[]
+  domainAliases: Record<string, string>
   xInitiatorOverride: XInitiatorOverrideConfig
   xInitiatorOverrideRuntime: XInitiatorOverrideRuntimeStatus
   running: boolean

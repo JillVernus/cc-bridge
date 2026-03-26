@@ -1106,6 +1106,11 @@ export default {
     addDomain: 'Add Domain',
     domainsDescription:
       'Domains to inspect via TLS MITM. Other proxied domains still go through this proxy as blind tunnels.',
+    domainAliasesSection: 'Domain Aliases',
+    domainAliasPlaceholder: 'e.g. OpenAI',
+    addDomainAlias: 'Add Alias',
+    domainAliasesDescription:
+      'Optional display aliases for intercepted domains. These aliases are reused across forward-proxy log and discovery views.',
     xInitiatorOverrideSection: 'X-Initiator Override',
     xInitiatorOverrideEnabled: 'X-Initiator Override Enabled',
     xInitiatorOverrideDisabled: 'X-Initiator Override Disabled',

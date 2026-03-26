@@ -9,11 +9,46 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/JillVernus/cc-bridge/internal/requestlog"
 )
+
+func TestUpdateConfig_NormalizesDomainAliases(t *testing.T) {
+	s := &Server{
+		configPath:            filepath.Join(t.TempDir(), "forward-proxy.json"),
+		interceptDomains:      make(map[string]bool),
+		xInitiatorDomainState: make(map[string]time.Time),
+	}
+
+	err := s.UpdateConfig(Config{
+		Enabled:          true,
+		InterceptDomains: []string{" API.OPENAI.COM ", "api.openai.com"},
+		DomainAliases: map[string]string{
+			" API.OPENAI.COM ":  " OpenAI ",
+			"files.example.com": "",
+		},
+		XInitiatorOverride: XInitiatorOverrideConfig{
+			Enabled:         false,
+			Mode:            XInitiatorOverrideModeFixedWindow,
+			DurationSeconds: 300,
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateConfig failed: %v", err)
+	}
+
+	got := s.GetConfig()
+	if len(got.DomainAliases) != 1 {
+		t.Fatalf("expected exactly one normalized alias, got %#v", got.DomainAliases)
+	}
+	if got.DomainAliases["api.openai.com"] != "OpenAI" {
+		t.Fatalf("expected normalized alias OpenAI, got %#v", got.DomainAliases)
+	}
+}
 
 func TestHandleHTTPForward_InterceptedUnknownEndpointCreatesMainLogRow(t *testing.T) {
 	reqLogManager := newForwardProxyTestRequestLogManager(t)
@@ -37,6 +72,9 @@ func TestHandleHTTPForward_InterceptedUnknownEndpointCreatesMainLogRow(t *testin
 		enabled:           true,
 		interceptDomains: map[string]bool{
 			hostOnly: true,
+		},
+		domainAliases: map[string]string{
+			hostOnly: "OpenAI",
 		},
 	}
 
@@ -65,8 +103,8 @@ func TestHandleHTTPForward_InterceptedUnknownEndpointCreatesMainLogRow(t *testin
 	if got.Type != "forward-proxy" {
 		t.Fatalf("expected generic forward-proxy type, got %q", got.Type)
 	}
-	if got.ProviderName != hostOnly {
-		t.Fatalf("expected providerName %q, got %q", hostOnly, got.ProviderName)
+	if got.ProviderName != "OpenAI" {
+		t.Fatalf("expected providerName alias %q, got %q", "OpenAI", got.ProviderName)
 	}
 	if got.Model != "text-embedding-3-small" {
 		t.Fatalf("expected request model preserved, got %q", got.Model)

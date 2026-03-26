@@ -43,6 +43,9 @@
       >
         <template #item.host="{ item }">
           <div class="font-weight-medium">{{ item.host }}</div>
+          <div v-if="getDomainAlias(item.host)" class="text-caption text-medium-emphasis">
+            {{ getDomainAlias(item.host) }}
+          </div>
           <div class="text-caption text-medium-emphasis">:{{ item.port }}</div>
         </template>
 
@@ -145,6 +148,7 @@ const error = ref('')
 const config = ref<ForwardProxyConfig>({
   enabled: false,
   interceptDomains: [],
+  domainAliases: {},
   xInitiatorOverride: {
     enabled: false,
     mode: 'fixed_window',
@@ -213,6 +217,11 @@ const headerEntries = (item: ForwardProxyDiscoveryEntry) => {
 const isDomainIntercepted = (host: string) => {
   const normalizedHost = host.trim().toLowerCase()
   return config.value.interceptDomains.some(domain => domain.trim().toLowerCase() === normalizedHost)
+}
+
+const getDomainAlias = (host: string) => {
+  const normalizedHost = host.trim().toLowerCase()
+  return config.value.domainAliases?.[normalizedHost] || ''
 }
 
 const loadData = async () => {

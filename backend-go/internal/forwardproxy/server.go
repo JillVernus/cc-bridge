@@ -23,6 +23,7 @@ import (
 type Config struct {
 	Enabled            bool                     `json:"enabled"`
 	InterceptDomains   []string                 `json:"interceptDomains"`
+	DomainAliases      map[string]string        `json:"domainAliases"`
 	XInitiatorOverride XInitiatorOverrideConfig `json:"xInitiatorOverride"`
 }
 
@@ -57,6 +58,7 @@ type Server struct {
 
 	mu               sync.RWMutex
 	interceptDomains map[string]bool
+	domainAliases    map[string]string
 	enabled          bool
 	running          bool
 
@@ -105,6 +107,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		bindAddress:           bindAddr,
 		configPath:            configPath,
 		interceptDomains:      make(map[string]bool),
+		domainAliases:         make(map[string]string),
 		enabled:               cfg.Enabled,
 		xInitiatorDomainState: make(map[string]time.Time),
 		now:                   time.Now,
@@ -320,7 +323,8 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 	// Create pending log entry before forwarding (makes request visible in UI immediately)
 	var pendingLogID string
 	if s.requestLogManager != nil && intercept {
-		pendingLog := createInterceptedPendingLog(r, startTime, hostOnly, reqBody)
+		providerDisplayName := s.resolveInterceptedProviderName(hostOnly)
+		pendingLog := createInterceptedPendingLog(r, startTime, providerDisplayName, reqBody)
 		if err := s.requestLogManager.Add(pendingLog); err != nil {
 			log.Printf("[fwd-proxy] failed to create pending log: %v", err)
 		} else {
@@ -414,7 +418,7 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if s.requestLogManager != nil && pendingLogID != "" {
-			record := createInterceptedCompletionRecord(r.URL.Path, usage, resp.StatusCode, startTime, endTime, hostOnly, firstTokenTime)
+			record := createInterceptedCompletionRecord(r.URL.Path, usage, resp.StatusCode, startTime, endTime, s.resolveInterceptedProviderName(hostOnly), firstTokenTime)
 			if err := s.requestLogManager.Update(pendingLogID, record); err != nil {
 				log.Printf("[fwd-proxy] failed to update request log: %v", err)
 			}
@@ -430,7 +434,7 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 		usage := parseInterceptedJSONResponse(r.URL.Path, respCapture.Bytes())
 
 		if s.requestLogManager != nil && pendingLogID != "" {
-			record := createInterceptedCompletionRecord(r.URL.Path, usage, resp.StatusCode, startTime, endTime, hostOnly, nil)
+			record := createInterceptedCompletionRecord(r.URL.Path, usage, resp.StatusCode, startTime, endTime, s.resolveInterceptedProviderName(hostOnly), nil)
 			record.Stream = false
 			if err := s.requestLogManager.Update(pendingLogID, record); err != nil {
 				log.Printf("[fwd-proxy] failed to update request log: %v", err)
@@ -460,6 +464,7 @@ func (s *Server) GetConfig() Config {
 	return Config{
 		Enabled:            s.enabled,
 		InterceptDomains:   domains,
+		DomainAliases:      cloneDomainAliases(s.domainAliases),
 		XInitiatorOverride: overrideCfg,
 	}
 }
@@ -492,11 +497,13 @@ func (s *Server) UpdateConfig(cfg Config) error {
 		}
 	}
 	sort.Strings(cleanedDomains)
+	normalizedAliases := normalizeDomainAliases(cfg.DomainAliases)
 
 	// Persist the new config to disk first (from immutable snapshot, no lock needed)
 	persistCfg := Config{
 		Enabled:            cfg.Enabled,
 		InterceptDomains:   cleanedDomains,
+		DomainAliases:      normalizedAliases,
 		XInitiatorOverride: cfg.XInitiatorOverride,
 	}
 	if err := validateXInitiatorOverrideConfig(persistCfg.XInitiatorOverride); err != nil {
@@ -510,6 +517,7 @@ func (s *Server) UpdateConfig(cfg Config) error {
 	s.mu.Lock()
 	s.enabled = cfg.Enabled
 	s.interceptDomains = newDomains
+	s.domainAliases = cloneDomainAliases(normalizedAliases)
 	s.xInitiatorOverride = persistCfg.XInitiatorOverride
 	s.xInitiatorDomainState = make(map[string]time.Time)
 	s.mu.Unlock()
@@ -528,6 +536,48 @@ func extractPort(hostport string, fallback string) string {
 		return port
 	}
 	return fallback
+}
+
+func normalizeForwardProxyHost(host string) string {
+	return strings.ToLower(strings.TrimSpace(host))
+}
+
+func normalizeDomainAliases(aliases map[string]string) map[string]string {
+	normalized := make(map[string]string)
+	for host, alias := range aliases {
+		normalizedHost := normalizeForwardProxyHost(host)
+		normalizedAlias := strings.TrimSpace(alias)
+		if normalizedHost == "" || normalizedAlias == "" {
+			continue
+		}
+		normalized[normalizedHost] = normalizedAlias
+	}
+	return normalized
+}
+
+func cloneDomainAliases(aliases map[string]string) map[string]string {
+	if len(aliases) == 0 {
+		return map[string]string{}
+	}
+	cloned := make(map[string]string, len(aliases))
+	for host, alias := range aliases {
+		cloned[host] = alias
+	}
+	return cloned
+}
+
+func (s *Server) resolveInterceptedProviderName(hostOnly string) string {
+	normalizedHost := normalizeForwardProxyHost(hostOnly)
+	if normalizedHost == "" {
+		return ""
+	}
+	s.mu.RLock()
+	alias := strings.TrimSpace(s.domainAliases[normalizedHost])
+	s.mu.RUnlock()
+	if alias != "" {
+		return alias
+	}
+	return normalizedHost
 }
 
 // GetCertManager returns the certificate manager for CA cert download.
@@ -593,11 +643,12 @@ func (s *Server) loadConfig() error {
 	s.enabled = cfg.Enabled
 	s.interceptDomains = make(map[string]bool)
 	for _, d := range cfg.InterceptDomains {
-		trimmed := strings.ToLower(strings.TrimSpace(d))
+		trimmed := normalizeForwardProxyHost(d)
 		if trimmed != "" {
 			s.interceptDomains[trimmed] = true
 		}
 	}
+	s.domainAliases = normalizeDomainAliases(cfg.DomainAliases)
 	if err := validateXInitiatorOverrideConfig(cfg.XInitiatorOverride); err != nil {
 		return err
 	}
