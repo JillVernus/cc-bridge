@@ -72,6 +72,18 @@
                 </v-chip>
               </template>
               <div class="text-caption">
+                <div class="d-flex align-center justify-space-between mb-2 ga-2">
+                  <strong>{{ t('forwardProxy.discoveryHeadersTitle') }}</strong>
+                  <v-btn
+                    v-if="hasSensitiveHeaders(item)"
+                    size="x-small"
+                    variant="text"
+                    density="comfortable"
+                    :icon="isHeadersRevealed(item) ? 'mdi-eye-off' : 'mdi-eye'"
+                    :title="isHeadersRevealed(item) ? t('forwardProxy.discoveryHideSensitiveHeaders') : t('forwardProxy.discoveryShowSensitiveHeaders')"
+                    @click.stop="toggleHeaderReveal(item)"
+                  />
+                </div>
                 <div v-for="[key, value] in headerEntries(item)" :key="key" class="mb-1">
                   <strong>{{ key }}:</strong> {{ value }}
                 </div>
@@ -129,6 +141,7 @@ const config = ref<ForwardProxyConfig>({
   port: 3001
 })
 const entries = ref<ForwardProxyDiscoveryEntry[]>([])
+const revealedHeadersByEntry = ref<Record<string, boolean>>({})
 
 const headers = computed(() => [
   { title: t('forwardProxy.discoveryHost'), key: 'host', sortable: true },
@@ -148,8 +161,33 @@ const formatDateTime = (value?: string) => {
   return date.toLocaleString()
 }
 
-const headerEntries = (item: ForwardProxyDiscoveryEntry) =>
-  Object.entries(item.lastRequestHeaders ?? {}).sort((a, b) => a[0].localeCompare(b[0]))
+const discoveryEntryKey = (item: ForwardProxyDiscoveryEntry) => `${item.host}:${item.port}`
+
+const isSensitiveHeader = (key: string) => {
+  const normalized = key.trim().toLowerCase()
+  return normalized === 'authorization'
+    || normalized === 'x-api-key'
+    || normalized === 'cookie'
+    || normalized === 'set-cookie'
+    || normalized === 'proxy-authorization'
+}
+
+const isHeadersRevealed = (item: ForwardProxyDiscoveryEntry) => revealedHeadersByEntry.value[discoveryEntryKey(item)] === true
+
+const hasSensitiveHeaders = (item: ForwardProxyDiscoveryEntry) =>
+  Object.keys(item.lastRequestHeadersRaw ?? item.lastRequestHeaders ?? {}).some(isSensitiveHeader)
+
+const toggleHeaderReveal = (item: ForwardProxyDiscoveryEntry) => {
+  const key = discoveryEntryKey(item)
+  revealedHeadersByEntry.value[key] = !revealedHeadersByEntry.value[key]
+}
+
+const headerEntries = (item: ForwardProxyDiscoveryEntry) => {
+  const source = isHeadersRevealed(item) && item.lastRequestHeadersRaw
+    ? item.lastRequestHeadersRaw
+    : item.lastRequestHeaders
+  return Object.entries(source ?? {}).sort((a, b) => a[0].localeCompare(b[0]))
+}
 
 const isDomainIntercepted = (host: string) => {
   const normalizedHost = host.trim().toLowerCase()
@@ -166,6 +204,14 @@ const loadData = async () => {
     ])
     config.value = proxyConfig
     entries.value = discovery.entries
+    const nextRevealState: Record<string, boolean> = {}
+    for (const item of discovery.entries) {
+      const key = discoveryEntryKey(item)
+      if (revealedHeadersByEntry.value[key]) {
+        nextRevealState[key] = true
+      }
+    }
+    revealedHeadersByEntry.value = nextRevealState
   } catch (err) {
     console.error('Failed to load forward proxy discovery:', err)
     error.value = t('forwardProxy.discoveryLoadFailed')
@@ -180,6 +226,7 @@ const clearEntries = async () => {
   try {
     const result = await api.clearForwardProxyDiscovery()
     entries.value = result.entries
+    revealedHeadersByEntry.value = {}
   } catch (err) {
     console.error('Failed to clear forward proxy discovery:', err)
     error.value = t('forwardProxy.discoveryClearFailed')

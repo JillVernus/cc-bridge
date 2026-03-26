@@ -1705,6 +1705,7 @@ export interface ForwardProxyDiscoveryEntry {
   lastMethod?: string
   lastPath?: string
   lastRequestHeaders?: Record<string, string>
+  lastRequestHeadersRaw?: Record<string, string>
 }
 
 export interface ForwardProxyDiscoveryResponse {

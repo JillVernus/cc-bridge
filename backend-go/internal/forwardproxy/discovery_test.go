@@ -74,6 +74,18 @@ func TestDiscoveryStore_RecordAndPersist(t *testing.T) {
 	if got := entry.LastRequestHeaders["Set-Cookie"]; got == "" || got == "abc=123" {
 		t.Fatalf("expected Set-Cookie masked, got %q", got)
 	}
+	if got := entry.LastRequestHeadersRaw["Authorization"]; got != "Bearer super-secret-token" {
+		t.Fatalf("expected raw Authorization preserved, got %q", got)
+	}
+	if got := entry.LastRequestHeadersRaw["Set-Cookie"]; got != "abc=123" {
+		t.Fatalf("expected raw Set-Cookie preserved, got %q", got)
+	}
+	if !isSensitiveDiscoveryHeader("Authorization") || !isSensitiveDiscoveryHeader("X-API-Key") {
+		t.Fatalf("expected sensitive header detection for auth headers")
+	}
+	if isSensitiveDiscoveryHeader("Content-Type") {
+		t.Fatalf("did not expect Content-Type to be sensitive")
+	}
 	if !entry.FirstSeenAt.Equal(firstSeen) {
 		t.Fatalf("expected firstSeenAt %v, got %v", firstSeen, entry.FirstSeenAt)
 	}

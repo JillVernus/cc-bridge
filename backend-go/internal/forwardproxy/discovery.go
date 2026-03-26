@@ -29,16 +29,17 @@ type DiscoveryEvent struct {
 }
 
 type DiscoveryEntry struct {
-	Host               string            `json:"host"`
-	Port               string            `json:"port"`
-	Transport          string            `json:"transport"`
-	Intercepted        bool              `json:"intercepted"`
-	SeenCount          int               `json:"seenCount"`
-	FirstSeenAt        time.Time         `json:"firstSeenAt"`
-	LastSeenAt         time.Time         `json:"lastSeenAt"`
-	LastMethod         string            `json:"lastMethod,omitempty"`
-	LastPath           string            `json:"lastPath,omitempty"`
-	LastRequestHeaders map[string]string `json:"lastRequestHeaders,omitempty"`
+	Host                  string            `json:"host"`
+	Port                  string            `json:"port"`
+	Transport             string            `json:"transport"`
+	Intercepted           bool              `json:"intercepted"`
+	SeenCount             int               `json:"seenCount"`
+	FirstSeenAt           time.Time         `json:"firstSeenAt"`
+	LastSeenAt            time.Time         `json:"lastSeenAt"`
+	LastMethod            string            `json:"lastMethod,omitempty"`
+	LastPath              string            `json:"lastPath,omitempty"`
+	LastRequestHeaders    map[string]string `json:"lastRequestHeaders,omitempty"`
+	LastRequestHeadersRaw map[string]string `json:"lastRequestHeadersRaw,omitempty"`
 }
 
 type DiscoveryStore struct {
@@ -103,7 +104,8 @@ func (s *DiscoveryStore) Record(event DiscoveryEvent) {
 		entry.LastPath = path
 	}
 	if len(event.RequestHeaders) > 0 {
-		entry.LastRequestHeaders = sanitizeDiscoveryHeaders(event.RequestHeaders)
+		entry.LastRequestHeadersRaw = flattenDiscoveryHeaders(event.RequestHeaders)
+		entry.LastRequestHeaders = sanitizeDiscoveryHeaders(entry.LastRequestHeadersRaw)
 	}
 	s.entries[key] = entry
 	err := s.saveLocked()
@@ -114,7 +116,7 @@ func (s *DiscoveryStore) Record(event DiscoveryEvent) {
 	}
 }
 
-func sanitizeDiscoveryHeaders(headers http.Header) map[string]string {
+func flattenDiscoveryHeaders(headers http.Header) map[string]string {
 	if len(headers) == 0 {
 		return nil
 	}
@@ -123,20 +125,37 @@ func sanitizeDiscoveryHeaders(headers http.Header) map[string]string {
 		if len(values) == 0 {
 			continue
 		}
-		joined := strings.Join(values, ", ")
-		lowerKey := strings.ToLower(strings.TrimSpace(key))
-		switch lowerKey {
-		case "authorization", "x-api-key", "cookie", "set-cookie", "proxy-authorization":
-			if len(joined) > 12 {
-				result[key] = joined[:8] + "..." + joined[len(joined)-4:]
+		result[key] = strings.Join(values, ", ")
+	}
+	return result
+}
+
+func sanitizeDiscoveryHeaders(headers map[string]string) map[string]string {
+	if len(headers) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(headers))
+	for key, value := range headers {
+		if isSensitiveDiscoveryHeader(key) {
+			if len(value) > 12 {
+				result[key] = value[:8] + "..." + value[len(value)-4:]
 			} else {
 				result[key] = "***"
 			}
-		default:
-			result[key] = joined
+			continue
 		}
+		result[key] = value
 	}
 	return result
+}
+
+func isSensitiveDiscoveryHeader(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "authorization", "x-api-key", "cookie", "set-cookie", "proxy-authorization":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *DiscoveryStore) List() []DiscoveryEntry {
