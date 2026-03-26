@@ -571,6 +571,58 @@ func isAnyMissingColumnErr(err error) bool {
 		strings.Contains(msg, "unknown column")
 }
 
+func requestLogUpdateQuery() string {
+	return `
+	UPDATE request_logs SET
+		status = ?,
+		first_token_time = COALESCE(first_token_time, ?),
+		first_token_duration_ms = CASE
+			WHEN first_token_duration_ms = 0 AND ? > 0 THEN ?
+			ELSE first_token_duration_ms
+		END,
+		complete_time = ?,
+		duration_ms = ?,
+		provider = ?,
+		provider_name = ?,
+		response_model = ?,
+		service_tier = CASE
+			WHEN TRIM(COALESCE(?, '')) != '' THEN ?
+			ELSE service_tier
+		END,
+		service_tier_overridden = CASE
+			WHEN ? THEN TRUE
+			ELSE service_tier_overridden
+		END,
+		input_tokens = ?,
+		output_tokens = ?,
+		cache_creation_input_tokens = ?,
+		cache_read_input_tokens = ?,
+		total_tokens = ?,
+		price = ?,
+		input_cost = ?,
+		output_cost = ?,
+		cache_creation_cost = ?,
+		cache_read_cost = ?,
+		http_status = ?,
+		channel_id = CASE
+			WHEN TRIM(COALESCE(?, '')) != '' OR TRIM(COALESCE(?, '')) != '' THEN ?
+			ELSE channel_id
+		END,
+		channel_uid = CASE
+			WHEN TRIM(COALESCE(?, '')) != '' THEN ?
+			ELSE channel_uid
+		END,
+		channel_name = CASE
+			WHEN TRIM(COALESCE(?, '')) != '' THEN ?
+			ELSE channel_name
+		END,
+		error = ?,
+		upstream_error = ?,
+		failover_info = ?
+	WHERE id = ?
+	`
+}
+
 // Add inserts a new request log record
 func (m *Manager) Add(record *RequestLog) error {
 	m.mu.Lock()
@@ -718,57 +770,7 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 		firstTokenTime = *record.FirstTokenTime
 	}
 
-	query := `
-	UPDATE request_logs SET
-		status = ?,
-		first_token_time = COALESCE(first_token_time, ?),
-		first_token_duration_ms = CASE
-			WHEN first_token_duration_ms = 0 AND ? > 0 THEN ?
-			ELSE first_token_duration_ms
-		END,
-		complete_time = ?,
-		duration_ms = ?,
-		provider = ?,
-		provider_name = ?,
-		response_model = ?,
-		service_tier = CASE
-			WHEN TRIM(COALESCE(?, '')) != '' THEN ?
-			ELSE service_tier
-		END,
-		service_tier_overridden = CASE
-			WHEN ? THEN 1
-			ELSE service_tier_overridden
-		END,
-		input_tokens = ?,
-		output_tokens = ?,
-		cache_creation_input_tokens = ?,
-		cache_read_input_tokens = ?,
-		total_tokens = ?,
-		price = ?,
-		input_cost = ?,
-		output_cost = ?,
-		cache_creation_cost = ?,
-		cache_read_cost = ?,
-		http_status = ?,
-		channel_id = CASE
-			WHEN TRIM(COALESCE(?, '')) != '' OR TRIM(COALESCE(?, '')) != '' THEN ?
-			ELSE channel_id
-		END,
-		channel_uid = CASE
-			WHEN TRIM(COALESCE(?, '')) != '' THEN ?
-			ELSE channel_uid
-		END,
-		channel_name = CASE
-			WHEN TRIM(COALESCE(?, '')) != '' THEN ?
-			ELSE channel_name
-		END,
-		error = ?,
-		upstream_error = ?,
-		failover_info = ?
-	WHERE id = ?
-	`
-
-	result, err := m.db.Exec(m.convertQuery(query),
+	result, err := m.db.Exec(m.convertQuery(requestLogUpdateQuery()),
 		record.Status,
 		firstTokenTime,
 		record.FirstTokenDurationMs,
