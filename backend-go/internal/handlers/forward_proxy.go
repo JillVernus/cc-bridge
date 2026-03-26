@@ -19,17 +19,22 @@ func GetForwardProxyConfig(fpServer *forwardproxy.Server) gin.HandlerFunc {
 					Mode:            forwardproxy.XInitiatorOverrideModeFixedWindow,
 					DurationSeconds: 300,
 				},
+				"xInitiatorOverrideRuntime": forwardproxy.XInitiatorOverrideRuntimeStatus{
+					Enabled: false,
+					Mode:    forwardproxy.XInitiatorOverrideModeFixedWindow,
+				},
 				"running": false,
 			})
 			return
 		}
 		cfg := fpServer.GetConfig()
 		c.JSON(http.StatusOK, gin.H{
-			"enabled":            cfg.Enabled,
-			"interceptDomains":   cfg.InterceptDomains,
-			"xInitiatorOverride": cfg.XInitiatorOverride,
-			"running":            fpServer.IsRunning(),
-			"port":               fpServer.GetPort(),
+			"enabled":                   cfg.Enabled,
+			"interceptDomains":          cfg.InterceptDomains,
+			"xInitiatorOverride":        cfg.XInitiatorOverride,
+			"xInitiatorOverrideRuntime": fpServer.GetXInitiatorOverrideRuntimeStatus(),
+			"running":                   fpServer.IsRunning(),
+			"port":                      fpServer.GetPort(),
 		})
 	}
 }
@@ -70,12 +75,13 @@ func UpdateForwardProxyConfig(fpServer *forwardproxy.Server) gin.HandlerFunc {
 
 		updatedCfg := fpServer.GetConfig()
 		c.JSON(http.StatusOK, gin.H{
-			"message":            "Forward proxy config updated",
-			"enabled":            updatedCfg.Enabled,
-			"interceptDomains":   updatedCfg.InterceptDomains,
-			"xInitiatorOverride": updatedCfg.XInitiatorOverride,
-			"running":            fpServer.IsRunning(),
-			"port":               fpServer.GetPort(),
+			"message":                   "Forward proxy config updated",
+			"enabled":                   updatedCfg.Enabled,
+			"interceptDomains":          updatedCfg.InterceptDomains,
+			"xInitiatorOverride":        updatedCfg.XInitiatorOverride,
+			"xInitiatorOverrideRuntime": fpServer.GetXInitiatorOverrideRuntimeStatus(),
+			"running":                   fpServer.IsRunning(),
+			"port":                      fpServer.GetPort(),
 		})
 	}
 }

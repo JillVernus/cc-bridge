@@ -135,7 +135,7 @@ func (d *FirstTokenDetector) ObserveBytes(data []byte) bool {
 func (d *FirstTokenDetector) observePayload(payload string) bool {
 	switch d.protocol {
 	case FirstTokenProtocolClaudeSSE:
-		if d.lastEvent == "content_block_delta" {
+		if d.detectClaudeStreamOutput(payload) {
 			d.detected = true
 			return true
 		}
@@ -163,6 +163,23 @@ func (d *FirstTokenDetector) observePayload(payload string) bool {
 	}
 }
 
+func (d *FirstTokenDetector) detectClaudeStreamOutput(payload string) bool {
+	var msg map[string]interface{}
+	if err := json.Unmarshal([]byte(payload), &msg); err != nil {
+		return d.lastEvent == "content_block_delta"
+	}
+
+	eventType := ""
+	if typeVal, ok := msg["type"].(string); ok {
+		eventType = strings.TrimSpace(typeVal)
+	}
+	if eventType == "" {
+		eventType = d.lastEvent
+	}
+
+	return eventType == "content_block_delta"
+}
+
 func (d *FirstTokenDetector) detectOpenAIChatContent(payload string) bool {
 	var msg map[string]interface{}
 	if err := json.Unmarshal([]byte(payload), &msg); err != nil {
@@ -185,6 +202,9 @@ func (d *FirstTokenDetector) detectOpenAIChatContent(payload string) bool {
 		}
 		content, ok := delta["content"].(string)
 		if ok && strings.TrimSpace(content) != "" {
+			return true
+		}
+		if toolCalls, ok := delta["tool_calls"].([]interface{}); ok && len(toolCalls) > 0 {
 			return true
 		}
 	}

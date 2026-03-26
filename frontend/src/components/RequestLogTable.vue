@@ -930,6 +930,25 @@
         {{ autoRefreshEnabled ? t('requestLog.autoRefreshing') : t('requestLog.autoRefreshOff') }}
       </v-btn>
       <v-spacer />
+      <v-tooltip v-if="forwardProxyOverrideBadgeLabel" location="top" max-width="320">
+        <template v-slot:activator="{ props }">
+          <v-chip v-bind="props" class="mr-2" size="small" variant="tonal" color="info">
+            <v-icon size="14" class="mr-1">mdi-timer-sand</v-icon>
+            {{ forwardProxyOverrideBadgeLabel }}
+          </v-chip>
+        </template>
+        <div>{{ t('forwardProxy.xInitiatorOverrideToolbarTooltip') }}</div>
+        <div>
+          {{
+            t('forwardProxy.xInitiatorOverrideActiveDomains', {
+              count: forwardProxyOverrideRuntime?.activeDomains ?? 0
+            })
+          }}
+        </div>
+        <div v-if="(forwardProxyOverrideRuntime?.activeDomains ?? 0) > 0">
+          {{ t('forwardProxy.xInitiatorOverrideToolbarRemaining', { seconds: forwardProxyOverrideRemainingSeconds }) }}
+        </div>
+      </v-tooltip>
       <v-chip class="mr-2" size="small" variant="tonal">
         {{ t('requestLog.totalRecords', { count: total }) }}
       </v-chip>
@@ -972,7 +991,11 @@
 
         <template v-slot:item.status="{ item }">
           <div class="d-flex align-center ga-1">
-            <div v-if="item.status === 'pending'" class="skeleton-bar" style="width: 52px; height: 20px; border-radius: 10px;" />
+            <div
+              v-if="item.status === 'pending'"
+              class="skeleton-bar"
+              style="width: 52px; height: 20px; border-radius: 10px"
+            />
             <v-tooltip v-else-if="item.error || item.upstreamError || item.failoverInfo" location="top" max-width="400">
               <template v-slot:activator="{ props }">
                 <v-chip v-bind="props" size="x-small" :color="getRequestStatusColor(item.status)" variant="flat">
@@ -1017,7 +1040,7 @@
             <template v-slot:activator="{ props }">
               <div v-bind="props" class="stacked-cell stacked-duration-cell">
                 <span v-if="item.status === 'pending'" class="stacked-duration-value">
-                  <div class="skeleton-bar" style="width: 44px; height: 10px;" />
+                  <div class="skeleton-bar" style="width: 44px; height: 10px" />
                 </span>
                 <span
                   v-else-if="hasFirstTokenMetric(item)"
@@ -1026,9 +1049,11 @@
                 >
                   {{ formatDuration(item.firstTokenDurationMs ?? 0) }}
                 </span>
-                <span v-else class="stacked-duration-value duration-text duration-muted">{{ formatFirstTokenDuration(item) }}</span>
+                <span v-else class="stacked-duration-value duration-text duration-muted">{{
+                  formatFirstTokenDuration(item)
+                }}</span>
                 <span v-if="item.status === 'pending'" class="stacked-duration-value">
-                  <div class="skeleton-bar" style="width: 44px; height: 10px;" />
+                  <div class="skeleton-bar" style="width: 44px; height: 10px" />
                 </span>
                 <span
                   v-else
@@ -1050,7 +1075,7 @@
               </div>
             </div>
           </v-tooltip>
-          <div v-else-if="item.status === 'pending'" class="skeleton-bar" style="width: 60px; height: 12px;" />
+          <div v-else-if="item.status === 'pending'" class="skeleton-bar" style="width: 60px; height: 12px" />
           <span
             v-else-if="hasFirstTokenMetric(item)"
             class="duration-text"
@@ -1062,7 +1087,7 @@
         </template>
 
         <template v-slot:item.durationMs="{ item }">
-          <div v-if="item.status === 'pending'" class="skeleton-bar" style="width: 56px; height: 12px;" />
+          <div v-if="item.status === 'pending'" class="skeleton-bar" style="width: 56px; height: 12px" />
           <span v-else class="duration-text" :class="'duration-' + getDurationColor(item.durationMs)">
             {{ formatDuration(item.durationMs) }}
           </span>
@@ -1070,8 +1095,8 @@
 
         <template v-slot:item.providerName="{ item }">
           <div v-if="item.status === 'pending'" class="d-flex flex-column ga-1">
-            <div class="skeleton-bar" style="width: 80px; height: 12px;" />
-            <div class="skeleton-bar" style="width: 56px; height: 10px;" />
+            <div class="skeleton-bar" style="width: 80px; height: 12px" />
+            <div class="skeleton-bar" style="width: 56px; height: 10px" />
           </div>
           <!-- Stacked: Channel + Model -->
           <v-tooltip v-else-if="isStacked('providerName')" location="top" max-width="400">
@@ -1122,9 +1147,7 @@
                   <v-icon v-if="item.serviceTier === 'priority'" size="12" class="ml-1" color="warning"
                     >mdi-flash</v-icon
                   >
-                  <v-icon v-if="item.serviceTierOverridden" size="12" class="ml-1" color="info"
-                    >mdi-auto-fix</v-icon
-                  >
+                  <v-icon v-if="item.serviceTierOverridden" size="12" class="ml-1" color="info">mdi-auto-fix</v-icon>
                 </span>
               </div>
             </template>
@@ -1330,7 +1353,7 @@
         </template>
 
         <template v-slot:item.tokens="{ item }">
-          <div v-if="item.status === 'pending'" class="skeleton-bar" style="width: 72px; height: 12px;" />
+          <div v-if="item.status === 'pending'" class="skeleton-bar" style="width: 72px; height: 12px" />
           <v-tooltip v-else location="top" max-width="300">
             <template v-slot:activator="{ props }">
               <div v-bind="props" class="tokens-stacked">
@@ -1378,7 +1401,7 @@
         </template>
 
         <template v-slot:item.price="{ item }">
-          <div v-if="item.status === 'pending'" class="skeleton-bar" style="width: 48px; height: 12px;" />
+          <div v-if="item.status === 'pending'" class="skeleton-bar" style="width: 48px; height: 12px" />
           <v-tooltip v-else-if="hasCostBreakdown(item)" location="top" max-width="300">
             <template v-slot:activator="{ props }">
               <span
@@ -1449,7 +1472,8 @@ import {
   type RequestLogStats,
   type GroupStats,
   type ActiveSession,
-  type APIKey
+  type APIKey,
+  type ForwardProxyConfig
 } from '../services/api'
 import RequestDebugModal from './RequestDebugModal.vue'
 import {
@@ -1503,6 +1527,9 @@ const selectedLogItem = ref<RequestLog | null>(null)
 
 // API keys state (for displaying key names by ID)
 const apiKeys = ref<APIKey[]>([])
+const forwardProxyConfig = ref<ForwardProxyConfig | null>(null)
+const overrideClockNow = ref(Date.now())
+let overrideClockTimer: ReturnType<typeof setInterval> | null = null
 const apiKeyMap = computed(() => {
   const map = new Map<number, string>()
   for (const key of apiKeys.value) {
@@ -3194,18 +3221,55 @@ const stopResize = () => {
   document.body.style.userSelect = ''
 }
 
+const forwardProxyOverrideRuntime = computed(() => forwardProxyConfig.value?.xInitiatorOverrideRuntime ?? null)
+
+const forwardProxyOverrideRemainingSeconds = computed(() => {
+  const runtime = forwardProxyOverrideRuntime.value
+  if (!runtime?.enabled) return 0
+  if (!runtime.nearestExpiryAt) return Math.max(0, runtime.nearestRemainingSeconds || 0)
+
+  const expiryMs = new Date(runtime.nearestExpiryAt).getTime()
+  if (Number.isNaN(expiryMs)) return Math.max(0, runtime.nearestRemainingSeconds || 0)
+
+  return Math.max(0, Math.ceil((expiryMs - overrideClockNow.value) / 1000))
+})
+
+const forwardProxyOverrideModeLabel = computed(() => {
+  const mode = forwardProxyOverrideRuntime.value?.mode || forwardProxyConfig.value?.xInitiatorOverride?.mode
+  if (mode === 'relative_countdown') return t('forwardProxy.xInitiatorOverrideModeRelativeShort')
+  return t('forwardProxy.xInitiatorOverrideModeFixedShort')
+})
+
+const forwardProxyOverrideBadgeLabel = computed(() => {
+  const cfg = forwardProxyConfig.value
+  if (!cfg) return ''
+  if (!cfg.xInitiatorOverride.enabled) {
+    return t('forwardProxy.xInitiatorOverrideOffShort')
+  }
+
+  if (forwardProxyOverrideRuntime.value?.activeDomains) {
+    return `${forwardProxyOverrideModeLabel.value} ${forwardProxyOverrideRemainingSeconds.value}s`
+  }
+
+  return `${forwardProxyOverrideModeLabel.value} ${t('forwardProxy.xInitiatorOverrideIdle')}`
+})
+
 const refreshLogs = async () => {
   loading.value = true
   try {
     const { from, to } = getDateRange()
-    const [logsRes, statsRes] = await Promise.all([
+    const [logsRes, statsRes, proxyCfg] = await Promise.all([
       api.getRequestLogs({ limit: pageSize, offset: offset.value, from, to }),
-      api.getRequestLogStats({ from, to })
+      api.getRequestLogStats({ from, to }),
+      api.getForwardProxyConfig().catch(() => null)
     ])
     logs.value = logsRes.requests || []
     total.value = logsRes.total
     hasMore.value = logsRes.hasMore
     stats.value = statsRes
+    if (proxyCfg) {
+      forwardProxyConfig.value = proxyCfg
+    }
 
     // Fetch active sessions separately to avoid breaking main data on error
     try {
@@ -3605,6 +3669,9 @@ onMounted(() => {
     // SSE disabled, use polling only
     startAutoRefresh()
   }
+  overrideClockTimer = setInterval(() => {
+    overrideClockNow.value = Date.now()
+  }, 1000)
   document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
@@ -3613,6 +3680,10 @@ onUnmounted(() => {
   stopSSEStatsRefresh()
   disconnectSSE()
   cancelPollingFallback()
+  if (overrideClockTimer) {
+    clearInterval(overrideClockTimer)
+    overrideClockTimer = null
+  }
   document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 
@@ -3703,9 +3774,10 @@ const toggleAutoRefresh = () => {
 const refreshStatsOnly = async () => {
   try {
     const { from, to } = getDateRange()
-    const [statsRes, activeSessionsRes] = await Promise.all([
+    const [statsRes, activeSessionsRes, proxyCfg] = await Promise.all([
       api.getRequestLogStats({ from, to }),
-      api.getActiveSessions().catch(() => [] as ActiveSession[])
+      api.getActiveSessions().catch(() => [] as ActiveSession[]),
+      api.getForwardProxyConfig().catch(() => null)
     ])
 
     // Detect updated groups in stats
@@ -3720,6 +3792,9 @@ const refreshStatsOnly = async () => {
 
     stats.value = statsRes
     activeSessions.value = activeSessionsRes
+    if (proxyCfg) {
+      forwardProxyConfig.value = proxyCfg
+    }
 
     // Flash updated summary groups
     if (newUpdatedModels.size > 0) {
@@ -3782,9 +3857,10 @@ const stopSSEStatsRefresh = () => {
 const silentRefresh = async () => {
   try {
     const { from, to } = getDateRange()
-    const [logsRes, statsRes] = await Promise.all([
+    const [logsRes, statsRes, proxyCfg] = await Promise.all([
       api.getRequestLogs({ limit: pageSize, offset: offset.value, from, to }),
-      api.getRequestLogStats({ from, to })
+      api.getRequestLogStats({ from, to }),
+      api.getForwardProxyConfig().catch(() => null)
     ])
 
     // Fetch active sessions separately to avoid breaking main data on error
@@ -3873,6 +3949,9 @@ const silentRefresh = async () => {
     hasMore.value = logsRes.hasMore
     stats.value = statsRes
     activeSessions.value = activeSessionsRes || []
+    if (proxyCfg) {
+      forwardProxyConfig.value = proxyCfg
+    }
   } catch (error) {
     console.error('Failed to refresh logs:', error)
   }
@@ -4051,8 +4130,12 @@ const silentRefresh = async () => {
 
 /* Skeleton shimmer for pending rows */
 @keyframes shimmer {
-  0%   { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 .skeleton-bar {
@@ -4067,12 +4150,7 @@ const silentRefresh = async () => {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(var(--v-theme-on-surface), 0.15) 50%,
-    transparent 100%
-  );
+  background: linear-gradient(90deg, transparent 0%, rgba(var(--v-theme-on-surface), 0.15) 50%, transparent 100%);
   animation: shimmer 1.4s ease-in-out infinite;
 }
 

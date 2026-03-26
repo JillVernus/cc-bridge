@@ -165,3 +165,39 @@ func TestHandleHTTPForward_XInitiatorOverride_OverridesLaterRequests(t *testing.
 		t.Fatalf("expected second upstream header to be overridden to agent, got %q", seen[1])
 	}
 }
+
+func TestGetXInitiatorOverrideRuntimeStatus_ReportsNearestExpiryAndActiveDomains(t *testing.T) {
+	current := time.Date(2026, 3, 26, 12, 0, 0, 0, time.UTC)
+	s := &Server{
+		xInitiatorOverride: XInitiatorOverrideConfig{
+			Enabled:         true,
+			Mode:            XInitiatorOverrideModeRelativeCountdown,
+			DurationSeconds: 30,
+		},
+		xInitiatorDomainState: map[string]time.Time{
+			"api.a.com": current.Add(21 * time.Second),
+			"api.b.com": current.Add(9 * time.Second),
+			"api.c.com": current.Add(-5 * time.Second),
+		},
+		now: func() time.Time {
+			return current
+		},
+	}
+
+	status := s.GetXInitiatorOverrideRuntimeStatus()
+	if !status.Enabled {
+		t.Fatalf("expected enabled runtime status")
+	}
+	if status.Mode != XInitiatorOverrideModeRelativeCountdown {
+		t.Fatalf("expected mode %q, got %q", XInitiatorOverrideModeRelativeCountdown, status.Mode)
+	}
+	if status.ActiveDomains != 2 {
+		t.Fatalf("expected 2 active domains, got %d", status.ActiveDomains)
+	}
+	if status.NearestRemainingSeconds != 9 {
+		t.Fatalf("expected nearest remaining 9 seconds, got %d", status.NearestRemainingSeconds)
+	}
+	if status.NearestExpiryAt == nil || !status.NearestExpiryAt.Equal(current.Add(9*time.Second)) {
+		t.Fatalf("expected nearest expiry at %s, got %#v", current.Add(9*time.Second).Format(time.RFC3339), status.NearestExpiryAt)
+	}
+}

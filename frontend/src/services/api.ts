@@ -1687,10 +1687,19 @@ export interface XInitiatorOverrideConfig {
   durationSeconds: number
 }
 
+export interface XInitiatorOverrideRuntimeStatus {
+  enabled: boolean
+  mode: 'fixed_window' | 'relative_countdown'
+  activeDomains: number
+  nearestExpiryAt?: string
+  nearestRemainingSeconds: number
+}
+
 export interface ForwardProxyConfig {
   enabled: boolean
   interceptDomains: string[]
   xInitiatorOverride: XInitiatorOverrideConfig
+  xInitiatorOverrideRuntime: XInitiatorOverrideRuntimeStatus
   running: boolean
   port: number
 }

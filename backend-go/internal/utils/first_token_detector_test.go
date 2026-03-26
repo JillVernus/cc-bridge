@@ -25,17 +25,27 @@ func TestFirstTokenDetector_ClaudeSSE_DetectsContentDelta(t *testing.T) {
 	}
 }
 
-func TestFirstTokenDetector_OpenAIChat_IgnoresToolCallsAndWhitespace(t *testing.T) {
+func TestFirstTokenDetector_OpenAIChat_IgnoresWhitespaceAndDetectsFirstOutput(t *testing.T) {
 	d := NewFirstTokenDetector(FirstTokenProtocolOpenAIChatSSE)
 
-	if d.ObserveLine(`data: {"choices":[{"delta":{"tool_calls":[{"id":"call_1"}]}}]}`) {
-		t.Fatalf("tool-call-only chunk must not count as first token")
+	if !d.ObserveLine(`data: {"choices":[{"delta":{"tool_calls":[{"id":"call_1"}]}}]}`) {
+		t.Fatalf("tool-call-only chunk should count as first streamed output")
 	}
+
+	d = NewFirstTokenDetector(FirstTokenProtocolOpenAIChatSSE)
 	if d.ObserveLine(`data: {"choices":[{"delta":{"content":"   "}}]}`) {
 		t.Fatalf("whitespace-only content must not count as first token")
 	}
 	if !d.ObserveLine(`data: {"choices":[{"delta":{"content":"hi"}}]}`) {
 		t.Fatalf("non-empty content should count as first token")
+	}
+}
+
+func TestFirstTokenDetector_OpenAIChat_ToolCallsCountAsFirstStreamedOutput(t *testing.T) {
+	d := NewFirstTokenDetector(FirstTokenProtocolOpenAIChatSSE)
+
+	if !d.ObserveLine(`data: {"choices":[{"delta":{"content":null,"tool_calls":[{"function":{"name":"bash"},"id":"call_1","index":0,"type":"function"}]}}]}`) {
+		t.Fatalf("tool call delta should count as first streamed output")
 	}
 }
 

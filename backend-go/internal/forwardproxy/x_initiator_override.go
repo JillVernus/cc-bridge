@@ -18,6 +18,14 @@ type XInitiatorOverrideConfig struct {
 	DurationSeconds int    `json:"durationSeconds"`
 }
 
+type XInitiatorOverrideRuntimeStatus struct {
+	Enabled                 bool       `json:"enabled"`
+	Mode                    string     `json:"mode"`
+	ActiveDomains           int        `json:"activeDomains"`
+	NearestExpiryAt         *time.Time `json:"nearestExpiryAt,omitempty"`
+	NearestRemainingSeconds int        `json:"nearestRemainingSeconds"`
+}
+
 func validateXInitiatorOverrideConfig(cfg XInitiatorOverrideConfig) error {
 	if !cfg.Enabled {
 		return nil
@@ -76,4 +84,45 @@ func (s *Server) applyXInitiatorOverride(host string, headers http.Header) bool 
 	}
 
 	return true
+}
+
+func (s *Server) GetXInitiatorOverrideRuntimeStatus() XInitiatorOverrideRuntimeStatus {
+	if s == nil {
+		return XInitiatorOverrideRuntimeStatus{}
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	cfg := s.xInitiatorOverride
+	status := XInitiatorOverrideRuntimeStatus{
+		Enabled: cfg.Enabled,
+		Mode:    cfg.Mode,
+	}
+
+	nowFn := s.now
+	if nowFn == nil {
+		nowFn = time.Now
+	}
+	now := nowFn()
+
+	for _, expiresAt := range s.xInitiatorDomainState {
+		if !expiresAt.After(now) {
+			continue
+		}
+		status.ActiveDomains++
+		if status.NearestExpiryAt == nil || expiresAt.Before(*status.NearestExpiryAt) {
+			exp := expiresAt
+			status.NearestExpiryAt = &exp
+		}
+	}
+
+	if status.NearestExpiryAt != nil {
+		status.NearestRemainingSeconds = int(status.NearestExpiryAt.Sub(now).Seconds())
+		if status.NearestRemainingSeconds < 0 {
+			status.NearestRemainingSeconds = 0
+		}
+	}
+
+	return status
 }

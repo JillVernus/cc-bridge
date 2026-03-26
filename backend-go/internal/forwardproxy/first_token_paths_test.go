@@ -136,6 +136,123 @@ func TestHandleHTTPForward_RecordsFirstTokenForSSEPath(t *testing.T) {
 	}
 }
 
+func TestHandleHTTPForward_RecordsFirstTokenForZenMessagesThinkingStream(t *testing.T) {
+	reqLogManager := newForwardProxyTestRequestLogManager(t)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "event: message_start\n")
+		_, _ = io.WriteString(w, `data: {"type":"message_start","message":{"id":"msg_zen","model":"MiniMax-M2.5","usage":{"input_tokens":1,"output_tokens":0}}}`+"\n\n")
+		_, _ = io.WriteString(w, "event: content_block_start\n")
+		_, _ = io.WriteString(w, `data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}`+"\n\n")
+		_, _ = io.WriteString(w, "event: content_block_delta\n")
+		_, _ = io.WriteString(w, `data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Thinking..."}}`+"\n\n")
+		_, _ = io.WriteString(w, "event: message_stop\n")
+		_, _ = io.WriteString(w, `data: {"type":"message_stop"}`+"\n\n")
+	}))
+	defer upstream.Close()
+
+	upstreamURL, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatalf("failed to parse upstream URL: %v", err)
+	}
+	hostOnly := strings.ToLower(upstreamURL.Hostname())
+
+	s := &Server{
+		requestLogManager: reqLogManager,
+		httpClient:        upstream.Client(),
+		enabled:           true,
+		interceptDomains: map[string]bool{
+			hostOnly: true,
+		},
+	}
+
+	body := `{"model":"MiniMax-M2.5","stream":true}`
+	req := httptest.NewRequest(http.MethodPost, upstream.URL+"/zen/v1/messages", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	s.handleHTTPForward(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	recent, err := reqLogManager.GetRecent(&requestlog.RequestLogFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("GetRecent failed: %v", err)
+	}
+	if len(recent.Requests) != 1 {
+		t.Fatalf("expected exactly one request log, got %d", len(recent.Requests))
+	}
+
+	got := recent.Requests[0]
+	if got.Type != "claude" {
+		t.Fatalf("expected claude type for zen messages path, got %q", got.Type)
+	}
+	if got.FirstTokenTime == nil {
+		t.Fatalf("expected firstTokenTime captured for zen thinking stream")
+	}
+	if got.FirstTokenDurationMs <= 0 {
+		t.Fatalf("expected positive firstTokenDurationMs, got %d", got.FirstTokenDurationMs)
+	}
+}
+
+func TestHandleHTTPForward_RecordsFirstTokenForOpenAIToolCallStream(t *testing.T) {
+	reqLogManager := newForwardProxyTestRequestLogManager(t)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `data: {"choices":[{"index":0,"delta":{"content":null,"tool_calls":[{"function":{"name":"bash"},"id":"call_1","index":0,"type":"function"}]}}],"id":"chatcmpl-1","model":"claude-haiku-4.5"}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"choices":[{"index":0,"delta":{"content":"done"}}],"id":"chatcmpl-1","model":"claude-haiku-4.5"}`+"\n\n")
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}))
+	defer upstream.Close()
+
+	upstreamURL, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatalf("failed to parse upstream URL: %v", err)
+	}
+	hostOnly := strings.ToLower(upstreamURL.Hostname())
+
+	s := &Server{
+		requestLogManager: reqLogManager,
+		httpClient:        upstream.Client(),
+		enabled:           true,
+		interceptDomains: map[string]bool{
+			hostOnly: true,
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, upstream.URL+"/chat/completions", strings.NewReader(`{"model":"claude-haiku-4.5","stream":true}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	s.handleHTTPForward(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	recent, err := reqLogManager.GetRecent(&requestlog.RequestLogFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("GetRecent failed: %v", err)
+	}
+	if len(recent.Requests) != 1 {
+		t.Fatalf("expected exactly one request log, got %d", len(recent.Requests))
+	}
+
+	got := recent.Requests[0]
+	if got.FirstTokenTime == nil {
+		t.Fatalf("expected firstTokenTime captured for tool-call-first openai stream")
+	}
+	if got.FirstTokenDurationMs <= 0 {
+		t.Fatalf("expected positive firstTokenDurationMs, got %d", got.FirstTokenDurationMs)
+	}
+}
+
 func newForwardProxyTestRequestLogManager(t *testing.T) *requestlog.Manager {
 	t.Helper()
 

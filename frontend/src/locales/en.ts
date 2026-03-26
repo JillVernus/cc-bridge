@@ -1114,9 +1114,16 @@ export default {
     xInitiatorOverrideMode: 'Override Mode',
     xInitiatorOverrideModeFixedWindow: 'Fixed time based',
     xInitiatorOverrideModeRelativeCountdown: 'Relative countdown',
+    xInitiatorOverrideModeFixedShort: 'Fixed',
+    xInitiatorOverrideModeRelativeShort: 'Countdown',
     xInitiatorOverrideDuration: 'Duration (seconds)',
     xInitiatorOverrideHint:
       'Per-domain behavior: the first user request starts the timer without override. Later user requests during the active window are rewritten to agent before going upstream.',
+    xInitiatorOverrideOffShort: 'X-Initiator Off',
+    xInitiatorOverrideIdle: 'idle',
+    xInitiatorOverrideToolbarTooltip: 'Per-domain X-Initiator override runtime state',
+    xInitiatorOverrideActiveDomains: '{count} active domains',
+    xInitiatorOverrideToolbarRemaining: '{seconds}s until nearest expiry',
     caCertSection: 'CA Certificate',
     caCertDescription:
       'Download the CA certificate and install it on clients that use this proxy. Required for HTTPS interception to work without certificate errors.',

@@ -246,7 +246,10 @@ func (s *Server) forwardResponse(clientConn io.Writer, resp *http.Response) {
 }
 
 func isAnthropicEndpoint(path string) bool {
-	return strings.HasPrefix(path, "/v1/messages") || strings.HasPrefix(path, "/v1/complete")
+	return strings.HasPrefix(path, "/v1/messages") ||
+		strings.HasPrefix(path, "/v1/complete") ||
+		strings.HasSuffix(path, "/messages") ||
+		strings.HasSuffix(path, "/complete")
 }
 
 // teeReadCloser wraps an io.Reader (typically a TeeReader) with the original body's Close method.

@@ -150,6 +150,12 @@ const config = ref<ForwardProxyConfig>({
     mode: 'fixed_window',
     durationSeconds: 300
   },
+  xInitiatorOverrideRuntime: {
+    enabled: false,
+    mode: 'fixed_window',
+    activeDomains: 0,
+    nearestRemainingSeconds: 0
+  },
   running: false,
   port: 3001
 })
