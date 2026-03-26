@@ -8,7 +8,15 @@
         <v-btn icon variant="text" size="small" @click="$emit('update:modelValue', false)" class="modal-action-btn">
           <v-icon>mdi-close</v-icon>
         </v-btn>
-        <v-btn icon variant="flat" size="small" color="primary" @click="saveConfig" :loading="saving" class="modal-action-btn">
+        <v-btn
+          icon
+          variant="flat"
+          size="small"
+          color="primary"
+          @click="saveConfig"
+          :loading="saving"
+          class="modal-action-btn"
+        >
           <v-icon>mdi-check</v-icon>
         </v-btn>
       </v-card-title>
@@ -72,6 +80,50 @@
             <div class="text-caption text-grey mt-2">{{ t('forwardProxy.domainsDescription') }}</div>
           </v-card>
 
+          <!-- X-Initiator Override -->
+          <div class="section-title mb-2">{{ t('forwardProxy.xInitiatorOverrideSection') }}</div>
+          <v-card variant="outlined" class="mb-4 pa-3">
+            <v-switch
+              v-model="config.xInitiatorOverride.enabled"
+              :label="
+                config.xInitiatorOverride.enabled
+                  ? t('forwardProxy.xInitiatorOverrideEnabled')
+                  : t('forwardProxy.xInitiatorOverrideDisabled')
+              "
+              color="primary"
+              density="compact"
+              hide-details
+              :disabled="!config.running"
+            />
+            <div class="text-caption text-grey mt-2 mb-3">{{ t('forwardProxy.xInitiatorOverrideDescription') }}</div>
+
+            <v-select
+              v-model="config.xInitiatorOverride.mode"
+              :items="xInitiatorModeOptions"
+              item-title="title"
+              item-value="value"
+              density="compact"
+              variant="outlined"
+              :label="t('forwardProxy.xInitiatorOverrideMode')"
+              hide-details
+              class="mb-3"
+              :disabled="!config.running || !config.xInitiatorOverride.enabled"
+            />
+
+            <v-text-field
+              v-model.number="config.xInitiatorOverride.durationSeconds"
+              type="number"
+              min="1"
+              density="compact"
+              variant="outlined"
+              :label="t('forwardProxy.xInitiatorOverrideDuration')"
+              hide-details
+              class="mb-2"
+              :disabled="!config.running || !config.xInitiatorOverride.enabled"
+            />
+            <div class="text-caption text-grey">{{ t('forwardProxy.xInitiatorOverrideHint') }}</div>
+          </v-card>
+
           <!-- CA Certificate Download -->
           <div class="section-title mb-2">{{ t('forwardProxy.caCertSection') }}</div>
           <v-card variant="outlined" class="pa-3">
@@ -94,16 +146,17 @@
             <div class="section-title mb-2">{{ t('forwardProxy.usageTitle') }}</div>
             <div class="text-caption text-grey">
               <div class="mb-1">{{ t('forwardProxy.usageBasicLabel') }}</div>
-              <code class="d-block mb-2" style="white-space: pre-wrap; font-size: 0.8rem;">HTTPS_PROXY=http://localhost:{{ proxyPort }} claude</code>
+              <code class="d-block mb-2" style="white-space: pre-wrap; font-size: 0.8rem"
+                >HTTPS_PROXY=http://localhost:{{ proxyPort }} claude</code
+              >
               <div class="mb-1">{{ t('forwardProxy.usageRecommendedLabel') }}</div>
-              <code class="d-block mb-2" style="white-space: pre-wrap; font-size: 0.8rem;"
+              <code class="d-block mb-2" style="white-space: pre-wrap; font-size: 0.8rem"
                 >HTTPS_PROXY=http://localhost:{{ proxyPort }} NO_PROXY=127.0.0.1,localhost,::1,.local claude</code
               >
               <div class="mb-1">{{ t('forwardProxy.usageExportLabel') }}</div>
-              <code class="d-block mb-2" style="white-space: pre-wrap; font-size: 0.8rem;"
-                >export HTTPS_PROXY=http://localhost:{{ proxyPort }}
-export NO_PROXY=127.0.0.1,localhost,::1,.local
-claude</code
+              <code class="d-block mb-2" style="white-space: pre-wrap; font-size: 0.8rem"
+                >export HTTPS_PROXY=http://localhost:{{ proxyPort }} export NO_PROXY=127.0.0.1,localhost,::1,.local
+                claude</code
               >
               <div>{{ t('forwardProxy.usageNote') }}</div>
               <div class="mt-2">{{ t('forwardProxy.noProxyNote') }}</div>
@@ -143,6 +196,10 @@ const loading = ref(false)
 const saving = ref(false)
 const downloading = ref(false)
 const proxyPort = computed(() => config.value?.port ?? 3001)
+const xInitiatorModeOptions = computed(() => [
+  { title: t('forwardProxy.xInitiatorOverrideModeFixedWindow'), value: 'fixed_window' },
+  { title: t('forwardProxy.xInitiatorOverrideModeRelativeCountdown'), value: 'relative_countdown' }
+])
 
 // Snackbar
 const snackbar = ref({
@@ -155,17 +212,40 @@ const showSnackbar = (text: string, color: string = 'error') => {
   snackbar.value = { show: true, text, color }
 }
 
-// Load config when dialog opens
-watch(() => props.modelValue, (newVal) => {
-  if (newVal) {
-    loadConfig()
-  }
+const defaultForwardProxyConfig = (): ForwardProxyConfig => ({
+  enabled: false,
+  interceptDomains: [],
+  xInitiatorOverride: {
+    enabled: false,
+    mode: 'fixed_window',
+    durationSeconds: 300
+  },
+  running: false,
+  port: 3001
 })
+
+// Load config when dialog opens
+watch(
+  () => props.modelValue,
+  newVal => {
+    if (newVal) {
+      loadConfig()
+    }
+  }
+)
 
 const loadConfig = async () => {
   loading.value = true
   try {
-    config.value = await api.getForwardProxyConfig()
+    const loaded = await api.getForwardProxyConfig()
+    config.value = {
+      ...defaultForwardProxyConfig(),
+      ...loaded,
+      xInitiatorOverride: {
+        ...defaultForwardProxyConfig().xInitiatorOverride,
+        ...loaded.xInitiatorOverride
+      }
+    }
   } catch (error) {
     console.error('Failed to load forward proxy config:', error)
     showSnackbar(t('forwardProxy.loadFailed'), 'error')
@@ -184,7 +264,11 @@ const saveConfig = async () => {
   try {
     await api.updateForwardProxyConfig({
       enabled: config.value.enabled,
-      interceptDomains: config.value.interceptDomains
+      interceptDomains: config.value.interceptDomains,
+      xInitiatorOverride: {
+        ...config.value.xInitiatorOverride,
+        durationSeconds: Math.max(1, Number(config.value.xInitiatorOverride.durationSeconds) || 300)
+      }
     })
     showSnackbar(t('common.success'), 'success')
     emit('update:modelValue', false)

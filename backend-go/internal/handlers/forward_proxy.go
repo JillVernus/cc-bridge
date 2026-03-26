@@ -14,16 +14,22 @@ func GetForwardProxyConfig(fpServer *forwardproxy.Server) gin.HandlerFunc {
 			c.JSON(http.StatusOK, gin.H{
 				"enabled":          false,
 				"interceptDomains": []string{},
-				"running":          false,
+				"xInitiatorOverride": forwardproxy.XInitiatorOverrideConfig{
+					Enabled:         false,
+					Mode:            forwardproxy.XInitiatorOverrideModeFixedWindow,
+					DurationSeconds: 300,
+				},
+				"running": false,
 			})
 			return
 		}
 		cfg := fpServer.GetConfig()
 		c.JSON(http.StatusOK, gin.H{
-			"enabled":          cfg.Enabled,
-			"interceptDomains": cfg.InterceptDomains,
-			"running":          fpServer.IsRunning(),
-			"port":             fpServer.GetPort(),
+			"enabled":            cfg.Enabled,
+			"interceptDomains":   cfg.InterceptDomains,
+			"xInitiatorOverride": cfg.XInitiatorOverride,
+			"running":            fpServer.IsRunning(),
+			"port":               fpServer.GetPort(),
 		})
 	}
 }
@@ -37,8 +43,9 @@ func UpdateForwardProxyConfig(fpServer *forwardproxy.Server) gin.HandlerFunc {
 		}
 
 		var req struct {
-			Enabled          *bool    `json:"enabled"`
-			InterceptDomains []string `json:"interceptDomains"`
+			Enabled            *bool                                  `json:"enabled"`
+			InterceptDomains   []string                               `json:"interceptDomains"`
+			XInitiatorOverride *forwardproxy.XInitiatorOverrideConfig `json:"xInitiatorOverride"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: " + err.Error()})
@@ -52,6 +59,9 @@ func UpdateForwardProxyConfig(fpServer *forwardproxy.Server) gin.HandlerFunc {
 		if req.InterceptDomains != nil {
 			cfg.InterceptDomains = req.InterceptDomains
 		}
+		if req.XInitiatorOverride != nil {
+			cfg.XInitiatorOverride = *req.XInitiatorOverride
+		}
 
 		if err := fpServer.UpdateConfig(cfg); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config: " + err.Error()})
@@ -60,11 +70,12 @@ func UpdateForwardProxyConfig(fpServer *forwardproxy.Server) gin.HandlerFunc {
 
 		updatedCfg := fpServer.GetConfig()
 		c.JSON(http.StatusOK, gin.H{
-			"message":          "Forward proxy config updated",
-			"enabled":          updatedCfg.Enabled,
-			"interceptDomains": updatedCfg.InterceptDomains,
-			"running":          fpServer.IsRunning(),
-			"port":             fpServer.GetPort(),
+			"message":            "Forward proxy config updated",
+			"enabled":            updatedCfg.Enabled,
+			"interceptDomains":   updatedCfg.InterceptDomains,
+			"xInitiatorOverride": updatedCfg.XInitiatorOverride,
+			"running":            fpServer.IsRunning(),
+			"port":               fpServer.GetPort(),
 		})
 	}
 }

@@ -80,7 +80,11 @@
                     variant="text"
                     density="comfortable"
                     :icon="isHeadersRevealed(item) ? 'mdi-eye-off' : 'mdi-eye'"
-                    :title="isHeadersRevealed(item) ? t('forwardProxy.discoveryHideSensitiveHeaders') : t('forwardProxy.discoveryShowSensitiveHeaders')"
+                    :title="
+                      isHeadersRevealed(item)
+                        ? t('forwardProxy.discoveryHideSensitiveHeaders')
+                        : t('forwardProxy.discoveryShowSensitiveHeaders')
+                    "
                     @click.stop="toggleHeaderReveal(item)"
                   />
                 </div>
@@ -110,7 +114,11 @@
             @click="addToInterceptDomains(item.host)"
             :disabled="isDomainIntercepted(item.host)"
           >
-            {{ isDomainIntercepted(item.host) ? t('forwardProxy.alreadyIntercepted') : t('forwardProxy.addToInterceptDomains') }}
+            {{
+              isDomainIntercepted(item.host)
+                ? t('forwardProxy.alreadyIntercepted')
+                : t('forwardProxy.addToInterceptDomains')
+            }}
           </v-btn>
         </template>
 
@@ -137,6 +145,11 @@ const error = ref('')
 const config = ref<ForwardProxyConfig>({
   enabled: false,
   interceptDomains: [],
+  xInitiatorOverride: {
+    enabled: false,
+    mode: 'fixed_window',
+    durationSeconds: 300
+  },
   running: false,
   port: 3001
 })
@@ -165,14 +178,17 @@ const discoveryEntryKey = (item: ForwardProxyDiscoveryEntry) => `${item.host}:${
 
 const isSensitiveHeader = (key: string) => {
   const normalized = key.trim().toLowerCase()
-  return normalized === 'authorization'
-    || normalized === 'x-api-key'
-    || normalized === 'cookie'
-    || normalized === 'set-cookie'
-    || normalized === 'proxy-authorization'
+  return (
+    normalized === 'authorization' ||
+    normalized === 'x-api-key' ||
+    normalized === 'cookie' ||
+    normalized === 'set-cookie' ||
+    normalized === 'proxy-authorization'
+  )
 }
 
-const isHeadersRevealed = (item: ForwardProxyDiscoveryEntry) => revealedHeadersByEntry.value[discoveryEntryKey(item)] === true
+const isHeadersRevealed = (item: ForwardProxyDiscoveryEntry) =>
+  revealedHeadersByEntry.value[discoveryEntryKey(item)] === true
 
 const hasSensitiveHeaders = (item: ForwardProxyDiscoveryEntry) =>
   Object.keys(item.lastRequestHeadersRaw ?? item.lastRequestHeaders ?? {}).some(isSensitiveHeader)
@@ -183,9 +199,8 @@ const toggleHeaderReveal = (item: ForwardProxyDiscoveryEntry) => {
 }
 
 const headerEntries = (item: ForwardProxyDiscoveryEntry) => {
-  const source = isHeadersRevealed(item) && item.lastRequestHeadersRaw
-    ? item.lastRequestHeadersRaw
-    : item.lastRequestHeaders
+  const source =
+    isHeadersRevealed(item) && item.lastRequestHeadersRaw ? item.lastRequestHeadersRaw : item.lastRequestHeaders
   return Object.entries(source ?? {}).sort((a, b) => a[0].localeCompare(b[0]))
 }
 
@@ -198,10 +213,7 @@ const loadData = async () => {
   loading.value = true
   error.value = ''
   try {
-    const [proxyConfig, discovery] = await Promise.all([
-      api.getForwardProxyConfig(),
-      api.getForwardProxyDiscovery()
-    ])
+    const [proxyConfig, discovery] = await Promise.all([api.getForwardProxyConfig(), api.getForwardProxyDiscovery()])
     config.value = proxyConfig
     entries.value = discovery.entries
     const nextRevealState: Record<string, boolean> = {}

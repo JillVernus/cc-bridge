@@ -1085,7 +1085,19 @@ export default {
     interceptDomains: '拦截域名',
     domainPlaceholder: '例如 api.anthropic.com',
     addDomain: '添加域名',
-    domainsDescription: '这些域名会通过 TLS MITM 解析。其他已走代理的域名仍会通过该代理以盲隧道方式转发，不会直接绕过。',
+    domainsDescription:
+      '这些域名会通过 TLS MITM 解析。其他已走代理的域名仍会通过该代理以盲隧道方式转发，不会直接绕过。',
+    xInitiatorOverrideSection: 'X-Initiator 覆写',
+    xInitiatorOverrideEnabled: '已启用 X-Initiator 覆写',
+    xInitiatorOverrideDisabled: '已禁用 X-Initiator 覆写',
+    xInitiatorOverrideDescription:
+      '仅对拦截域名生效：当检测到 X-Initiator: user 时，为该域名开启一个活动窗口；窗口内后续同域名的 user 请求会在转发前改写为 agent。',
+    xInitiatorOverrideMode: '覆写模式',
+    xInitiatorOverrideModeFixedWindow: '固定时间窗口',
+    xInitiatorOverrideModeRelativeCountdown: '相对倒计时',
+    xInitiatorOverrideDuration: '持续时间（秒）',
+    xInitiatorOverrideHint:
+      '按域名分别计时：第一次 user 请求只会启动计时，不会改写；活动窗口内后续的 user 请求才会在发往上游前被改写为 agent。',
     caCertSection: 'CA 证书',
     caCertDescription: '下载 CA 证书并安装到使用此代理的客户端。HTTPS 拦截需要安装此证书以避免证书错误。',
     downloadCACert: '下载 CA 证书',

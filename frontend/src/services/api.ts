@@ -1138,11 +1138,7 @@ class ApiService {
   }
 
   // 获取报表统计数据 (enhanced GetStats with endpoint filter)
-  async getReportStats(
-    from: string,
-    to: string,
-    endpoint?: string
-  ): Promise<RequestLogStats> {
+  async getReportStats(from: string, to: string, endpoint?: string): Promise<RequestLogStats> {
     const params = new URLSearchParams()
     params.set('from', from)
     params.set('to', to)
@@ -1151,11 +1147,7 @@ class ApiService {
   }
 
   // 获取每日聚合统计数据 (for report charts)
-  async getReportDailyStats(
-    from: string,
-    to: string,
-    endpoint?: string
-  ): Promise<DailyStatsResponse> {
+  async getReportDailyStats(from: string, to: string, endpoint?: string): Promise<DailyStatsResponse> {
     const params = new URLSearchParams()
     params.set('from', from)
     params.set('to', to)
@@ -1689,9 +1681,16 @@ export interface FailoverConfig {
 }
 
 // Forward Proxy Configuration
+export interface XInitiatorOverrideConfig {
+  enabled: boolean
+  mode: 'fixed_window' | 'relative_countdown'
+  durationSeconds: number
+}
+
 export interface ForwardProxyConfig {
   enabled: boolean
   interceptDomains: string[]
+  xInitiatorOverride: XInitiatorOverrideConfig
   running: boolean
   port: number
 }

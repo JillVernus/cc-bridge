@@ -1077,7 +1077,8 @@ export default {
     title: 'Forward Proxy',
     discoveryTabTitle: 'Proxy Discovery',
     discoveryTitle: 'Forward Proxy Discovery',
-    discoveryDescription: 'Track proxied hosts, including blind tunnels, so you can decide which domains should be promoted into intercept mode.',
+    discoveryDescription:
+      'Track proxied hosts, including blind tunnels, so you can decide which domains should be promoted into intercept mode.',
     discoveryHost: 'Host',
     discoveryTransport: 'Transport',
     discoveryIntercepted: 'Intercepted',
@@ -1089,7 +1090,8 @@ export default {
     discoveryHeadersChip: '{count} headers',
     discoveryShowSensitiveHeaders: 'Show sensitive headers',
     discoveryHideSensitiveHeaders: 'Hide sensitive headers',
-    discoveryEmpty: 'No proxied hosts discovered yet. Start routing traffic through the forward proxy to build this list.',
+    discoveryEmpty:
+      'No proxied hosts discovered yet. Start routing traffic through the forward proxy to build this list.',
     discoveryLoadFailed: 'Failed to load forward proxy discovery',
     discoveryClearFailed: 'Failed to clear forward proxy discovery',
     discoveryPromoteFailed: 'Failed to add domain to intercept domains',
@@ -1102,7 +1104,19 @@ export default {
     interceptDomains: 'Intercept Domains',
     domainPlaceholder: 'e.g. api.anthropic.com',
     addDomain: 'Add Domain',
-    domainsDescription: 'Domains to inspect via TLS MITM. Other proxied domains still go through this proxy as blind tunnels.',
+    domainsDescription:
+      'Domains to inspect via TLS MITM. Other proxied domains still go through this proxy as blind tunnels.',
+    xInitiatorOverrideSection: 'X-Initiator Override',
+    xInitiatorOverrideEnabled: 'X-Initiator Override Enabled',
+    xInitiatorOverrideDisabled: 'X-Initiator Override Disabled',
+    xInitiatorOverrideDescription:
+      'For intercepted domains only, watch for X-Initiator: user and switch later matching requests to agent while that domain window stays active.',
+    xInitiatorOverrideMode: 'Override Mode',
+    xInitiatorOverrideModeFixedWindow: 'Fixed time based',
+    xInitiatorOverrideModeRelativeCountdown: 'Relative countdown',
+    xInitiatorOverrideDuration: 'Duration (seconds)',
+    xInitiatorOverrideHint:
+      'Per-domain behavior: the first user request starts the timer without override. Later user requests during the active window are rewritten to agent before going upstream.',
     caCertSection: 'CA Certificate',
     caCertDescription:
       'Download the CA certificate and install it on clients that use this proxy. Required for HTTPS interception to work without certificate errors.',

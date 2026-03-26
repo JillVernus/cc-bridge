@@ -128,6 +128,8 @@ func (s *Server) proxyRequest(clientConn io.Writer, upstreamConn net.Conn, upstr
 		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	}
 
+	s.applyXInitiatorOverride(hostOnly, req.Header)
+
 	// Create pending log entry before forwarding (makes request visible in UI immediately)
 	var pendingLogID string
 	if s.requestLogManager != nil {

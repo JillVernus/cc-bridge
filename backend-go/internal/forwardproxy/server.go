@@ -21,8 +21,9 @@ import (
 
 // Config holds the forward proxy runtime configuration, persisted as JSON.
 type Config struct {
-	Enabled          bool     `json:"enabled"`
-	InterceptDomains []string `json:"interceptDomains"`
+	Enabled            bool                     `json:"enabled"`
+	InterceptDomains   []string                 `json:"interceptDomains"`
+	XInitiatorOverride XInitiatorOverrideConfig `json:"xInitiatorOverride"`
 }
 
 // ServerConfig is passed to NewServer at startup.
@@ -58,6 +59,10 @@ type Server struct {
 	interceptDomains map[string]bool
 	enabled          bool
 	running          bool
+
+	xInitiatorOverride    XInitiatorOverrideConfig
+	xInitiatorDomainState map[string]time.Time
+	now                   func() time.Time
 }
 
 // NewServer creates a new forward proxy server.
@@ -96,11 +101,13 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 				ForceAttemptHTTP2:     true,
 			},
 		},
-		port:             cfg.Port,
-		bindAddress:      bindAddr,
-		configPath:       configPath,
-		interceptDomains: make(map[string]bool),
-		enabled:          cfg.Enabled,
+		port:                  cfg.Port,
+		bindAddress:           bindAddr,
+		configPath:            configPath,
+		interceptDomains:      make(map[string]bool),
+		enabled:               cfg.Enabled,
+		xInitiatorDomainState: make(map[string]time.Time),
+		now:                   time.Now,
 	}
 
 	discoveryStore, err := NewDiscoveryStore(discoveryPath)
@@ -306,6 +313,10 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 	// Done on r.Header directly so both the forwarded clone and debug logs are clean.
 	removeHopByHopHeaders(r.Header)
 
+	if intercept {
+		s.applyXInitiatorOverride(hostOnly, r.Header)
+	}
+
 	// Create pending log entry before forwarding (makes request visible in UI immediately)
 	var pendingLogID string
 	if s.requestLogManager != nil && intercept {
@@ -439,9 +450,17 @@ func (s *Server) GetConfig() Config {
 		domains = append(domains, d)
 	}
 	sort.Strings(domains)
+	overrideCfg := s.xInitiatorOverride
+	if overrideCfg.Mode == "" {
+		overrideCfg.Mode = XInitiatorOverrideModeFixedWindow
+	}
+	if overrideCfg.DurationSeconds <= 0 {
+		overrideCfg.DurationSeconds = 300
+	}
 	return Config{
-		Enabled:          s.enabled,
-		InterceptDomains: domains,
+		Enabled:            s.enabled,
+		InterceptDomains:   domains,
+		XInitiatorOverride: overrideCfg,
 	}
 }
 
@@ -476,8 +495,12 @@ func (s *Server) UpdateConfig(cfg Config) error {
 
 	// Persist the new config to disk first (from immutable snapshot, no lock needed)
 	persistCfg := Config{
-		Enabled:          cfg.Enabled,
-		InterceptDomains: cleanedDomains,
+		Enabled:            cfg.Enabled,
+		InterceptDomains:   cleanedDomains,
+		XInitiatorOverride: cfg.XInitiatorOverride,
+	}
+	if err := validateXInitiatorOverrideConfig(persistCfg.XInitiatorOverride); err != nil {
+		return err
 	}
 	if err := s.persistConfig(persistCfg); err != nil {
 		return err
@@ -487,6 +510,8 @@ func (s *Server) UpdateConfig(cfg Config) error {
 	s.mu.Lock()
 	s.enabled = cfg.Enabled
 	s.interceptDomains = newDomains
+	s.xInitiatorOverride = persistCfg.XInitiatorOverride
+	s.xInitiatorDomainState = make(map[string]time.Time)
 	s.mu.Unlock()
 	return nil
 }
@@ -573,6 +598,11 @@ func (s *Server) loadConfig() error {
 			s.interceptDomains[trimmed] = true
 		}
 	}
+	if err := validateXInitiatorOverrideConfig(cfg.XInitiatorOverride); err != nil {
+		return err
+	}
+	s.xInitiatorOverride = cfg.XInitiatorOverride
+	s.xInitiatorDomainState = make(map[string]time.Time)
 	return nil
 }
 
