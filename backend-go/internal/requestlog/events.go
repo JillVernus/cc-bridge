@@ -34,6 +34,7 @@ type LogCreatedPayload struct {
 	Model                    string     `json:"model"`
 	ResponseModel            string     `json:"responseModel,omitempty"`
 	ServiceTier              string     `json:"serviceTier,omitempty"`
+	ServiceTierOverridden    bool       `json:"serviceTierOverridden,omitempty"`
 	ChannelID                int        `json:"channelId"`
 	ChannelUID               string     `json:"channelUid,omitempty"`
 	ChannelName              string     `json:"channelName"`
@@ -86,15 +87,16 @@ type LogUpdatedPayload struct {
 	CacheCreationCost float64 `json:"cacheCreationCost"`
 	CacheReadCost     float64 `json:"cacheReadCost"`
 	// Other fields
-	APIKeyID        *int64    `json:"apiKeyId"`
-	HasDebugData    bool      `json:"hasDebugData"`
-	Error           string    `json:"error,omitempty"`
-	UpstreamError   string    `json:"upstreamError,omitempty"`
-	FailoverInfo    string    `json:"failoverInfo,omitempty"`
-	ResponseModel   string    `json:"responseModel,omitempty"`
-	ReasoningEffort string    `json:"reasoningEffort,omitempty"`
-	ServiceTier     string    `json:"serviceTier,omitempty"`
-	CompleteTime    time.Time `json:"completeTime"`
+	APIKeyID              *int64    `json:"apiKeyId"`
+	HasDebugData          bool      `json:"hasDebugData"`
+	Error                 string    `json:"error,omitempty"`
+	UpstreamError         string    `json:"upstreamError,omitempty"`
+	FailoverInfo          string    `json:"failoverInfo,omitempty"`
+	ResponseModel         string    `json:"responseModel,omitempty"`
+	ReasoningEffort       string    `json:"reasoningEffort,omitempty"`
+	ServiceTier           string    `json:"serviceTier,omitempty"`
+	ServiceTierOverridden bool      `json:"serviceTierOverridden,omitempty"`
+	CompleteTime          time.Time `json:"completeTime"`
 }
 
 // StatsPayload contains data for log:stats events
@@ -121,6 +123,7 @@ func NewLogCreatedEvent(record *RequestLog) *LogEvent {
 			Model:                    record.Model,
 			ResponseModel:            record.ResponseModel,
 			ServiceTier:              record.ServiceTier,
+			ServiceTierOverridden:    record.ServiceTierOverridden,
 			ChannelID:                record.ChannelID,
 			ChannelUID:               record.ChannelUID,
 			ChannelName:              record.ChannelName,
@@ -185,6 +188,7 @@ func NewLogUpdatedEvent(id string, record *RequestLog) *LogEvent {
 			ResponseModel:            record.ResponseModel,
 			ReasoningEffort:          record.ReasoningEffort,
 			ServiceTier:              record.ServiceTier,
+			ServiceTierOverridden:    record.ServiceTierOverridden,
 			CompleteTime:             record.CompleteTime,
 		},
 		Timestamp: time.Now(),

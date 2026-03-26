@@ -18,16 +18,17 @@ func TestRequestLog_ServiceTierAndDebugData_RoundTrip(t *testing.T) {
 
 	start := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
 	record := &RequestLog{
-		Status:       StatusPending,
-		InitialTime:  start,
-		Type:         "responses",
-		ProviderName: "responses-1",
-		Model:        "gpt-5",
-		ServiceTier:  "priority",
-		Stream:       true,
-		ChannelID:    1,
-		ChannelName:  "responses-1",
-		Endpoint:     "/v1/responses",
+		Status:                StatusPending,
+		InitialTime:           start,
+		Type:                  "responses",
+		ProviderName:          "responses-1",
+		Model:                 "gpt-5",
+		ServiceTier:           "priority",
+		ServiceTierOverridden: true,
+		Stream:                true,
+		ChannelID:             1,
+		ChannelName:           "responses-1",
+		Endpoint:              "/v1/responses",
 	}
 	if err := manager.Add(record); err != nil {
 		t.Fatalf("failed to add pending record: %v", err)
@@ -44,16 +45,17 @@ func TestRequestLog_ServiceTierAndDebugData_RoundTrip(t *testing.T) {
 
 	completeTime := start.Add(2 * time.Second)
 	if err := manager.Update(record.ID, &RequestLog{
-		Status:        StatusCompleted,
-		CompleteTime:  completeTime,
-		DurationMs:    2000,
-		Type:          "responses",
-		ProviderName:  "responses-1",
-		ResponseModel: "gpt-5",
-		ServiceTier:   "priority",
-		HTTPStatus:    200,
-		ChannelID:     1,
-		ChannelName:   "responses-1",
+		Status:                StatusCompleted,
+		CompleteTime:          completeTime,
+		DurationMs:            2000,
+		Type:                  "responses",
+		ProviderName:          "responses-1",
+		ResponseModel:         "gpt-5",
+		ServiceTier:           "priority",
+		ServiceTierOverridden: true,
+		HTTPStatus:            200,
+		ChannelID:             1,
+		ChannelName:           "responses-1",
 	}); err != nil {
 		t.Fatalf("failed to update record: %v", err)
 	}
@@ -68,6 +70,9 @@ func TestRequestLog_ServiceTierAndDebugData_RoundTrip(t *testing.T) {
 	if got.ServiceTier != "priority" {
 		t.Fatalf("expected serviceTier=priority from GetByID, got %q", got.ServiceTier)
 	}
+	if !got.ServiceTierOverridden {
+		t.Fatalf("expected serviceTierOverridden=true from GetByID")
+	}
 	if !got.HasDebugData {
 		t.Fatalf("expected hasDebugData=true from GetByID")
 	}
@@ -79,6 +84,9 @@ func TestRequestLog_ServiceTierAndDebugData_RoundTrip(t *testing.T) {
 	if complete.ServiceTier != "priority" {
 		t.Fatalf("expected serviceTier=priority from complete SSE record, got %q", complete.ServiceTier)
 	}
+	if !complete.ServiceTierOverridden {
+		t.Fatalf("expected serviceTierOverridden=true from complete SSE record")
+	}
 	if !complete.HasDebugData {
 		t.Fatalf("expected hasDebugData=true from complete SSE record")
 	}
@@ -89,6 +97,9 @@ func TestRequestLog_ServiceTierAndDebugData_RoundTrip(t *testing.T) {
 	}
 	if partial.ServiceTier != "priority" {
 		t.Fatalf("expected serviceTier=priority from partial SSE record, got %q", partial.ServiceTier)
+	}
+	if !partial.ServiceTierOverridden {
+		t.Fatalf("expected serviceTierOverridden=true from partial SSE record")
 	}
 	if !partial.HasDebugData {
 		t.Fatalf("expected hasDebugData=true from partial SSE record")
@@ -102,6 +113,9 @@ func TestRequestLog_ServiceTierAndDebugData_RoundTrip(t *testing.T) {
 	if createdPayload.ServiceTier != "priority" {
 		t.Fatalf("expected created event serviceTier=priority, got %q", createdPayload.ServiceTier)
 	}
+	if !createdPayload.ServiceTierOverridden {
+		t.Fatalf("expected created event serviceTierOverridden=true")
+	}
 	if !createdPayload.HasDebugData {
 		t.Fatalf("expected created event hasDebugData=true")
 	}
@@ -113,6 +127,9 @@ func TestRequestLog_ServiceTierAndDebugData_RoundTrip(t *testing.T) {
 	}
 	if updatedPayload.ServiceTier != "priority" {
 		t.Fatalf("expected updated event serviceTier=priority, got %q", updatedPayload.ServiceTier)
+	}
+	if !updatedPayload.ServiceTierOverridden {
+		t.Fatalf("expected updated event serviceTierOverridden=true")
 	}
 	if !updatedPayload.HasDebugData {
 		t.Fatalf("expected updated event hasDebugData=true")

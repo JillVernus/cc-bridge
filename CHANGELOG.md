@@ -4,6 +4,34 @@
 
 ---
 
+## [v1.5.16] - 2026-03-26
+
+### ✨ 新功能
+
+- **Codex Priority Override 渠道级覆盖**:
+  - 为 Codex Responses 兼容渠道新增 `Codex Priority Override` 配置，可将缺失的 `service_tier` 或 `service_tier: "default"` 统一改写为 `priority`，便于按渠道强制走 fast mode。
+  - 覆盖行为仅作用于符合条件的 Codex `/v1/responses` 请求，已显式传入 `priority` 的请求保持不变，其它非空值也不会被误改写。
+
+### 🐛 修复
+
+- **Codex fast mode 日志可观测性补强**:
+  - 请求日志新增 `serviceTierOverridden` 记录字段，明确标记本次请求是否由渠道覆盖逻辑改写为 `priority`。
+  - WebUI 主日志表格模型列在原有闪电图标旁新增覆盖图标，便于区分“原生 priority”与“被渠道强制 priority”的请求。
+  - 渠道编辑弹窗与中英文文案同步补充说明，明确当前覆盖规则是“改写缺失/default 为 priority”。
+
+### 📝 文档
+
+- **补充 Superpowers 设计与实施文档**:
+  - 新增本次 Codex priority override 的设计说明与实现计划，记录规则、数据流、UI 呈现与验证方式。
+
+### ✅ 测试
+
+- `cd backend-go && go test ./...`
+- `cd frontend && bun run type-check`
+- `cd frontend && bun run build`
+
+---
+
 ## [v1.5.15] - 2026-03-25
 
 ### 🐛 修复

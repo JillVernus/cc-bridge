@@ -199,9 +199,9 @@ func (s *DBConfigStorage) insertChannelTx(tx *database.Tx, channelType string, i
 				response_header_timeout, quota_type, quota_limit, quota_reset_at,
 				quota_reset_interval, quota_reset_unit, quota_reset_mode,
 				rate_limit_rpm, queue_enabled, queue_timeout, key_load_balance,
-				api_keys, model_mapping, price_multipliers, oauth_tokens,
+				api_keys, model_mapping, price_multipliers, oauth_tokens, codex_service_tier_override,
 				quota_models, composite_mappings, content_filter
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
 		`
 	} else {
 		query = `
@@ -211,9 +211,9 @@ func (s *DBConfigStorage) insertChannelTx(tx *database.Tx, channelType string, i
 				response_header_timeout, quota_type, quota_limit, quota_reset_at,
 				quota_reset_interval, quota_reset_unit, quota_reset_mode,
 				rate_limit_rpm, queue_enabled, queue_timeout, key_load_balance,
-				api_keys, model_mapping, price_multipliers, oauth_tokens,
+				api_keys, model_mapping, price_multipliers, oauth_tokens, codex_service_tier_override,
 				quota_models, composite_mappings, content_filter
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`
 	}
 
@@ -225,7 +225,7 @@ func (s *DBConfigStorage) insertChannelTx(tx *database.Tx, channelType string, i
 		upstream.QuotaResetInterval, upstream.QuotaResetUnit, upstream.QuotaResetMode,
 		upstream.RateLimitRpm, upstream.QueueEnabled, upstream.QueueTimeout,
 		upstream.KeyLoadBalance, string(apiKeys), string(modelMapping),
-		string(priceMultipliers), string(oauthTokens), string(quotaModels),
+		string(priceMultipliers), string(oauthTokens), upstream.CodexServiceTierOverride, string(quotaModels),
 		string(compositeMappings), string(contentFilter),
 	)
 	return err
@@ -307,7 +307,7 @@ func (s *DBConfigStorage) loadChannels(channelType string) ([]UpstreamConfig, er
 			response_header_timeout, quota_type, quota_limit, quota_reset_at,
 			quota_reset_interval, quota_reset_unit, quota_reset_mode,
 			rate_limit_rpm, queue_enabled, queue_timeout, key_load_balance,
-			api_keys, model_mapping, price_multipliers, oauth_tokens,
+			api_keys, model_mapping, price_multipliers, oauth_tokens, codex_service_tier_override,
 			quota_models, composite_mappings, content_filter
 		FROM channels
 		WHERE channel_type = ?
@@ -320,7 +320,7 @@ func (s *DBConfigStorage) loadChannels(channelType string) ([]UpstreamConfig, er
 				response_header_timeout, quota_type, quota_limit, quota_reset_at,
 				quota_reset_interval, quota_reset_unit, quota_reset_mode,
 				rate_limit_rpm, queue_enabled, queue_timeout, key_load_balance,
-				api_keys, model_mapping, price_multipliers, oauth_tokens,
+				api_keys, model_mapping, price_multipliers, oauth_tokens, codex_service_tier_override,
 				quota_models, composite_mappings, content_filter
 			FROM channels
 			WHERE channel_type = $1
@@ -336,32 +336,33 @@ func (s *DBConfigStorage) loadChannels(channelType string) ([]UpstreamConfig, er
 	var channels []UpstreamConfig
 	for rows.Next() {
 		var (
-			id                    int
-			channelID             string
-			name, desc, website   sql.NullString
-			serviceType, baseURL  string
-			insecureSkipVerify    bool
-			status                string
-			priority              int
-			promotionUntil        sql.NullString
-			responseHeaderTimeout int
-			quotaType             sql.NullString
-			quotaLimit            float64
-			quotaResetAt          sql.NullString
-			quotaResetInterval    int
-			quotaResetUnit        sql.NullString
-			quotaResetMode        sql.NullString
-			rateLimitRpm          int
-			queueEnabled          bool
-			queueTimeout          int
-			keyLoadBalance        sql.NullString
-			apiKeysJSON           sql.NullString
-			modelMappingJSON      sql.NullString
-			priceMultipliersJSON  sql.NullString
-			oauthTokensJSON       sql.NullString
-			quotaModelsJSON       sql.NullString
-			compositeMappingsJSON sql.NullString
-			contentFilterJSON     sql.NullString
+			id                       int
+			channelID                string
+			name, desc, website      sql.NullString
+			serviceType, baseURL     string
+			insecureSkipVerify       bool
+			status                   string
+			priority                 int
+			promotionUntil           sql.NullString
+			responseHeaderTimeout    int
+			quotaType                sql.NullString
+			quotaLimit               float64
+			quotaResetAt             sql.NullString
+			quotaResetInterval       int
+			quotaResetUnit           sql.NullString
+			quotaResetMode           sql.NullString
+			rateLimitRpm             int
+			queueEnabled             bool
+			queueTimeout             int
+			keyLoadBalance           sql.NullString
+			apiKeysJSON              sql.NullString
+			modelMappingJSON         sql.NullString
+			priceMultipliersJSON     sql.NullString
+			oauthTokensJSON          sql.NullString
+			codexServiceTierOverride sql.NullString
+			quotaModelsJSON          sql.NullString
+			compositeMappingsJSON    sql.NullString
+			contentFilterJSON        sql.NullString
 		)
 
 		err := rows.Scan(
@@ -370,7 +371,7 @@ func (s *DBConfigStorage) loadChannels(channelType string) ([]UpstreamConfig, er
 			&responseHeaderTimeout, &quotaType, &quotaLimit, &quotaResetAt,
 			&quotaResetInterval, &quotaResetUnit, &quotaResetMode,
 			&rateLimitRpm, &queueEnabled, &queueTimeout, &keyLoadBalance,
-			&apiKeysJSON, &modelMappingJSON, &priceMultipliersJSON, &oauthTokensJSON,
+			&apiKeysJSON, &modelMappingJSON, &priceMultipliersJSON, &oauthTokensJSON, &codexServiceTierOverride,
 			&quotaModelsJSON, &compositeMappingsJSON, &contentFilterJSON,
 		)
 		if err != nil {
@@ -427,6 +428,9 @@ func (s *DBConfigStorage) loadChannels(channelType string) ([]UpstreamConfig, er
 		}
 		if oauthTokensJSON.Valid && oauthTokensJSON.String != "" {
 			json.Unmarshal([]byte(oauthTokensJSON.String), &upstream.OAuthTokens)
+		}
+		if codexServiceTierOverride.Valid {
+			upstream.CodexServiceTierOverride = codexServiceTierOverride.String
 		}
 		if quotaModelsJSON.Valid && quotaModelsJSON.String != "" {
 			json.Unmarshal([]byte(quotaModelsJSON.String), &upstream.QuotaModels)
@@ -631,10 +635,10 @@ func (s *DBConfigStorage) updateChannelTx(tx *database.Tx, channelType string, c
 				quota_reset_unit = $15, quota_reset_mode = $16, rate_limit_rpm = $17,
 				queue_enabled = $18, queue_timeout = $19, key_load_balance = $20,
 				api_keys = $21, model_mapping = $22, price_multipliers = $23,
-				oauth_tokens = $24, quota_models = $25, composite_mappings = $26,
-				content_filter = $27,
+				oauth_tokens = $24, codex_service_tier_override = $25, quota_models = $26, composite_mappings = $27,
+				content_filter = $28,
 				updated_at = CURRENT_TIMESTAMP
-			WHERE channel_id = $28 AND channel_type = $29
+			WHERE channel_id = $29 AND channel_type = $30
 		`
 	} else {
 		query = `
@@ -646,7 +650,7 @@ func (s *DBConfigStorage) updateChannelTx(tx *database.Tx, channelType string, c
 				quota_reset_unit = ?, quota_reset_mode = ?, rate_limit_rpm = ?,
 				queue_enabled = ?, queue_timeout = ?, key_load_balance = ?,
 				api_keys = ?, model_mapping = ?, price_multipliers = ?,
-				oauth_tokens = ?, quota_models = ?, composite_mappings = ?,
+				oauth_tokens = ?, codex_service_tier_override = ?, quota_models = ?, composite_mappings = ?,
 				content_filter = ?,
 				updated_at = CURRENT_TIMESTAMP
 			WHERE channel_id = ? AND channel_type = ?
@@ -661,7 +665,7 @@ func (s *DBConfigStorage) updateChannelTx(tx *database.Tx, channelType string, c
 		upstream.QuotaResetUnit, upstream.QuotaResetMode, upstream.RateLimitRpm,
 		upstream.QueueEnabled, upstream.QueueTimeout, upstream.KeyLoadBalance,
 		string(apiKeys), string(modelMapping), string(priceMultipliers),
-		string(oauthTokens), string(quotaModels), string(compositeMappings), string(contentFilter),
+		string(oauthTokens), upstream.CodexServiceTierOverride, string(quotaModels), string(compositeMappings), string(contentFilter),
 		channelID, channelType,
 	)
 	return err

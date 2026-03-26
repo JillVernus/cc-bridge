@@ -206,3 +206,46 @@ func TestDBConfigStorage_CheckForChangesReloadsChatAndGeminiIndexes(t *testing.T
 		}
 	}
 }
+
+func TestDBConfigStorage_SaveAndLoadCodexServiceTierOverride(t *testing.T) {
+	dbStorage, db := newConfigTestDBStorage(t)
+	defer db.Close()
+
+	cfg := Config{
+		Upstream:        []UpstreamConfig{},
+		CurrentUpstream: 0,
+		LoadBalance:     "failover",
+		ResponsesUpstream: []UpstreamConfig{{
+			ID:                       "resp-1",
+			Name:                     "Codex OAuth",
+			BaseURL:                  "https://chatgpt.com/backend-api/codex",
+			ServiceType:              "openai-oauth",
+			Priority:                 1,
+			Status:                   "active",
+			CodexServiceTierOverride: "force_priority",
+		}},
+		CurrentResponsesUpstream: 0,
+		ResponsesLoadBalance:     "failover",
+		GeminiUpstream:           []UpstreamConfig{},
+		GeminiLoadBalance:        "failover",
+		ChatUpstream:             []UpstreamConfig{},
+		ChatLoadBalance:          "failover",
+		UserAgent:                GetDefaultUserAgentConfig(),
+	}
+
+	if err := dbStorage.SaveConfigToDB(&cfg); err != nil {
+		t.Fatalf("SaveConfigToDB() failed: %v", err)
+	}
+
+	loaded, err := dbStorage.LoadConfigFromDB()
+	if err != nil {
+		t.Fatalf("LoadConfigFromDB() failed: %v", err)
+	}
+
+	if len(loaded.ResponsesUpstream) != 1 {
+		t.Fatalf("len(ResponsesUpstream) = %d, want 1", len(loaded.ResponsesUpstream))
+	}
+	if got := loaded.ResponsesUpstream[0].CodexServiceTierOverride; got != "force_priority" {
+		t.Fatalf("CodexServiceTierOverride = %q, want force_priority", got)
+	}
+}

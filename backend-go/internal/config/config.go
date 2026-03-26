@@ -116,6 +116,8 @@ type UpstreamConfig struct {
 	PriceMultipliers map[string]TokenPriceMultipliers `json:"priceMultipliers,omitempty"`
 	// OpenAI OAuth configuration (for serviceType="openai-oauth")
 	OAuthTokens *OAuthTokens `json:"oauthTokens,omitempty"`
+	// Codex Responses service tier override for eligible channels.
+	CodexServiceTierOverride string `json:"codexServiceTierOverride,omitempty"`
 	// 配额设置（可选）
 	QuotaType          string     `json:"quotaType,omitempty"`          // "requests" | "credit" | "" (无配额)
 	QuotaLimit         float64    `json:"quotaLimit,omitempty"`         // 最大配额值（请求数或金额）
@@ -253,6 +255,8 @@ type UpstreamUpdate struct {
 	PriceMultipliers map[string]TokenPriceMultipliers `json:"priceMultipliers"`
 	// OpenAI OAuth configuration
 	OAuthTokens *OAuthTokens `json:"oauthTokens"`
+	// Codex Responses service tier override for eligible channels
+	CodexServiceTierOverride *string `json:"codexServiceTierOverride"`
 	// 配额设置
 	QuotaType          *string    `json:"quotaType"`
 	QuotaLimit         *float64   `json:"quotaLimit"`
@@ -1589,6 +1593,9 @@ func (cm *ConfigManager) UpdateUpstream(index int, updates UpstreamUpdate) (shou
 	if updates.PriceMultipliers != nil {
 		upstream.PriceMultipliers = updates.PriceMultipliers
 	}
+	if updates.CodexServiceTierOverride != nil {
+		upstream.CodexServiceTierOverride = strings.TrimSpace(*updates.CodexServiceTierOverride)
+	}
 	// 配额设置
 	if updates.QuotaType != nil {
 		upstream.QuotaType = *updates.QuotaType
@@ -2427,6 +2434,9 @@ func (cm *ConfigManager) UpdateResponsesUpstream(index int, updates UpstreamUpda
 			shouldResetMetrics = true
 			log.Printf("Responses 渠道 [%d] %s 已从暂停状态自动激活（OAuth tokens 更新）", index, upstream.Name)
 		}
+	}
+	if updates.CodexServiceTierOverride != nil {
+		upstream.CodexServiceTierOverride = strings.TrimSpace(*updates.CodexServiceTierOverride)
 	}
 	// 配额设置
 	if updates.QuotaType != nil {
@@ -3298,6 +3308,9 @@ func (cm *ConfigManager) UpdateGeminiUpstream(index int, updates UpstreamUpdate)
 	if updates.PriceMultipliers != nil {
 		upstream.PriceMultipliers = updates.PriceMultipliers
 	}
+	if updates.CodexServiceTierOverride != nil {
+		upstream.CodexServiceTierOverride = strings.TrimSpace(*updates.CodexServiceTierOverride)
+	}
 	// 配额设置
 	if updates.QuotaType != nil {
 		upstream.QuotaType = *updates.QuotaType
@@ -3646,6 +3659,9 @@ func (cm *ConfigManager) UpdateChatUpstream(index int, updates UpstreamUpdate) (
 	}
 	if updates.PriceMultipliers != nil {
 		upstream.PriceMultipliers = updates.PriceMultipliers
+	}
+	if updates.CodexServiceTierOverride != nil {
+		upstream.CodexServiceTierOverride = strings.TrimSpace(*updates.CodexServiceTierOverride)
 	}
 	// 配额设置
 	if updates.QuotaType != nil {

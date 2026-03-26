@@ -295,6 +295,19 @@ func (m *Manager) initSchema() error {
 		}
 	}
 
+	// Migration: Add service_tier_overridden column if it doesn't exist
+	err = m.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('request_logs') WHERE name='service_tier_overridden'`).Scan(&count)
+	if err != nil {
+		log.Printf("⚠️ Failed to check service_tier_overridden column: %v", err)
+	} else if count == 0 {
+		_, err = m.db.Exec(`ALTER TABLE request_logs ADD COLUMN service_tier_overridden BOOLEAN DEFAULT 0`)
+		if err != nil {
+			log.Printf("⚠️ Failed to add service_tier_overridden column: %v", err)
+		} else {
+			log.Printf("✅ Added service_tier_overridden column to request_logs table")
+		}
+	}
+
 	// Migration: Add session_id column if it doesn't exist (for Claude Code conversation tracking)
 	err = m.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('request_logs') WHERE name='session_id'`).Scan(&count)
 	if err != nil {
@@ -582,12 +595,12 @@ func (m *Manager) Add(record *RequestLog) error {
 	query := `
 	INSERT INTO request_logs (
 		id, status, initial_time, first_token_time, first_token_duration_ms, complete_time, duration_ms,
-		provider, provider_name, model, response_model, reasoning_effort, service_tier, input_tokens, output_tokens,
+		provider, provider_name, model, response_model, reasoning_effort, service_tier, service_tier_overridden, input_tokens, output_tokens,
 		cache_creation_input_tokens, cache_read_input_tokens, total_tokens,
 		price, input_cost, output_cost, cache_creation_cost, cache_read_cost,
 		http_status, stream, channel_id, channel_uid, channel_name,
 		endpoint, client_id, session_id, api_key_id, error, upstream_error, failover_info, created_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	// Convert api_key_id to nullable value (nil = not set, 0 = master key)
@@ -616,6 +629,7 @@ func (m *Manager) Add(record *RequestLog) error {
 		record.ResponseModel,
 		record.ReasoningEffort,
 		record.ServiceTier,
+		record.ServiceTierOverridden,
 		record.InputTokens,
 		record.OutputTokens,
 		record.CacheCreationInputTokens,
@@ -721,6 +735,10 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 			WHEN TRIM(COALESCE(?, '')) != '' THEN ?
 			ELSE service_tier
 		END,
+		service_tier_overridden = CASE
+			WHEN ? THEN 1
+			ELSE service_tier_overridden
+		END,
 		input_tokens = ?,
 		output_tokens = ?,
 		cache_creation_input_tokens = ?,
@@ -762,6 +780,7 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 		record.ResponseModel,
 		record.ServiceTier,
 		record.ServiceTier,
+		record.ServiceTierOverridden,
 		record.InputTokens,
 		record.OutputTokens,
 		record.CacheCreationInputTokens,
@@ -870,7 +889,7 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 	query := m.convertQuery(`
 		SELECT r.id, r.status, r.initial_time, r.first_token_time, r.first_token_duration_ms, r.complete_time, r.duration_ms,
-			   r.provider, r.provider_name, r.model, r.response_model, r.reasoning_effort, r.service_tier,
+			   r.provider, r.provider_name, r.model, r.response_model, r.reasoning_effort, r.service_tier, r.service_tier_overridden,
 			   r.input_tokens, r.output_tokens,
 			   r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
 			   r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
@@ -897,13 +916,14 @@ func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 
 	var r RequestLog
 	var channelID, apiKeyID sql.NullInt64
+	var serviceTierOverridden sql.NullBool
 	var channelUID, channelName, endpoint, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr, status, providerName, responseModel, reasoningEffort, serviceTier sql.NullString
 	var initialTime, firstTokenTime, completeTime sql.NullString
 	var hasDebugData int
 
 	err := m.db.QueryRow(query, id).Scan(
 		&r.ID, &status, &initialTime, &firstTokenTime, &r.FirstTokenDurationMs, &completeTime, &r.DurationMs,
-		&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort, &serviceTier,
+		&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort, &serviceTier, &serviceTierOverridden,
 		&r.InputTokens, &r.OutputTokens,
 		&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 		&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
@@ -911,8 +931,9 @@ func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 		&endpoint, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr,
 		&hasDebugData,
 	)
-	if err != nil && isMissingColumnErr(err, "service_tier") {
+	if err != nil && isAnyMissingColumnErr(err) {
 		serviceTier = sql.NullString{}
+		serviceTierOverridden = sql.NullBool{}
 		err = m.db.QueryRow(legacyQuery, id).Scan(
 			&r.ID, &status, &initialTime, &firstTokenTime, &r.FirstTokenDurationMs, &completeTime, &r.DurationMs,
 			&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort,
@@ -944,6 +965,9 @@ func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 	}
 	if serviceTier.Valid {
 		r.ServiceTier = serviceTier.String
+	}
+	if serviceTierOverridden.Valid {
+		r.ServiceTierOverridden = serviceTierOverridden.Bool
 	}
 	if initialTime.Valid && initialTime.String != "" {
 		r.InitialTime = parseTimeString(initialTime.String)
@@ -1057,7 +1081,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 	// Get records with debug data check via LEFT JOIN
 	query := m.convertQuery(fmt.Sprintf(`
 		SELECT r.id, r.status, r.initial_time, r.first_token_time, r.first_token_duration_ms, r.complete_time, r.duration_ms,
-			   r.provider, r.provider_name, r.model, r.response_model, r.reasoning_effort, r.service_tier, r.input_tokens, r.output_tokens,
+			   r.provider, r.provider_name, r.model, r.response_model, r.reasoning_effort, r.service_tier, r.service_tier_overridden, r.input_tokens, r.output_tokens,
 			   r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
 			   r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
 			   r.http_status, r.stream, r.channel_id, r.channel_uid, r.channel_name,
@@ -1088,7 +1112,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 
 	rows, err := m.db.Query(query, args...)
 	legacyMode := false
-	if err != nil && isMissingColumnErr(err, "service_tier") {
+	if err != nil && isAnyMissingColumnErr(err) {
 		rows, err = m.db.Query(legacyQuery, args...)
 		legacyMode = true
 	}
@@ -1101,6 +1125,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 	for rows.Next() {
 		var r RequestLog
 		var channelID, apiKeyID sql.NullInt64
+		var serviceTierOverridden sql.NullBool
 		var channelUID, channelName, endpoint, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr, status, providerName, responseModel, reasoningEffort, serviceTier sql.NullString
 		var initialTime, firstTokenTime, completeTime, createdAt sql.NullString
 		var hasDebugData int
@@ -1120,7 +1145,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		} else {
 			err = rows.Scan(
 				&r.ID, &status, &initialTime, &firstTokenTime, &r.FirstTokenDurationMs, &completeTime, &r.DurationMs,
-				&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort, &serviceTier, &r.InputTokens, &r.OutputTokens,
+				&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort, &serviceTier, &serviceTierOverridden, &r.InputTokens, &r.OutputTokens,
 				&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 				&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
 				&r.HTTPStatus, &r.Stream, &channelID, &channelUID, &channelName,
@@ -1150,6 +1175,9 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		}
 		if serviceTier.Valid {
 			r.ServiceTier = serviceTier.String
+		}
+		if serviceTierOverridden.Valid {
+			r.ServiceTierOverridden = serviceTierOverridden.Bool
 		}
 		if initialTime.Valid && initialTime.String != "" {
 			r.InitialTime = parseTimeString(initialTime.String)
@@ -1732,7 +1760,7 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 
 	query := `
 		SELECT r.id, r.initial_time, r.first_token_time, r.first_token_duration_ms, r.complete_time, r.duration_ms,
-			   r.provider, r.provider_name, r.model, r.response_model, r.reasoning_effort, r.service_tier,
+			   r.provider, r.provider_name, r.model, r.response_model, r.reasoning_effort, r.service_tier, r.service_tier_overridden,
 			   r.input_tokens, r.output_tokens,
 			   r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
 			   r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
@@ -1759,6 +1787,7 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 
 	var r RequestLog
 	var channelID, apiKeyID sql.NullInt64
+	var serviceTierOverridden sql.NullBool
 	var firstTokenTime sql.NullString
 	var providerName, responseModel, reasoningEffort, serviceTier sql.NullString
 	var channelUID, channelName, endpoint, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr sql.NullString
@@ -1766,7 +1795,7 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 
 	err := m.db.QueryRow(m.convertQuery(query), id).Scan(
 		&r.ID, &r.InitialTime, &firstTokenTime, &r.FirstTokenDurationMs, &r.CompleteTime, &r.DurationMs,
-		&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort, &serviceTier,
+		&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort, &serviceTier, &serviceTierOverridden,
 		&r.InputTokens, &r.OutputTokens,
 		&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 		&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
@@ -1774,8 +1803,9 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 		&endpoint, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr, &r.CreatedAt,
 		&hasDebugData,
 	)
-	if err != nil && isMissingColumnErr(err, "service_tier") {
+	if err != nil && isAnyMissingColumnErr(err) {
 		serviceTier = sql.NullString{}
+		serviceTierOverridden = sql.NullBool{}
 		err = m.db.QueryRow(m.convertQuery(legacyQuery), id).Scan(
 			&r.ID, &r.InitialTime, &firstTokenTime, &r.FirstTokenDurationMs, &r.CompleteTime, &r.DurationMs,
 			&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort,
@@ -1809,6 +1839,9 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 	}
 	if serviceTier.Valid {
 		r.ServiceTier = serviceTier.String
+	}
+	if serviceTierOverridden.Valid {
+		r.ServiceTierOverridden = serviceTierOverridden.Bool
 	}
 
 	if channelID.Valid {

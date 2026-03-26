@@ -16,6 +16,7 @@ export interface LogCreatedPayload {
   model: string
   responseModel?: string
   serviceTier?: string
+  serviceTierOverridden?: boolean
   channelId: number
   channelUid?: string
   channelName: string
@@ -73,6 +74,7 @@ export interface LogUpdatedPayload {
   responseModel?: string
   reasoningEffort?: string
   serviceTier?: string
+  serviceTierOverridden?: boolean
   completeTime: string
 }
 

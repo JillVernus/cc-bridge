@@ -1122,6 +1122,9 @@
                   <v-icon v-if="item.serviceTier === 'priority'" size="12" class="ml-1" color="warning"
                     >mdi-flash</v-icon
                   >
+                  <v-icon v-if="item.serviceTierOverridden" size="12" class="ml-1" color="info"
+                    >mdi-auto-fix</v-icon
+                  >
                 </span>
               </div>
             </template>
@@ -1141,6 +1144,9 @@
               </div>
               <div v-if="item.serviceTier === 'priority'">
                 <strong>{{ t('requestLog.fastMode') }}:</strong> {{ t('common.yes') }}
+              </div>
+              <div v-if="item.serviceTierOverridden">
+                <strong>{{ t('requestLog.serviceTierOverridden') }}:</strong> {{ t('common.yes') }}
               </div>
             </div>
           </v-tooltip>
@@ -1181,6 +1187,7 @@
                   {{ getReasoningEffortIcon(item.reasoningEffort) }}
                 </v-icon>
                 <v-icon v-if="item.serviceTier === 'priority'" size="12" class="ml-1" color="warning">mdi-flash</v-icon>
+                <v-icon v-if="item.serviceTierOverridden" size="12" class="ml-1" color="info">mdi-auto-fix</v-icon>
               </span>
             </template>
             <div class="reasoning-effort-tooltip">
@@ -1190,6 +1197,8 @@
               </span>
               <v-icon v-if="item.serviceTier === 'priority'" size="14" color="warning">mdi-flash</v-icon>
               <span v-if="item.serviceTier === 'priority'" class="effort-label">{{ t('requestLog.fastMode') }}</span>
+              <v-icon v-if="item.serviceTierOverridden" size="14" class="ml-2" color="info">mdi-auto-fix</v-icon>
+              <span v-if="item.serviceTierOverridden" class="ml-1">{{ t('requestLog.serviceTierOverridden') }}</span>
             </div>
           </v-tooltip>
           <!-- Model with response model mapping tooltip -->
@@ -1199,6 +1208,7 @@
                 {{ item.model }}
                 <v-icon size="12" class="ml-1">mdi-swap-horizontal</v-icon>
                 <v-icon v-if="item.serviceTier === 'priority'" size="12" class="ml-1" color="warning">mdi-flash</v-icon>
+                <v-icon v-if="item.serviceTierOverridden" size="12" class="ml-1" color="info">mdi-auto-fix</v-icon>
               </span>
             </template>
             <div class="model-mapping-tooltip">
@@ -1207,16 +1217,21 @@
               <span class="response-model">{{ item.responseModel }}</span>
               <v-icon v-if="item.serviceTier === 'priority'" size="14" class="ml-2" color="warning">mdi-flash</v-icon>
               <span v-if="item.serviceTier === 'priority'" class="ml-1">{{ t('requestLog.fastMode') }}</span>
+              <v-icon v-if="item.serviceTierOverridden" size="14" class="ml-2" color="info">mdi-auto-fix</v-icon>
+              <span v-if="item.serviceTierOverridden" class="ml-1">{{ t('requestLog.serviceTierOverridden') }}</span>
             </div>
           </v-tooltip>
-          <v-tooltip v-else-if="item.serviceTier === 'priority'" location="top">
+          <v-tooltip v-else-if="item.serviceTier === 'priority' || item.serviceTierOverridden" location="top">
             <template v-slot:activator="{ props }">
               <span v-bind="props" class="text-caption font-weight-medium">
                 {{ item.model }}
                 <v-icon size="12" class="ml-1" color="warning">mdi-flash</v-icon>
+                <v-icon v-if="item.serviceTierOverridden" size="12" class="ml-1" color="info">mdi-auto-fix</v-icon>
               </span>
             </template>
-            {{ t('requestLog.fastMode') }}
+            <span v-if="item.serviceTier === 'priority'">{{ t('requestLog.fastMode') }}</span>
+            <span v-if="item.serviceTier === 'priority' && item.serviceTierOverridden"> · </span>
+            <span v-if="item.serviceTierOverridden">{{ t('requestLog.serviceTierOverridden') }}</span>
           </v-tooltip>
           <span v-else class="text-caption font-weight-medium">{{ item.model }}</span>
         </template>
@@ -2592,6 +2607,7 @@ const handleLogCreated = (payload: LogCreatedPayload) => {
     responseModel: payload.responseModel,
     reasoningEffort: payload.reasoningEffort,
     serviceTier: payload.serviceTier,
+    serviceTierOverridden: payload.serviceTierOverridden ?? false,
     inputTokens,
     outputTokens,
     cacheCreationInputTokens,
@@ -2708,6 +2724,7 @@ const handleLogUpdated = (payload: LogUpdatedPayload) => {
     updated.responseModel = payload.responseModel
     updated.reasoningEffort = payload.reasoningEffort
     updated.serviceTier = payload.serviceTier ?? oldLog.serviceTier
+    updated.serviceTierOverridden = payload.serviceTierOverridden ?? oldLog.serviceTierOverridden ?? false
     updated.completeTime = payload.completeTime
     logs.value = [...logs.value.slice(0, index), updated, ...logs.value.slice(index + 1)]
 

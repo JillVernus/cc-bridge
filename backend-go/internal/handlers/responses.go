@@ -799,7 +799,22 @@ func tryResponsesChannelWithAllKeys(
 	for attempt := 0; attempt < maxRetries || retryWaitPending; {
 		retryWaitPending = false // Clear at start of each iteration
 
-		c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		effectiveBodyBytes := bodyBytes
+		effectiveIsFastMode := isFastMode
+		serviceTierOverridden := false
+		if resolvedBodyBytes, _, resolvedFastMode, overridden, err := resolveEffectiveResponsesServiceTier(
+			bodyBytes,
+			config.RedirectModel(responsesReq.Model, upstream),
+			upstream,
+		); err == nil {
+			effectiveBodyBytes = resolvedBodyBytes
+			effectiveIsFastMode = resolvedFastMode
+			serviceTierOverridden = overridden
+		} else {
+			log.Printf("⚠️ [Responses] failed to resolve effective service tier: %v", err)
+		}
+
+		c.Request.Body = io.NopCloser(bytes.NewReader(effectiveBodyBytes))
 
 		var apiKey string
 		var err error
@@ -1267,7 +1282,7 @@ func tryResponsesChannelWithAllKeys(
 			failoverTracker.ResetOnSuccess(upstream.Index, apiKey)
 		}
 
-		handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, currentStartTime, &responsesReq, bodyBytes, reqLogManager, currentRequestLogID, usageManager, logChannelIndex, logChannelName, isFastMode)
+		handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, currentStartTime, &responsesReq, effectiveBodyBytes, reqLogManager, currentRequestLogID, usageManager, logChannelIndex, logChannelName, effectiveIsFastMode, serviceTierOverridden)
 		return true, nil, currentRequestLogID
 	}
 
@@ -1376,7 +1391,7 @@ func tryResponsesChannelWithOAuth(
 	}
 
 	// 构建 OAuth 请求
-	providerReq, err := buildCodexOAuthRequest(c, cfgManager, upstream, bodyBytes, responsesReq, accessToken, accountID, true)
+	providerReq, serviceTierOverridden, err := buildCodexOAuthRequest(c, cfgManager, upstream, bodyBytes, responsesReq, accessToken, accountID, true)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to build OAuth request: %s", err.Error())
 		log.Printf("⚠️ [OAuth] 构建请求失败: %v", err)
@@ -1451,7 +1466,7 @@ func tryResponsesChannelWithOAuth(
 	quota.GetManager().UpdateFromHeaders(upstream.Index, upstream.Name, resp.Header)
 
 	provider := &providers.ResponsesProvider{SessionManager: sessionManager}
-	handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID, usageManager, logChannelIndex, logChannelName, isFastMode)
+	handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID, usageManager, logChannelIndex, logChannelName, isFastMode || serviceTierOverridden, serviceTierOverridden)
 	return true, nil
 }
 
@@ -1465,11 +1480,11 @@ func buildCodexOAuthRequest(
 	accessToken string,
 	accountID string,
 	applyModelRedirect bool,
-) (*http.Request, error) {
+) (*http.Request, bool, error) {
 	// 解析请求体为 map 以保留所有字段
 	var reqMap map[string]interface{}
 	if err := json.Unmarshal(bodyBytes, &reqMap); err != nil {
-		return nil, fmt.Errorf("failed to parse request body: %w", err)
+		return nil, false, fmt.Errorf("failed to parse request body: %w", err)
 	}
 
 	// 模型重定向（仅在上游请求体尚未重定向时执行）
@@ -1494,12 +1509,18 @@ func buildCodexOAuthRequest(
 	// 序列化请求体
 	reqBody, err := json.Marshal(reqMap)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request body: %w", err)
+		return nil, false, fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	model, _ := reqMap["model"].(string)
+	reqBody, _, _, serviceTierOverridden, err := resolveEffectiveResponsesServiceTier(reqBody, model, upstream)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to apply service tier override: %w", err)
 	}
 
 	req, err := http.NewRequest("POST", codexOAuthResponsesEndpoint, bytes.NewReader(reqBody))
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	// 构建 OAuth 请求头输入，转发原始请求的关键头部
@@ -1527,7 +1548,7 @@ func buildCodexOAuthRequest(
 		utils.SetCodexOAuthNonStreamHeaders(req.Header, headerInput)
 	}
 
-	return req, nil
+	return req, serviceTierOverridden, nil
 }
 
 // handleSingleChannelResponses 处理单渠道 Responses 请求（现有逻辑）
@@ -1763,7 +1784,22 @@ func handleSingleChannelResponses(
 	for attempt := 0; attempt < maxRetries || retryWaitPending; {
 		retryWaitPending = false // Clear at start of each iteration
 
-		c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		effectiveBodyBytes := bodyBytes
+		effectiveIsFastMode := isFastMode
+		serviceTierOverridden := false
+		if resolvedBodyBytes, _, resolvedFastMode, overridden, err := resolveEffectiveResponsesServiceTier(
+			bodyBytes,
+			config.RedirectModel(responsesReq.Model, upstream),
+			upstream,
+		); err == nil {
+			effectiveBodyBytes = resolvedBodyBytes
+			effectiveIsFastMode = resolvedFastMode
+			serviceTierOverridden = overridden
+		} else {
+			log.Printf("⚠️ [Responses] failed to resolve effective service tier: %v", err)
+		}
+
+		c.Request.Body = io.NopCloser(bytes.NewReader(effectiveBodyBytes))
 
 		var apiKey string
 		var err error
@@ -2294,7 +2330,7 @@ func handleSingleChannelResponses(
 		}
 
 		recordSingleSuccess(resp.StatusCode)
-		handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, currentStartTime, &responsesReq, bodyBytes, reqLogManager, currentRequestLogID, usageManager, logChannelIndex, logChannelName, isFastMode)
+		handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, currentStartTime, &responsesReq, effectiveBodyBytes, reqLogManager, currentRequestLogID, usageManager, logChannelIndex, logChannelName, effectiveIsFastMode, serviceTierOverridden)
 		return
 	}
 
@@ -2430,6 +2466,7 @@ func handleResponsesSuccess(
 	logChannelIndex int,
 	logChannelName string,
 	isFastMode bool,
+	serviceTierOverridden bool,
 ) {
 	if strings.TrimSpace(logChannelName) == "" {
 		logChannelName = strings.TrimSpace(upstream.Name)
@@ -2613,19 +2650,20 @@ func handleResponsesSuccess(
 			)
 
 			record := &requestlog.RequestLog{
-				Status:               recordStatus,
-				CompleteTime:         completeTime,
-				DurationMs:           durationMs,
-				FirstTokenTime:       firstTokenTime,
-				FirstTokenDurationMs: firstTokenDurationFromStart(startTime, firstTokenTime),
-				Type:                 upstreamType,
-				ProviderName:         upstream.Name,
-				ServiceTier:          serviceTierForFastMode(isFastMode),
-				ResponseModel:        responseModel,
-				HTTPStatus:           recordHTTPStatus,
-				ChannelID:            logChannelIndex,
-				ChannelName:          logChannelName,
-				Error:                recordError,
+				Status:                recordStatus,
+				CompleteTime:          completeTime,
+				DurationMs:            durationMs,
+				FirstTokenTime:        firstTokenTime,
+				FirstTokenDurationMs:  firstTokenDurationFromStart(startTime, firstTokenTime),
+				Type:                  upstreamType,
+				ProviderName:          upstream.Name,
+				ServiceTier:           serviceTierForFastMode(isFastMode),
+				ServiceTierOverridden: serviceTierOverridden,
+				ResponseModel:         responseModel,
+				HTTPStatus:            recordHTTPStatus,
+				ChannelID:             logChannelIndex,
+				ChannelName:           logChannelName,
+				Error:                 recordError,
 			}
 
 			if codexUsage != nil {
@@ -2739,16 +2777,17 @@ func handleResponsesSuccess(
 		}
 
 		record := &requestlog.RequestLog{
-			Status:        requestlog.StatusCompleted,
-			CompleteTime:  completeTime,
-			DurationMs:    durationMs,
-			Type:          upstreamType,
-			ProviderName:  upstream.Name,
-			ServiceTier:   serviceTierForFastMode(isFastMode),
-			ResponseModel: responseModel,
-			HTTPStatus:    resp.StatusCode,
-			ChannelID:     logChannelIndex,
-			ChannelName:   logChannelName,
+			Status:                requestlog.StatusCompleted,
+			CompleteTime:          completeTime,
+			DurationMs:            durationMs,
+			Type:                  upstreamType,
+			ProviderName:          upstream.Name,
+			ServiceTier:           serviceTierForFastMode(isFastMode),
+			ServiceTierOverridden: serviceTierOverridden,
+			ResponseModel:         responseModel,
+			HTTPStatus:            resp.StatusCode,
+			ChannelID:             logChannelIndex,
+			ChannelName:           logChannelName,
 		}
 
 		if codexUsage != nil {

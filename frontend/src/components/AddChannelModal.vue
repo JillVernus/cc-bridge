@@ -279,6 +279,22 @@
                   />
                 </v-col>
 
+                <v-col cols="12" md="6" v-if="showCodexServiceTierOverride">
+                  <v-select
+                    v-model="form.codexServiceTierOverride"
+                    :label="t('addChannel.codexServiceTierOverride')"
+                    :items="[
+                      { title: t('addChannel.codexServiceTierOverrideOff'), value: 'off' },
+                      { title: t('addChannel.codexServiceTierOverrideForcePriority'), value: 'force_priority' }
+                    ]"
+                    prepend-inner-icon="mdi-flash"
+                    variant="outlined"
+                    density="comfortable"
+                    :hint="t('addChannel.codexServiceTierOverrideHint')"
+                    persistent-hint
+                  />
+                </v-col>
+
                 <!-- API密钥负载均衡策略（非 Composite 类型） -->
                 <v-col cols="12" md="6" v-if="!isCompositeChannel">
                   <v-select
@@ -1740,6 +1756,7 @@ const form = reactive({
     }
   >,
   oauthTokens: undefined as OAuthTokens | undefined,
+  codexServiceTierOverride: 'off' as 'off' | 'force_priority',
   // Composite channel mappings
   compositeMappings: [] as CompositeMapping[],
   // Quota settings
@@ -1863,6 +1880,12 @@ const isOAuthChannel = computed(() => form.serviceType === 'openai-oauth')
 
 // 检查是否为 Composite 渠道类型
 const isCompositeChannel = computed(() => form.serviceType === 'composite')
+
+const showCodexServiceTierOverride = computed(() => {
+  return (
+    props.channelType === 'responses' && (form.serviceType === 'responses' || form.serviceType === 'openai-oauth')
+  )
+})
 
 // Key for CompositeChannelEditor to force re-creation on channel change
 // This ensures the component reinitializes when editing a different channel or after reopening
@@ -2346,6 +2369,7 @@ const resetForm = () => {
   form.modelMapping = {}
   form.priceMultipliers = {}
   form.oauthTokens = undefined
+  form.codexServiceTierOverride = 'off'
   form.compositeMappings = []
   // Reset quota settings
   form.quotaType = ''
@@ -2444,6 +2468,7 @@ const loadChannelData = (channel: Channel) => {
 
   form.modelMapping = { ...(channel.modelMapping || {}) }
   form.priceMultipliers = { ...(channel.priceMultipliers || {}) }
+  form.codexServiceTierOverride = channel.codexServiceTierOverride || 'off'
 
   // Load composite mappings
   form.compositeMappings = normalizeCompositeMappings(channel.compositeMappings || [])
@@ -2860,6 +2885,7 @@ const handleSubmit = async () => {
     modelMapping: form.modelMapping,
     // 始终发送 priceMultipliers，即使为空对象（用于清除已有配置）
     priceMultipliers: form.priceMultipliers,
+    codexServiceTierOverride: showCodexServiceTierOverride.value ? form.codexServiceTierOverride : undefined,
     // Quota settings - always send quotaType (empty string clears quota)
     // Note: Use validNumber helper to convert NaN to undefined (v-model.number returns NaN for empty inputs)
     quotaType: form.quotaType,

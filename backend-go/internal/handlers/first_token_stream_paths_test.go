@@ -248,6 +248,7 @@ func TestHandleResponsesSuccess_StreamRecordsFirstToken(t *testing.T) {
 				2,
 				"responses-2",
 				false,
+				false,
 			)
 
 			got, err := reqLogManager.GetByID(requestLogID)
@@ -317,6 +318,7 @@ func TestHandleResponsesSuccess_StoresPriorityServiceTierForFastMode(t *testing.
 		2,
 		"responses-2",
 		true,
+		false,
 	)
 
 	got, err := reqLogManager.GetByID(requestLogID)

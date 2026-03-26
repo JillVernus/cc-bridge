@@ -62,7 +62,7 @@ func TestBuildCodexOAuthRequest_ForcesStoreFalse(t *testing.T) {
 				Stream: true,
 			}
 
-			req, err := buildCodexOAuthRequest(
+			req, _, err := buildCodexOAuthRequest(
 				c,
 				nil,
 				&config.UpstreamConfig{ServiceType: "openai-oauth"},
@@ -104,6 +104,94 @@ func TestBuildCodexOAuthRequest_ForcesStoreFalse(t *testing.T) {
 			}
 			if metadata, ok := payload["metadata"].(map[string]interface{}); !ok || metadata["source"] != "test" {
 				t.Fatalf("expected metadata to be preserved, got %#v", payload["metadata"])
+			}
+		})
+	}
+}
+
+func TestBuildCodexOAuthRequest_AppliesCodexPriorityOverride(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name           string
+		body           string
+		overrideMode   string
+		wantTier       string
+		wantOverridden bool
+	}{
+		{
+			name:           "missing tier forced to priority",
+			body:           `{"model":"gpt-5-codex","stream":true,"store":true}`,
+			overrideMode:   "force_priority",
+			wantTier:       "priority",
+			wantOverridden: true,
+		},
+		{
+			name:           "default tier forced to priority",
+			body:           `{"model":"gpt-5-codex","stream":true,"store":true,"service_tier":"default"}`,
+			overrideMode:   "force_priority",
+			wantTier:       "priority",
+			wantOverridden: true,
+		},
+		{
+			name:           "priority tier preserved without override flag",
+			body:           `{"model":"gpt-5-codex","stream":true,"store":true,"service_tier":"priority"}`,
+			overrideMode:   "force_priority",
+			wantTier:       "priority",
+			wantOverridden: false,
+		},
+		{
+			name:           "override off preserves default tier",
+			body:           `{"model":"gpt-5-codex","stream":true,"store":true,"service_tier":"default"}`,
+			overrideMode:   "off",
+			wantTier:       "default",
+			wantOverridden: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest("POST", "/v1/responses", bytes.NewReader(nil))
+
+			responsesReq := types.ResponsesRequest{
+				Model:  "gpt-5-codex",
+				Stream: true,
+			}
+
+			req, overridden, err := buildCodexOAuthRequest(
+				c,
+				nil,
+				&config.UpstreamConfig{
+					ServiceType:              "openai-oauth",
+					CodexServiceTierOverride: tc.overrideMode,
+				},
+				[]byte(tc.body),
+				responsesReq,
+				"access-token",
+				"account-1",
+				false,
+			)
+			if err != nil {
+				t.Fatalf("buildCodexOAuthRequest returned error: %v", err)
+			}
+			if overridden != tc.wantOverridden {
+				t.Fatalf("overridden = %v, want %v", overridden, tc.wantOverridden)
+			}
+
+			payloadBytes, err := io.ReadAll(req.Body)
+			if err != nil {
+				t.Fatalf("failed to read built request body: %v", err)
+			}
+
+			var payload map[string]interface{}
+			if err := json.Unmarshal(payloadBytes, &payload); err != nil {
+				t.Fatalf("failed to parse built request body: %v", err)
+			}
+
+			gotTier, _ := payload["service_tier"].(string)
+			if gotTier != tc.wantTier {
+				t.Fatalf("service_tier = %q, want %q", gotTier, tc.wantTier)
 			}
 		})
 	}

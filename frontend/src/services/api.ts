@@ -203,6 +203,8 @@ export interface Channel {
   priceMultipliers?: Record<string, TokenPriceMultipliers>
   // OAuth tokens for openai-oauth service type
   oauthTokens?: OAuthTokens
+  // Codex Responses service_tier override policy for eligible channels
+  codexServiceTierOverride?: 'off' | 'force_priority'
   // 配额设置
   quotaType?: 'requests' | 'credit' | '' // 配额类型：请求数 | 额度 | 无
   quotaLimit?: number // 最大配额值
@@ -1301,6 +1303,7 @@ export interface RequestLog {
   responseModel?: string // 响应中的模型名称（可能与请求不同）
   reasoningEffort?: string // Codex reasoning effort (low/medium/high/xhigh)
   serviceTier?: string // Codex service tier (e.g. priority for fast mode)
+  serviceTierOverridden?: boolean // Whether the proxy forced service_tier=priority
   inputTokens: number
   outputTokens: number
   cacheCreationInputTokens: number
