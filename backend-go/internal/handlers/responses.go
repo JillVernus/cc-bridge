@@ -802,11 +802,7 @@ func tryResponsesChannelWithAllKeys(
 		effectiveBodyBytes := bodyBytes
 		effectiveIsFastMode := isFastMode
 		serviceTierOverridden := false
-		if resolvedBodyBytes, _, resolvedFastMode, overridden, err := resolveEffectiveResponsesServiceTier(
-			bodyBytes,
-			config.RedirectModel(responsesReq.Model, upstream),
-			upstream,
-		); err == nil {
+		if resolvedBodyBytes, _, resolvedFastMode, overridden, err := resolveEffectiveResponsesServiceTier(bodyBytes, upstream); err == nil {
 			effectiveBodyBytes = resolvedBodyBytes
 			effectiveIsFastMode = resolvedFastMode
 			serviceTierOverridden = overridden
@@ -1512,8 +1508,7 @@ func buildCodexOAuthRequest(
 		return nil, false, fmt.Errorf("failed to marshal request body: %w", err)
 	}
 
-	model, _ := reqMap["model"].(string)
-	reqBody, _, _, serviceTierOverridden, err := resolveEffectiveResponsesServiceTier(reqBody, model, upstream)
+	reqBody, _, _, serviceTierOverridden, err := resolveEffectiveResponsesServiceTier(reqBody, upstream)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to apply service tier override: %w", err)
 	}
@@ -1787,11 +1782,7 @@ func handleSingleChannelResponses(
 		effectiveBodyBytes := bodyBytes
 		effectiveIsFastMode := isFastMode
 		serviceTierOverridden := false
-		if resolvedBodyBytes, _, resolvedFastMode, overridden, err := resolveEffectiveResponsesServiceTier(
-			bodyBytes,
-			config.RedirectModel(responsesReq.Model, upstream),
-			upstream,
-		); err == nil {
+		if resolvedBodyBytes, _, resolvedFastMode, overridden, err := resolveEffectiveResponsesServiceTier(bodyBytes, upstream); err == nil {
 			effectiveBodyBytes = resolvedBodyBytes
 			effectiveIsFastMode = resolvedFastMode
 			serviceTierOverridden = overridden

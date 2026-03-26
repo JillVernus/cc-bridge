@@ -102,17 +102,17 @@ func TestResolveEffectiveResponsesServiceTier(t *testing.T) {
 			wantServiceTier: strPtr("flex"),
 		},
 		{
-			name:  "non codex request is not overridden",
+			name:  "override applies to any request on enabled codex tab channel",
 			body:  `{"model":"gpt-5","input":"hi"}`,
 			model: "gpt-5",
 			upstream: &config.UpstreamConfig{
 				ServiceType:              "responses",
 				CodexServiceTierOverride: "force_priority",
 			},
-			wantTier:        "",
-			wantFast:        false,
-			wantOverridden:  false,
-			wantServiceTier: nil,
+			wantTier:        "priority",
+			wantFast:        true,
+			wantOverridden:  true,
+			wantServiceTier: strPtr("priority"),
 		},
 		{
 			name:  "override off leaves default unchanged",
@@ -133,7 +133,6 @@ func TestResolveEffectiveResponsesServiceTier(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			effectiveBody, serviceTier, isFastMode, overridden, err := resolveEffectiveResponsesServiceTier(
 				[]byte(tc.body),
-				tc.model,
 				tc.upstream,
 			)
 			if err != nil {

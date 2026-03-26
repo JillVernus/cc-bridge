@@ -29,14 +29,11 @@ func serviceTierForFastMode(isFastMode bool) string {
 	return ""
 }
 
-func shouldForceCodexPriorityOverride(model string, upstream *config.UpstreamConfig) bool {
+func shouldForceCodexPriorityOverride(upstream *config.UpstreamConfig) bool {
 	if upstream == nil {
 		return false
 	}
 	if upstream.ServiceType != "responses" && upstream.ServiceType != "openai-oauth" {
-		return false
-	}
-	if !isCodexResponsesModel(model) {
 		return false
 	}
 	return strings.EqualFold(strings.TrimSpace(upstream.CodexServiceTierOverride), "force_priority")
@@ -44,7 +41,6 @@ func shouldForceCodexPriorityOverride(model string, upstream *config.UpstreamCon
 
 func resolveEffectiveResponsesServiceTier(
 	bodyBytes []byte,
-	model string,
 	upstream *config.UpstreamConfig,
 ) ([]byte, string, bool, bool, error) {
 	var reqMap map[string]interface{}
@@ -57,7 +53,7 @@ func resolveEffectiveResponsesServiceTier(
 		serviceTier = normalizeResponsesServiceTier(rawTier)
 	}
 
-	if shouldForceCodexPriorityOverride(model, upstream) && (serviceTier == "" || serviceTier == "default") {
+	if shouldForceCodexPriorityOverride(upstream) && (serviceTier == "" || serviceTier == "default") {
 		reqMap["service_tier"] = "priority"
 		effectiveBody, err := json.Marshal(reqMap)
 		if err != nil {
