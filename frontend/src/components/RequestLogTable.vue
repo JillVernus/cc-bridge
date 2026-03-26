@@ -1530,6 +1530,7 @@ const apiKeys = ref<APIKey[]>([])
 const forwardProxyConfig = ref<ForwardProxyConfig | null>(null)
 const overrideClockNow = ref(Date.now())
 let overrideClockTimer: ReturnType<typeof setInterval> | null = null
+let forwardProxyConfigRefreshTimer: ReturnType<typeof setTimeout> | null = null
 const apiKeyMap = computed(() => {
   const map = new Map<number, string>()
   for (const key of apiKeys.value) {
@@ -2667,6 +2668,10 @@ const handleLogCreated = (payload: LogCreatedPayload) => {
     total.value++
   }
 
+  if (payload.channelUid === 'subscription:forward-proxy') {
+    scheduleForwardProxyConfigRefresh()
+  }
+
   // Flash the new row
   updatedIds.value = new Set([payload.id])
   setTimeout(() => {
@@ -2754,6 +2759,10 @@ const handleLogUpdated = (payload: LogUpdatedPayload) => {
     updated.serviceTierOverridden = payload.serviceTierOverridden ?? oldLog.serviceTierOverridden ?? false
     updated.completeTime = payload.completeTime
     logs.value = [...logs.value.slice(0, index), updated, ...logs.value.slice(index + 1)]
+
+    if ((updated.channelUid || payload.channelUid) === 'subscription:forward-proxy') {
+      scheduleForwardProxyConfigRefresh()
+    }
 
     // Update stats incrementally if request just completed (was pending, now has data)
     if (oldLog.status === 'pending' && payload.status !== 'pending' && stats.value) {
@@ -2875,11 +2884,12 @@ const handleSSEConnectionChange = (state: ConnectionState) => {
   }
 
   if (state === 'connected') {
-    // SSE connected - disable all polling (SSE handlers update everything in real-time)
+    // SSE connected - disable row polling, but keep low-frequency side refreshes for
+    // runtime state that is not fully carried by log SSE payloads.
     cancelPollingFallback()
     autoRefreshEnabled.value = false
     stopAutoRefresh()
-    stopSSEStatsRefresh()
+    startSSEStatsRefresh()
     silentRefresh()
     return
   }
@@ -3219,6 +3229,24 @@ const stopResize = () => {
   document.removeEventListener('mouseup', stopResize)
   document.body.style.cursor = ''
   document.body.style.userSelect = ''
+}
+
+const refreshForwardProxyConfig = async () => {
+  try {
+    forwardProxyConfig.value = await api.getForwardProxyConfig()
+  } catch (error) {
+    console.warn('Failed to load forward proxy config:', error)
+  }
+}
+
+const scheduleForwardProxyConfigRefresh = () => {
+  if (forwardProxyConfigRefreshTimer) {
+    clearTimeout(forwardProxyConfigRefreshTimer)
+  }
+  forwardProxyConfigRefreshTimer = setTimeout(() => {
+    forwardProxyConfigRefreshTimer = null
+    refreshForwardProxyConfig()
+  }, 150)
 }
 
 const forwardProxyOverrideRuntime = computed(() => forwardProxyConfig.value?.xInitiatorOverrideRuntime ?? null)
@@ -3680,6 +3708,10 @@ onUnmounted(() => {
   stopSSEStatsRefresh()
   disconnectSSE()
   cancelPollingFallback()
+  if (forwardProxyConfigRefreshTimer) {
+    clearTimeout(forwardProxyConfigRefreshTimer)
+    forwardProxyConfigRefreshTimer = null
+  }
   if (overrideClockTimer) {
     clearInterval(overrideClockTimer)
     overrideClockTimer = null
