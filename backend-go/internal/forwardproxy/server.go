@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/JillVernus/cc-bridge/internal/requestlog"
+	"github.com/JillVernus/cc-bridge/internal/utils"
 )
 
 // Config holds the forward proxy runtime configuration, persisted as JSON.
@@ -266,13 +267,14 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[fwd-proxy] HTTP forward (absolute URL) for %s (intercept=%v)", hostOnly, intercept)
 	s.recordDiscovery(DiscoveryEvent{
-		Host:        hostOnly,
-		Port:        port,
-		Transport:   DiscoveryTransportHTTPForward,
-		Intercepted: intercept,
-		Method:      r.Method,
-		Path:        r.URL.Path,
-		SeenAt:      time.Now(),
+		Host:           hostOnly,
+		Port:           port,
+		Transport:      DiscoveryTransportHTTPForward,
+		Intercepted:    intercept,
+		Method:         r.Method,
+		Path:           r.URL.Path,
+		RequestHeaders: r.Header.Clone(),
+		SeenAt:         time.Now(),
 	})
 
 	startTime := time.Now()
@@ -306,8 +308,8 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 
 	// Create pending log entry before forwarding (makes request visible in UI immediately)
 	var pendingLogID string
-	if s.requestLogManager != nil && intercept && isAnthropicEndpoint(r.URL.Path) {
-		pendingLog := createPendingLog(r, startTime, hostOnly, reqBody)
+	if s.requestLogManager != nil && intercept {
+		pendingLog := createInterceptedPendingLog(r, startTime, hostOnly, reqBody)
 		if err := s.requestLogManager.Add(pendingLog); err != nil {
 			log.Printf("[fwd-proxy] failed to create pending log: %v", err)
 		} else {
@@ -352,22 +354,28 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 
 	// Intercepted — tee the response for metric extraction
 	isSSE := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
-
 	// Capture response body for debug logging
 	var respCapture bytes.Buffer
 	const maxCapture = 10 * 1024 * 1024
 
 	if isSSE {
-		parser := NewStreamParserWriter()
+		parser := newInterceptedStreamParser(r.URL.Path)
 
 		w.WriteHeader(resp.StatusCode)
 
 		// Tee to parser for metrics, and capture for debug
-		var respWriter io.Writer = parser
-		if s.isDebugEnabled() {
+		var respWriter io.Writer
+		if parser != nil && s.isDebugEnabled() {
 			respWriter = io.MultiWriter(parser, &limitedWriter{w: &respCapture, remaining: maxCapture})
+		} else if parser != nil {
+			respWriter = parser
+		} else if s.isDebugEnabled() {
+			respWriter = &limitedWriter{w: &respCapture, remaining: maxCapture}
 		}
-		tee := io.TeeReader(resp.Body, respWriter)
+		tee := io.Reader(resp.Body)
+		if respWriter != nil {
+			tee = io.TeeReader(resp.Body, respWriter)
+		}
 
 		// Flush SSE data as it arrives if the writer supports it
 		if flusher, ok := w.(http.Flusher); ok {
@@ -387,36 +395,37 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 		}
 
 		endTime := time.Now()
-		usage := parser.GetUsage()
-		firstTokenTime := parser.GetFirstTokenTime()
-
-		if s.requestLogManager != nil && pendingLogID != "" {
-			record := createCompletionRecord(usage, resp.StatusCode, startTime, endTime, hostOnly, firstTokenTime)
-			if err := s.requestLogManager.Update(pendingLogID, record); err != nil {
-				log.Printf("[fwd-proxy] failed to update request log: %v", err)
-			}
-			s.saveDebugLog(pendingLogID, r, reqBody, resp.StatusCode, resp.Header, respCapture.Bytes())
+		var usage *utils.StreamUsage
+		var firstTokenTime *time.Time
+		if parser != nil {
+			usage = parser.GetUsage()
+			firstTokenTime = parser.GetFirstTokenTime()
 		}
-	} else if isAnthropicEndpoint(r.URL.Path) {
-		tee := io.TeeReader(resp.Body, &limitedWriter{w: &respCapture, remaining: maxCapture})
-
-		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, tee)
-
-		endTime := time.Now()
-		_, usage := parseJSONResponse(respCapture.Bytes())
 
 		if s.requestLogManager != nil && pendingLogID != "" {
-			record := createCompletionRecord(usage, resp.StatusCode, startTime, endTime, hostOnly, nil)
-			record.Stream = false
+			record := createInterceptedCompletionRecord(r.URL.Path, usage, resp.StatusCode, startTime, endTime, hostOnly, firstTokenTime)
 			if err := s.requestLogManager.Update(pendingLogID, record); err != nil {
 				log.Printf("[fwd-proxy] failed to update request log: %v", err)
 			}
 			s.saveDebugLog(pendingLogID, r, reqBody, resp.StatusCode, resp.Header, respCapture.Bytes())
 		}
 	} else {
+		tee := io.TeeReader(resp.Body, &limitedWriter{w: &respCapture, remaining: maxCapture})
+
 		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, resp.Body)
+		io.Copy(w, tee)
+
+		endTime := time.Now()
+		usage := parseInterceptedJSONResponse(r.URL.Path, respCapture.Bytes())
+
+		if s.requestLogManager != nil && pendingLogID != "" {
+			record := createInterceptedCompletionRecord(r.URL.Path, usage, resp.StatusCode, startTime, endTime, hostOnly, nil)
+			record.Stream = false
+			if err := s.requestLogManager.Update(pendingLogID, record); err != nil {
+				log.Printf("[fwd-proxy] failed to update request log: %v", err)
+			}
+			s.saveDebugLog(pendingLogID, r, reqBody, resp.StatusCode, resp.Header, respCapture.Bytes())
+		}
 	}
 }
 

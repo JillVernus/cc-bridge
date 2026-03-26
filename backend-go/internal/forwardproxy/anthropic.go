@@ -24,9 +24,18 @@ type StreamParserWriter struct {
 
 // NewStreamParserWriter creates a parser that delegates to StreamSynthesizer.
 func NewStreamParserWriter() *StreamParserWriter {
+	return NewTypedStreamParserWriter("claude", utils.FirstTokenProtocolClaudeSSE)
+}
+
+// NewTypedStreamParserWriter creates a parser for the given stream format.
+func NewTypedStreamParserWriter(serviceType string, protocol utils.FirstTokenProtocol) *StreamParserWriter {
+	var detector *utils.FirstTokenDetector
+	if protocol != "" {
+		detector = utils.NewFirstTokenDetector(protocol)
+	}
 	return &StreamParserWriter{
-		synthesizer: utils.NewStreamSynthesizer("claude"),
-		detector:    utils.NewFirstTokenDetector(utils.FirstTokenProtocolClaudeSSE),
+		synthesizer: utils.NewStreamSynthesizer(serviceType),
+		detector:    detector,
 	}
 }
 

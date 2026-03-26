@@ -2,6 +2,7 @@ package forwardproxy
 
 import (
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -17,25 +18,27 @@ const (
 )
 
 type DiscoveryEvent struct {
-	Host        string
-	Port        string
-	Transport   string
-	Intercepted bool
-	Method      string
-	Path        string
-	SeenAt      time.Time
+	Host           string
+	Port           string
+	Transport      string
+	Intercepted    bool
+	Method         string
+	Path           string
+	RequestHeaders http.Header
+	SeenAt         time.Time
 }
 
 type DiscoveryEntry struct {
-	Host        string    `json:"host"`
-	Port        string    `json:"port"`
-	Transport   string    `json:"transport"`
-	Intercepted bool      `json:"intercepted"`
-	SeenCount   int       `json:"seenCount"`
-	FirstSeenAt time.Time `json:"firstSeenAt"`
-	LastSeenAt  time.Time `json:"lastSeenAt"`
-	LastMethod  string    `json:"lastMethod,omitempty"`
-	LastPath    string    `json:"lastPath,omitempty"`
+	Host               string            `json:"host"`
+	Port               string            `json:"port"`
+	Transport          string            `json:"transport"`
+	Intercepted        bool              `json:"intercepted"`
+	SeenCount          int               `json:"seenCount"`
+	FirstSeenAt        time.Time         `json:"firstSeenAt"`
+	LastSeenAt         time.Time         `json:"lastSeenAt"`
+	LastMethod         string            `json:"lastMethod,omitempty"`
+	LastPath           string            `json:"lastPath,omitempty"`
+	LastRequestHeaders map[string]string `json:"lastRequestHeaders,omitempty"`
 }
 
 type DiscoveryStore struct {
@@ -99,6 +102,9 @@ func (s *DiscoveryStore) Record(event DiscoveryEvent) {
 	if path := strings.TrimSpace(event.Path); path != "" {
 		entry.LastPath = path
 	}
+	if len(event.RequestHeaders) > 0 {
+		entry.LastRequestHeaders = sanitizeDiscoveryHeaders(event.RequestHeaders)
+	}
 	s.entries[key] = entry
 	err := s.saveLocked()
 	s.mu.Unlock()
@@ -106,6 +112,31 @@ func (s *DiscoveryStore) Record(event DiscoveryEvent) {
 		// Best effort only; do not break proxy traffic on discovery persistence failure.
 		return
 	}
+}
+
+func sanitizeDiscoveryHeaders(headers http.Header) map[string]string {
+	if len(headers) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(headers))
+	for key, values := range headers {
+		if len(values) == 0 {
+			continue
+		}
+		joined := strings.Join(values, ", ")
+		lowerKey := strings.ToLower(strings.TrimSpace(key))
+		switch lowerKey {
+		case "authorization", "x-api-key", "cookie", "set-cookie", "proxy-authorization":
+			if len(joined) > 12 {
+				result[key] = joined[:8] + "..." + joined[len(joined)-4:]
+			} else {
+				result[key] = "***"
+			}
+		default:
+			result[key] = joined
+		}
+	}
+	return result
 }
 
 func (s *DiscoveryStore) List() []DiscoveryEntry {

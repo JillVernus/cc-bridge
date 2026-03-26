@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/JillVernus/cc-bridge/internal/utils"
 )
 
 // handleMITMConnect performs TLS MITM interception for configured domains.
@@ -102,13 +104,14 @@ func (s *Server) handleMITMConnect(w http.ResponseWriter, _ *http.Request, targe
 func (s *Server) proxyRequest(clientConn io.Writer, upstreamConn net.Conn, upstreamReader *bufio.Reader, req *http.Request, hostOnly string) error {
 	startTime := time.Now()
 	s.recordDiscovery(DiscoveryEvent{
-		Host:        hostOnly,
-		Port:        extractPort(req.URL.Host, "443"),
-		Transport:   DiscoveryTransportMITM,
-		Intercepted: true,
-		Method:      req.Method,
-		Path:        req.URL.Path,
-		SeenAt:      startTime,
+		Host:           hostOnly,
+		Port:           extractPort(req.URL.Host, "443"),
+		Transport:      DiscoveryTransportMITM,
+		Intercepted:    true,
+		Method:         req.Method,
+		Path:           req.URL.Path,
+		RequestHeaders: req.Header.Clone(),
+		SeenAt:         startTime,
 	})
 
 	// Read request body eagerly for metadata extraction (matches normal proxy path).
@@ -127,8 +130,8 @@ func (s *Server) proxyRequest(clientConn io.Writer, upstreamConn net.Conn, upstr
 
 	// Create pending log entry before forwarding (makes request visible in UI immediately)
 	var pendingLogID string
-	if s.requestLogManager != nil && isAnthropicEndpoint(req.URL.Path) {
-		pendingLog := createPendingLog(req, startTime, hostOnly, reqBody)
+	if s.requestLogManager != nil {
+		pendingLog := createInterceptedPendingLog(req, startTime, hostOnly, reqBody)
 		if err := s.requestLogManager.Add(pendingLog); err != nil {
 			log.Printf("[fwd-proxy] failed to create pending log: %v", err)
 		} else {
@@ -155,7 +158,7 @@ func (s *Server) proxyRequest(clientConn io.Writer, upstreamConn net.Conn, upstr
 
 	if isSSE && proxyEnabled {
 		s.proxySSEResponse(clientConn, resp, req, hostOnly, startTime, reqBody, pendingLogID)
-	} else if proxyEnabled && isAnthropicEndpoint(req.URL.Path) {
+	} else if proxyEnabled {
 		s.proxyJSONResponse(clientConn, resp, req, hostOnly, startTime, reqBody, pendingLogID)
 	} else {
 		s.forwardResponse(clientConn, resp)
@@ -163,33 +166,42 @@ func (s *Server) proxyRequest(clientConn io.Writer, upstreamConn net.Conn, upstr
 	return nil
 }
 
-// proxySSEResponse tees an SSE response through the Anthropic parser while forwarding to the client.
+// proxySSEResponse tees an SSE response through a best-effort parser while forwarding to the client.
 // Uses resp.Write() to preserve correct HTTP transfer framing (chunked encoding, etc.).
 func (s *Server) proxySSEResponse(clientConn io.Writer, resp *http.Response, req *http.Request, hostOnly string, startTime time.Time, reqBody []byte, pendingLogID string) {
-	// Use StreamSynthesizer (same as normal proxy) for metric extraction
-	parser := NewStreamParserWriter()
+	parser := newInterceptedStreamParser(req.URL.Path)
 
 	// Tee the response body: resp.Write reads and forwards to client,
 	// TeeReader copies bytes to parser for metric extraction.
 	// Also capture response bytes for debug logging.
 	var respCapture bytes.Buffer
 	const maxCapture = 10 * 1024 * 1024
-	var teeWriter io.Writer = parser
-	if s.isDebugEnabled() {
+	var teeWriter io.Writer
+	if parser != nil && s.isDebugEnabled() {
 		teeWriter = io.MultiWriter(parser, &limitedWriter{w: &respCapture, remaining: maxCapture})
+	} else if parser != nil {
+		teeWriter = parser
+	} else if s.isDebugEnabled() {
+		teeWriter = &limitedWriter{w: &respCapture, remaining: maxCapture}
 	}
-	resp.Body = &teeReadCloser{Reader: io.TeeReader(resp.Body, teeWriter), Closer: resp.Body}
+	if teeWriter != nil {
+		resp.Body = &teeReadCloser{Reader: io.TeeReader(resp.Body, teeWriter), Closer: resp.Body}
+	}
 
 	if err := resp.Write(clientConn); err != nil {
 		log.Printf("[fwd-proxy] write SSE response error: %v", err)
 	}
 
 	endTime := time.Now()
-	usage := parser.GetUsage()
-	firstTokenTime := parser.GetFirstTokenTime()
+	var usage *utils.StreamUsage
+	var firstTokenTime *time.Time
+	if parser != nil {
+		usage = parser.GetUsage()
+		firstTokenTime = parser.GetFirstTokenTime()
+	}
 
 	if s.requestLogManager != nil && pendingLogID != "" {
-		record := createCompletionRecord(usage, resp.StatusCode, startTime, endTime, hostOnly, firstTokenTime)
+		record := createInterceptedCompletionRecord(req.URL.Path, usage, resp.StatusCode, startTime, endTime, hostOnly, firstTokenTime)
 		if err := s.requestLogManager.Update(pendingLogID, record); err != nil {
 			log.Printf("[fwd-proxy] failed to update request log: %v", err)
 		}
@@ -197,7 +209,7 @@ func (s *Server) proxySSEResponse(clientConn io.Writer, resp *http.Response, req
 	}
 }
 
-// proxyJSONResponse handles non-streaming Anthropic responses.
+// proxyJSONResponse handles non-streaming intercepted responses.
 // Forwards the complete response to the client, captures up to 10MB for metric parsing.
 func (s *Server) proxyJSONResponse(clientConn io.Writer, resp *http.Response, req *http.Request, hostOnly string, startTime time.Time, reqBody []byte, pendingLogID string) {
 	// Tee the response body: resp.Write reads and forwards to client,
@@ -211,10 +223,10 @@ func (s *Server) proxyJSONResponse(clientConn io.Writer, resp *http.Response, re
 	}
 
 	endTime := time.Now()
-	_, usage := parseJSONResponse(captureBuf.Bytes())
+	usage := parseInterceptedJSONResponse(req.URL.Path, captureBuf.Bytes())
 
 	if s.requestLogManager != nil && pendingLogID != "" {
-		record := createCompletionRecord(usage, resp.StatusCode, startTime, endTime, hostOnly, nil)
+		record := createInterceptedCompletionRecord(req.URL.Path, usage, resp.StatusCode, startTime, endTime, hostOnly, nil)
 		record.Stream = false
 		if err := s.requestLogManager.Update(pendingLogID, record); err != nil {
 			log.Printf("[fwd-proxy] failed to update request log: %v", err)

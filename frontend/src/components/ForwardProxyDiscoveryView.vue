@@ -64,6 +64,20 @@
             <span v-if="item.lastMethod && item.lastPath"> </span>
             <span v-if="item.lastPath" class="text-medium-emphasis">{{ item.lastPath }}</span>
           </div>
+          <div v-if="headerEntries(item).length > 0" class="mt-1">
+            <v-tooltip location="top" max-width="420">
+              <template #activator="{ props }">
+                <v-chip v-bind="props" size="x-small" variant="outlined" color="secondary">
+                  {{ t('forwardProxy.discoveryHeadersChip', { count: headerEntries(item).length }) }}
+                </v-chip>
+              </template>
+              <div class="text-caption">
+                <div v-for="[key, value] in headerEntries(item)" :key="key" class="mb-1">
+                  <strong>{{ key }}:</strong> {{ value }}
+                </div>
+              </div>
+            </v-tooltip>
+          </div>
           <span v-else class="text-medium-emphasis">-</span>
         </template>
 
@@ -133,6 +147,9 @@ const formatDateTime = (value?: string) => {
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString()
 }
+
+const headerEntries = (item: ForwardProxyDiscoveryEntry) =>
+  Object.entries(item.lastRequestHeaders ?? {}).sort((a, b) => a[0].localeCompare(b[0]))
 
 const isDomainIntercepted = (host: string) => {
   const normalizedHost = host.trim().toLowerCase()

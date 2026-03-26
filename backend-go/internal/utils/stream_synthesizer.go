@@ -104,6 +104,26 @@ func (s *StreamSynthesizer) ProcessLine(line string) {
 			// Fallback to Claude parser so request logs still capture usage/model.
 			s.processClaude(data)
 		}
+	case "auto":
+		s.processAuto(data)
+	}
+}
+
+func (s *StreamSynthesizer) processAuto(data map[string]interface{}) {
+	typeStr, _ := data["type"].(string)
+
+	switch {
+	case strings.HasPrefix(typeStr, "response."):
+		s.processResponses(data)
+	case typeStr == "message_start" || typeStr == "message_delta" || typeStr == "content_block_start" || typeStr == "content_block_delta":
+		s.processClaude(data)
+	case data["choices"] != nil:
+		s.processOpenAI(data)
+	case data["candidates"] != nil || data["usageMetadata"] != nil || data["cpaUsageMetadata"] != nil || data["modelVersion"] != nil:
+		s.processGemini(data)
+	default:
+		// Best effort fallback for Claude-style converted events on unknown paths.
+		s.processClaude(data)
 	}
 }
 

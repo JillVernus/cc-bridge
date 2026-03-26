@@ -26,7 +26,9 @@ export default {
     required: 'Required',
     optional: 'Optional',
     yes: 'Yes',
-    no: 'No'
+    no: 'No',
+    clear: 'Clear',
+    actions: 'Actions'
   },
 
   // Theme
@@ -1081,6 +1083,7 @@ export default {
     discoveryLastRequest: 'Last Request',
     discoveryFirstSeen: 'First Seen',
     discoveryLastSeen: 'Last Seen',
+    discoveryHeadersChip: '{count} headers',
     discoveryEmpty: 'No proxied hosts discovered yet. Start routing traffic through the forward proxy to build this list.',
     discoveryLoadFailed: 'Failed to load forward proxy discovery',
     discoveryClearFailed: 'Failed to clear forward proxy discovery',

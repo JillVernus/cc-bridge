@@ -26,7 +26,9 @@ export default {
     required: '必填',
     optional: '可选',
     yes: '是',
-    no: '否'
+    no: '否',
+    clear: '清空',
+    actions: '操作'
   },
 
   // Theme
@@ -1064,6 +1066,7 @@ export default {
     discoveryLastRequest: '最近请求',
     discoveryFirstSeen: '首次出现',
     discoveryLastSeen: '最近出现',
+    discoveryHeadersChip: '{count} 个请求头',
     discoveryEmpty: '还没有发现任何代理主机。先让流量经过正向代理，这里就会逐步累积候选域名。',
     discoveryLoadFailed: '加载正向代理发现列表失败',
     discoveryClearFailed: '清空正向代理发现列表失败',

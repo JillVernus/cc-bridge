@@ -1,6 +1,7 @@
 package forwardproxy
 
 import (
+	"net/http"
 	"path/filepath"
 	"testing"
 	"time"
@@ -29,7 +30,15 @@ func TestDiscoveryStore_RecordAndPersist(t *testing.T) {
 		Intercepted: true,
 		Method:      "POST",
 		Path:        "/v1/responses",
-		SeenAt:      secondSeen,
+		RequestHeaders: http.Header{
+			"Authorization":   []string{"Bearer super-secret-token"},
+			"Content-Type":    []string{"application/json"},
+			"X-Trace-Id":      []string{"trace-123"},
+			"Set-Cookie":      []string{"abc=123"},
+			"User-Agent":      []string{"codex_vscode"},
+			"X-Forwarded-For": []string{"127.0.0.1"},
+		},
+		SeenAt: secondSeen,
 	})
 
 	entries := store.List()
@@ -55,6 +64,15 @@ func TestDiscoveryStore_RecordAndPersist(t *testing.T) {
 	}
 	if entry.LastPath != "/v1/responses" {
 		t.Fatalf("expected lastPath /v1/responses, got %q", entry.LastPath)
+	}
+	if entry.LastRequestHeaders["Content-Type"] != "application/json" {
+		t.Fatalf("expected Content-Type preserved, got %#v", entry.LastRequestHeaders)
+	}
+	if got := entry.LastRequestHeaders["Authorization"]; got == "" || got == "Bearer super-secret-token" {
+		t.Fatalf("expected Authorization masked, got %q", got)
+	}
+	if got := entry.LastRequestHeaders["Set-Cookie"]; got == "" || got == "abc=123" {
+		t.Fatalf("expected Set-Cookie masked, got %q", got)
 	}
 	if !entry.FirstSeenAt.Equal(firstSeen) {
 		t.Fatalf("expected firstSeenAt %v, got %v", firstSeen, entry.FirstSeenAt)
