@@ -62,9 +62,17 @@ type Server struct {
 	enabled          bool
 	running          bool
 
-	xInitiatorOverride    XInitiatorOverrideConfig
-	xInitiatorDomainState map[string]time.Time
-	now                   func() time.Time
+	xInitiatorOverride         XInitiatorOverrideConfig
+	xInitiatorDomainState      map[string]time.Time
+	xInitiatorQuotaDomainState map[string]xInitiatorQuotaState
+	now                        func() time.Time
+}
+
+type ConfigSnapshot struct {
+	Config  Config
+	Runtime XInitiatorOverrideRuntimeStatus
+	Running bool
+	Port    int
 }
 
 // NewServer creates a new forward proxy server.
@@ -103,14 +111,15 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 				ForceAttemptHTTP2:     true,
 			},
 		},
-		port:                  cfg.Port,
-		bindAddress:           bindAddr,
-		configPath:            configPath,
-		interceptDomains:      make(map[string]bool),
-		domainAliases:         make(map[string]string),
-		enabled:               cfg.Enabled,
-		xInitiatorDomainState: make(map[string]time.Time),
-		now:                   time.Now,
+		port:                       cfg.Port,
+		bindAddress:                bindAddr,
+		configPath:                 configPath,
+		interceptDomains:           make(map[string]bool),
+		domainAliases:              make(map[string]string),
+		enabled:                    cfg.Enabled,
+		xInitiatorDomainState:      make(map[string]time.Time),
+		xInitiatorQuotaDomainState: make(map[string]xInitiatorQuotaState),
+		now:                        time.Now,
 	}
 
 	discoveryStore, err := NewDiscoveryStore(discoveryPath)
@@ -119,8 +128,12 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	}
 	s.discoveryStore = discoveryStore
 
-	// Try to load persisted config, fall back to env defaults
+	// Try to load persisted config, fall back to env defaults only when absent.
 	if err := s.loadConfig(); err != nil {
+		if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("load persisted config: %w", err)
+		}
+
 		// No persisted config yet — use startup defaults
 		for _, d := range cfg.InterceptDomains {
 			s.interceptDomains[strings.ToLower(strings.TrimSpace(d))] = true
@@ -446,21 +459,39 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 
 // GetConfig returns the current forward proxy configuration.
 func (s *Server) GetConfig() Config {
+	if s == nil {
+		return Config{}
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	return s.getConfigLocked()
+}
+
+func (s *Server) GetConfigSnapshot() ConfigSnapshot {
+	if s == nil {
+		return ConfigSnapshot{}
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return ConfigSnapshot{
+		Config:  s.getConfigLocked(),
+		Runtime: s.getXInitiatorOverrideRuntimeStatusLocked(),
+		Running: s.running,
+		Port:    s.port,
+	}
+}
+
+func (s *Server) getConfigLocked() Config {
 	domains := make([]string, 0, len(s.interceptDomains))
 	for d := range s.interceptDomains {
 		domains = append(domains, d)
 	}
 	sort.Strings(domains)
-	overrideCfg := s.xInitiatorOverride
-	if overrideCfg.Mode == "" {
-		overrideCfg.Mode = XInitiatorOverrideModeFixedWindow
-	}
-	if overrideCfg.DurationSeconds <= 0 {
-		overrideCfg.DurationSeconds = 300
-	}
+	overrideCfg := normalizeXInitiatorOverrideConfig(s.xInitiatorOverride)
 	return Config{
 		Enabled:            s.enabled,
 		InterceptDomains:   domains,
@@ -509,6 +540,7 @@ func (s *Server) UpdateConfig(cfg Config) error {
 	if err := validateXInitiatorOverrideConfig(persistCfg.XInitiatorOverride); err != nil {
 		return err
 	}
+	persistCfg.XInitiatorOverride = normalizeXInitiatorOverrideConfig(persistCfg.XInitiatorOverride)
 	if err := s.persistConfig(persistCfg); err != nil {
 		return err
 	}
@@ -520,6 +552,7 @@ func (s *Server) UpdateConfig(cfg Config) error {
 	s.domainAliases = cloneDomainAliases(normalizedAliases)
 	s.xInitiatorOverride = persistCfg.XInitiatorOverride
 	s.xInitiatorDomainState = make(map[string]time.Time)
+	s.xInitiatorQuotaDomainState = make(map[string]xInitiatorQuotaState)
 	s.mu.Unlock()
 	return nil
 }
@@ -567,13 +600,18 @@ func cloneDomainAliases(aliases map[string]string) map[string]string {
 }
 
 func (s *Server) resolveInterceptedProviderName(hostOnly string) string {
+	s.mu.RLock()
+	resolved := resolveInterceptedProviderNameFromAliases(s.domainAliases, hostOnly)
+	s.mu.RUnlock()
+	return resolved
+}
+
+func resolveInterceptedProviderNameFromAliases(domainAliases map[string]string, hostOnly string) string {
 	normalizedHost := normalizeForwardProxyHost(hostOnly)
 	if normalizedHost == "" {
 		return ""
 	}
-	s.mu.RLock()
-	alias := strings.TrimSpace(s.domainAliases[normalizedHost])
-	s.mu.RUnlock()
+	alias := strings.TrimSpace(domainAliases[normalizedHost])
 	if alias != "" {
 		return alias
 	}
@@ -636,6 +674,12 @@ func (s *Server) loadConfig() error {
 	if err != nil {
 		return err
 	}
+	var raw struct {
+		XInitiatorOverride json.RawMessage `json:"xInitiatorOverride"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return err
@@ -649,12 +693,32 @@ func (s *Server) loadConfig() error {
 		}
 	}
 	s.domainAliases = normalizeDomainAliases(cfg.DomainAliases)
+	if shouldDefaultLegacyQuotaOverrideTimes(cfg.XInitiatorOverride, raw.XInitiatorOverride) {
+		cfg.XInitiatorOverride.OverrideTimes = 1
+	}
 	if err := validateXInitiatorOverrideConfig(cfg.XInitiatorOverride); err != nil {
 		return err
 	}
 	s.xInitiatorOverride = cfg.XInitiatorOverride
 	s.xInitiatorDomainState = make(map[string]time.Time)
+	s.xInitiatorQuotaDomainState = make(map[string]xInitiatorQuotaState)
 	return nil
+}
+
+func shouldDefaultLegacyQuotaOverrideTimes(cfg XInitiatorOverrideConfig, raw json.RawMessage) bool {
+	if cfg.Mode != XInitiatorOverrideModeWindowedQuota {
+		return false
+	}
+	if len(raw) == 0 {
+		return false
+	}
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return false
+	}
+	_, exists := fields["overrideTimes"]
+	return !exists
 }
 
 func (s *Server) saveConfig() error {

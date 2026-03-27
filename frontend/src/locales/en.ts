@@ -1119,16 +1119,27 @@ export default {
     xInitiatorOverrideMode: 'Override Mode',
     xInitiatorOverrideModeFixedWindow: 'Fixed time based',
     xInitiatorOverrideModeRelativeCountdown: 'Relative countdown',
+    xInitiatorOverrideModeWindowedQuota: 'Windowed quota',
     xInitiatorOverrideModeFixedShort: 'Fixed',
     xInitiatorOverrideModeRelativeShort: 'Countdown',
+    xInitiatorOverrideModeWindowedQuotaShort: 'Quota',
     xInitiatorOverrideDuration: 'Duration (seconds)',
-    xInitiatorOverrideHint:
-      'Per-domain behavior: the first user request starts the timer without override. Later user requests during the active window are rewritten to agent before going upstream.',
+    xInitiatorOverrideOverrideTimes: 'Override Times',
+    xInitiatorOverrideHintFixedWindow:
+      'Per domain: the first user request starts the window. Later user requests are rewritten to agent until the fixed expiry is reached.',
+    xInitiatorOverrideHintRelativeCountdown:
+      'Per domain: the first user request starts the window. Later user requests are rewritten to agent, and each successful rewrite refreshes the countdown.',
+    xInitiatorOverrideHintWindowedQuota:
+      'Per domain: the first user request starts the window and does not consume quota. Later user requests are rewritten to agent until either quota is consumed or time expires.',
     xInitiatorOverrideOffShort: 'X-Initiator Off',
     xInitiatorOverrideIdle: 'idle',
     xInitiatorOverrideToolbarTooltip: 'Per-domain X-Initiator override runtime state',
     xInitiatorOverrideActiveDomains: '{count} active domains',
     xInitiatorOverrideToolbarRemaining: '{seconds}s until nearest expiry',
+    xInitiatorOverrideToolbarQuotaRemaining: 'Quota {remaining}/{total} - {seconds}s',
+    xInitiatorOverrideTooltipDomainQuota: '{remaining}/{total} overrides remaining',
+    xInitiatorOverrideTooltipDomainQuotaTime: '{remaining}/{total} · {seconds}s',
+    xInitiatorOverrideTooltipDomainTime: '{seconds}s remaining',
     caCertSection: 'CA Certificate',
     caCertDescription:
       'Download the CA certificate and install it on clients that use this proxy. Required for HTTPS interception to work without certificate errors.',

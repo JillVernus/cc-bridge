@@ -1683,16 +1683,27 @@ export interface FailoverConfig {
 // Forward Proxy Configuration
 export interface XInitiatorOverrideConfig {
   enabled: boolean
-  mode: 'fixed_window' | 'relative_countdown'
+  mode: 'fixed_window' | 'relative_countdown' | 'windowed_quota'
   durationSeconds: number
+  overrideTimes: number
+}
+
+export interface XInitiatorOverrideDomainStatus {
+  domain: string
+  displayName: string
+  expiresAt: string
+  remainingSeconds: number
+  remainingOverrides?: number
+  totalOverrides?: number
 }
 
 export interface XInitiatorOverrideRuntimeStatus {
   enabled: boolean
-  mode: 'fixed_window' | 'relative_countdown'
+  mode: 'fixed_window' | 'relative_countdown' | 'windowed_quota'
   activeDomains: number
   nearestExpiryAt?: string
   nearestRemainingSeconds: number
+  domains?: XInitiatorOverrideDomainStatus[]
 }
 
 export interface ForwardProxyConfig {

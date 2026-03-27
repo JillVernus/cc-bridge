@@ -132,7 +132,19 @@
               class="mb-2"
               :disabled="!config.running || !config.xInitiatorOverride.enabled"
             />
-            <div class="text-caption text-grey">{{ t('forwardProxy.xInitiatorOverrideHint') }}</div>
+            <v-text-field
+              v-if="showOverrideTimesField"
+              v-model.number="config.xInitiatorOverride.overrideTimes"
+              type="number"
+              min="1"
+              density="compact"
+              variant="outlined"
+              :label="t('forwardProxy.xInitiatorOverrideOverrideTimes')"
+              hide-details
+              class="mb-2"
+              :disabled="!config.running || !config.xInitiatorOverride.enabled"
+            />
+            <div class="text-caption text-grey">{{ xInitiatorOverrideModeHint }}</div>
           </v-card>
 
           <!-- CA Certificate Download -->
@@ -210,8 +222,22 @@ const downloading = ref(false)
 const proxyPort = computed(() => config.value?.port ?? 3001)
 const xInitiatorModeOptions = computed(() => [
   { title: t('forwardProxy.xInitiatorOverrideModeFixedWindow'), value: 'fixed_window' },
-  { title: t('forwardProxy.xInitiatorOverrideModeRelativeCountdown'), value: 'relative_countdown' }
+  { title: t('forwardProxy.xInitiatorOverrideModeRelativeCountdown'), value: 'relative_countdown' },
+  { title: t('forwardProxy.xInitiatorOverrideModeWindowedQuota'), value: 'windowed_quota' }
 ])
+const showOverrideTimesField = computed(
+  () => config.value?.xInitiatorOverride.enabled && config.value.xInitiatorOverride.mode === 'windowed_quota'
+)
+const xInitiatorOverrideModeHint = computed(() => {
+  const mode = config.value?.xInitiatorOverride.mode
+  if (mode === 'relative_countdown') {
+    return t('forwardProxy.xInitiatorOverrideHintRelativeCountdown')
+  }
+  if (mode === 'windowed_quota') {
+    return t('forwardProxy.xInitiatorOverrideHintWindowedQuota')
+  }
+  return t('forwardProxy.xInitiatorOverrideHintFixedWindow')
+})
 
 // Snackbar
 const snackbar = ref({
@@ -224,6 +250,8 @@ const showSnackbar = (text: string, color: string = 'error') => {
   snackbar.value = { show: true, text, color }
 }
 
+const clampPositiveInt = (value: unknown, fallback: number) => Math.max(1, Math.trunc(Number(value) || fallback))
+
 const defaultForwardProxyConfig = (): ForwardProxyConfig => ({
   enabled: false,
   interceptDomains: [],
@@ -231,13 +259,15 @@ const defaultForwardProxyConfig = (): ForwardProxyConfig => ({
   xInitiatorOverride: {
     enabled: false,
     mode: 'fixed_window',
-    durationSeconds: 300
+    durationSeconds: 300,
+    overrideTimes: 1
   },
   xInitiatorOverrideRuntime: {
     enabled: false,
     mode: 'fixed_window',
     activeDomains: 0,
-    nearestRemainingSeconds: 0
+    nearestRemainingSeconds: 0,
+    domains: []
   },
   running: false,
   port: 3001
@@ -287,6 +317,11 @@ const loadConfig = async () => {
       xInitiatorOverride: {
         ...defaultForwardProxyConfig().xInitiatorOverride,
         ...loaded.xInitiatorOverride
+      },
+      xInitiatorOverrideRuntime: {
+        ...defaultForwardProxyConfig().xInitiatorOverrideRuntime,
+        ...loaded.xInitiatorOverrideRuntime,
+        domains: loaded.xInitiatorOverrideRuntime?.domains ?? []
       }
     }
     syncInterceptDomainRows(config.value)
@@ -315,6 +350,12 @@ const saveConfig = async () => {
   config.value.interceptDomains = [...new Set(interceptDomains)].sort((a, b) => a.localeCompare(b))
   config.value.domainAliases = cleanedDomainAliases
 
+  const durationSeconds = clampPositiveInt(config.value.xInitiatorOverride.durationSeconds, 300)
+  const overrideTimes = clampPositiveInt(config.value.xInitiatorOverride.overrideTimes, 1)
+
+  config.value.xInitiatorOverride.durationSeconds = durationSeconds
+  config.value.xInitiatorOverride.overrideTimes = overrideTimes
+
   saving.value = true
   try {
     await api.updateForwardProxyConfig({
@@ -323,7 +364,8 @@ const saveConfig = async () => {
       domainAliases: cleanedDomainAliases,
       xInitiatorOverride: {
         ...config.value.xInitiatorOverride,
-        durationSeconds: Math.max(1, Number(config.value.xInitiatorOverride.durationSeconds) || 300)
+        durationSeconds,
+        overrideTimes
       }
     })
     showSnackbar(t('common.success'), 'success')

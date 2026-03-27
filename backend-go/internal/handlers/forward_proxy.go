@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/JillVernus/cc-bridge/internal/forwardproxy"
@@ -19,6 +20,7 @@ func GetForwardProxyConfig(fpServer *forwardproxy.Server) gin.HandlerFunc {
 					Enabled:         false,
 					Mode:            forwardproxy.XInitiatorOverrideModeFixedWindow,
 					DurationSeconds: 300,
+					OverrideTimes:   1,
 				},
 				"xInitiatorOverrideRuntime": forwardproxy.XInitiatorOverrideRuntimeStatus{
 					Enabled: false,
@@ -28,15 +30,15 @@ func GetForwardProxyConfig(fpServer *forwardproxy.Server) gin.HandlerFunc {
 			})
 			return
 		}
-		cfg := fpServer.GetConfig()
+		snapshot := fpServer.GetConfigSnapshot()
 		c.JSON(http.StatusOK, gin.H{
-			"enabled":                   cfg.Enabled,
-			"interceptDomains":          cfg.InterceptDomains,
-			"domainAliases":             cfg.DomainAliases,
-			"xInitiatorOverride":        cfg.XInitiatorOverride,
-			"xInitiatorOverrideRuntime": fpServer.GetXInitiatorOverrideRuntimeStatus(),
-			"running":                   fpServer.IsRunning(),
-			"port":                      fpServer.GetPort(),
+			"enabled":                   snapshot.Config.Enabled,
+			"interceptDomains":          snapshot.Config.InterceptDomains,
+			"domainAliases":             snapshot.Config.DomainAliases,
+			"xInitiatorOverride":        snapshot.Config.XInitiatorOverride,
+			"xInitiatorOverrideRuntime": snapshot.Runtime,
+			"running":                   snapshot.Running,
+			"port":                      snapshot.Port,
 		})
 	}
 }
@@ -75,20 +77,25 @@ func UpdateForwardProxyConfig(fpServer *forwardproxy.Server) gin.HandlerFunc {
 		}
 
 		if err := fpServer.UpdateConfig(cfg); err != nil {
+			var validationErr *forwardproxy.ValidationError
+			if errors.As(err, &validationErr) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save config: " + err.Error()})
 			return
 		}
 
-		updatedCfg := fpServer.GetConfig()
+		snapshot := fpServer.GetConfigSnapshot()
 		c.JSON(http.StatusOK, gin.H{
 			"message":                   "Forward proxy config updated",
-			"enabled":                   updatedCfg.Enabled,
-			"interceptDomains":          updatedCfg.InterceptDomains,
-			"domainAliases":             updatedCfg.DomainAliases,
-			"xInitiatorOverride":        updatedCfg.XInitiatorOverride,
-			"xInitiatorOverrideRuntime": fpServer.GetXInitiatorOverrideRuntimeStatus(),
-			"running":                   fpServer.IsRunning(),
-			"port":                      fpServer.GetPort(),
+			"enabled":                   snapshot.Config.Enabled,
+			"interceptDomains":          snapshot.Config.InterceptDomains,
+			"domainAliases":             snapshot.Config.DomainAliases,
+			"xInitiatorOverride":        snapshot.Config.XInitiatorOverride,
+			"xInitiatorOverrideRuntime": snapshot.Runtime,
+			"running":                   snapshot.Running,
+			"port":                      snapshot.Port,
 		})
 	}
 }
