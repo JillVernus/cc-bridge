@@ -937,16 +937,51 @@
             {{ forwardProxyOverrideBadgeLabel }}
           </v-chip>
         </template>
-        <div>{{ t('forwardProxy.xInitiatorOverrideToolbarTooltip') }}</div>
-        <div>
-          {{
-            t('forwardProxy.xInitiatorOverrideActiveDomains', {
-              count: forwardProxyOverrideRuntime?.activeDomains ?? 0
-            })
-          }}
-        </div>
-        <div v-if="(forwardProxyOverrideRuntime?.activeDomains ?? 0) > 0">
-          {{ t('forwardProxy.xInitiatorOverrideToolbarRemaining', { seconds: forwardProxyOverrideRemainingSeconds }) }}
+        <div class="forward-proxy-override-tooltip">
+          <div>{{ t('forwardProxy.xInitiatorOverrideToolbarTooltip') }}</div>
+          <div>
+            {{
+              t('forwardProxy.xInitiatorOverrideActiveDomains', {
+                count: forwardProxyOverrideRuntime?.activeDomains ?? 0
+              })
+            }}
+          </div>
+          <div v-if="(forwardProxyOverrideRuntime?.activeDomains ?? 0) > 0">
+            {{ t('forwardProxy.xInitiatorOverrideToolbarRemaining', { seconds: forwardProxyOverrideRemainingSeconds }) }}
+          </div>
+          <div v-if="forwardProxyOverrideRuntimeDomains.length > 0" class="forward-proxy-override-tooltip-list">
+            <div
+              v-for="domain in forwardProxyOverrideRuntimeDomains"
+              :key="domain.domain"
+              class="forward-proxy-override-tooltip-row"
+            >
+              <span class="forward-proxy-override-tooltip-domain">{{ domain.displayName }}</span>
+              <span class="forward-proxy-override-tooltip-value">
+                <template
+                  v-if="
+                    forwardProxyOverrideIsQuotaMode &&
+                    typeof domain.remainingOverrides === 'number' &&
+                    typeof domain.totalOverrides === 'number'
+                  "
+                >
+                  {{
+                    t('forwardProxy.xInitiatorOverrideTooltipDomainQuotaTime', {
+                      remaining: domain.remainingOverrides,
+                      total: domain.totalOverrides,
+                      seconds: getForwardProxyOverrideDomainRemainingSeconds(domain)
+                    })
+                  }}
+                </template>
+                <template v-else>
+                  {{
+                    t('forwardProxy.xInitiatorOverrideTooltipDomainTime', {
+                      seconds: getForwardProxyOverrideDomainRemainingSeconds(domain)
+                    })
+                  }}
+                </template>
+              </span>
+            </div>
+          </div>
         </div>
       </v-tooltip>
       <v-chip class="mr-2" size="small" variant="tonal">
@@ -3268,6 +3303,22 @@ const scheduleForwardProxyConfigRefresh = () => {
 
 const forwardProxyOverrideRuntime = computed(() => forwardProxyConfig.value?.xInitiatorOverrideRuntime ?? null)
 
+const forwardProxyOverrideRuntimeDomains = computed(() => forwardProxyOverrideRuntime.value?.domains ?? [])
+
+const forwardProxyOverrideNearestDomain = computed(() => forwardProxyOverrideRuntimeDomains.value[0] ?? null)
+
+const getForwardProxyOverrideDomainRemainingSeconds = (domain: {
+  expiresAt: string
+  remainingSeconds: number
+}) => {
+  if (!domain.expiresAt) return Math.max(0, domain.remainingSeconds || 0)
+
+  const expiryMs = new Date(domain.expiresAt).getTime()
+  if (Number.isNaN(expiryMs)) return Math.max(0, domain.remainingSeconds || 0)
+
+  return Math.max(0, Math.ceil((expiryMs - overrideClockNow.value) / 1000))
+}
+
 const forwardProxyOverrideRemainingSeconds = computed(() => {
   const runtime = forwardProxyOverrideRuntime.value
   if (!runtime?.enabled) return 0
@@ -3282,7 +3333,13 @@ const forwardProxyOverrideRemainingSeconds = computed(() => {
 const forwardProxyOverrideModeLabel = computed(() => {
   const mode = forwardProxyOverrideRuntime.value?.mode || forwardProxyConfig.value?.xInitiatorOverride?.mode
   if (mode === 'relative_countdown') return t('forwardProxy.xInitiatorOverrideModeRelativeShort')
+  if (mode === 'windowed_quota') return t('forwardProxy.xInitiatorOverrideModeWindowedQuotaShort')
   return t('forwardProxy.xInitiatorOverrideModeFixedShort')
+})
+
+const forwardProxyOverrideIsQuotaMode = computed(() => {
+  const mode = forwardProxyOverrideRuntime.value?.mode || forwardProxyConfig.value?.xInitiatorOverride?.mode
+  return mode === 'windowed_quota'
 })
 
 const forwardProxyOverrideBadgeLabel = computed(() => {
@@ -3293,6 +3350,19 @@ const forwardProxyOverrideBadgeLabel = computed(() => {
   }
 
   if (forwardProxyOverrideRuntime.value?.activeDomains) {
+    if (
+      forwardProxyOverrideIsQuotaMode.value &&
+      forwardProxyOverrideNearestDomain.value &&
+      typeof forwardProxyOverrideNearestDomain.value.remainingOverrides === 'number' &&
+      typeof forwardProxyOverrideNearestDomain.value.totalOverrides === 'number'
+    ) {
+      return t('forwardProxy.xInitiatorOverrideToolbarQuotaRemaining', {
+        remaining: forwardProxyOverrideNearestDomain.value.remainingOverrides,
+        total: forwardProxyOverrideNearestDomain.value.totalOverrides,
+        seconds: getForwardProxyOverrideDomainRemainingSeconds(forwardProxyOverrideNearestDomain.value)
+      })
+    }
+
     return `${forwardProxyOverrideModeLabel.value} ${forwardProxyOverrideRemainingSeconds.value}s`
   }
 
@@ -4155,6 +4225,41 @@ const silentRefresh = async () => {
   font-size: 12px;
   white-space: nowrap;
   color: #fff;
+}
+
+.forward-proxy-override-tooltip {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.forward-proxy-override-tooltip-list {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.forward-proxy-override-tooltip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.forward-proxy-override-tooltip-row + .forward-proxy-override-tooltip-row {
+  margin-top: 4px;
+}
+
+.forward-proxy-override-tooltip-domain {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.forward-proxy-override-tooltip-value {
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.72);
+  white-space: nowrap;
 }
 
 .id-cell {

@@ -3,27 +3,57 @@ package forwardproxy
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
 
+type ValidationError struct {
+	Message string
+}
+
+func (e *ValidationError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.Message
+}
+
 const (
 	XInitiatorOverrideModeFixedWindow       = "fixed_window"
 	XInitiatorOverrideModeRelativeCountdown = "relative_countdown"
+	XInitiatorOverrideModeWindowedQuota     = "windowed_quota"
 )
 
 type XInitiatorOverrideConfig struct {
 	Enabled         bool   `json:"enabled"`
 	Mode            string `json:"mode"`
 	DurationSeconds int    `json:"durationSeconds"`
+	OverrideTimes   int    `json:"overrideTimes"`
 }
 
 type XInitiatorOverrideRuntimeStatus struct {
-	Enabled                 bool       `json:"enabled"`
-	Mode                    string     `json:"mode"`
-	ActiveDomains           int        `json:"activeDomains"`
-	NearestExpiryAt         *time.Time `json:"nearestExpiryAt,omitempty"`
-	NearestRemainingSeconds int        `json:"nearestRemainingSeconds"`
+	Enabled                 bool                             `json:"enabled"`
+	Mode                    string                           `json:"mode"`
+	ActiveDomains           int                              `json:"activeDomains"`
+	NearestExpiryAt         *time.Time                       `json:"nearestExpiryAt,omitempty"`
+	NearestRemainingSeconds int                              `json:"nearestRemainingSeconds"`
+	Domains                 []XInitiatorOverrideDomainStatus `json:"domains,omitempty"`
+}
+
+type XInitiatorOverrideDomainStatus struct {
+	Domain             string    `json:"domain"`
+	DisplayName        string    `json:"displayName"`
+	ExpiresAt          time.Time `json:"expiresAt"`
+	RemainingSeconds   int       `json:"remainingSeconds"`
+	RemainingOverrides *int      `json:"remainingOverrides,omitempty"`
+	TotalOverrides     *int      `json:"totalOverrides,omitempty"`
+}
+
+type xInitiatorQuotaState struct {
+	expiresAt          time.Time
+	remainingOverrides int
+	totalOverrides     int
 }
 
 func validateXInitiatorOverrideConfig(cfg XInitiatorOverrideConfig) error {
@@ -31,14 +61,37 @@ func validateXInitiatorOverrideConfig(cfg XInitiatorOverrideConfig) error {
 		return nil
 	}
 	if cfg.DurationSeconds <= 0 {
-		return fmt.Errorf("xInitiatorOverride.durationSeconds must be greater than 0")
+		return &ValidationError{Message: "xInitiatorOverride.durationSeconds must be greater than 0"}
 	}
 	switch strings.TrimSpace(cfg.Mode) {
 	case XInitiatorOverrideModeFixedWindow, XInitiatorOverrideModeRelativeCountdown:
 		return nil
+	case XInitiatorOverrideModeWindowedQuota:
+		if cfg.OverrideTimes <= 0 {
+			return &ValidationError{Message: fmt.Sprintf("xInitiatorOverride.overrideTimes must be greater than 0 for %q", XInitiatorOverrideModeWindowedQuota)}
+		}
+		return nil
 	default:
-		return fmt.Errorf("xInitiatorOverride.mode must be one of %q or %q", XInitiatorOverrideModeFixedWindow, XInitiatorOverrideModeRelativeCountdown)
+		return &ValidationError{Message: fmt.Sprintf(
+			"xInitiatorOverride.mode must be one of %q, %q, or %q",
+			XInitiatorOverrideModeFixedWindow,
+			XInitiatorOverrideModeRelativeCountdown,
+			XInitiatorOverrideModeWindowedQuota,
+		)}
 	}
+}
+
+func normalizeXInitiatorOverrideConfig(cfg XInitiatorOverrideConfig) XInitiatorOverrideConfig {
+	if strings.TrimSpace(cfg.Mode) == "" {
+		cfg.Mode = XInitiatorOverrideModeFixedWindow
+	}
+	if cfg.DurationSeconds <= 0 {
+		cfg.DurationSeconds = 300
+	}
+	if cfg.OverrideTimes <= 0 {
+		cfg.OverrideTimes = 1
+	}
+	return cfg
 }
 
 func (s *Server) applyXInitiatorOverride(host string, headers http.Header) bool {
@@ -68,6 +121,44 @@ func (s *Server) applyXInitiatorOverride(host string, headers http.Header) bool 
 	if hostKey == "" {
 		return false
 	}
+
+	if cfg.Mode == XInitiatorOverrideModeWindowedQuota {
+		if cfg.OverrideTimes <= 0 {
+			return false
+		}
+		if s.xInitiatorQuotaDomainState == nil {
+			s.xInitiatorQuotaDomainState = make(map[string]xInitiatorQuotaState)
+		}
+
+		state, active := s.xInitiatorQuotaDomainState[hostKey]
+		if !active || !state.expiresAt.After(now) {
+			s.xInitiatorQuotaDomainState[hostKey] = xInitiatorQuotaState{
+				expiresAt:          now.Add(time.Duration(cfg.DurationSeconds) * time.Second),
+				remainingOverrides: cfg.OverrideTimes,
+				totalOverrides:     cfg.OverrideTimes,
+			}
+			return false
+		}
+		if state.remainingOverrides <= 0 {
+			delete(s.xInitiatorQuotaDomainState, hostKey)
+			s.xInitiatorQuotaDomainState[hostKey] = xInitiatorQuotaState{
+				expiresAt:          now.Add(time.Duration(cfg.DurationSeconds) * time.Second),
+				remainingOverrides: cfg.OverrideTimes,
+				totalOverrides:     cfg.OverrideTimes,
+			}
+			return false
+		}
+
+		headers.Set("X-Initiator", "agent")
+		state.remainingOverrides--
+		if state.remainingOverrides <= 0 {
+			delete(s.xInitiatorQuotaDomainState, hostKey)
+			return true
+		}
+		s.xInitiatorQuotaDomainState[hostKey] = state
+		return true
+	}
+
 	if s.xInitiatorDomainState == nil {
 		s.xInitiatorDomainState = make(map[string]time.Time)
 	}
@@ -94,7 +185,16 @@ func (s *Server) GetXInitiatorOverrideRuntimeStatus() XInitiatorOverrideRuntimeS
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	return s.getXInitiatorOverrideRuntimeStatusLocked()
+}
+
+func (s *Server) getXInitiatorOverrideRuntimeStatusLocked() XInitiatorOverrideRuntimeStatus {
+	if s == nil {
+		return XInitiatorOverrideRuntimeStatus{}
+	}
+
 	cfg := s.xInitiatorOverride
+	cfg = normalizeXInitiatorOverrideConfig(cfg)
 	status := XInitiatorOverrideRuntimeStatus{
 		Enabled: cfg.Enabled,
 		Mode:    cfg.Mode,
@@ -106,16 +206,70 @@ func (s *Server) GetXInitiatorOverrideRuntimeStatus() XInitiatorOverrideRuntimeS
 	}
 	now := nowFn()
 
-	for _, expiresAt := range s.xInitiatorDomainState {
+	if cfg.Mode == XInitiatorOverrideModeWindowedQuota {
+		for domain, state := range s.xInitiatorQuotaDomainState {
+			if !state.expiresAt.After(now) {
+				continue
+			}
+			remainingSeconds := int(state.expiresAt.Sub(now).Seconds())
+			if remainingSeconds < 0 {
+				remainingSeconds = 0
+			}
+			remainingOverrides := state.remainingOverrides
+			totalOverrides := state.totalOverrides
+			status.Domains = append(status.Domains, XInitiatorOverrideDomainStatus{
+				Domain:             domain,
+				DisplayName:        resolveInterceptedProviderNameFromAliases(s.domainAliases, domain),
+				ExpiresAt:          state.expiresAt,
+				RemainingSeconds:   remainingSeconds,
+				RemainingOverrides: &remainingOverrides,
+				TotalOverrides:     &totalOverrides,
+			})
+			status.ActiveDomains++
+			if status.NearestExpiryAt == nil || state.expiresAt.Before(*status.NearestExpiryAt) {
+				exp := state.expiresAt
+				status.NearestExpiryAt = &exp
+			}
+		}
+
+		sort.Slice(status.Domains, func(i, j int) bool {
+			return status.Domains[i].ExpiresAt.Before(status.Domains[j].ExpiresAt)
+		})
+
+		if status.NearestExpiryAt != nil {
+			status.NearestRemainingSeconds = int(status.NearestExpiryAt.Sub(now).Seconds())
+			if status.NearestRemainingSeconds < 0 {
+				status.NearestRemainingSeconds = 0
+			}
+		}
+
+		return status
+	}
+
+	for domain, expiresAt := range s.xInitiatorDomainState {
 		if !expiresAt.After(now) {
 			continue
 		}
+		remainingSeconds := int(expiresAt.Sub(now).Seconds())
+		if remainingSeconds < 0 {
+			remainingSeconds = 0
+		}
+		status.Domains = append(status.Domains, XInitiatorOverrideDomainStatus{
+			Domain:           domain,
+			DisplayName:      resolveInterceptedProviderNameFromAliases(s.domainAliases, domain),
+			ExpiresAt:        expiresAt,
+			RemainingSeconds: remainingSeconds,
+		})
 		status.ActiveDomains++
 		if status.NearestExpiryAt == nil || expiresAt.Before(*status.NearestExpiryAt) {
 			exp := expiresAt
 			status.NearestExpiryAt = &exp
 		}
 	}
+
+	sort.Slice(status.Domains, func(i, j int) bool {
+		return status.Domains[i].ExpiresAt.Before(status.Domains[j].ExpiresAt)
+	})
 
 	if status.NearestExpiryAt != nil {
 		status.NearestRemainingSeconds = int(status.NearestExpiryAt.Sub(now).Seconds())

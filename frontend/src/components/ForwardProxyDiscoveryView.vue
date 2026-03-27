@@ -145,24 +145,27 @@ const { t } = useI18n()
 const loading = ref(false)
 const clearing = ref(false)
 const error = ref('')
-const config = ref<ForwardProxyConfig>({
+const defaultForwardProxyConfig = (): ForwardProxyConfig => ({
   enabled: false,
   interceptDomains: [],
   domainAliases: {},
   xInitiatorOverride: {
     enabled: false,
     mode: 'fixed_window',
-    durationSeconds: 300
+    durationSeconds: 300,
+    overrideTimes: 1
   },
   xInitiatorOverrideRuntime: {
     enabled: false,
     mode: 'fixed_window',
     activeDomains: 0,
-    nearestRemainingSeconds: 0
+    nearestRemainingSeconds: 0,
+    domains: []
   },
   running: false,
   port: 3001
 })
+const config = ref<ForwardProxyConfig>(defaultForwardProxyConfig())
 const entries = ref<ForwardProxyDiscoveryEntry[]>([])
 const revealedHeadersByEntry = ref<Record<string, boolean>>({})
 
@@ -229,7 +232,23 @@ const loadData = async () => {
   error.value = ''
   try {
     const [proxyConfig, discovery] = await Promise.all([api.getForwardProxyConfig(), api.getForwardProxyDiscovery()])
-    config.value = proxyConfig
+    config.value = {
+      ...defaultForwardProxyConfig(),
+      ...proxyConfig,
+      domainAliases: {
+        ...defaultForwardProxyConfig().domainAliases,
+        ...(proxyConfig.domainAliases ?? {})
+      },
+      xInitiatorOverride: {
+        ...defaultForwardProxyConfig().xInitiatorOverride,
+        ...proxyConfig.xInitiatorOverride
+      },
+      xInitiatorOverrideRuntime: {
+        ...defaultForwardProxyConfig().xInitiatorOverrideRuntime,
+        ...proxyConfig.xInitiatorOverrideRuntime,
+        domains: proxyConfig.xInitiatorOverrideRuntime?.domains ?? []
+      }
+    }
     entries.value = discovery.entries
     const nextRevealState: Record<string, boolean> = {}
     for (const item of discovery.entries) {
