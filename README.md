@@ -84,16 +84,6 @@ docker-compose up -d
 
 **Supported architectures:** `linux/amd64`, `linux/arm64`
 
-### Build from Source
-
-```bash
-git clone https://github.com/JillVernus/cc-bridge
-cd cc-bridge
-cp backend-go/.env.example backend-go/.env
-# Edit backend-go/.env
-make run
-```
-
 ## Configuration
 
 ### Web UI (Recommended)
@@ -144,31 +134,6 @@ Add `"stream": true` to the request body.
 ### Multi-turn Conversations (Responses API)
 
 Use `previous_response_id` from the response to continue conversations.
-
-## Cloud Deployment
-
-<details>
-<summary>Railway / Render / Fly.io / Zeabur</summary>
-
-**Railway:**
-```bash
-# Connect GitHub repo, set environment variables:
-PROXY_ACCESS_KEY=your-key
-ENABLE_WEB_UI=true
-ENV=production
-```
-
-**Fly.io:**
-```bash
-fly launch --dockerfile Dockerfile
-fly secrets set PROXY_ACCESS_KEY=your-key
-fly deploy
-```
-
-**Render / Zeabur:**
-Connect GitHub repo → Set environment variables → Auto deploy
-
-</details>
 
 ## Troubleshooting
 
