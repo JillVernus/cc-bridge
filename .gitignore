@@ -227,6 +227,7 @@ sample_request/
 .ace-tool/
 .codex-tasks/
 .ccb_config/
+.worktrees/
 
 # Claude Code context files (keep root CLAUDE.md only)
 **/CLAUDE.md
