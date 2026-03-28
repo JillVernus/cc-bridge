@@ -1306,6 +1306,8 @@ export interface RequestLog {
   reasoningEffort?: string // Codex reasoning effort (low/medium/high/xhigh)
   serviceTier?: string // Codex service tier (e.g. priority for fast mode)
   serviceTierOverridden?: boolean // Whether the proxy forced service_tier=priority
+  originalXInitiator?: string
+  effectiveXInitiator?: string
   inputTokens: number
   outputTokens: number
   cacheCreationInputTokens: number

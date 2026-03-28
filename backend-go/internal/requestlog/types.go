@@ -57,6 +57,8 @@ type RequestLog struct {
 	ReasoningEffort          string     `json:"reasoningEffort,omitempty"` // Codex reasoning effort (low/medium/high/xhigh)
 	ServiceTier              string     `json:"serviceTier,omitempty"`     // Codex service tier (e.g. "priority" for fast mode)
 	ServiceTierOverridden    bool       `json:"serviceTierOverridden,omitempty"`
+	OriginalXInitiator       string     `json:"originalXInitiator,omitempty"`
+	EffectiveXInitiator      string     `json:"effectiveXInitiator,omitempty"`
 	InputTokens              int        `json:"inputTokens"`
 	OutputTokens             int        `json:"outputTokens"`
 	CacheCreationInputTokens int        `json:"cacheCreationInputTokens"`

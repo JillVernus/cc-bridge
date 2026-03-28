@@ -239,6 +239,93 @@ func TestHandleHTTPForward_InterceptedGeminiJSONParsesUsage(t *testing.T) {
 	}
 }
 
+func TestHandleHTTPForward_PersistsXInitiatorMetadata(t *testing.T) {
+	reqLogManager := newForwardProxyTestRequestLogManager(t)
+
+	var seen []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("X-Initiator"))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"resp_123","model":"gpt-5","status":"completed","usage":{"input_tokens":4,"output_tokens":2,"total_tokens":6}}`)
+	}))
+	defer upstream.Close()
+
+	upstreamURL, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatalf("failed to parse upstream URL: %v", err)
+	}
+	hostOnly := strings.ToLower(upstreamURL.Hostname())
+
+	current := time.Date(2026, 3, 28, 10, 0, 0, 0, time.UTC)
+	s := &Server{
+		requestLogManager: reqLogManager,
+		httpClient:        upstream.Client(),
+		enabled:           true,
+		interceptDomains: map[string]bool{
+			hostOnly: true,
+		},
+		xInitiatorOverride: XInitiatorOverrideConfig{
+			Enabled:         true,
+			Mode:            XInitiatorOverrideModeFixedWindow,
+			DurationSeconds: 300,
+		},
+		xInitiatorDomainState: make(map[string]time.Time),
+		now: func() time.Time {
+			return current
+		},
+	}
+
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodPost, upstream.URL+"/v1/responses", strings.NewReader(`{"model":"gpt-5","stream":false}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Initiator", "user")
+
+		rec := httptest.NewRecorder()
+		s.handleHTTPForward(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+		}
+
+		current = current.Add(5 * time.Second)
+	}
+
+	if len(seen) != 2 {
+		t.Fatalf("expected 2 upstream requests, got %d", len(seen))
+	}
+	if seen[0] != "user" {
+		t.Fatalf("expected first upstream header to stay user, got %q", seen[0])
+	}
+	if seen[1] != "agent" {
+		t.Fatalf("expected second upstream header to be overridden to agent, got %q", seen[1])
+	}
+
+	recent, err := reqLogManager.GetRecent(&requestlog.RequestLogFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("GetRecent failed: %v", err)
+	}
+	if len(recent.Requests) != 2 {
+		t.Fatalf("expected exactly two request logs, got %d", len(recent.Requests))
+	}
+
+	first := recent.Requests[1]
+	if first.OriginalXInitiator != "user" {
+		t.Fatalf("expected first originalXInitiator=user, got %q", first.OriginalXInitiator)
+	}
+	if first.EffectiveXInitiator != "user" {
+		t.Fatalf("expected first effectiveXInitiator=user, got %q", first.EffectiveXInitiator)
+	}
+
+	second := recent.Requests[0]
+	if second.OriginalXInitiator != "user" {
+		t.Fatalf("expected second originalXInitiator=user, got %q", second.OriginalXInitiator)
+	}
+	if second.EffectiveXInitiator != "agent" {
+		t.Fatalf("expected second effectiveXInitiator=agent, got %q", second.EffectiveXInitiator)
+	}
+}
+
 func TestProxyRequest_InterceptedResponsesEndpointCreatesCompletedLog(t *testing.T) {
 	reqLogManager := newForwardProxyTestRequestLogManager(t)
 

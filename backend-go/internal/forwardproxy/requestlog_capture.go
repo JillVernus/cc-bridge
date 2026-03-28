@@ -61,25 +61,34 @@ func isGeminiEndpoint(path string) bool {
 		strings.Contains(path, "/v1/gemini")
 }
 
-func createInterceptedPendingLog(req *http.Request, startTime time.Time, providerDisplayName string, reqBody []byte) *requestlog.RequestLog {
+func createInterceptedPendingLog(
+	req *http.Request,
+	startTime time.Time,
+	providerDisplayName string,
+	reqBody []byte,
+	originalXInitiator string,
+	effectiveXInitiator string,
+) *requestlog.RequestLog {
 	kind := detectInterceptedRequestKind(req.URL.Path)
 	clientID, sessionID := extractInterceptedClientSession(kind.logType, reqBody)
 	model, stream := extractInterceptedRequestMeta(kind.logType, req.URL.Path, reqBody)
 
 	return &requestlog.RequestLog{
-		Status:       requestlog.StatusPending,
-		InitialTime:  startTime,
-		Type:         kind.logType,
-		ProviderName: providerDisplayName,
-		Model:        model,
-		Stream:       stream,
-		Endpoint:     req.URL.Path,
-		ChannelID:    0,
-		ChannelUID:   "subscription:forward-proxy",
-		ChannelName:  "Subscription (Forward Proxy)",
-		ClientID:     clientID,
-		SessionID:    sessionID,
-		CreatedAt:    time.Now(),
+		Status:              requestlog.StatusPending,
+		InitialTime:         startTime,
+		Type:                kind.logType,
+		ProviderName:        providerDisplayName,
+		Model:               model,
+		Stream:              stream,
+		Endpoint:            req.URL.Path,
+		ChannelID:           0,
+		ChannelUID:          "subscription:forward-proxy",
+		ChannelName:         "Subscription (Forward Proxy)",
+		ClientID:            clientID,
+		SessionID:           sessionID,
+		OriginalXInitiator:  strings.TrimSpace(originalXInitiator),
+		EffectiveXInitiator: strings.TrimSpace(effectiveXInitiator),
+		CreatedAt:           time.Now(),
 	}
 }
 

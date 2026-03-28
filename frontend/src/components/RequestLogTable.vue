@@ -947,7 +947,9 @@
             }}
           </div>
           <div v-if="(forwardProxyOverrideRuntime?.activeDomains ?? 0) > 0">
-            {{ t('forwardProxy.xInitiatorOverrideToolbarRemaining', { seconds: forwardProxyOverrideRemainingSeconds }) }}
+            {{
+              t('forwardProxy.xInitiatorOverrideToolbarRemaining', { seconds: forwardProxyOverrideRemainingSeconds })
+            }}
           </div>
           <div v-if="forwardProxyOverrideRuntimeDomains.length > 0" class="forward-proxy-override-tooltip-list">
             <div
@@ -1183,6 +1185,14 @@
                     >mdi-flash</v-icon
                   >
                   <v-icon v-if="item.serviceTierOverridden" size="12" class="ml-1" color="info">mdi-auto-fix</v-icon>
+                  <v-icon
+                    v-if="getXInitiatorIndicator(item)"
+                    size="12"
+                    class="ml-1"
+                    :color="getXInitiatorIconColor(item)"
+                  >
+                    {{ getXInitiatorIcon(item) }}
+                  </v-icon>
                 </span>
               </div>
             </template>
@@ -1205,6 +1215,9 @@
               </div>
               <div v-if="item.serviceTierOverridden">
                 <strong>{{ t('requestLog.serviceTierOverridden') }}:</strong> {{ t('common.yes') }}
+              </div>
+              <div v-if="getXInitiatorIndicator(item)">
+                <strong>X-Initiator:</strong> {{ getXInitiatorTooltip(item) }}
               </div>
             </div>
           </v-tooltip>
@@ -1246,6 +1259,14 @@
                 </v-icon>
                 <v-icon v-if="item.serviceTier === 'priority'" size="12" class="ml-1" color="warning">mdi-flash</v-icon>
                 <v-icon v-if="item.serviceTierOverridden" size="12" class="ml-1" color="info">mdi-auto-fix</v-icon>
+                <v-icon
+                  v-if="getXInitiatorIndicator(item)"
+                  size="12"
+                  class="ml-1"
+                  :color="getXInitiatorIconColor(item)"
+                >
+                  {{ getXInitiatorIcon(item) }}
+                </v-icon>
               </span>
             </template>
             <div class="reasoning-effort-tooltip">
@@ -1257,6 +1278,8 @@
               <span v-if="item.serviceTier === 'priority'" class="effort-label">{{ t('requestLog.fastMode') }}</span>
               <v-icon v-if="item.serviceTierOverridden" size="14" class="ml-2" color="info">mdi-auto-fix</v-icon>
               <span v-if="item.serviceTierOverridden" class="ml-1">{{ t('requestLog.serviceTierOverridden') }}</span>
+              <span v-if="getXInitiatorIndicator(item)" class="ml-2 effort-label">X-Initiator</span>
+              <span v-if="getXInitiatorIndicator(item)">{{ getXInitiatorTooltip(item) }}</span>
             </div>
           </v-tooltip>
           <!-- Model with response model mapping tooltip -->
@@ -1267,6 +1290,14 @@
                 <v-icon size="12" class="ml-1">mdi-swap-horizontal</v-icon>
                 <v-icon v-if="item.serviceTier === 'priority'" size="12" class="ml-1" color="warning">mdi-flash</v-icon>
                 <v-icon v-if="item.serviceTierOverridden" size="12" class="ml-1" color="info">mdi-auto-fix</v-icon>
+                <v-icon
+                  v-if="getXInitiatorIndicator(item)"
+                  size="12"
+                  class="ml-1"
+                  :color="getXInitiatorIconColor(item)"
+                >
+                  {{ getXInitiatorIcon(item) }}
+                </v-icon>
               </span>
             </template>
             <div class="model-mapping-tooltip">
@@ -1277,6 +1308,7 @@
               <span v-if="item.serviceTier === 'priority'" class="ml-1">{{ t('requestLog.fastMode') }}</span>
               <v-icon v-if="item.serviceTierOverridden" size="14" class="ml-2" color="info">mdi-auto-fix</v-icon>
               <span v-if="item.serviceTierOverridden" class="ml-1">{{ t('requestLog.serviceTierOverridden') }}</span>
+              <span v-if="getXInitiatorIndicator(item)" class="ml-2">· {{ getXInitiatorTooltip(item) }}</span>
             </div>
           </v-tooltip>
           <v-tooltip v-else-if="item.serviceTier === 'priority' || item.serviceTierOverridden" location="top">
@@ -1285,11 +1317,36 @@
                 {{ item.model }}
                 <v-icon size="12" class="ml-1" color="warning">mdi-flash</v-icon>
                 <v-icon v-if="item.serviceTierOverridden" size="12" class="ml-1" color="info">mdi-auto-fix</v-icon>
+                <v-icon
+                  v-if="getXInitiatorIndicator(item)"
+                  size="12"
+                  class="ml-1"
+                  :color="getXInitiatorIconColor(item)"
+                >
+                  {{ getXInitiatorIcon(item) }}
+                </v-icon>
               </span>
             </template>
             <span v-if="item.serviceTier === 'priority'">{{ t('requestLog.fastMode') }}</span>
             <span v-if="item.serviceTier === 'priority' && item.serviceTierOverridden"> · </span>
             <span v-if="item.serviceTierOverridden">{{ t('requestLog.serviceTierOverridden') }}</span>
+            <span
+              v-if="getXInitiatorIndicator(item) && (item.serviceTier === 'priority' || item.serviceTierOverridden)"
+            >
+              ·
+            </span>
+            <span v-if="getXInitiatorIndicator(item)">{{ getXInitiatorTooltip(item) }}</span>
+          </v-tooltip>
+          <v-tooltip v-else-if="getXInitiatorIndicator(item)" location="top">
+            <template v-slot:activator="{ props }">
+              <span v-bind="props" class="text-caption font-weight-medium">
+                {{ item.model }}
+                <v-icon size="12" class="ml-1" :color="getXInitiatorIconColor(item)">
+                  {{ getXInitiatorIcon(item) }}
+                </v-icon>
+              </span>
+            </template>
+            <span>{{ getXInitiatorTooltip(item) }}</span>
           </v-tooltip>
           <span v-else class="text-caption font-weight-medium">{{ item.model }}</span>
         </template>
@@ -2671,6 +2728,8 @@ const handleLogCreated = (payload: LogCreatedPayload) => {
     reasoningEffort: payload.reasoningEffort,
     serviceTier: payload.serviceTier,
     serviceTierOverridden: payload.serviceTierOverridden ?? false,
+    originalXInitiator: payload.originalXInitiator,
+    effectiveXInitiator: payload.effectiveXInitiator,
     inputTokens,
     outputTokens,
     cacheCreationInputTokens,
@@ -2792,6 +2851,8 @@ const handleLogUpdated = (payload: LogUpdatedPayload) => {
     updated.reasoningEffort = payload.reasoningEffort
     updated.serviceTier = payload.serviceTier ?? oldLog.serviceTier
     updated.serviceTierOverridden = payload.serviceTierOverridden ?? oldLog.serviceTierOverridden ?? false
+    updated.originalXInitiator = payload.originalXInitiator ?? oldLog.originalXInitiator
+    updated.effectiveXInitiator = payload.effectiveXInitiator ?? oldLog.effectiveXInitiator
     updated.completeTime = payload.completeTime
     logs.value = [...logs.value.slice(0, index), updated, ...logs.value.slice(index + 1)]
 
@@ -3057,6 +3118,27 @@ const isForwardProxyLog = (item: RequestLog): boolean => {
   return item.channelId === 0 && item.channelName === FORWARD_PROXY_CHANNEL_NAME
 }
 
+const normalizeXInitiator = (value?: string): string => value?.trim().toLowerCase() || ''
+
+const getXInitiatorIndicator = (item: RequestLog): 'user' | 'override' | null => {
+  if (!isForwardProxyLog(item)) return null
+  if (normalizeXInitiator(item.originalXInitiator) !== 'user') return null
+  if (normalizeXInitiator(item.effectiveXInitiator) === 'agent') return 'override'
+  return 'user'
+}
+
+const getXInitiatorIcon = (item: RequestLog): string => {
+  return getXInitiatorIndicator(item) === 'override' ? 'mdi-account-switch-outline' : 'mdi-account-outline'
+}
+
+const getXInitiatorIconColor = (item: RequestLog): string => {
+  return getXInitiatorIndicator(item) === 'override' ? 'warning' : 'primary'
+}
+
+const getXInitiatorTooltip = (item: RequestLog): string => {
+  return getXInitiatorIndicator(item) === 'override' ? 'user → agent' : 'user'
+}
+
 const normalizeForwardProxyHost = (value?: string): string => {
   return value?.trim().toLowerCase() || ''
 }
@@ -3307,10 +3389,7 @@ const forwardProxyOverrideRuntimeDomains = computed(() => forwardProxyOverrideRu
 
 const forwardProxyOverrideNearestDomain = computed(() => forwardProxyOverrideRuntimeDomains.value[0] ?? null)
 
-const getForwardProxyOverrideDomainRemainingSeconds = (domain: {
-  expiresAt: string
-  remainingSeconds: number
-}) => {
+const getForwardProxyOverrideDomainRemainingSeconds = (domain: { expiresAt: string; remainingSeconds: number }) => {
   if (!domain.expiresAt) return Math.max(0, domain.remainingSeconds || 0)
 
   const expiryMs = new Date(domain.expiresAt).getTime()

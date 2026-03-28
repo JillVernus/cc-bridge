@@ -17,6 +17,8 @@ export interface LogCreatedPayload {
   responseModel?: string
   serviceTier?: string
   serviceTierOverridden?: boolean
+  originalXInitiator?: string
+  effectiveXInitiator?: string
   channelId: number
   channelUid?: string
   channelName: string
@@ -75,6 +77,8 @@ export interface LogUpdatedPayload {
   reasoningEffort?: string
   serviceTier?: string
   serviceTierOverridden?: boolean
+  originalXInitiator?: string
+  effectiveXInitiator?: string
   completeTime: string
 }
 
@@ -168,7 +172,7 @@ export function useLogStream(options: UseLogStreamOptions = {}) {
         isPollingFallback.value = false
       }
 
-      eventSource.onerror = (error) => {
+      eventSource.onerror = error => {
         console.error('📡 SSE: Error', error)
         eventSource?.close()
         eventSource = null
@@ -225,7 +229,6 @@ export function useLogStream(options: UseLogStreamOptions = {}) {
       eventSource.addEventListener('heartbeat', () => {
         // Just a keep-alive, no action needed
       })
-
     } catch (err) {
       console.error('📡 SSE: Failed to create EventSource', err)
       setConnectionState('error')

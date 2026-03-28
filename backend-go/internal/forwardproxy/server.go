@@ -329,15 +329,17 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 	// Done on r.Header directly so both the forwarded clone and debug logs are clean.
 	removeHopByHopHeaders(r.Header)
 
+	originalXInitiator := strings.TrimSpace(r.Header.Get("X-Initiator"))
 	if intercept {
 		s.applyXInitiatorOverride(hostOnly, r.Header)
 	}
+	effectiveXInitiator := strings.TrimSpace(r.Header.Get("X-Initiator"))
 
 	// Create pending log entry before forwarding (makes request visible in UI immediately)
 	var pendingLogID string
 	if s.requestLogManager != nil && intercept {
 		providerDisplayName := s.resolveInterceptedProviderName(hostOnly)
-		pendingLog := createInterceptedPendingLog(r, startTime, providerDisplayName, reqBody)
+		pendingLog := createInterceptedPendingLog(r, startTime, providerDisplayName, reqBody, originalXInitiator, effectiveXInitiator)
 		if err := s.requestLogManager.Add(pendingLog); err != nil {
 			log.Printf("[fwd-proxy] failed to create pending log: %v", err)
 		} else {

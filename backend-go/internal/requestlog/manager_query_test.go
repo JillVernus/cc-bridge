@@ -1,6 +1,7 @@
 package requestlog
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -20,7 +21,7 @@ func TestRequestLogUpdateQuery_UsesBooleanLiteralForServiceTierOverride(t *testi
 	if strings.Contains(pgQuery, "THEN 1") {
 		t.Fatalf("PostgreSQL query should not use integer literal for boolean update:\n%s", pgQuery)
 	}
-	if !strings.Contains(pgQuery, "WHEN $12 THEN TRUE") {
+	if !regexp.MustCompile(`WHEN \$\d+ THEN TRUE`).MatchString(pgQuery) {
 		t.Fatalf("PostgreSQL query lost boolean-safe service_tier_overridden clause:\n%s", pgQuery)
 	}
 }

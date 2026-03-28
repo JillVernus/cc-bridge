@@ -126,6 +126,8 @@ func (m *Manager) initSchema() error {
 		duration_ms INTEGER DEFAULT 0,
 		provider TEXT NOT NULL,
 		model TEXT NOT NULL,
+		original_x_initiator TEXT,
+		effective_x_initiator TEXT,
 		input_tokens INTEGER DEFAULT 0,
 		output_tokens INTEGER DEFAULT 0,
 		cache_creation_input_tokens INTEGER DEFAULT 0,
@@ -305,6 +307,32 @@ func (m *Manager) initSchema() error {
 			log.Printf("⚠️ Failed to add service_tier_overridden column: %v", err)
 		} else {
 			log.Printf("✅ Added service_tier_overridden column to request_logs table")
+		}
+	}
+
+	// Migration: Add original_x_initiator column if it doesn't exist
+	err = m.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('request_logs') WHERE name='original_x_initiator'`).Scan(&count)
+	if err != nil {
+		log.Printf("⚠️ Failed to check original_x_initiator column: %v", err)
+	} else if count == 0 {
+		_, err = m.db.Exec(`ALTER TABLE request_logs ADD COLUMN original_x_initiator TEXT`)
+		if err != nil {
+			log.Printf("⚠️ Failed to add original_x_initiator column: %v", err)
+		} else {
+			log.Printf("✅ Added original_x_initiator column to request_logs table")
+		}
+	}
+
+	// Migration: Add effective_x_initiator column if it doesn't exist
+	err = m.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('request_logs') WHERE name='effective_x_initiator'`).Scan(&count)
+	if err != nil {
+		log.Printf("⚠️ Failed to check effective_x_initiator column: %v", err)
+	} else if count == 0 {
+		_, err = m.db.Exec(`ALTER TABLE request_logs ADD COLUMN effective_x_initiator TEXT`)
+		if err != nil {
+			log.Printf("⚠️ Failed to add effective_x_initiator column: %v", err)
+		} else {
+			log.Printf("✅ Added effective_x_initiator column to request_logs table")
 		}
 	}
 
@@ -585,6 +613,14 @@ func requestLogUpdateQuery() string {
 		provider = ?,
 		provider_name = ?,
 		response_model = ?,
+		original_x_initiator = CASE
+			WHEN TRIM(COALESCE(?, '')) != '' THEN ?
+			ELSE original_x_initiator
+		END,
+		effective_x_initiator = CASE
+			WHEN TRIM(COALESCE(?, '')) != '' THEN ?
+			ELSE effective_x_initiator
+		END,
 		service_tier = CASE
 			WHEN TRIM(COALESCE(?, '')) != '' THEN ?
 			ELSE service_tier
@@ -647,12 +683,13 @@ func (m *Manager) Add(record *RequestLog) error {
 	query := `
 	INSERT INTO request_logs (
 		id, status, initial_time, first_token_time, first_token_duration_ms, complete_time, duration_ms,
-		provider, provider_name, model, response_model, reasoning_effort, service_tier, service_tier_overridden, input_tokens, output_tokens,
+		provider, provider_name, model, response_model, reasoning_effort, service_tier, service_tier_overridden,
+		original_x_initiator, effective_x_initiator, input_tokens, output_tokens,
 		cache_creation_input_tokens, cache_read_input_tokens, total_tokens,
 		price, input_cost, output_cost, cache_creation_cost, cache_read_cost,
 		http_status, stream, channel_id, channel_uid, channel_name,
 		endpoint, client_id, session_id, api_key_id, error, upstream_error, failover_info, created_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	// Convert api_key_id to nullable value (nil = not set, 0 = master key)
@@ -682,6 +719,8 @@ func (m *Manager) Add(record *RequestLog) error {
 		record.ReasoningEffort,
 		record.ServiceTier,
 		record.ServiceTierOverridden,
+		record.OriginalXInitiator,
+		record.EffectiveXInitiator,
 		record.InputTokens,
 		record.OutputTokens,
 		record.CacheCreationInputTokens,
@@ -780,6 +819,10 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 		record.Type,
 		record.ProviderName,
 		record.ResponseModel,
+		record.OriginalXInitiator,
+		record.OriginalXInitiator,
+		record.EffectiveXInitiator,
+		record.EffectiveXInitiator,
 		record.ServiceTier,
 		record.ServiceTier,
 		record.ServiceTierOverridden,
@@ -892,6 +935,7 @@ func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 	query := m.convertQuery(`
 		SELECT r.id, r.status, r.initial_time, r.first_token_time, r.first_token_duration_ms, r.complete_time, r.duration_ms,
 			   r.provider, r.provider_name, r.model, r.response_model, r.reasoning_effort, r.service_tier, r.service_tier_overridden,
+			   r.original_x_initiator, r.effective_x_initiator,
 			   r.input_tokens, r.output_tokens,
 			   r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
 			   r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
@@ -919,13 +963,13 @@ func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 	var r RequestLog
 	var channelID, apiKeyID sql.NullInt64
 	var serviceTierOverridden sql.NullBool
-	var channelUID, channelName, endpoint, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr, status, providerName, responseModel, reasoningEffort, serviceTier sql.NullString
+	var channelUID, channelName, endpoint, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr, status, providerName, responseModel, reasoningEffort, serviceTier, originalXInitiator, effectiveXInitiator sql.NullString
 	var initialTime, firstTokenTime, completeTime sql.NullString
 	var hasDebugData int
 
 	err := m.db.QueryRow(query, id).Scan(
 		&r.ID, &status, &initialTime, &firstTokenTime, &r.FirstTokenDurationMs, &completeTime, &r.DurationMs,
-		&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort, &serviceTier, &serviceTierOverridden,
+		&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort, &serviceTier, &serviceTierOverridden, &originalXInitiator, &effectiveXInitiator,
 		&r.InputTokens, &r.OutputTokens,
 		&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 		&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
@@ -970,6 +1014,12 @@ func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 	}
 	if serviceTierOverridden.Valid {
 		r.ServiceTierOverridden = serviceTierOverridden.Bool
+	}
+	if originalXInitiator.Valid {
+		r.OriginalXInitiator = originalXInitiator.String
+	}
+	if effectiveXInitiator.Valid {
+		r.EffectiveXInitiator = effectiveXInitiator.String
 	}
 	if initialTime.Valid && initialTime.String != "" {
 		r.InitialTime = parseTimeString(initialTime.String)
@@ -1083,7 +1133,8 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 	// Get records with debug data check via LEFT JOIN
 	query := m.convertQuery(fmt.Sprintf(`
 		SELECT r.id, r.status, r.initial_time, r.first_token_time, r.first_token_duration_ms, r.complete_time, r.duration_ms,
-			   r.provider, r.provider_name, r.model, r.response_model, r.reasoning_effort, r.service_tier, r.service_tier_overridden, r.input_tokens, r.output_tokens,
+			   r.provider, r.provider_name, r.model, r.response_model, r.reasoning_effort, r.service_tier, r.service_tier_overridden,
+			   r.original_x_initiator, r.effective_x_initiator, r.input_tokens, r.output_tokens,
 			   r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
 			   r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
 			   r.http_status, r.stream, r.channel_id, r.channel_uid, r.channel_name,
@@ -1128,7 +1179,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		var r RequestLog
 		var channelID, apiKeyID sql.NullInt64
 		var serviceTierOverridden sql.NullBool
-		var channelUID, channelName, endpoint, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr, status, providerName, responseModel, reasoningEffort, serviceTier sql.NullString
+		var channelUID, channelName, endpoint, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr, status, providerName, responseModel, reasoningEffort, serviceTier, originalXInitiator, effectiveXInitiator sql.NullString
 		var initialTime, firstTokenTime, completeTime, createdAt sql.NullString
 		var hasDebugData int
 
@@ -1147,7 +1198,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		} else {
 			err = rows.Scan(
 				&r.ID, &status, &initialTime, &firstTokenTime, &r.FirstTokenDurationMs, &completeTime, &r.DurationMs,
-				&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort, &serviceTier, &serviceTierOverridden, &r.InputTokens, &r.OutputTokens,
+				&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort, &serviceTier, &serviceTierOverridden, &originalXInitiator, &effectiveXInitiator, &r.InputTokens, &r.OutputTokens,
 				&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 				&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
 				&r.HTTPStatus, &r.Stream, &channelID, &channelUID, &channelName,
@@ -1180,6 +1231,12 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		}
 		if serviceTierOverridden.Valid {
 			r.ServiceTierOverridden = serviceTierOverridden.Bool
+		}
+		if originalXInitiator.Valid {
+			r.OriginalXInitiator = originalXInitiator.String
+		}
+		if effectiveXInitiator.Valid {
+			r.EffectiveXInitiator = effectiveXInitiator.String
 		}
 		if initialTime.Valid && initialTime.String != "" {
 			r.InitialTime = parseTimeString(initialTime.String)
@@ -1763,6 +1820,7 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 	query := `
 		SELECT r.id, r.initial_time, r.first_token_time, r.first_token_duration_ms, r.complete_time, r.duration_ms,
 			   r.provider, r.provider_name, r.model, r.response_model, r.reasoning_effort, r.service_tier, r.service_tier_overridden,
+			   r.original_x_initiator, r.effective_x_initiator,
 			   r.input_tokens, r.output_tokens,
 			   r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
 			   r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
@@ -1791,13 +1849,13 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 	var channelID, apiKeyID sql.NullInt64
 	var serviceTierOverridden sql.NullBool
 	var firstTokenTime sql.NullString
-	var providerName, responseModel, reasoningEffort, serviceTier sql.NullString
+	var providerName, responseModel, reasoningEffort, serviceTier, originalXInitiator, effectiveXInitiator sql.NullString
 	var channelUID, channelName, endpoint, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr sql.NullString
 	var hasDebugData int
 
 	err := m.db.QueryRow(m.convertQuery(query), id).Scan(
 		&r.ID, &r.InitialTime, &firstTokenTime, &r.FirstTokenDurationMs, &r.CompleteTime, &r.DurationMs,
-		&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort, &serviceTier, &serviceTierOverridden,
+		&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort, &serviceTier, &serviceTierOverridden, &originalXInitiator, &effectiveXInitiator,
 		&r.InputTokens, &r.OutputTokens,
 		&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 		&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
@@ -1844,6 +1902,12 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 	}
 	if serviceTierOverridden.Valid {
 		r.ServiceTierOverridden = serviceTierOverridden.Bool
+	}
+	if originalXInitiator.Valid {
+		r.OriginalXInitiator = originalXInitiator.String
+	}
+	if effectiveXInitiator.Valid {
+		r.EffectiveXInitiator = effectiveXInitiator.String
 	}
 
 	if channelID.Valid {

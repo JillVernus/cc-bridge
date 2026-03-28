@@ -128,13 +128,15 @@ func (s *Server) proxyRequest(clientConn io.Writer, upstreamConn net.Conn, upstr
 		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	}
 
+	originalXInitiator := strings.TrimSpace(req.Header.Get("X-Initiator"))
 	s.applyXInitiatorOverride(hostOnly, req.Header)
+	effectiveXInitiator := strings.TrimSpace(req.Header.Get("X-Initiator"))
 
 	// Create pending log entry before forwarding (makes request visible in UI immediately)
 	var pendingLogID string
 	if s.requestLogManager != nil {
 		providerDisplayName := s.resolveInterceptedProviderName(hostOnly)
-		pendingLog := createInterceptedPendingLog(req, startTime, providerDisplayName, reqBody)
+		pendingLog := createInterceptedPendingLog(req, startTime, providerDisplayName, reqBody, originalXInitiator, effectiveXInitiator)
 		if err := s.requestLogManager.Add(pendingLog); err != nil {
 			log.Printf("[fwd-proxy] failed to create pending log: %v", err)
 		} else {

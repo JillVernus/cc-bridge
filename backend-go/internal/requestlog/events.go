@@ -35,6 +35,8 @@ type LogCreatedPayload struct {
 	ResponseModel            string     `json:"responseModel,omitempty"`
 	ServiceTier              string     `json:"serviceTier,omitempty"`
 	ServiceTierOverridden    bool       `json:"serviceTierOverridden,omitempty"`
+	OriginalXInitiator       string     `json:"originalXInitiator,omitempty"`
+	EffectiveXInitiator      string     `json:"effectiveXInitiator,omitempty"`
 	ChannelID                int        `json:"channelId"`
 	ChannelUID               string     `json:"channelUid,omitempty"`
 	ChannelName              string     `json:"channelName"`
@@ -96,6 +98,8 @@ type LogUpdatedPayload struct {
 	ReasoningEffort       string    `json:"reasoningEffort,omitempty"`
 	ServiceTier           string    `json:"serviceTier,omitempty"`
 	ServiceTierOverridden bool      `json:"serviceTierOverridden,omitempty"`
+	OriginalXInitiator    string    `json:"originalXInitiator,omitempty"`
+	EffectiveXInitiator   string    `json:"effectiveXInitiator,omitempty"`
 	CompleteTime          time.Time `json:"completeTime"`
 }
 
@@ -124,6 +128,8 @@ func NewLogCreatedEvent(record *RequestLog) *LogEvent {
 			ResponseModel:            record.ResponseModel,
 			ServiceTier:              record.ServiceTier,
 			ServiceTierOverridden:    record.ServiceTierOverridden,
+			OriginalXInitiator:       record.OriginalXInitiator,
+			EffectiveXInitiator:      record.EffectiveXInitiator,
 			ChannelID:                record.ChannelID,
 			ChannelUID:               record.ChannelUID,
 			ChannelName:              record.ChannelName,
@@ -189,6 +195,8 @@ func NewLogUpdatedEvent(id string, record *RequestLog) *LogEvent {
 			ReasoningEffort:          record.ReasoningEffort,
 			ServiceTier:              record.ServiceTier,
 			ServiceTierOverridden:    record.ServiceTierOverridden,
+			OriginalXInitiator:       record.OriginalXInitiator,
+			EffectiveXInitiator:      record.EffectiveXInitiator,
 			CompleteTime:             record.CompleteTime,
 		},
 		Timestamp: time.Now(),
