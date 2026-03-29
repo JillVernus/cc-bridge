@@ -974,6 +974,21 @@
                     })
                   }}
                 </template>
+                <template
+                  v-else-if="
+                    forwardProxyOverrideIsCostMode &&
+                    typeof domain.accumulatedCost === 'number' &&
+                    typeof domain.budgetCost === 'number'
+                  "
+                >
+                  {{
+                    t('forwardProxy.xInitiatorOverrideTooltipDomainCostTime', {
+                      used: formatForwardProxyOverrideCost(domain.accumulatedCost),
+                      total: formatForwardProxyOverrideCost(domain.budgetCost),
+                      seconds: getForwardProxyOverrideDomainRemainingSeconds(domain)
+                    })
+                  }}
+                </template>
                 <template v-else>
                   {{
                     t('forwardProxy.xInitiatorOverrideTooltipDomainTime', {
@@ -1565,7 +1580,8 @@ import {
   type GroupStats,
   type ActiveSession,
   type APIKey,
-  type ForwardProxyConfig
+  type ForwardProxyConfig,
+  type XInitiatorOverrideDomainStatus
 } from '../services/api'
 import RequestDebugModal from './RequestDebugModal.vue'
 import {
@@ -3413,6 +3429,7 @@ const forwardProxyOverrideModeLabel = computed(() => {
   const mode = forwardProxyOverrideRuntime.value?.mode || forwardProxyConfig.value?.xInitiatorOverride?.mode
   if (mode === 'relative_countdown') return t('forwardProxy.xInitiatorOverrideModeRelativeShort')
   if (mode === 'windowed_quota') return t('forwardProxy.xInitiatorOverrideModeWindowedQuotaShort')
+  if (mode === 'windowed_cost') return t('forwardProxy.xInitiatorOverrideModeWindowedCostShort')
   return t('forwardProxy.xInitiatorOverrideModeFixedShort')
 })
 
@@ -3420,6 +3437,17 @@ const forwardProxyOverrideIsQuotaMode = computed(() => {
   const mode = forwardProxyOverrideRuntime.value?.mode || forwardProxyConfig.value?.xInitiatorOverride?.mode
   return mode === 'windowed_quota'
 })
+
+const forwardProxyOverrideIsCostMode = computed(() => {
+  const mode = forwardProxyOverrideRuntime.value?.mode || forwardProxyConfig.value?.xInitiatorOverride?.mode
+  return mode === 'windowed_cost'
+})
+
+const formatForwardProxyOverrideCost = (value: number) => value.toFixed(2)
+
+const hasForwardProxyOverrideCostDetails = (domain: XInitiatorOverrideDomainStatus | null) => {
+  return !!domain && typeof domain.accumulatedCost === 'number' && typeof domain.budgetCost === 'number'
+}
 
 const forwardProxyOverrideBadgeLabel = computed(() => {
   const cfg = forwardProxyConfig.value
@@ -3438,6 +3466,14 @@ const forwardProxyOverrideBadgeLabel = computed(() => {
       return t('forwardProxy.xInitiatorOverrideToolbarQuotaRemaining', {
         remaining: forwardProxyOverrideNearestDomain.value.remainingOverrides,
         total: forwardProxyOverrideNearestDomain.value.totalOverrides,
+        seconds: getForwardProxyOverrideDomainRemainingSeconds(forwardProxyOverrideNearestDomain.value)
+      })
+    }
+
+    if (forwardProxyOverrideIsCostMode.value && hasForwardProxyOverrideCostDetails(forwardProxyOverrideNearestDomain.value)) {
+      return t('forwardProxy.xInitiatorOverrideToolbarCostRemaining', {
+        used: formatForwardProxyOverrideCost(forwardProxyOverrideNearestDomain.value.accumulatedCost!),
+        total: formatForwardProxyOverrideCost(forwardProxyOverrideNearestDomain.value.budgetCost!),
         seconds: getForwardProxyOverrideDomainRemainingSeconds(forwardProxyOverrideNearestDomain.value)
       })
     }
