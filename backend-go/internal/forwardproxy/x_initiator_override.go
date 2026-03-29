@@ -122,6 +122,9 @@ func (s *Server) applyXInitiatorOverride(host string, headers http.Header) bool 
 	if !cfg.Enabled || cfg.DurationSeconds <= 0 {
 		return false
 	}
+	if cfg.Mode == XInitiatorOverrideModeWindowedCost {
+		return false
+	}
 
 	nowFn := s.now
 	if nowFn == nil {
@@ -209,6 +212,9 @@ func (s *Server) getXInitiatorOverrideRuntimeStatusLocked() XInitiatorOverrideRu
 	status := XInitiatorOverrideRuntimeStatus{
 		Enabled: cfg.Enabled,
 		Mode:    cfg.Mode,
+	}
+	if cfg.Mode == XInitiatorOverrideModeWindowedCost {
+		return status
 	}
 
 	nowFn := s.now

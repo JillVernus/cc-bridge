@@ -596,6 +596,46 @@ func TestApplyXInitiatorOverride_WindowedQuotaIgnoresNonUser(t *testing.T) {
 	}
 }
 
+func TestApplyXInitiatorOverride_WindowedCostRemainsConfigOnlyForTask1(t *testing.T) {
+	current := time.Date(2026, 3, 29, 0, 0, 0, 0, time.UTC)
+	s := &Server{
+		xInitiatorOverride: XInitiatorOverrideConfig{
+			Enabled:         true,
+			Mode:            XInitiatorOverrideModeWindowedCost,
+			DurationSeconds: 300,
+			TotalCost:       2.5,
+		},
+		xInitiatorDomainState:      make(map[string]time.Time),
+		xInitiatorQuotaDomainState: make(map[string]xInitiatorQuotaState),
+		now: func() time.Time {
+			return current
+		},
+	}
+
+	first := http.Header{"X-Initiator": []string{"user"}}
+	if overridden := s.applyXInitiatorOverride("api.example.com", first); overridden {
+		t.Fatalf("expected windowed_cost to remain inactive during Task 1")
+	}
+	if got := first.Get("X-Initiator"); got != "user" {
+		t.Fatalf("expected first request header to stay user, got %q", got)
+	}
+	if len(s.xInitiatorDomainState) != 0 {
+		t.Fatalf("expected windowed_cost not to create timed state yet, got %#v", s.xInitiatorDomainState)
+	}
+
+	current = current.Add(10 * time.Second)
+	second := http.Header{"X-Initiator": []string{"user"}}
+	if overridden := s.applyXInitiatorOverride("api.example.com", second); overridden {
+		t.Fatalf("expected later windowed_cost request not to rewrite during Task 1")
+	}
+	if got := second.Get("X-Initiator"); got != "user" {
+		t.Fatalf("expected second request header to stay user, got %q", got)
+	}
+	if len(s.xInitiatorDomainState) != 0 {
+		t.Fatalf("expected windowed_cost not to leave timed state behind, got %#v", s.xInitiatorDomainState)
+	}
+}
+
 func TestHandleHTTPForward_XInitiatorOverride_OverridesLaterRequests(t *testing.T) {
 	current := time.Date(2026, 3, 26, 0, 0, 0, 0, time.UTC)
 	seen := make([]string, 0, 2)
@@ -772,6 +812,44 @@ func TestGetXInitiatorOverrideRuntimeStatus_WindowedQuotaSummary(t *testing.T) {
 	}
 	if status.Domains[1].Domain != "api.a.com" {
 		t.Fatalf("expected second domain detail for api.a.com, got %q", status.Domains[1].Domain)
+	}
+}
+
+func TestGetXInitiatorOverrideRuntimeStatus_WindowedCostRemainsIdleForTask1(t *testing.T) {
+	current := time.Date(2026, 3, 29, 12, 0, 0, 0, time.UTC)
+	s := &Server{
+		xInitiatorOverride: XInitiatorOverrideConfig{
+			Enabled:         true,
+			Mode:            XInitiatorOverrideModeWindowedCost,
+			DurationSeconds: 300,
+			TotalCost:       2.5,
+		},
+		xInitiatorDomainState: map[string]time.Time{
+			"api.example.com": current.Add(30 * time.Second),
+		},
+		now: func() time.Time {
+			return current
+		},
+	}
+
+	status := s.GetXInitiatorOverrideRuntimeStatus()
+	if !status.Enabled {
+		t.Fatalf("expected enabled runtime status")
+	}
+	if status.Mode != XInitiatorOverrideModeWindowedCost {
+		t.Fatalf("expected mode %q, got %q", XInitiatorOverrideModeWindowedCost, status.Mode)
+	}
+	if status.ActiveDomains != 0 {
+		t.Fatalf("expected windowed_cost to report no active runtime domains during Task 1, got %d", status.ActiveDomains)
+	}
+	if status.NearestExpiryAt != nil {
+		t.Fatalf("expected no nearest expiry for inactive windowed_cost runtime, got %#v", status.NearestExpiryAt)
+	}
+	if status.NearestRemainingSeconds != 0 {
+		t.Fatalf("expected no remaining seconds for inactive windowed_cost runtime, got %d", status.NearestRemainingSeconds)
+	}
+	if len(status.Domains) != 0 {
+		t.Fatalf("expected no domain details for inactive windowed_cost runtime, got %#v", status.Domains)
 	}
 }
 
