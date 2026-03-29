@@ -158,7 +158,7 @@ func createInterceptedCompletionRecord(path string, usage *utils.StreamUsage, ht
 	}
 }
 
-func (s *Server) finalizeInterceptedCompletionRecord(pendingLogID, hostOnly string, record *requestlog.RequestLog) {
+func (s *Server) finalizeInterceptedCompletionRecord(pendingLogID, hostOnly string, windowExpiresAt time.Time, record *requestlog.RequestLog) {
 	if s == nil || record == nil {
 		return
 	}
@@ -169,7 +169,7 @@ func (s *Server) finalizeInterceptedCompletionRecord(pendingLogID, hostOnly stri
 		}
 	}
 
-	s.applyWindowedCostCompletion(hostOnly, record.CompleteTime, record.Price)
+	s.applyWindowedCostCompletion(hostOnly, windowExpiresAt, record.CompleteTime, record.Price)
 }
 
 func parseInterceptedJSONResponse(path string, body []byte) *utils.StreamUsage {

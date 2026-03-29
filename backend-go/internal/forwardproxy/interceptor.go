@@ -131,6 +131,7 @@ func (s *Server) proxyRequest(clientConn io.Writer, upstreamConn net.Conn, upstr
 	originalXInitiator := strings.TrimSpace(req.Header.Get("X-Initiator"))
 	s.applyXInitiatorOverride(hostOnly, req.Header)
 	effectiveXInitiator := strings.TrimSpace(req.Header.Get("X-Initiator"))
+	windowedCostWindowExpiresAt, _ := s.activeWindowedCostWindowExpiry(hostOnly)
 
 	// Create pending log entry before forwarding (makes request visible in UI immediately)
 	var pendingLogID string
@@ -162,9 +163,9 @@ func (s *Server) proxyRequest(clientConn io.Writer, upstreamConn net.Conn, upstr
 	s.mu.RUnlock()
 
 	if isSSE && proxyEnabled {
-		s.proxySSEResponse(clientConn, resp, req, hostOnly, startTime, reqBody, pendingLogID)
+		s.proxySSEResponse(clientConn, resp, req, hostOnly, windowedCostWindowExpiresAt, startTime, reqBody, pendingLogID)
 	} else if proxyEnabled {
-		s.proxyJSONResponse(clientConn, resp, req, hostOnly, startTime, reqBody, pendingLogID)
+		s.proxyJSONResponse(clientConn, resp, req, hostOnly, windowedCostWindowExpiresAt, startTime, reqBody, pendingLogID)
 	} else {
 		s.forwardResponse(clientConn, resp)
 	}
@@ -173,7 +174,7 @@ func (s *Server) proxyRequest(clientConn io.Writer, upstreamConn net.Conn, upstr
 
 // proxySSEResponse tees an SSE response through a best-effort parser while forwarding to the client.
 // Uses resp.Write() to preserve correct HTTP transfer framing (chunked encoding, etc.).
-func (s *Server) proxySSEResponse(clientConn io.Writer, resp *http.Response, req *http.Request, hostOnly string, startTime time.Time, reqBody []byte, pendingLogID string) {
+func (s *Server) proxySSEResponse(clientConn io.Writer, resp *http.Response, req *http.Request, hostOnly string, windowedCostWindowExpiresAt time.Time, startTime time.Time, reqBody []byte, pendingLogID string) {
 	parser := newInterceptedStreamParser(req.URL.Path)
 
 	// Tee the response body: resp.Write reads and forwards to client,
@@ -206,7 +207,7 @@ func (s *Server) proxySSEResponse(clientConn io.Writer, resp *http.Response, req
 	}
 
 	record := createInterceptedCompletionRecord(req.URL.Path, usage, resp.StatusCode, startTime, endTime, s.resolveInterceptedProviderName(hostOnly), firstTokenTime)
-	s.finalizeInterceptedCompletionRecord(pendingLogID, hostOnly, record)
+	s.finalizeInterceptedCompletionRecord(pendingLogID, hostOnly, windowedCostWindowExpiresAt, record)
 	if s.requestLogManager != nil && pendingLogID != "" {
 		s.saveDebugLog(pendingLogID, req, reqBody, resp.StatusCode, resp.Header, respCapture.Bytes())
 	}
@@ -214,7 +215,7 @@ func (s *Server) proxySSEResponse(clientConn io.Writer, resp *http.Response, req
 
 // proxyJSONResponse handles non-streaming intercepted responses.
 // Forwards the complete response to the client, captures up to 10MB for metric parsing.
-func (s *Server) proxyJSONResponse(clientConn io.Writer, resp *http.Response, req *http.Request, hostOnly string, startTime time.Time, reqBody []byte, pendingLogID string) {
+func (s *Server) proxyJSONResponse(clientConn io.Writer, resp *http.Response, req *http.Request, hostOnly string, windowedCostWindowExpiresAt time.Time, startTime time.Time, reqBody []byte, pendingLogID string) {
 	// Tee the response body: resp.Write reads and forwards to client,
 	// TeeReader copies bytes to limitedWriter for metric extraction
 	var captureBuf bytes.Buffer
@@ -230,7 +231,7 @@ func (s *Server) proxyJSONResponse(clientConn io.Writer, resp *http.Response, re
 
 	record := createInterceptedCompletionRecord(req.URL.Path, usage, resp.StatusCode, startTime, endTime, s.resolveInterceptedProviderName(hostOnly), nil)
 	record.Stream = false
-	s.finalizeInterceptedCompletionRecord(pendingLogID, hostOnly, record)
+	s.finalizeInterceptedCompletionRecord(pendingLogID, hostOnly, windowedCostWindowExpiresAt, record)
 	if s.requestLogManager != nil && pendingLogID != "" {
 		s.saveDebugLog(pendingLogID, req, reqBody, resp.StatusCode, resp.Header, captureBuf.Bytes())
 	}

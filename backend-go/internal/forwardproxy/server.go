@@ -336,6 +336,7 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 		s.applyXInitiatorOverride(hostOnly, r.Header)
 	}
 	effectiveXInitiator := strings.TrimSpace(r.Header.Get("X-Initiator"))
+	windowedCostWindowExpiresAt, _ := s.activeWindowedCostWindowExpiry(hostOnly)
 
 	// Create pending log entry before forwarding (makes request visible in UI immediately)
 	var pendingLogID string
@@ -435,7 +436,7 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 		}
 
 		record := createInterceptedCompletionRecord(r.URL.Path, usage, resp.StatusCode, startTime, endTime, s.resolveInterceptedProviderName(hostOnly), firstTokenTime)
-		s.finalizeInterceptedCompletionRecord(pendingLogID, hostOnly, record)
+		s.finalizeInterceptedCompletionRecord(pendingLogID, hostOnly, windowedCostWindowExpiresAt, record)
 		if s.requestLogManager != nil && pendingLogID != "" {
 			s.saveDebugLog(pendingLogID, r, reqBody, resp.StatusCode, resp.Header, respCapture.Bytes())
 		}
@@ -450,7 +451,7 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 
 		record := createInterceptedCompletionRecord(r.URL.Path, usage, resp.StatusCode, startTime, endTime, s.resolveInterceptedProviderName(hostOnly), nil)
 		record.Stream = false
-		s.finalizeInterceptedCompletionRecord(pendingLogID, hostOnly, record)
+		s.finalizeInterceptedCompletionRecord(pendingLogID, hostOnly, windowedCostWindowExpiresAt, record)
 		if s.requestLogManager != nil && pendingLogID != "" {
 			s.saveDebugLog(pendingLogID, r, reqBody, resp.StatusCode, resp.Header, respCapture.Bytes())
 		}

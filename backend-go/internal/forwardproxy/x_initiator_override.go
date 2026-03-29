@@ -216,13 +216,50 @@ func (s *Server) applyXInitiatorOverride(host string, headers http.Header) bool 
 	return true
 }
 
-func (s *Server) applyWindowedCostCompletion(host string, completedAt time.Time, price float64) {
+func (s *Server) activeWindowedCostWindowExpiry(host string) (time.Time, bool) {
+	if s == nil {
+		return time.Time{}, false
+	}
+
+	hostKey := strings.ToLower(strings.TrimSpace(host))
+	if hostKey == "" {
+		return time.Time{}, false
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	cfg := s.xInitiatorOverride
+	if !cfg.Enabled || cfg.Mode != XInitiatorOverrideModeWindowedCost || cfg.DurationSeconds <= 0 || cfg.TotalCost <= 0 {
+		return time.Time{}, false
+	}
+	if s.xInitiatorCostDomainState == nil {
+		return time.Time{}, false
+	}
+
+	state, active := s.xInitiatorCostDomainState[hostKey]
+	if !active {
+		return time.Time{}, false
+	}
+
+	nowFn := s.now
+	if nowFn == nil {
+		nowFn = time.Now
+	}
+	if !state.expiresAt.After(nowFn()) {
+		return time.Time{}, false
+	}
+
+	return state.expiresAt, true
+}
+
+func (s *Server) applyWindowedCostCompletion(host string, windowExpiresAt, completedAt time.Time, price float64) {
 	if s == nil {
 		return
 	}
 
 	hostKey := strings.ToLower(strings.TrimSpace(host))
-	if hostKey == "" {
+	if hostKey == "" || windowExpiresAt.IsZero() {
 		return
 	}
 
@@ -239,6 +276,9 @@ func (s *Server) applyWindowedCostCompletion(host string, completedAt time.Time,
 
 	state, active := s.xInitiatorCostDomainState[hostKey]
 	if !active {
+		return
+	}
+	if !state.expiresAt.Equal(windowExpiresAt) {
 		return
 	}
 	if !state.expiresAt.After(completedAt) {

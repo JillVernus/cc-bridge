@@ -57,7 +57,7 @@ func TestProxySSEResponse_RecordsFirstTokenForMITMPath(t *testing.T) {
 	}
 
 	var clientSink bytes.Buffer
-	s.proxySSEResponse(&clientSink, resp, req, "api.anthropic.com", startTime, nil, pending.ID)
+	s.proxySSEResponse(&clientSink, resp, req, "api.anthropic.com", time.Time{}, startTime, nil, pending.ID)
 
 	got, err := reqLogManager.GetByID(pending.ID)
 	if err != nil {
