@@ -945,6 +945,58 @@ func TestApplyWindowedCostCompletion(t *testing.T) {
 	})
 }
 
+func TestApplyXInitiatorOverrideWithWindow_WindowedCostCapturesWindowAtomically(t *testing.T) {
+	current := time.Date(2026, 3, 29, 3, 0, 0, 0, time.UTC)
+	s := &Server{
+		xInitiatorOverride: XInitiatorOverrideConfig{
+			Enabled:         true,
+			Mode:            XInitiatorOverrideModeWindowedCost,
+			DurationSeconds: 30,
+			TotalCost:       2.5,
+		},
+		xInitiatorCostDomainState: make(map[string]xInitiatorCostState),
+		now: func() time.Time {
+			return current
+		},
+	}
+
+	firstTrigger := http.Header{"X-Initiator": []string{"user"}}
+	overridden, firstWindowExpiresAt := s.applyXInitiatorOverrideWithWindow("api.example.com", firstTrigger)
+	if overridden {
+		t.Fatalf("expected first request to start the first window without rewrite")
+	}
+	if !firstWindowExpiresAt.Equal(current.Add(30 * time.Second)) {
+		t.Fatalf("expected first window expiry %s, got %s", current.Add(30*time.Second).Format(time.RFC3339), firstWindowExpiresAt.Format(time.RFC3339))
+	}
+
+	current = current.Add(31 * time.Second)
+	secondTrigger := http.Header{"X-Initiator": []string{"user"}}
+	overridden, secondWindowExpiresAt := s.applyXInitiatorOverrideWithWindow("api.example.com", secondTrigger)
+	if overridden {
+		t.Fatalf("expected request after expiry to start a fresh second window")
+	}
+	if !secondWindowExpiresAt.Equal(current.Add(30 * time.Second)) {
+		t.Fatalf("expected second window expiry %s, got %s", current.Add(30*time.Second).Format(time.RFC3339), secondWindowExpiresAt.Format(time.RFC3339))
+	}
+	if !secondWindowExpiresAt.After(firstWindowExpiresAt) {
+		t.Fatalf("expected second window expiry %s to be after first window expiry %s", secondWindowExpiresAt.Format(time.RFC3339), firstWindowExpiresAt.Format(time.RFC3339))
+	}
+
+	current = current.Add(1 * time.Second)
+	s.applyWindowedCostCompletion("api.example.com", firstWindowExpiresAt, current, 1.0)
+
+	state, ok := s.xInitiatorCostDomainState["api.example.com"]
+	if !ok {
+		t.Fatalf("expected stale completion not to clear the newer active window")
+	}
+	if !state.expiresAt.Equal(secondWindowExpiresAt) {
+		t.Fatalf("expected stale completion to leave second window identity unchanged, got %s want %s", state.expiresAt.Format(time.RFC3339), secondWindowExpiresAt.Format(time.RFC3339))
+	}
+	if state.accumulatedCost != 0 {
+		t.Fatalf("expected stale completion not to charge second window, got %v", state.accumulatedCost)
+	}
+}
+
 func TestHandleHTTPForward_XInitiatorOverride_OverridesLaterRequests(t *testing.T) {
 	current := time.Date(2026, 3, 26, 0, 0, 0, 0, time.UTC)
 	seen := make([]string, 0, 2)

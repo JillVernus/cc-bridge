@@ -129,9 +129,8 @@ func (s *Server) proxyRequest(clientConn io.Writer, upstreamConn net.Conn, upstr
 	}
 
 	originalXInitiator := strings.TrimSpace(req.Header.Get("X-Initiator"))
-	s.applyXInitiatorOverride(hostOnly, req.Header)
+	_, windowedCostWindowExpiresAt := s.applyXInitiatorOverrideWithWindow(hostOnly, req.Header)
 	effectiveXInitiator := strings.TrimSpace(req.Header.Get("X-Initiator"))
-	windowedCostWindowExpiresAt, _ := s.activeWindowedCostWindowExpiry(hostOnly)
 
 	// Create pending log entry before forwarding (makes request visible in UI immediately)
 	var pendingLogID string

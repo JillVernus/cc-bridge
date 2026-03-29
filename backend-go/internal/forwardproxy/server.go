@@ -332,11 +332,11 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 	removeHopByHopHeaders(r.Header)
 
 	originalXInitiator := strings.TrimSpace(r.Header.Get("X-Initiator"))
+	var windowedCostWindowExpiresAt time.Time
 	if intercept {
-		s.applyXInitiatorOverride(hostOnly, r.Header)
+		_, windowedCostWindowExpiresAt = s.applyXInitiatorOverrideWithWindow(hostOnly, r.Header)
 	}
 	effectiveXInitiator := strings.TrimSpace(r.Header.Get("X-Initiator"))
-	windowedCostWindowExpiresAt, _ := s.activeWindowedCostWindowExpiry(hostOnly)
 
 	// Create pending log entry before forwarding (makes request visible in UI immediately)
 	var pendingLogID string

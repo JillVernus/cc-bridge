@@ -112,21 +112,24 @@ func normalizeXInitiatorOverrideConfig(cfg XInitiatorOverrideConfig) XInitiatorO
 }
 
 func (s *Server) applyXInitiatorOverride(host string, headers http.Header) bool {
+	overridden, _ := s.applyXInitiatorOverrideWithWindow(host, headers)
+	return overridden
+}
+
+func (s *Server) applyXInitiatorOverrideWithWindow(host string, headers http.Header) (bool, time.Time) {
 	if s == nil || headers == nil {
-		return false
+		return false, time.Time{}
 	}
 
 	value := strings.TrimSpace(headers.Get("X-Initiator"))
-	if !strings.EqualFold(value, "user") {
-		return false
-	}
+	isUser := strings.EqualFold(value, "user")
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	cfg := s.xInitiatorOverride
 	if !cfg.Enabled || cfg.DurationSeconds <= 0 {
-		return false
+		return false, time.Time{}
 	}
 
 	nowFn := s.now
@@ -136,12 +139,15 @@ func (s *Server) applyXInitiatorOverride(host string, headers http.Header) bool 
 	now := nowFn()
 	hostKey := strings.ToLower(strings.TrimSpace(host))
 	if hostKey == "" {
-		return false
+		return false, time.Time{}
 	}
 
 	if cfg.Mode == XInitiatorOverrideModeWindowedQuota {
+		if !isUser {
+			return false, time.Time{}
+		}
 		if cfg.OverrideTimes <= 0 {
-			return false
+			return false, time.Time{}
 		}
 		if s.xInitiatorQuotaDomainState == nil {
 			s.xInitiatorQuotaDomainState = make(map[string]xInitiatorQuotaState)
@@ -154,7 +160,7 @@ func (s *Server) applyXInitiatorOverride(host string, headers http.Header) bool 
 				remainingOverrides: cfg.OverrideTimes,
 				totalOverrides:     cfg.OverrideTimes,
 			}
-			return false
+			return false, time.Time{}
 		}
 		if state.remainingOverrides <= 0 {
 			delete(s.xInitiatorQuotaDomainState, hostKey)
@@ -163,22 +169,22 @@ func (s *Server) applyXInitiatorOverride(host string, headers http.Header) bool 
 				remainingOverrides: cfg.OverrideTimes,
 				totalOverrides:     cfg.OverrideTimes,
 			}
-			return false
+			return false, time.Time{}
 		}
 
 		headers.Set("X-Initiator", "agent")
 		state.remainingOverrides--
 		if state.remainingOverrides <= 0 {
 			delete(s.xInitiatorQuotaDomainState, hostKey)
-			return true
+			return true, time.Time{}
 		}
 		s.xInitiatorQuotaDomainState[hostKey] = state
-		return true
+		return true, time.Time{}
 	}
 
 	if cfg.Mode == XInitiatorOverrideModeWindowedCost {
 		if cfg.TotalCost <= 0 {
-			return false
+			return false, time.Time{}
 		}
 		if s.xInitiatorCostDomainState == nil {
 			s.xInitiatorCostDomainState = make(map[string]xInitiatorCostState)
@@ -186,16 +192,30 @@ func (s *Server) applyXInitiatorOverride(host string, headers http.Header) bool 
 
 		state, active := s.xInitiatorCostDomainState[hostKey]
 		if !active || !state.expiresAt.After(now) {
-			s.xInitiatorCostDomainState[hostKey] = xInitiatorCostState{
+			if active && !state.expiresAt.After(now) {
+				delete(s.xInitiatorCostDomainState, hostKey)
+			}
+			if !isUser {
+				return false, time.Time{}
+			}
+			state = xInitiatorCostState{
 				expiresAt:       now.Add(time.Duration(cfg.DurationSeconds) * time.Second),
 				accumulatedCost: 0,
 				budgetCost:      cfg.TotalCost,
 			}
-			return false
+			s.xInitiatorCostDomainState[hostKey] = state
+			return false, state.expiresAt
 		}
 
-		headers.Set("X-Initiator", "agent")
-		return true
+		if isUser {
+			headers.Set("X-Initiator", "agent")
+			return true, state.expiresAt
+		}
+		return false, state.expiresAt
+	}
+
+	if !isUser {
+		return false, time.Time{}
 	}
 
 	if s.xInitiatorDomainState == nil {
@@ -205,7 +225,7 @@ func (s *Server) applyXInitiatorOverride(host string, headers http.Header) bool 
 	expiresAt, active := s.xInitiatorDomainState[hostKey]
 	if !active || !expiresAt.After(now) {
 		s.xInitiatorDomainState[hostKey] = now.Add(time.Duration(cfg.DurationSeconds) * time.Second)
-		return false
+		return false, time.Time{}
 	}
 
 	headers.Set("X-Initiator", "agent")
@@ -213,44 +233,7 @@ func (s *Server) applyXInitiatorOverride(host string, headers http.Header) bool 
 		s.xInitiatorDomainState[hostKey] = now.Add(time.Duration(cfg.DurationSeconds) * time.Second)
 	}
 
-	return true
-}
-
-func (s *Server) activeWindowedCostWindowExpiry(host string) (time.Time, bool) {
-	if s == nil {
-		return time.Time{}, false
-	}
-
-	hostKey := strings.ToLower(strings.TrimSpace(host))
-	if hostKey == "" {
-		return time.Time{}, false
-	}
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	cfg := s.xInitiatorOverride
-	if !cfg.Enabled || cfg.Mode != XInitiatorOverrideModeWindowedCost || cfg.DurationSeconds <= 0 || cfg.TotalCost <= 0 {
-		return time.Time{}, false
-	}
-	if s.xInitiatorCostDomainState == nil {
-		return time.Time{}, false
-	}
-
-	state, active := s.xInitiatorCostDomainState[hostKey]
-	if !active {
-		return time.Time{}, false
-	}
-
-	nowFn := s.now
-	if nowFn == nil {
-		nowFn = time.Now
-	}
-	if !state.expiresAt.After(nowFn()) {
-		return time.Time{}, false
-	}
-
-	return state.expiresAt, true
+	return true, time.Time{}
 }
 
 func (s *Server) applyWindowedCostCompletion(host string, windowExpiresAt, completedAt time.Time, price float64) {
