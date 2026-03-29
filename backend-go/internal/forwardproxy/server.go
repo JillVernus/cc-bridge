@@ -65,6 +65,7 @@ type Server struct {
 	xInitiatorOverride         XInitiatorOverrideConfig
 	xInitiatorDomainState      map[string]time.Time
 	xInitiatorQuotaDomainState map[string]xInitiatorQuotaState
+	xInitiatorCostDomainState  map[string]xInitiatorCostState
 	now                        func() time.Time
 }
 
@@ -119,6 +120,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		enabled:                    cfg.Enabled,
 		xInitiatorDomainState:      make(map[string]time.Time),
 		xInitiatorQuotaDomainState: make(map[string]xInitiatorQuotaState),
+		xInitiatorCostDomainState:  make(map[string]xInitiatorCostState),
 		now:                        time.Now,
 	}
 
@@ -555,6 +557,7 @@ func (s *Server) UpdateConfig(cfg Config) error {
 	s.xInitiatorOverride = persistCfg.XInitiatorOverride
 	s.xInitiatorDomainState = make(map[string]time.Time)
 	s.xInitiatorQuotaDomainState = make(map[string]xInitiatorQuotaState)
+	s.xInitiatorCostDomainState = make(map[string]xInitiatorCostState)
 	s.mu.Unlock()
 	return nil
 }
@@ -707,6 +710,7 @@ func (s *Server) loadConfig() error {
 	s.xInitiatorOverride = cfg.XInitiatorOverride
 	s.xInitiatorDomainState = make(map[string]time.Time)
 	s.xInitiatorQuotaDomainState = make(map[string]xInitiatorQuotaState)
+	s.xInitiatorCostDomainState = make(map[string]xInitiatorCostState)
 	return nil
 }
 

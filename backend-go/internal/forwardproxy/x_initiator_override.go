@@ -58,6 +58,12 @@ type xInitiatorQuotaState struct {
 	totalOverrides     int
 }
 
+type xInitiatorCostState struct {
+	expiresAt       time.Time
+	accumulatedCost float64
+	budgetCost      float64
+}
+
 func validateXInitiatorOverrideConfig(cfg XInitiatorOverrideConfig) error {
 	if !cfg.Enabled {
 		return nil
@@ -122,9 +128,6 @@ func (s *Server) applyXInitiatorOverride(host string, headers http.Header) bool 
 	if !cfg.Enabled || cfg.DurationSeconds <= 0 {
 		return false
 	}
-	if cfg.Mode == XInitiatorOverrideModeWindowedCost {
-		return false
-	}
 
 	nowFn := s.now
 	if nowFn == nil {
@@ -170,6 +173,28 @@ func (s *Server) applyXInitiatorOverride(host string, headers http.Header) bool 
 			return true
 		}
 		s.xInitiatorQuotaDomainState[hostKey] = state
+		return true
+	}
+
+	if cfg.Mode == XInitiatorOverrideModeWindowedCost {
+		if cfg.TotalCost <= 0 {
+			return false
+		}
+		if s.xInitiatorCostDomainState == nil {
+			s.xInitiatorCostDomainState = make(map[string]xInitiatorCostState)
+		}
+
+		state, active := s.xInitiatorCostDomainState[hostKey]
+		if !active || !state.expiresAt.After(now) {
+			s.xInitiatorCostDomainState[hostKey] = xInitiatorCostState{
+				expiresAt:       now.Add(time.Duration(cfg.DurationSeconds) * time.Second),
+				accumulatedCost: 0,
+				budgetCost:      cfg.TotalCost,
+			}
+			return false
+		}
+
+		headers.Set("X-Initiator", "agent")
 		return true
 	}
 

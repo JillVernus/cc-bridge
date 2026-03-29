@@ -596,7 +596,7 @@ func TestApplyXInitiatorOverride_WindowedQuotaIgnoresNonUser(t *testing.T) {
 	}
 }
 
-func TestApplyXInitiatorOverride_WindowedCostRemainsConfigOnlyForTask1(t *testing.T) {
+func TestApplyXInitiatorOverride_WindowedCostPerDomain(t *testing.T) {
 	current := time.Date(2026, 3, 29, 0, 0, 0, 0, time.UTC)
 	s := &Server{
 		xInitiatorOverride: XInitiatorOverrideConfig{
@@ -605,8 +605,6 @@ func TestApplyXInitiatorOverride_WindowedCostRemainsConfigOnlyForTask1(t *testin
 			DurationSeconds: 300,
 			TotalCost:       2.5,
 		},
-		xInitiatorDomainState:      make(map[string]time.Time),
-		xInitiatorQuotaDomainState: make(map[string]xInitiatorQuotaState),
 		now: func() time.Time {
 			return current
 		},
@@ -614,25 +612,142 @@ func TestApplyXInitiatorOverride_WindowedCostRemainsConfigOnlyForTask1(t *testin
 
 	first := http.Header{"X-Initiator": []string{"user"}}
 	if overridden := s.applyXInitiatorOverride("api.example.com", first); overridden {
-		t.Fatalf("expected windowed_cost to remain inactive during Task 1")
+		t.Fatalf("expected first windowed_cost request to start the window without rewrite")
 	}
 	if got := first.Get("X-Initiator"); got != "user" {
 		t.Fatalf("expected first request header to stay user, got %q", got)
 	}
-	if len(s.xInitiatorDomainState) != 0 {
-		t.Fatalf("expected windowed_cost not to create timed state yet, got %#v", s.xInitiatorDomainState)
+
+	current = current.Add(10 * time.Second)
+	second := http.Header{"X-Initiator": []string{"user"}}
+	if overridden := s.applyXInitiatorOverride("api.example.com", second); !overridden {
+		t.Fatalf("expected later request in active window to rewrite")
+	}
+	if got := second.Get("X-Initiator"); got != "agent" {
+		t.Fatalf("expected later request header to be rewritten to agent, got %q", got)
+	}
+
+	otherDomainFirst := http.Header{"X-Initiator": []string{"user"}}
+	if overridden := s.applyXInitiatorOverride("api.other.com", otherDomainFirst); overridden {
+		t.Fatalf("expected first request for different domain not to rewrite")
+	}
+	if got := otherDomainFirst.Get("X-Initiator"); got != "user" {
+		t.Fatalf("expected other domain trigger request header to stay user, got %q", got)
+	}
+
+	current = current.Add(10 * time.Second)
+	otherDomainSecond := http.Header{"X-Initiator": []string{"user"}}
+	if overridden := s.applyXInitiatorOverride("api.other.com", otherDomainSecond); !overridden {
+		t.Fatalf("expected second request for different domain to rewrite independently")
+	}
+	if got := otherDomainSecond.Get("X-Initiator"); got != "agent" {
+		t.Fatalf("expected other domain second request header agent, got %q", got)
+	}
+}
+
+func TestApplyXInitiatorOverride_WindowedCostIgnoresNonUser(t *testing.T) {
+	current := time.Date(2026, 3, 29, 0, 0, 0, 0, time.UTC)
+	s := &Server{
+		xInitiatorOverride: XInitiatorOverrideConfig{
+			Enabled:         true,
+			Mode:            XInitiatorOverrideModeWindowedCost,
+			DurationSeconds: 300,
+			TotalCost:       2.5,
+		},
+		now: func() time.Time {
+			return current
+		},
+	}
+
+	for _, initiator := range []string{"agent", "system", ""} {
+		headers := http.Header{}
+		if initiator != "" {
+			headers.Set("X-Initiator", initiator)
+		}
+		if overridden := s.applyXInitiatorOverride("api.example.com", headers); overridden {
+			t.Fatalf("expected initiator %q not to rewrite", initiator)
+		}
+		if got := headers.Get("X-Initiator"); got != initiator {
+			t.Fatalf("expected initiator %q to pass through unchanged, got %q", initiator, got)
+		}
+	}
+
+	trigger := http.Header{"X-Initiator": []string{"user"}}
+	if overridden := s.applyXInitiatorOverride("api.example.com", trigger); overridden {
+		t.Fatalf("expected first user request to stay the trigger request")
+	}
+
+	nonUser := http.Header{"X-Initiator": []string{"agent"}}
+	if overridden := s.applyXInitiatorOverride("api.example.com", nonUser); overridden {
+		t.Fatalf("expected active window not to rewrite non-user requests")
+	}
+	if got := nonUser.Get("X-Initiator"); got != "agent" {
+		t.Fatalf("expected non-user request during active window to stay agent, got %q", got)
+	}
+
+	otherDomain := http.Header{"X-Initiator": []string{"agent"}}
+	if overridden := s.applyXInitiatorOverride("api.other.com", otherDomain); overridden {
+		t.Fatalf("expected non-user request for idle domain not to rewrite")
+	}
+
+	firstUserOtherDomain := http.Header{"X-Initiator": []string{"user"}}
+	if overridden := s.applyXInitiatorOverride("api.other.com", firstUserOtherDomain); overridden {
+		t.Fatalf("expected non-user traffic not to start a new window for another domain")
+	}
+	if got := firstUserOtherDomain.Get("X-Initiator"); got != "user" {
+		t.Fatalf("expected first user request after non-user traffic to stay user, got %q", got)
+	}
+}
+
+func TestApplyXInitiatorOverride_WindowedCostExpiryReset(t *testing.T) {
+	current := time.Date(2026, 3, 29, 0, 0, 0, 0, time.UTC)
+	s := &Server{
+		xInitiatorOverride: XInitiatorOverrideConfig{
+			Enabled:         true,
+			Mode:            XInitiatorOverrideModeWindowedCost,
+			DurationSeconds: 30,
+			TotalCost:       2.5,
+		},
+		now: func() time.Time {
+			return current
+		},
+	}
+
+	first := http.Header{"X-Initiator": []string{"user"}}
+	if overridden := s.applyXInitiatorOverride("api.example.com", first); overridden {
+		t.Fatalf("expected first request to start the window without rewrite")
 	}
 
 	current = current.Add(10 * time.Second)
 	second := http.Header{"X-Initiator": []string{"user"}}
-	if overridden := s.applyXInitiatorOverride("api.example.com", second); overridden {
-		t.Fatalf("expected later windowed_cost request not to rewrite during Task 1")
+	if overridden := s.applyXInitiatorOverride("api.example.com", second); !overridden {
+		t.Fatalf("expected later request before expiry to rewrite")
 	}
-	if got := second.Get("X-Initiator"); got != "user" {
-		t.Fatalf("expected second request header to stay user, got %q", got)
+
+	current = current.Add(21 * time.Second)
+	nonUserAfterExpiry := http.Header{"X-Initiator": []string{"agent"}}
+	if overridden := s.applyXInitiatorOverride("api.example.com", nonUserAfterExpiry); overridden {
+		t.Fatalf("expected expired state not to rewrite non-user request")
 	}
-	if len(s.xInitiatorDomainState) != 0 {
-		t.Fatalf("expected windowed_cost not to leave timed state behind, got %#v", s.xInitiatorDomainState)
+	if got := nonUserAfterExpiry.Get("X-Initiator"); got != "agent" {
+		t.Fatalf("expected non-user request after expiry to stay agent, got %q", got)
+	}
+
+	freshTrigger := http.Header{"X-Initiator": []string{"user"}}
+	if overridden := s.applyXInitiatorOverride("api.example.com", freshTrigger); overridden {
+		t.Fatalf("expected next user request after expiry to become a fresh trigger")
+	}
+	if got := freshTrigger.Get("X-Initiator"); got != "user" {
+		t.Fatalf("expected fresh trigger after expiry to stay user, got %q", got)
+	}
+
+	current = current.Add(10 * time.Second)
+	rewrittenAgain := http.Header{"X-Initiator": []string{"user"}}
+	if overridden := s.applyXInitiatorOverride("api.example.com", rewrittenAgain); !overridden {
+		t.Fatalf("expected request after fresh trigger to rewrite in the new window")
+	}
+	if got := rewrittenAgain.Get("X-Initiator"); got != "agent" {
+		t.Fatalf("expected rewritten request in renewed window to be agent, got %q", got)
 	}
 }
 
