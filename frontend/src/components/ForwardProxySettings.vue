@@ -144,6 +144,19 @@
               class="mb-2"
               :disabled="!config.running || !config.xInitiatorOverride.enabled"
             />
+            <v-text-field
+              v-if="showTotalCostField"
+              v-model.number="config.xInitiatorOverride.totalCost"
+              type="number"
+              min="0.01"
+              step="0.01"
+              density="compact"
+              variant="outlined"
+              :label="t('forwardProxy.xInitiatorOverrideTotalCost')"
+              hide-details
+              class="mb-2"
+              :disabled="!config.running || !config.xInitiatorOverride.enabled"
+            />
             <div class="text-caption text-grey">{{ xInitiatorOverrideModeHint }}</div>
           </v-card>
 
@@ -223,10 +236,14 @@ const proxyPort = computed(() => config.value?.port ?? 3001)
 const xInitiatorModeOptions = computed(() => [
   { title: t('forwardProxy.xInitiatorOverrideModeFixedWindow'), value: 'fixed_window' },
   { title: t('forwardProxy.xInitiatorOverrideModeRelativeCountdown'), value: 'relative_countdown' },
-  { title: t('forwardProxy.xInitiatorOverrideModeWindowedQuota'), value: 'windowed_quota' }
+  { title: t('forwardProxy.xInitiatorOverrideModeWindowedQuota'), value: 'windowed_quota' },
+  { title: t('forwardProxy.xInitiatorOverrideModeWindowedCost'), value: 'windowed_cost' }
 ])
 const showOverrideTimesField = computed(
   () => config.value?.xInitiatorOverride.enabled && config.value.xInitiatorOverride.mode === 'windowed_quota'
+)
+const showTotalCostField = computed(
+  () => config.value?.xInitiatorOverride.enabled && config.value.xInitiatorOverride.mode === 'windowed_cost'
 )
 const xInitiatorOverrideModeHint = computed(() => {
   const mode = config.value?.xInitiatorOverride.mode
@@ -235,6 +252,9 @@ const xInitiatorOverrideModeHint = computed(() => {
   }
   if (mode === 'windowed_quota') {
     return t('forwardProxy.xInitiatorOverrideHintWindowedQuota')
+  }
+  if (mode === 'windowed_cost') {
+    return t('forwardProxy.xInitiatorOverrideHintWindowedCost')
   }
   return t('forwardProxy.xInitiatorOverrideHintFixedWindow')
 })
@@ -251,6 +271,10 @@ const showSnackbar = (text: string, color: string = 'error') => {
 }
 
 const clampPositiveInt = (value: unknown, fallback: number) => Math.max(1, Math.trunc(Number(value) || fallback))
+const clampPositiveNumber = (value: unknown, fallback: number) => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
 
 const defaultForwardProxyConfig = (): ForwardProxyConfig => ({
   enabled: false,
@@ -260,7 +284,8 @@ const defaultForwardProxyConfig = (): ForwardProxyConfig => ({
     enabled: false,
     mode: 'fixed_window',
     durationSeconds: 300,
-    overrideTimes: 1
+    overrideTimes: 1,
+    totalCost: 1
   },
   xInitiatorOverrideRuntime: {
     enabled: false,
@@ -352,9 +377,11 @@ const saveConfig = async () => {
 
   const durationSeconds = clampPositiveInt(config.value.xInitiatorOverride.durationSeconds, 300)
   const overrideTimes = clampPositiveInt(config.value.xInitiatorOverride.overrideTimes, 1)
+  const totalCost = clampPositiveNumber(config.value.xInitiatorOverride.totalCost, 1)
 
   config.value.xInitiatorOverride.durationSeconds = durationSeconds
   config.value.xInitiatorOverride.overrideTimes = overrideTimes
+  config.value.xInitiatorOverride.totalCost = totalCost
 
   saving.value = true
   try {
@@ -365,7 +392,8 @@ const saveConfig = async () => {
       xInitiatorOverride: {
         ...config.value.xInitiatorOverride,
         durationSeconds,
-        overrideTimes
+        overrideTimes,
+        totalCost
       }
     })
     showSnackbar(t('common.success'), 'success')

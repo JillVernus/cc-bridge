@@ -1120,25 +1120,33 @@ export default {
     xInitiatorOverrideModeFixedWindow: 'Fixed time based',
     xInitiatorOverrideModeRelativeCountdown: 'Relative countdown',
     xInitiatorOverrideModeWindowedQuota: 'Windowed quota',
+    xInitiatorOverrideModeWindowedCost: 'Windowed cost',
     xInitiatorOverrideModeFixedShort: 'Fixed',
     xInitiatorOverrideModeRelativeShort: 'Countdown',
     xInitiatorOverrideModeWindowedQuotaShort: 'Quota',
+    xInitiatorOverrideModeWindowedCostShort: 'Cost',
     xInitiatorOverrideDuration: 'Duration (seconds)',
     xInitiatorOverrideOverrideTimes: 'Override Times',
+    xInitiatorOverrideTotalCost: 'Total Cost',
     xInitiatorOverrideHintFixedWindow:
       'Per domain: the first user request starts the window. Later user requests are rewritten to agent until the fixed expiry is reached.',
     xInitiatorOverrideHintRelativeCountdown:
       'Per domain: the first user request starts the window. Later user requests are rewritten to agent, and each successful rewrite refreshes the countdown.',
     xInitiatorOverrideHintWindowedQuota:
       'Per domain: the first user request starts the window and does not consume quota. Later user requests are rewritten to agent until either quota is consumed or time expires.',
+    xInitiatorOverrideHintWindowedCost:
+      'Per domain: the first user request starts the window. Later user requests are rewritten to agent while it stays active, and all forward-proxied requests count toward the active domain cost budget until the budget is exceeded or time expires.',
     xInitiatorOverrideOffShort: 'X-Initiator Off',
     xInitiatorOverrideIdle: 'idle',
     xInitiatorOverrideToolbarTooltip: 'Per-domain X-Initiator override runtime state',
     xInitiatorOverrideActiveDomains: '{count} active domains',
     xInitiatorOverrideToolbarRemaining: '{seconds}s until nearest expiry',
     xInitiatorOverrideToolbarQuotaRemaining: 'Quota {remaining}/{total} - {seconds}s',
+    xInitiatorOverrideToolbarCostRemaining: 'Cost {used}/{total} - {seconds}s',
     xInitiatorOverrideTooltipDomainQuota: '{remaining}/{total} overrides remaining',
     xInitiatorOverrideTooltipDomainQuotaTime: '{remaining}/{total} · {seconds}s',
+    xInitiatorOverrideTooltipDomainCost: 'Cost {used}/{total}',
+    xInitiatorOverrideTooltipDomainCostTime: '{used}/{total} · {seconds}s',
     xInitiatorOverrideTooltipDomainTime: '{seconds}s remaining',
     caCertSection: 'CA Certificate',
     caCertDescription:

@@ -153,7 +153,8 @@ const defaultForwardProxyConfig = (): ForwardProxyConfig => ({
     enabled: false,
     mode: 'fixed_window',
     durationSeconds: 300,
-    overrideTimes: 1
+    overrideTimes: 1,
+    totalCost: 1
   },
   xInitiatorOverrideRuntime: {
     enabled: false,
