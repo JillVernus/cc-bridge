@@ -50,6 +50,8 @@ type XInitiatorOverrideDomainStatus struct {
 	RemainingSeconds   int       `json:"remainingSeconds"`
 	RemainingOverrides *int      `json:"remainingOverrides,omitempty"`
 	TotalOverrides     *int      `json:"totalOverrides,omitempty"`
+	AccumulatedCost    *float64  `json:"accumulatedCost,omitempty"`
+	BudgetCost         *float64  `json:"budgetCost,omitempty"`
 }
 
 type xInitiatorQuotaState struct {
@@ -303,9 +305,6 @@ func (s *Server) getXInitiatorOverrideRuntimeStatusLocked() XInitiatorOverrideRu
 		Enabled: cfg.Enabled,
 		Mode:    cfg.Mode,
 	}
-	if cfg.Mode == XInitiatorOverrideModeWindowedCost {
-		return status
-	}
 
 	nowFn := s.now
 	if nowFn == nil {
@@ -331,6 +330,46 @@ func (s *Server) getXInitiatorOverrideRuntimeStatusLocked() XInitiatorOverrideRu
 				RemainingSeconds:   remainingSeconds,
 				RemainingOverrides: &remainingOverrides,
 				TotalOverrides:     &totalOverrides,
+			})
+			status.ActiveDomains++
+			if status.NearestExpiryAt == nil || state.expiresAt.Before(*status.NearestExpiryAt) {
+				exp := state.expiresAt
+				status.NearestExpiryAt = &exp
+			}
+		}
+
+		sort.Slice(status.Domains, func(i, j int) bool {
+			return status.Domains[i].ExpiresAt.Before(status.Domains[j].ExpiresAt)
+		})
+
+		if status.NearestExpiryAt != nil {
+			status.NearestRemainingSeconds = int(status.NearestExpiryAt.Sub(now).Seconds())
+			if status.NearestRemainingSeconds < 0 {
+				status.NearestRemainingSeconds = 0
+			}
+		}
+
+		return status
+	}
+
+	if cfg.Mode == XInitiatorOverrideModeWindowedCost {
+		for domain, state := range s.xInitiatorCostDomainState {
+			if !state.expiresAt.After(now) {
+				continue
+			}
+			remainingSeconds := int(state.expiresAt.Sub(now).Seconds())
+			if remainingSeconds < 0 {
+				remainingSeconds = 0
+			}
+			accumulatedCost := state.accumulatedCost
+			budgetCost := state.budgetCost
+			status.Domains = append(status.Domains, XInitiatorOverrideDomainStatus{
+				Domain:           domain,
+				DisplayName:      resolveInterceptedProviderNameFromAliases(s.domainAliases, domain),
+				ExpiresAt:        state.expiresAt,
+				RemainingSeconds: remainingSeconds,
+				AccumulatedCost:  &accumulatedCost,
+				BudgetCost:       &budgetCost,
 			})
 			status.ActiveDomains++
 			if status.NearestExpiryAt == nil || state.expiresAt.Before(*status.NearestExpiryAt) {

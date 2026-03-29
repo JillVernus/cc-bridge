@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1110,9 +1111,11 @@ func TestGetXInitiatorOverrideRuntimeStatus_ReportsNearestExpiryAndActiveDomains
 	if status.Domains[0].RemainingOverrides != nil || status.Domains[0].TotalOverrides != nil {
 		t.Fatalf("expected non-quota mode not to expose override counts")
 	}
+	assertRuntimeStatusDomainCostFieldsAbsentOrNil(t, status.Domains[0])
 	if status.Domains[1].Domain != "api.a.com" {
 		t.Fatalf("expected second domain detail for api.a.com, got %q", status.Domains[1].Domain)
 	}
+	assertRuntimeStatusDomainCostFieldsAbsentOrNil(t, status.Domains[1])
 }
 
 func TestGetXInitiatorOverrideRuntimeStatus_WindowedQuotaSummary(t *testing.T) {
@@ -1171,12 +1174,14 @@ func TestGetXInitiatorOverrideRuntimeStatus_WindowedQuotaSummary(t *testing.T) {
 	if status.Domains[0].TotalOverrides == nil || *status.Domains[0].TotalOverrides != 3 {
 		t.Fatalf("expected first domain totalOverrides 3, got %#v", status.Domains[0].TotalOverrides)
 	}
+	assertRuntimeStatusDomainCostFieldsAbsentOrNil(t, status.Domains[0])
 	if status.Domains[1].Domain != "api.a.com" {
 		t.Fatalf("expected second domain detail for api.a.com, got %q", status.Domains[1].Domain)
 	}
+	assertRuntimeStatusDomainCostFieldsAbsentOrNil(t, status.Domains[1])
 }
 
-func TestGetXInitiatorOverrideRuntimeStatus_WindowedCostRemainsIdleForTask1(t *testing.T) {
+func TestGetXInitiatorOverrideRuntimeStatus_WindowedCostSummary(t *testing.T) {
 	current := time.Date(2026, 3, 29, 12, 0, 0, 0, time.UTC)
 	s := &Server{
 		xInitiatorOverride: XInitiatorOverrideConfig{
@@ -1185,8 +1190,13 @@ func TestGetXInitiatorOverrideRuntimeStatus_WindowedCostRemainsIdleForTask1(t *t
 			DurationSeconds: 300,
 			TotalCost:       2.5,
 		},
-		xInitiatorDomainState: map[string]time.Time{
-			"api.example.com": current.Add(30 * time.Second),
+		xInitiatorCostDomainState: map[string]xInitiatorCostState{
+			"api.a.com": {expiresAt: current.Add(21 * time.Second), accumulatedCost: 1.3, budgetCost: 2.5},
+			"api.b.com": {expiresAt: current.Add(9 * time.Second), accumulatedCost: 1.84, budgetCost: 2.0},
+			"api.c.com": {expiresAt: current.Add(-5 * time.Second), accumulatedCost: 0.4, budgetCost: 2.0},
+		},
+		domainAliases: map[string]string{
+			"api.b.com": "Beta API",
 		},
 		now: func() time.Time {
 			return current
@@ -1200,18 +1210,34 @@ func TestGetXInitiatorOverrideRuntimeStatus_WindowedCostRemainsIdleForTask1(t *t
 	if status.Mode != XInitiatorOverrideModeWindowedCost {
 		t.Fatalf("expected mode %q, got %q", XInitiatorOverrideModeWindowedCost, status.Mode)
 	}
-	if status.ActiveDomains != 0 {
-		t.Fatalf("expected windowed_cost to report no active runtime domains during Task 1, got %d", status.ActiveDomains)
+	if status.ActiveDomains != 2 {
+		t.Fatalf("expected 2 active cost domains, got %d", status.ActiveDomains)
 	}
-	if status.NearestExpiryAt != nil {
-		t.Fatalf("expected no nearest expiry for inactive windowed_cost runtime, got %#v", status.NearestExpiryAt)
+	if status.NearestExpiryAt == nil || !status.NearestExpiryAt.Equal(current.Add(9*time.Second)) {
+		t.Fatalf("expected nearest expiry at %s, got %#v", current.Add(9*time.Second).Format(time.RFC3339), status.NearestExpiryAt)
 	}
-	if status.NearestRemainingSeconds != 0 {
-		t.Fatalf("expected no remaining seconds for inactive windowed_cost runtime, got %d", status.NearestRemainingSeconds)
+	if status.NearestRemainingSeconds != 9 {
+		t.Fatalf("expected nearest remaining 9 seconds, got %d", status.NearestRemainingSeconds)
 	}
-	if len(status.Domains) != 0 {
-		t.Fatalf("expected no domain details for inactive windowed_cost runtime, got %#v", status.Domains)
+	if len(status.Domains) != 2 {
+		t.Fatalf("expected 2 cost domain details, got %d", len(status.Domains))
 	}
+	if status.Domains[0].Domain != "api.b.com" {
+		t.Fatalf("expected nearest-expiry domain first, got %q", status.Domains[0].Domain)
+	}
+	if status.Domains[0].DisplayName != "Beta API" {
+		t.Fatalf("expected aliased display name, got %q", status.Domains[0].DisplayName)
+	}
+	if status.Domains[0].RemainingSeconds != 9 {
+		t.Fatalf("expected first domain remainingSeconds 9, got %d", status.Domains[0].RemainingSeconds)
+	}
+	assertRuntimeStatusDomainCostFieldValue(t, status.Domains[0], "AccumulatedCost", 1.84)
+	assertRuntimeStatusDomainCostFieldValue(t, status.Domains[0], "BudgetCost", 2.0)
+	if status.Domains[1].Domain != "api.a.com" {
+		t.Fatalf("expected second domain detail for api.a.com, got %q", status.Domains[1].Domain)
+	}
+	assertRuntimeStatusDomainCostFieldValue(t, status.Domains[1], "AccumulatedCost", 1.3)
+	assertRuntimeStatusDomainCostFieldValue(t, status.Domains[1], "BudgetCost", 2.5)
 }
 
 func TestGetForwardProxyConfigSnapshot_RuntimeMatchesConfig(t *testing.T) {
@@ -1259,5 +1285,38 @@ func TestGetForwardProxyConfigSnapshot_RuntimeMatchesConfig(t *testing.T) {
 	}
 	if snapshot.Runtime.Domains[0].DisplayName != "Beta API" {
 		t.Fatalf("expected aliased display name, got %q", snapshot.Runtime.Domains[0].DisplayName)
+	}
+}
+
+func assertRuntimeStatusDomainCostFieldsAbsentOrNil(t *testing.T, domain XInitiatorOverrideDomainStatus) {
+	t.Helper()
+
+	value := reflect.ValueOf(domain)
+	for _, fieldName := range []string{"AccumulatedCost", "BudgetCost"} {
+		field := value.FieldByName(fieldName)
+		if !field.IsValid() {
+			continue
+		}
+		if field.IsNil() {
+			continue
+		}
+		t.Fatalf("expected %s to be omitted or nil for non-cost mode", fieldName)
+	}
+}
+
+func assertRuntimeStatusDomainCostFieldValue(t *testing.T, domain XInitiatorOverrideDomainStatus, fieldName string, want float64) {
+	t.Helper()
+
+	field := reflect.ValueOf(domain).FieldByName(fieldName)
+	if !field.IsValid() {
+		t.Fatalf("expected %s field to exist on runtime domain status", fieldName)
+	}
+	if field.IsNil() {
+		t.Fatalf("expected %s to be populated", fieldName)
+	}
+
+	got := field.Elem().Float()
+	if got != want {
+		t.Fatalf("expected %s %v, got %v", fieldName, want, got)
 	}
 }

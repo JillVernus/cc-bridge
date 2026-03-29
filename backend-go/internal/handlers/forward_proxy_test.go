@@ -196,9 +196,9 @@ func TestForwardProxyConfig_UpdateRejectsInvalidXInitiatorOverride(t *testing.T)
 func TestForwardProxyConfig_RuntimeStatusDomains(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	t.Run("get response returns runtime status domain details", func(t *testing.T) {
+	t.Run("get response returns windowed cost runtime status domain details", func(t *testing.T) {
 		fpServer := newTestForwardProxyServer(t, "")
-		current := time.Date(2026, 3, 26, 12, 0, 0, 0, time.UTC)
+		current := time.Date(2026, 3, 29, 12, 0, 0, 0, time.UTC)
 		if err := fpServer.UpdateConfig(forwardproxy.Config{
 			Enabled:          true,
 			InterceptDomains: []string{"api.a.com", "api.b.com"},
@@ -207,15 +207,15 @@ func TestForwardProxyConfig_RuntimeStatusDomains(t *testing.T) {
 			},
 			XInitiatorOverride: forwardproxy.XInitiatorOverrideConfig{
 				Enabled:         true,
-				Mode:            forwardproxy.XInitiatorOverrideModeWindowedQuota,
+				Mode:            forwardproxy.XInitiatorOverrideModeWindowedCost,
 				DurationSeconds: 300,
-				OverrideTimes:   3,
+				TotalCost:       2.5,
 			},
 		}); err != nil {
 			t.Fatalf("failed to update config: %v", err)
 		}
 		setForwardProxyServerNow(t, fpServer, func() time.Time { return current })
-		setForwardProxyServerQuotaState(t, fpServer, current)
+		setForwardProxyServerCostState(t, fpServer, current)
 
 		r := gin.New()
 		r.GET("/forward-proxy", GetForwardProxyConfig(fpServer))
@@ -233,10 +233,11 @@ func TestForwardProxyConfig_RuntimeStatusDomains(t *testing.T) {
 			t.Fatalf("failed to decode response: %v", err)
 		}
 
-		assertRuntimeStatusDomains(t, resp.Runtime)
+		assertWindowedCostRuntimeStatus(t, resp.Runtime)
+		assertRuntimeStatusCostPayload(t, w.Body.Bytes())
 	})
 
-	t.Run("update response returns runtime status domain details", func(t *testing.T) {
+	t.Run("update response returns runtime status snapshot fields", func(t *testing.T) {
 		fpServer := newTestForwardProxyServer(t, "")
 
 		r := gin.New()
@@ -249,9 +250,9 @@ func TestForwardProxyConfig_RuntimeStatusDomains(t *testing.T) {
 			"domainAliases": {"api.b.com": "Beta API"},
 			"xInitiatorOverride": {
 				"enabled": true,
-				"mode": "windowed_quota",
+				"mode": "windowed_cost",
 				"durationSeconds": 300,
-				"overrideTimes": 3
+				"totalCost": 2.5
 			}
 		}`))
 		req.Header.Set("Content-Type", "application/json")
@@ -271,6 +272,9 @@ func TestForwardProxyConfig_RuntimeStatusDomains(t *testing.T) {
 		}
 		if resp.Runtime.Mode != resp.XInitiatorOverride.Mode {
 			t.Fatalf("expected runtime mode to match config mode, got runtime=%q config=%q", resp.Runtime.Mode, resp.XInitiatorOverride.Mode)
+		}
+		if resp.XInitiatorOverride.TotalCost != 2.5 {
+			t.Fatalf("expected update response totalCost 2.5, got %v", resp.XInitiatorOverride.TotalCost)
 		}
 	})
 }
@@ -300,6 +304,26 @@ func setForwardProxyServerQuotaState(t *testing.T, server *forwardproxy.Server, 
 	setUnexportedField(t, server, "xInitiatorQuotaDomainState", quotaStateMap.Interface())
 }
 
+func setForwardProxyServerCostState(t *testing.T, server *forwardproxy.Server, current time.Time) {
+	t.Helper()
+
+	serverValue := reflect.ValueOf(server).Elem()
+	costStateField := serverValue.FieldByName("xInitiatorCostDomainState")
+	stateType := costStateField.Type().Elem()
+	costStateMap := reflect.MakeMap(costStateField.Type())
+	makeState := func(expiresAt time.Time, accumulatedCost float64, budgetCost float64) reflect.Value {
+		state := reflect.New(stateType).Elem()
+		setReflectValue(state.FieldByName("expiresAt"), reflect.ValueOf(expiresAt))
+		setReflectValue(state.FieldByName("accumulatedCost"), reflect.ValueOf(accumulatedCost))
+		setReflectValue(state.FieldByName("budgetCost"), reflect.ValueOf(budgetCost))
+		return state
+	}
+	costStateMap.SetMapIndex(reflect.ValueOf("api.a.com"), makeState(current.Add(21*time.Second), 1.3, 2.5))
+	costStateMap.SetMapIndex(reflect.ValueOf("api.b.com"), makeState(current.Add(9*time.Second), 1.84, 2.0))
+	costStateMap.SetMapIndex(reflect.ValueOf("api.c.com"), makeState(current.Add(-5*time.Second), 0.4, 2.0))
+	setUnexportedField(t, server, "xInitiatorCostDomainState", costStateMap.Interface())
+}
+
 func setUnexportedField(t *testing.T, target any, fieldName string, value any) {
 	t.Helper()
 
@@ -314,7 +338,7 @@ func setReflectValue(field reflect.Value, value reflect.Value) {
 	reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem().Set(value)
 }
 
-func assertRuntimeStatusDomains(t *testing.T, status forwardproxy.XInitiatorOverrideRuntimeStatus) {
+func assertWindowedCostRuntimeStatus(t *testing.T, status forwardproxy.XInitiatorOverrideRuntimeStatus) {
 	t.Helper()
 
 	if status.ActiveDomains != 2 {
@@ -332,11 +356,57 @@ func assertRuntimeStatusDomains(t *testing.T, status forwardproxy.XInitiatorOver
 	if status.Domains[0].DisplayName != "Beta API" {
 		t.Fatalf("expected aliased display name, got %q", status.Domains[0].DisplayName)
 	}
-	if status.Domains[0].RemainingOverrides == nil || *status.Domains[0].RemainingOverrides != 1 {
-		t.Fatalf("expected remainingOverrides 1, got %#v", status.Domains[0].RemainingOverrides)
+	if status.Domains[0].RemainingOverrides != nil || status.Domains[0].TotalOverrides != nil {
+		t.Fatalf("expected windowed_cost not to expose override counts")
 	}
-	if status.Domains[0].TotalOverrides == nil || *status.Domains[0].TotalOverrides != 3 {
-		t.Fatalf("expected totalOverrides 3, got %#v", status.Domains[0].TotalOverrides)
+}
+
+func assertRuntimeStatusCostPayload(t *testing.T, body []byte) {
+	t.Helper()
+
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("failed to decode raw response payload: %v", err)
+	}
+
+	runtimePayload, ok := payload["xInitiatorOverrideRuntime"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected xInitiatorOverrideRuntime object, got %#v", payload["xInitiatorOverrideRuntime"])
+	}
+	domains, ok := runtimePayload["domains"].([]any)
+	if !ok {
+		t.Fatalf("expected runtime domains array, got %#v", runtimePayload["domains"])
+	}
+	if len(domains) != 2 {
+		t.Fatalf("expected 2 runtime domains in raw payload, got %d", len(domains))
+	}
+
+	firstDomain, ok := domains[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected first runtime domain object, got %#v", domains[0])
+	}
+	if got := firstDomain["domain"]; got != "api.b.com" {
+		t.Fatalf("expected first raw runtime domain api.b.com, got %#v", got)
+	}
+	if got := firstDomain["displayName"]; got != "Beta API" {
+		t.Fatalf("expected first raw displayName Beta API, got %#v", got)
+	}
+	if got := firstDomain["accumulatedCost"]; got != 1.84 {
+		t.Fatalf("expected first raw accumulatedCost 1.84, got %#v", got)
+	}
+	if got := firstDomain["budgetCost"]; got != 2.0 {
+		t.Fatalf("expected first raw budgetCost 2.0, got %#v", got)
+	}
+
+	secondDomain, ok := domains[1].(map[string]any)
+	if !ok {
+		t.Fatalf("expected second runtime domain object, got %#v", domains[1])
+	}
+	if got := secondDomain["accumulatedCost"]; got != 1.3 {
+		t.Fatalf("expected second raw accumulatedCost 1.3, got %#v", got)
+	}
+	if got := secondDomain["budgetCost"]; got != 2.5 {
+		t.Fatalf("expected second raw budgetCost 2.5, got %#v", got)
 	}
 }
 
