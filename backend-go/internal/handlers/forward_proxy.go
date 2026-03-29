@@ -21,6 +21,7 @@ func GetForwardProxyConfig(fpServer *forwardproxy.Server) gin.HandlerFunc {
 					Mode:            forwardproxy.XInitiatorOverrideModeFixedWindow,
 					DurationSeconds: 300,
 					OverrideTimes:   1,
+					TotalCost:       1,
 				},
 				"xInitiatorOverrideRuntime": forwardproxy.XInitiatorOverrideRuntimeStatus{
 					Enabled: false,

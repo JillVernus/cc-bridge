@@ -19,6 +19,25 @@ func TestValidateXInitiatorOverrideConfig(t *testing.T) {
 		wantErr bool
 	}{
 		{
+			name: "accepts windowed cost with positive duration and total cost",
+			cfg: XInitiatorOverrideConfig{
+				Enabled:         true,
+				Mode:            XInitiatorOverrideModeWindowedCost,
+				DurationSeconds: 300,
+				TotalCost:       2.5,
+			},
+		},
+		{
+			name: "rejects windowed cost when total cost is zero",
+			cfg: XInitiatorOverrideConfig{
+				Enabled:         true,
+				Mode:            XInitiatorOverrideModeWindowedCost,
+				DurationSeconds: 300,
+				TotalCost:       0,
+			},
+			wantErr: true,
+		},
+		{
 			name: "accepts windowed quota with positive duration and override times",
 			cfg: XInitiatorOverrideConfig{
 				Enabled:         true,
@@ -44,14 +63,16 @@ func TestValidateXInitiatorOverrideConfig(t *testing.T) {
 				Mode:            XInitiatorOverrideModeFixedWindow,
 				DurationSeconds: 300,
 				OverrideTimes:   0,
+				TotalCost:       0,
 			},
 		},
 		{
-			name: "ignores omitted override times for relative countdown",
+			name: "ignores omitted override times and total cost for relative countdown",
 			cfg: XInitiatorOverrideConfig{
 				Enabled:         true,
 				Mode:            XInitiatorOverrideModeRelativeCountdown,
 				DurationSeconds: 300,
+				TotalCost:       0,
 			},
 		},
 	}
@@ -84,6 +105,9 @@ func TestGetConfig_XInitiatorOverrideDefaults(t *testing.T) {
 		if cfg.XInitiatorOverride.OverrideTimes != 1 {
 			t.Fatalf("expected default overrideTimes 1, got %d", cfg.XInitiatorOverride.OverrideTimes)
 		}
+		if cfg.XInitiatorOverride.TotalCost != 1 {
+			t.Fatalf("expected default totalCost 1, got %v", cfg.XInitiatorOverride.TotalCost)
+		}
 	})
 
 	t.Run("normalizes missing quota override times", func(t *testing.T) {
@@ -99,6 +123,25 @@ func TestGetConfig_XInitiatorOverrideDefaults(t *testing.T) {
 
 		if cfg.XInitiatorOverride.OverrideTimes != 1 {
 			t.Fatalf("expected normalized overrideTimes 1, got %d", cfg.XInitiatorOverride.OverrideTimes)
+		}
+		if cfg.XInitiatorOverride.TotalCost != 1 {
+			t.Fatalf("expected normalized totalCost 1, got %v", cfg.XInitiatorOverride.TotalCost)
+		}
+	})
+
+	t.Run("normalizes missing windowed cost total cost", func(t *testing.T) {
+		s := &Server{
+			xInitiatorOverride: XInitiatorOverrideConfig{
+				Enabled:         true,
+				Mode:            XInitiatorOverrideModeWindowedCost,
+				DurationSeconds: 120,
+			},
+		}
+
+		cfg := s.GetConfig()
+
+		if cfg.XInitiatorOverride.TotalCost != 1 {
+			t.Fatalf("expected normalized totalCost 1, got %v", cfg.XInitiatorOverride.TotalCost)
 		}
 	})
 }
@@ -160,6 +203,47 @@ func TestLoadConfig_XInitiatorOverrideCompatibility(t *testing.T) {
 		s := &Server{configPath: configPath}
 		if err := s.loadConfig(); err == nil {
 			t.Fatalf("expected persisted config with explicit zero durationSeconds to fail")
+		}
+	})
+
+	t.Run("loads legacy windowed cost missing total cost", func(t *testing.T) {
+		configPath := writeForwardProxyConfigFile(t, `{
+			"enabled": true,
+			"interceptDomains": ["api.example.com"],
+			"domainAliases": {},
+			"xInitiatorOverride": {
+				"enabled": true,
+				"mode": "windowed_cost",
+				"durationSeconds": 120
+			}
+		}`)
+
+		s := &Server{configPath: configPath}
+		if err := s.loadConfig(); err != nil {
+			t.Fatalf("expected legacy cost config to load, got %v", err)
+		}
+
+		if s.xInitiatorOverride.TotalCost != 1 {
+			t.Fatalf("expected missing totalCost to normalize to 1, got %v", s.xInitiatorOverride.TotalCost)
+		}
+	})
+
+	t.Run("rejects persisted windowed cost with explicit zero total cost", func(t *testing.T) {
+		configPath := writeForwardProxyConfigFile(t, `{
+			"enabled": true,
+			"interceptDomains": ["api.example.com"],
+			"domainAliases": {},
+			"xInitiatorOverride": {
+				"enabled": true,
+				"mode": "windowed_cost",
+				"durationSeconds": 120,
+				"totalCost": 0
+			}
+		}`)
+
+		s := &Server{configPath: configPath}
+		if err := s.loadConfig(); err == nil {
+			t.Fatalf("expected persisted config with explicit zero totalCost to fail")
 		}
 	})
 }

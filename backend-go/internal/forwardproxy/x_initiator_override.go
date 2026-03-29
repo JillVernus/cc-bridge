@@ -23,13 +23,15 @@ const (
 	XInitiatorOverrideModeFixedWindow       = "fixed_window"
 	XInitiatorOverrideModeRelativeCountdown = "relative_countdown"
 	XInitiatorOverrideModeWindowedQuota     = "windowed_quota"
+	XInitiatorOverrideModeWindowedCost      = "windowed_cost"
 )
 
 type XInitiatorOverrideConfig struct {
-	Enabled         bool   `json:"enabled"`
-	Mode            string `json:"mode"`
-	DurationSeconds int    `json:"durationSeconds"`
-	OverrideTimes   int    `json:"overrideTimes"`
+	Enabled         bool    `json:"enabled"`
+	Mode            string  `json:"mode"`
+	DurationSeconds int     `json:"durationSeconds"`
+	OverrideTimes   int     `json:"overrideTimes"`
+	TotalCost       float64 `json:"totalCost"`
 }
 
 type XInitiatorOverrideRuntimeStatus struct {
@@ -71,12 +73,18 @@ func validateXInitiatorOverrideConfig(cfg XInitiatorOverrideConfig) error {
 			return &ValidationError{Message: fmt.Sprintf("xInitiatorOverride.overrideTimes must be greater than 0 for %q", XInitiatorOverrideModeWindowedQuota)}
 		}
 		return nil
+	case XInitiatorOverrideModeWindowedCost:
+		if cfg.TotalCost <= 0 {
+			return &ValidationError{Message: fmt.Sprintf("xInitiatorOverride.totalCost must be greater than 0 for %q", XInitiatorOverrideModeWindowedCost)}
+		}
+		return nil
 	default:
 		return &ValidationError{Message: fmt.Sprintf(
-			"xInitiatorOverride.mode must be one of %q, %q, or %q",
+			"xInitiatorOverride.mode must be one of %q, %q, %q, or %q",
 			XInitiatorOverrideModeFixedWindow,
 			XInitiatorOverrideModeRelativeCountdown,
 			XInitiatorOverrideModeWindowedQuota,
+			XInitiatorOverrideModeWindowedCost,
 		)}
 	}
 }
@@ -90,6 +98,9 @@ func normalizeXInitiatorOverrideConfig(cfg XInitiatorOverrideConfig) XInitiatorO
 	}
 	if cfg.OverrideTimes <= 0 {
 		cfg.OverrideTimes = 1
+	}
+	if cfg.TotalCost <= 0 {
+		cfg.TotalCost = 1
 	}
 	return cfg
 }

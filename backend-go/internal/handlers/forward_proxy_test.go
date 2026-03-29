@@ -56,16 +56,19 @@ func TestForwardProxyConfig_GetDefaults(t *testing.T) {
 		if resp.XInitiatorOverride.OverrideTimes != 1 {
 			t.Fatalf("expected default overrideTimes 1, got %d", resp.XInitiatorOverride.OverrideTimes)
 		}
+		if resp.XInitiatorOverride.TotalCost != 1 {
+			t.Fatalf("expected default totalCost 1, got %v", resp.XInitiatorOverride.TotalCost)
+		}
 	})
 
-	t.Run("persisted quota config missing overrideTimes is normalized", func(t *testing.T) {
+	t.Run("persisted cost config missing totalCost is normalized", func(t *testing.T) {
 		fpServer := newTestForwardProxyServer(t, `{
 			"enabled": true,
 			"interceptDomains": ["api.example.com"],
 			"domainAliases": {},
 			"xInitiatorOverride": {
 				"enabled": true,
-				"mode": "windowed_quota",
+				"mode": "windowed_cost",
 				"durationSeconds": 120
 			}
 		}`)
@@ -86,14 +89,14 @@ func TestForwardProxyConfig_GetDefaults(t *testing.T) {
 			t.Fatalf("failed to decode response: %v", err)
 		}
 
-		if resp.XInitiatorOverride.Mode != forwardproxy.XInitiatorOverrideModeWindowedQuota {
-			t.Fatalf("expected mode %q, got %q", forwardproxy.XInitiatorOverrideModeWindowedQuota, resp.XInitiatorOverride.Mode)
+		if resp.XInitiatorOverride.Mode != forwardproxy.XInitiatorOverrideModeWindowedCost {
+			t.Fatalf("expected mode %q, got %q", forwardproxy.XInitiatorOverrideModeWindowedCost, resp.XInitiatorOverride.Mode)
 		}
 		if resp.XInitiatorOverride.DurationSeconds != 120 {
 			t.Fatalf("expected durationSeconds 120, got %d", resp.XInitiatorOverride.DurationSeconds)
 		}
-		if resp.XInitiatorOverride.OverrideTimes != 1 {
-			t.Fatalf("expected normalized overrideTimes 1, got %d", resp.XInitiatorOverride.OverrideTimes)
+		if resp.XInitiatorOverride.TotalCost != 1 {
+			t.Fatalf("expected normalized totalCost 1, got %v", resp.XInitiatorOverride.TotalCost)
 		}
 	})
 }
@@ -128,6 +131,9 @@ func TestForwardProxyConfig_UpdateReturnsDefaults(t *testing.T) {
 	}
 	if resp.XInitiatorOverride.OverrideTimes != 1 {
 		t.Fatalf("expected default overrideTimes 1, got %d", resp.XInitiatorOverride.OverrideTimes)
+	}
+	if resp.XInitiatorOverride.TotalCost != 1 {
+		t.Fatalf("expected default totalCost 1, got %v", resp.XInitiatorOverride.TotalCost)
 	}
 }
 

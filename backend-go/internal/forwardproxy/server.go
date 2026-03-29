@@ -698,6 +698,9 @@ func (s *Server) loadConfig() error {
 	if shouldDefaultLegacyQuotaOverrideTimes(cfg.XInitiatorOverride, raw.XInitiatorOverride) {
 		cfg.XInitiatorOverride.OverrideTimes = 1
 	}
+	if shouldDefaultLegacyCostTotalCost(cfg.XInitiatorOverride, raw.XInitiatorOverride) {
+		cfg.XInitiatorOverride.TotalCost = 1
+	}
 	if err := validateXInitiatorOverrideConfig(cfg.XInitiatorOverride); err != nil {
 		return err
 	}
@@ -711,6 +714,17 @@ func shouldDefaultLegacyQuotaOverrideTimes(cfg XInitiatorOverrideConfig, raw jso
 	if cfg.Mode != XInitiatorOverrideModeWindowedQuota {
 		return false
 	}
+	return isMissingXInitiatorOverrideField(raw, "overrideTimes")
+}
+
+func shouldDefaultLegacyCostTotalCost(cfg XInitiatorOverrideConfig, raw json.RawMessage) bool {
+	if cfg.Mode != XInitiatorOverrideModeWindowedCost {
+		return false
+	}
+	return isMissingXInitiatorOverrideField(raw, "totalCost")
+}
+
+func isMissingXInitiatorOverrideField(raw json.RawMessage, fieldName string) bool {
 	if len(raw) == 0 {
 		return false
 	}
@@ -719,7 +733,7 @@ func shouldDefaultLegacyQuotaOverrideTimes(cfg XInitiatorOverrideConfig, raw jso
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return false
 	}
-	_, exists := fields["overrideTimes"]
+	_, exists := fields[fieldName]
 	return !exists
 }
 
