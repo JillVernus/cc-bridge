@@ -4,6 +4,35 @@
 
 ---
 
+## [v1.5.20] - 2026-03-29
+
+### ✨ 新功能
+
+- **Forward Proxy X-Initiator 新增 Windowed Cost 模式**:
+  - 为 `xInitiatorOverride` 新增 `windowed_cost` 配置项，支持在首个 `X-Initiator: user` 请求触发窗口后，按时间窗口和累计成本共同控制后续改写行为。
+  - 活跃窗口内同域名的 forward proxy 请求都会累计成本，触发窗口的首个请求保持原始 `user`，后续 `user` 请求按规则改写为 `agent`。
+  - WebUI 设置页、运行时状态和请求日志展示同步补充 `windowed_cost` 的配置与可观测性。
+
+### 🐛 修复
+
+- **Windowed Cost 过期窗口归属判定加固**:
+  - 为每个 `windowed_cost` 窗口引入独立运行时标识，避免仅凭 `expiresAt` 匹配导致旧请求完成事件误记入新窗口。
+  - 修复 `UpdateConfig()` 清空状态后在相同时间重新建窗时，历史 in-flight completion 可能误扣新窗口成本的问题。
+
+### 📝 文档
+
+- **补充 Windowed Cost 设计与实施文档**:
+  - 新增本次 `windowed_cost` 的 Superpowers 设计说明与实现计划，记录规则约束、后端状态流和前端展示方案。
+
+### ✅ 测试
+
+- `cd backend-go && go test ./internal/forwardproxy`
+- `cd backend-go && make test`
+- `cd frontend && bun run type-check`
+- `cd frontend && bun run build`
+
+---
+
 ## [v1.5.16] - 2026-03-26
 
 ### ✨ 新功能

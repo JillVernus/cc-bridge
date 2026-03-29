@@ -786,10 +786,13 @@ func TestApplyWindowedCostCompletion(t *testing.T) {
 		if state.budgetCost != 2.5 {
 			t.Fatalf("expected trigger request budget cost 2.5, got %v", state.budgetCost)
 		}
-		windowExpiresAt := state.expiresAt
+		if state.windowID == 0 {
+			t.Fatalf("expected trigger request to allocate a non-zero window identity")
+		}
+		window := xInitiatorCostWindowRef{expiresAt: state.expiresAt, windowID: state.windowID}
 
 		current = current.Add(5 * time.Second)
-		s.applyWindowedCostCompletion(" API.EXAMPLE.COM ", windowExpiresAt, current, 1.0)
+		s.applyWindowedCostCompletion(" API.EXAMPLE.COM ", window, current, 1.0)
 
 		state = s.xInitiatorCostDomainState["api.example.com"]
 		if state.accumulatedCost != 1.0 {
@@ -805,7 +808,7 @@ func TestApplyWindowedCostCompletion(t *testing.T) {
 		}
 
 		current = current.Add(5 * time.Second)
-		s.applyWindowedCostCompletion("api.example.com", windowExpiresAt, current, 0.6)
+		s.applyWindowedCostCompletion("api.example.com", window, current, 0.6)
 
 		state = s.xInitiatorCostDomainState["api.example.com"]
 		if state.accumulatedCost != 1.6 {
@@ -824,7 +827,7 @@ func TestApplyWindowedCostCompletion(t *testing.T) {
 		}
 
 		current = current.Add(5 * time.Second)
-		s.applyWindowedCostCompletion("api.example.com", windowExpiresAt, current, 1.0)
+		s.applyWindowedCostCompletion("api.example.com", window, current, 1.0)
 
 		if _, ok := s.xInitiatorCostDomainState["api.example.com"]; ok {
 			t.Fatalf("expected threshold-crossing completion to clear active state immediately")
@@ -868,10 +871,11 @@ func TestApplyWindowedCostCompletion(t *testing.T) {
 		if overridden := s.applyXInitiatorOverride("api.example.com", trigger); overridden {
 			t.Fatalf("expected first request to start the window without rewrite")
 		}
-		windowExpiresAt := s.xInitiatorCostDomainState["api.example.com"].expiresAt
+		windowState := s.xInitiatorCostDomainState["api.example.com"]
+		window := xInitiatorCostWindowRef{expiresAt: windowState.expiresAt, windowID: windowState.windowID}
 
 		current = current.Add(31 * time.Second)
-		s.applyWindowedCostCompletion("api.example.com", windowExpiresAt, current, 1.0)
+		s.applyWindowedCostCompletion("api.example.com", window, current, 1.0)
 
 		if _, ok := s.xInitiatorCostDomainState["api.example.com"]; ok {
 			t.Fatalf("expected expired completion not to keep or revive stale state")
@@ -929,9 +933,15 @@ func TestApplyWindowedCostCompletion(t *testing.T) {
 		if secondWindow.accumulatedCost != 0 {
 			t.Fatalf("expected second window to start with zero accumulated cost, got %v", secondWindow.accumulatedCost)
 		}
+		if firstWindow.windowID == 0 || secondWindow.windowID == 0 {
+			t.Fatalf("expected both windows to include non-zero identities")
+		}
+		if firstWindow.windowID == secondWindow.windowID {
+			t.Fatalf("expected renewed window to get a fresh identity, got %d", secondWindow.windowID)
+		}
 
 		current = current.Add(1 * time.Second)
-		s.applyWindowedCostCompletion("api.example.com", firstWindow.expiresAt, current, 1.0)
+		s.applyWindowedCostCompletion("api.example.com", xInitiatorCostWindowRef{expiresAt: firstWindow.expiresAt, windowID: firstWindow.windowID}, current, 1.0)
 
 		state, ok := s.xInitiatorCostDomainState["api.example.com"]
 		if !ok {
@@ -942,6 +952,9 @@ func TestApplyWindowedCostCompletion(t *testing.T) {
 		}
 		if state.accumulatedCost != 0 {
 			t.Fatalf("expected stale first-window completion not to charge second window, got %v", state.accumulatedCost)
+		}
+		if state.windowID != secondWindow.windowID {
+			t.Fatalf("expected stale completion to preserve second window identity %d, got %d", secondWindow.windowID, state.windowID)
 		}
 	})
 }
@@ -962,39 +975,120 @@ func TestApplyXInitiatorOverrideWithWindow_WindowedCostCapturesWindowAtomically(
 	}
 
 	firstTrigger := http.Header{"X-Initiator": []string{"user"}}
-	overridden, firstWindowExpiresAt := s.applyXInitiatorOverrideWithWindow("api.example.com", firstTrigger)
+	overridden, firstWindow := s.applyXInitiatorOverrideWithWindow("api.example.com", firstTrigger)
 	if overridden {
 		t.Fatalf("expected first request to start the first window without rewrite")
 	}
-	if !firstWindowExpiresAt.Equal(current.Add(30 * time.Second)) {
-		t.Fatalf("expected first window expiry %s, got %s", current.Add(30*time.Second).Format(time.RFC3339), firstWindowExpiresAt.Format(time.RFC3339))
+	if !firstWindow.expiresAt.Equal(current.Add(30 * time.Second)) {
+		t.Fatalf("expected first window expiry %s, got %s", current.Add(30*time.Second).Format(time.RFC3339), firstWindow.expiresAt.Format(time.RFC3339))
+	}
+	if firstWindow.windowID == 0 {
+		t.Fatalf("expected first window to include a non-zero identity")
 	}
 
 	current = current.Add(31 * time.Second)
 	secondTrigger := http.Header{"X-Initiator": []string{"user"}}
-	overridden, secondWindowExpiresAt := s.applyXInitiatorOverrideWithWindow("api.example.com", secondTrigger)
+	overridden, secondWindow := s.applyXInitiatorOverrideWithWindow("api.example.com", secondTrigger)
 	if overridden {
 		t.Fatalf("expected request after expiry to start a fresh second window")
 	}
-	if !secondWindowExpiresAt.Equal(current.Add(30 * time.Second)) {
-		t.Fatalf("expected second window expiry %s, got %s", current.Add(30*time.Second).Format(time.RFC3339), secondWindowExpiresAt.Format(time.RFC3339))
+	if !secondWindow.expiresAt.Equal(current.Add(30 * time.Second)) {
+		t.Fatalf("expected second window expiry %s, got %s", current.Add(30*time.Second).Format(time.RFC3339), secondWindow.expiresAt.Format(time.RFC3339))
 	}
-	if !secondWindowExpiresAt.After(firstWindowExpiresAt) {
-		t.Fatalf("expected second window expiry %s to be after first window expiry %s", secondWindowExpiresAt.Format(time.RFC3339), firstWindowExpiresAt.Format(time.RFC3339))
+	if !secondWindow.expiresAt.After(firstWindow.expiresAt) {
+		t.Fatalf("expected second window expiry %s to be after first window expiry %s", secondWindow.expiresAt.Format(time.RFC3339), firstWindow.expiresAt.Format(time.RFC3339))
+	}
+	if secondWindow.windowID == 0 {
+		t.Fatalf("expected second window to include a non-zero identity")
+	}
+	if secondWindow.windowID == firstWindow.windowID {
+		t.Fatalf("expected renewed window to get a fresh identity, got %d", secondWindow.windowID)
 	}
 
 	current = current.Add(1 * time.Second)
-	s.applyWindowedCostCompletion("api.example.com", firstWindowExpiresAt, current, 1.0)
+	s.applyWindowedCostCompletion("api.example.com", firstWindow, current, 1.0)
 
 	state, ok := s.xInitiatorCostDomainState["api.example.com"]
 	if !ok {
 		t.Fatalf("expected stale completion not to clear the newer active window")
 	}
-	if !state.expiresAt.Equal(secondWindowExpiresAt) {
-		t.Fatalf("expected stale completion to leave second window identity unchanged, got %s want %s", state.expiresAt.Format(time.RFC3339), secondWindowExpiresAt.Format(time.RFC3339))
+	if !state.expiresAt.Equal(secondWindow.expiresAt) {
+		t.Fatalf("expected stale completion to leave second window identity unchanged, got %s want %s", state.expiresAt.Format(time.RFC3339), secondWindow.expiresAt.Format(time.RFC3339))
 	}
 	if state.accumulatedCost != 0 {
 		t.Fatalf("expected stale completion not to charge second window, got %v", state.accumulatedCost)
+	}
+	if state.windowID != secondWindow.windowID {
+		t.Fatalf("expected stale completion to preserve second window identity %d, got %d", secondWindow.windowID, state.windowID)
+	}
+}
+
+func TestApplyXInitiatorOverrideWithWindow_WindowedCostIgnoresStaleCompletionAfterConfigResetSameExpiry(t *testing.T) {
+	current := time.Date(2026, 3, 29, 4, 0, 0, 0, time.UTC)
+	configPath := filepath.Join(t.TempDir(), "forward-proxy.json")
+	cfg := Config{
+		Enabled:          true,
+		InterceptDomains: []string{"api.example.com"},
+		XInitiatorOverride: XInitiatorOverrideConfig{
+			Enabled:         true,
+			Mode:            XInitiatorOverrideModeWindowedCost,
+			DurationSeconds: 30,
+			TotalCost:       2.5,
+		},
+	}
+	s := &Server{
+		configPath:                 configPath,
+		interceptDomains:           make(map[string]bool),
+		domainAliases:              make(map[string]string),
+		xInitiatorDomainState:      make(map[string]time.Time),
+		xInitiatorQuotaDomainState: make(map[string]xInitiatorQuotaState),
+		xInitiatorCostDomainState:  make(map[string]xInitiatorCostState),
+		now: func() time.Time {
+			return current
+		},
+	}
+
+	if err := s.UpdateConfig(cfg); err != nil {
+		t.Fatalf("UpdateConfig() first apply failed: %v", err)
+	}
+
+	firstTrigger := http.Header{"X-Initiator": []string{"user"}}
+	overridden, firstWindow := s.applyXInitiatorOverrideWithWindow("api.example.com", firstTrigger)
+	if overridden {
+		t.Fatalf("expected first request to start the initial window without rewrite")
+	}
+
+	if err := s.UpdateConfig(cfg); err != nil {
+		t.Fatalf("UpdateConfig() reset failed: %v", err)
+	}
+
+	secondTrigger := http.Header{"X-Initiator": []string{"user"}}
+	overridden, secondWindow := s.applyXInitiatorOverrideWithWindow("api.example.com", secondTrigger)
+	if overridden {
+		t.Fatalf("expected first request after config reset to start a fresh window without rewrite")
+	}
+	if !secondWindow.expiresAt.Equal(firstWindow.expiresAt) {
+		t.Fatalf("expected reset-at-same-time to recreate the same expiry %s, got %s", firstWindow.expiresAt.Format(time.RFC3339), secondWindow.expiresAt.Format(time.RFC3339))
+	}
+	if secondWindow.windowID == firstWindow.windowID {
+		t.Fatalf("expected reset window to get a fresh identity, got %d", secondWindow.windowID)
+	}
+
+	current = current.Add(1 * time.Second)
+	s.applyWindowedCostCompletion("api.example.com", firstWindow, current, 1.0)
+
+	state, ok := s.xInitiatorCostDomainState["api.example.com"]
+	if !ok {
+		t.Fatalf("expected stale pre-reset completion not to clear the new window")
+	}
+	if state.windowID != secondWindow.windowID {
+		t.Fatalf("expected stale pre-reset completion not to replace window identity %d, got %d", secondWindow.windowID, state.windowID)
+	}
+	if !state.expiresAt.Equal(secondWindow.expiresAt) {
+		t.Fatalf("expected stale pre-reset completion to preserve new expiry %s, got %s", secondWindow.expiresAt.Format(time.RFC3339), state.expiresAt.Format(time.RFC3339))
+	}
+	if state.accumulatedCost != 0 {
+		t.Fatalf("expected stale pre-reset completion not to charge the new window, got %v", state.accumulatedCost)
 	}
 }
 

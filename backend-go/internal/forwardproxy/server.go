@@ -66,6 +66,7 @@ type Server struct {
 	xInitiatorDomainState      map[string]time.Time
 	xInitiatorQuotaDomainState map[string]xInitiatorQuotaState
 	xInitiatorCostDomainState  map[string]xInitiatorCostState
+	nextXInitiatorCostWindowID uint64
 	now                        func() time.Time
 }
 
@@ -332,9 +333,9 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 	removeHopByHopHeaders(r.Header)
 
 	originalXInitiator := strings.TrimSpace(r.Header.Get("X-Initiator"))
-	var windowedCostWindowExpiresAt time.Time
+	var windowedCostWindow xInitiatorCostWindowRef
 	if intercept {
-		_, windowedCostWindowExpiresAt = s.applyXInitiatorOverrideWithWindow(hostOnly, r.Header)
+		_, windowedCostWindow = s.applyXInitiatorOverrideWithWindow(hostOnly, r.Header)
 	}
 	effectiveXInitiator := strings.TrimSpace(r.Header.Get("X-Initiator"))
 
@@ -436,7 +437,7 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 		}
 
 		record := createInterceptedCompletionRecord(r.URL.Path, usage, resp.StatusCode, startTime, endTime, s.resolveInterceptedProviderName(hostOnly), firstTokenTime)
-		s.finalizeInterceptedCompletionRecord(pendingLogID, hostOnly, windowedCostWindowExpiresAt, record)
+		s.finalizeInterceptedCompletionRecord(pendingLogID, hostOnly, windowedCostWindow, record)
 		if s.requestLogManager != nil && pendingLogID != "" {
 			s.saveDebugLog(pendingLogID, r, reqBody, resp.StatusCode, resp.Header, respCapture.Bytes())
 		}
@@ -451,7 +452,7 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 
 		record := createInterceptedCompletionRecord(r.URL.Path, usage, resp.StatusCode, startTime, endTime, s.resolveInterceptedProviderName(hostOnly), nil)
 		record.Stream = false
-		s.finalizeInterceptedCompletionRecord(pendingLogID, hostOnly, windowedCostWindowExpiresAt, record)
+		s.finalizeInterceptedCompletionRecord(pendingLogID, hostOnly, windowedCostWindow, record)
 		if s.requestLogManager != nil && pendingLogID != "" {
 			s.saveDebugLog(pendingLogID, r, reqBody, resp.StatusCode, resp.Header, respCapture.Bytes())
 		}
