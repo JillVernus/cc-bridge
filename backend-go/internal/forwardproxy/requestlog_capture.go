@@ -1,6 +1,7 @@
 package forwardproxy
 
 import (
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -155,6 +156,20 @@ func createInterceptedCompletionRecord(path string, usage *utils.StreamUsage, ht
 		ChannelUID:               "subscription:forward-proxy",
 		ChannelName:              "Subscription (Forward Proxy)",
 	}
+}
+
+func (s *Server) finalizeInterceptedCompletionRecord(pendingLogID, hostOnly string, record *requestlog.RequestLog) {
+	if s == nil || record == nil {
+		return
+	}
+
+	if s.requestLogManager != nil && pendingLogID != "" {
+		if err := s.requestLogManager.Update(pendingLogID, record); err != nil {
+			log.Printf("[fwd-proxy] failed to update request log: %v", err)
+		}
+	}
+
+	s.applyWindowedCostCompletion(hostOnly, record.CompleteTime, record.Price)
 }
 
 func parseInterceptedJSONResponse(path string, body []byte) *utils.StreamUsage {

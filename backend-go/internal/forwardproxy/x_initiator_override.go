@@ -216,6 +216,48 @@ func (s *Server) applyXInitiatorOverride(host string, headers http.Header) bool 
 	return true
 }
 
+func (s *Server) applyWindowedCostCompletion(host string, completedAt time.Time, price float64) {
+	if s == nil {
+		return
+	}
+
+	hostKey := strings.ToLower(strings.TrimSpace(host))
+	if hostKey == "" {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	cfg := s.xInitiatorOverride
+	if !cfg.Enabled || cfg.Mode != XInitiatorOverrideModeWindowedCost || cfg.DurationSeconds <= 0 || cfg.TotalCost <= 0 {
+		return
+	}
+	if s.xInitiatorCostDomainState == nil {
+		return
+	}
+
+	state, active := s.xInitiatorCostDomainState[hostKey]
+	if !active {
+		return
+	}
+	if !state.expiresAt.After(completedAt) {
+		delete(s.xInitiatorCostDomainState, hostKey)
+		return
+	}
+
+	if state.budgetCost <= 0 {
+		state.budgetCost = cfg.TotalCost
+	}
+	state.accumulatedCost += price
+	if state.accumulatedCost > state.budgetCost {
+		delete(s.xInitiatorCostDomainState, hostKey)
+		return
+	}
+
+	s.xInitiatorCostDomainState[hostKey] = state
+}
+
 func (s *Server) GetXInitiatorOverrideRuntimeStatus() XInitiatorOverrideRuntimeStatus {
 	if s == nil {
 		return XInitiatorOverrideRuntimeStatus{}

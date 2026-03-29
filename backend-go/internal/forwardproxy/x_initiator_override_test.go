@@ -751,6 +751,149 @@ func TestApplyXInitiatorOverride_WindowedCostExpiryReset(t *testing.T) {
 	}
 }
 
+func TestApplyWindowedCostCompletion(t *testing.T) {
+	t.Run("counts trigger non-user and rewritten requests then resets on threshold crossing", func(t *testing.T) {
+		current := time.Date(2026, 3, 29, 0, 0, 0, 0, time.UTC)
+		s := &Server{
+			xInitiatorOverride: XInitiatorOverrideConfig{
+				Enabled:         true,
+				Mode:            XInitiatorOverrideModeWindowedCost,
+				DurationSeconds: 300,
+				TotalCost:       2.5,
+			},
+			xInitiatorCostDomainState: make(map[string]xInitiatorCostState),
+			now: func() time.Time {
+				return current
+			},
+		}
+
+		trigger := http.Header{"X-Initiator": []string{"user"}}
+		if overridden := s.applyXInitiatorOverride("API.EXAMPLE.COM", trigger); overridden {
+			t.Fatalf("expected trigger request not to rewrite")
+		}
+
+		state, ok := s.xInitiatorCostDomainState["api.example.com"]
+		if !ok {
+			t.Fatalf("expected trigger request to start cost state")
+		}
+		if !state.expiresAt.Equal(current.Add(300 * time.Second)) {
+			t.Fatalf("expected expiresAt %s, got %s", current.Add(300*time.Second).Format(time.RFC3339), state.expiresAt.Format(time.RFC3339))
+		}
+		if state.accumulatedCost != 0 {
+			t.Fatalf("expected trigger request to start with zero accumulated cost, got %v", state.accumulatedCost)
+		}
+		if state.budgetCost != 2.5 {
+			t.Fatalf("expected trigger request budget cost 2.5, got %v", state.budgetCost)
+		}
+
+		current = current.Add(5 * time.Second)
+		s.applyWindowedCostCompletion(" API.EXAMPLE.COM ", current, 1.0)
+
+		state = s.xInitiatorCostDomainState["api.example.com"]
+		if state.accumulatedCost != 1.0 {
+			t.Fatalf("expected trigger completion to accumulate 1.0, got %v", state.accumulatedCost)
+		}
+		if !state.expiresAt.Equal(time.Date(2026, 3, 29, 0, 5, 0, 0, time.UTC)) {
+			t.Fatalf("expected expiry to remain unchanged after trigger completion, got %s", state.expiresAt.Format(time.RFC3339))
+		}
+
+		nonUser := http.Header{"X-Initiator": []string{"agent"}}
+		if overridden := s.applyXInitiatorOverride("api.example.com", nonUser); overridden {
+			t.Fatalf("expected active window not to rewrite non-user request")
+		}
+
+		current = current.Add(5 * time.Second)
+		s.applyWindowedCostCompletion("api.example.com", current, 0.6)
+
+		state = s.xInitiatorCostDomainState["api.example.com"]
+		if state.accumulatedCost != 1.6 {
+			t.Fatalf("expected non-user completion to accumulate 1.6, got %v", state.accumulatedCost)
+		}
+		if state.budgetCost != 2.5 {
+			t.Fatalf("expected budget cost to remain 2.5, got %v", state.budgetCost)
+		}
+
+		rewritten := http.Header{"X-Initiator": []string{"user"}}
+		if overridden := s.applyXInitiatorOverride("api.example.com", rewritten); !overridden {
+			t.Fatalf("expected active window to rewrite later user request")
+		}
+		if got := rewritten.Get("X-Initiator"); got != "agent" {
+			t.Fatalf("expected rewritten request header agent, got %q", got)
+		}
+
+		current = current.Add(5 * time.Second)
+		s.applyWindowedCostCompletion("api.example.com", current, 1.0)
+
+		if _, ok := s.xInitiatorCostDomainState["api.example.com"]; ok {
+			t.Fatalf("expected threshold-crossing completion to clear active state immediately")
+		}
+
+		freshTrigger := http.Header{"X-Initiator": []string{"user"}}
+		if overridden := s.applyXInitiatorOverride("api.example.com", freshTrigger); overridden {
+			t.Fatalf("expected next user request after reset to become a fresh trigger")
+		}
+		freshState, ok := s.xInitiatorCostDomainState["api.example.com"]
+		if !ok {
+			t.Fatalf("expected reset domain to start a fresh state")
+		}
+		if freshState.accumulatedCost != 0 {
+			t.Fatalf("expected fresh trigger to restart accumulated cost at 0, got %v", freshState.accumulatedCost)
+		}
+		if freshState.budgetCost != 2.5 {
+			t.Fatalf("expected fresh trigger budget cost 2.5, got %v", freshState.budgetCost)
+		}
+		if !freshState.expiresAt.Equal(current.Add(300 * time.Second)) {
+			t.Fatalf("expected fresh trigger expiresAt %s, got %s", current.Add(300*time.Second).Format(time.RFC3339), freshState.expiresAt.Format(time.RFC3339))
+		}
+	})
+
+	t.Run("late completion after expiry does not revive stale state", func(t *testing.T) {
+		current := time.Date(2026, 3, 29, 1, 0, 0, 0, time.UTC)
+		s := &Server{
+			xInitiatorOverride: XInitiatorOverrideConfig{
+				Enabled:         true,
+				Mode:            XInitiatorOverrideModeWindowedCost,
+				DurationSeconds: 30,
+				TotalCost:       2.5,
+			},
+			xInitiatorCostDomainState: make(map[string]xInitiatorCostState),
+			now: func() time.Time {
+				return current
+			},
+		}
+
+		trigger := http.Header{"X-Initiator": []string{"user"}}
+		if overridden := s.applyXInitiatorOverride("api.example.com", trigger); overridden {
+			t.Fatalf("expected first request to start the window without rewrite")
+		}
+
+		current = current.Add(31 * time.Second)
+		s.applyWindowedCostCompletion("api.example.com", current, 1.0)
+
+		if _, ok := s.xInitiatorCostDomainState["api.example.com"]; ok {
+			t.Fatalf("expected expired completion not to keep or revive stale state")
+		}
+
+		freshTrigger := http.Header{"X-Initiator": []string{"user"}}
+		if overridden := s.applyXInitiatorOverride("api.example.com", freshTrigger); overridden {
+			t.Fatalf("expected next user request after expiry to become a fresh trigger")
+		}
+		freshState, ok := s.xInitiatorCostDomainState["api.example.com"]
+		if !ok {
+			t.Fatalf("expected fresh trigger to recreate state after expiry")
+		}
+		if freshState.accumulatedCost != 0 {
+			t.Fatalf("expected fresh state to restart accumulated cost at 0, got %v", freshState.accumulatedCost)
+		}
+		if freshState.budgetCost != 2.5 {
+			t.Fatalf("expected fresh state budget cost 2.5, got %v", freshState.budgetCost)
+		}
+		if !freshState.expiresAt.Equal(current.Add(30 * time.Second)) {
+			t.Fatalf("expected fresh state expiresAt %s, got %s", current.Add(30*time.Second).Format(time.RFC3339), freshState.expiresAt.Format(time.RFC3339))
+		}
+	})
+}
+
 func TestHandleHTTPForward_XInitiatorOverride_OverridesLaterRequests(t *testing.T) {
 	current := time.Date(2026, 3, 26, 0, 0, 0, 0, time.UTC)
 	seen := make([]string, 0, 2)

@@ -3,19 +3,60 @@ package forwardproxy
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/JillVernus/cc-bridge/internal/pricing"
 	"github.com/JillVernus/cc-bridge/internal/requestlog"
 )
+
+var forwardProxyPricingInitOnce sync.Once
+
+func ensureForwardProxyTestPricingManager(t *testing.T) {
+	t.Helper()
+
+	forwardProxyPricingInitOnce.Do(func() {
+		cfg := pricing.PricingConfig{
+			Currency: "USD",
+			Models: map[string]pricing.ModelPricing{
+				"test-windowed-cost-model": {
+					InputPrice:  1_000_000,
+					OutputPrice: 1_000_000,
+				},
+			},
+		}
+
+		data, err := json.Marshal(cfg)
+		if err != nil {
+			t.Fatalf("failed to marshal pricing config: %v", err)
+		}
+
+		tmpDir, err := os.MkdirTemp("", "forwardproxy-pricing-*")
+		if err != nil {
+			t.Fatalf("failed to create temp pricing dir: %v", err)
+		}
+
+		path := filepath.Join(tmpDir, "pricing.json")
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatalf("failed to write pricing config: %v", err)
+		}
+
+		if _, err := pricing.InitManager(path); err != nil {
+			t.Fatalf("failed to init pricing manager: %v", err)
+		}
+	})
+}
 
 func TestUpdateConfig_NormalizesDomainAliases(t *testing.T) {
 	s := &Server{
@@ -323,6 +364,137 @@ func TestHandleHTTPForward_PersistsXInitiatorMetadata(t *testing.T) {
 	}
 	if second.EffectiveXInitiator != "agent" {
 		t.Fatalf("expected second effectiveXInitiator=agent, got %q", second.EffectiveXInitiator)
+	}
+}
+
+func TestHandleHTTPForward_WindowedCostAccounting(t *testing.T) {
+	ensureForwardProxyTestPricingManager(t)
+
+	reqLogManager := newForwardProxyTestRequestLogManager(t)
+
+	responses := []string{
+		`{"id":"resp_1","model":"test-windowed-cost-model","status":"completed","usage":{"input_tokens":1,"output_tokens":0,"total_tokens":1}}`,
+		`{"id":"resp_2","model":"test-windowed-cost-model","status":"completed","usage":{"input_tokens":1,"output_tokens":0,"total_tokens":1}}`,
+		`{"id":"resp_3","model":"test-windowed-cost-model","status":"completed","usage":{"input_tokens":1,"output_tokens":0,"total_tokens":1}}`,
+		`{"id":"resp_4","model":"test-windowed-cost-model","status":"completed","usage":{"input_tokens":1,"output_tokens":0,"total_tokens":1}}`,
+	}
+
+	var (
+		seen       []string
+		responseIx int
+	)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if responseIx >= len(responses) {
+			t.Fatalf("unexpected extra upstream request %d", responseIx+1)
+		}
+		seen = append(seen, r.Header.Get("X-Initiator"))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, responses[responseIx])
+		responseIx++
+	}))
+	defer upstream.Close()
+
+	upstreamURL, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatalf("failed to parse upstream URL: %v", err)
+	}
+	hostOnly := strings.ToLower(upstreamURL.Hostname())
+
+	s := &Server{
+		requestLogManager: reqLogManager,
+		httpClient:        upstream.Client(),
+		enabled:           true,
+		interceptDomains: map[string]bool{
+			hostOnly: true,
+		},
+		xInitiatorOverride: XInitiatorOverrideConfig{
+			Enabled:         true,
+			Mode:            XInitiatorOverrideModeWindowedCost,
+			DurationSeconds: 300,
+			TotalCost:       2.5,
+		},
+		xInitiatorCostDomainState: make(map[string]xInitiatorCostState),
+		now:                       time.Now,
+	}
+
+	makeRequest := func(initiator string) {
+		t.Helper()
+
+		req := httptest.NewRequest(http.MethodPost, upstream.URL+"/v1/responses", strings.NewReader(`{"model":"test-windowed-cost-model","stream":false}`))
+		req.Header.Set("Content-Type", "application/json")
+		if initiator != "" {
+			req.Header.Set("X-Initiator", initiator)
+		}
+
+		rec := httptest.NewRecorder()
+		s.handleHTTPForward(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+		}
+	}
+
+	makeRequest("user")
+	firstState, ok := s.xInitiatorCostDomainState[hostOnly]
+	if !ok {
+		t.Fatalf("expected trigger request completion to keep windowed cost state active")
+	}
+	if firstState.accumulatedCost != 1 {
+		t.Fatalf("expected trigger request cost to accumulate to 1, got %v", firstState.accumulatedCost)
+	}
+	if firstState.budgetCost != 2.5 {
+		t.Fatalf("expected budget cost 2.5, got %v", firstState.budgetCost)
+	}
+
+	makeRequest("agent")
+	secondState, ok := s.xInitiatorCostDomainState[hostOnly]
+	if !ok {
+		t.Fatalf("expected active window to remain after non-user completion")
+	}
+	if secondState.accumulatedCost != 2 {
+		t.Fatalf("expected non-user request to accumulate cost to 2, got %v", secondState.accumulatedCost)
+	}
+
+	makeRequest("user")
+	if _, ok := s.xInitiatorCostDomainState[hostOnly]; ok {
+		t.Fatalf("expected threshold-crossing completion to clear active cost state immediately")
+	}
+
+	makeRequest("user")
+	freshState, ok := s.xInitiatorCostDomainState[hostOnly]
+	if !ok {
+		t.Fatalf("expected post-reset trigger request to start a fresh cost window")
+	}
+	if freshState.accumulatedCost != 1 {
+		t.Fatalf("expected fresh trigger request cost to accumulate to 1, got %v", freshState.accumulatedCost)
+	}
+	if freshState.budgetCost != 2.5 {
+		t.Fatalf("expected fresh state budget cost 2.5, got %v", freshState.budgetCost)
+	}
+
+	if want := []string{"user", "agent", "agent", "user"}; len(seen) != len(want) {
+		t.Fatalf("expected %d upstream requests, got %d (%v)", len(want), len(seen), seen)
+	} else {
+		for i, got := range seen {
+			if got != want[i] {
+				t.Fatalf("expected upstream X-Initiator sequence %v, got %v", want, seen)
+			}
+		}
+	}
+
+	recent, err := reqLogManager.GetRecent(&requestlog.RequestLogFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("GetRecent failed: %v", err)
+	}
+	if len(recent.Requests) != 4 {
+		t.Fatalf("expected exactly four request logs, got %d", len(recent.Requests))
+	}
+	for i, got := range recent.Requests {
+		if got.Price != 1 {
+			t.Fatalf("expected request log %d price 1, got %v", i, got.Price)
+		}
 	}
 }
 

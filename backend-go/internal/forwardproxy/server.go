@@ -434,11 +434,9 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 			firstTokenTime = parser.GetFirstTokenTime()
 		}
 
+		record := createInterceptedCompletionRecord(r.URL.Path, usage, resp.StatusCode, startTime, endTime, s.resolveInterceptedProviderName(hostOnly), firstTokenTime)
+		s.finalizeInterceptedCompletionRecord(pendingLogID, hostOnly, record)
 		if s.requestLogManager != nil && pendingLogID != "" {
-			record := createInterceptedCompletionRecord(r.URL.Path, usage, resp.StatusCode, startTime, endTime, s.resolveInterceptedProviderName(hostOnly), firstTokenTime)
-			if err := s.requestLogManager.Update(pendingLogID, record); err != nil {
-				log.Printf("[fwd-proxy] failed to update request log: %v", err)
-			}
 			s.saveDebugLog(pendingLogID, r, reqBody, resp.StatusCode, resp.Header, respCapture.Bytes())
 		}
 	} else {
@@ -450,12 +448,10 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 		endTime := time.Now()
 		usage := parseInterceptedJSONResponse(r.URL.Path, respCapture.Bytes())
 
+		record := createInterceptedCompletionRecord(r.URL.Path, usage, resp.StatusCode, startTime, endTime, s.resolveInterceptedProviderName(hostOnly), nil)
+		record.Stream = false
+		s.finalizeInterceptedCompletionRecord(pendingLogID, hostOnly, record)
 		if s.requestLogManager != nil && pendingLogID != "" {
-			record := createInterceptedCompletionRecord(r.URL.Path, usage, resp.StatusCode, startTime, endTime, s.resolveInterceptedProviderName(hostOnly), nil)
-			record.Stream = false
-			if err := s.requestLogManager.Update(pendingLogID, record); err != nil {
-				log.Printf("[fwd-proxy] failed to update request log: %v", err)
-			}
 			s.saveDebugLog(pendingLogID, r, reqBody, resp.StatusCode, resp.Header, respCapture.Bytes())
 		}
 	}
