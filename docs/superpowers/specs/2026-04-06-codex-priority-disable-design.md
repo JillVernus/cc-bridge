@@ -95,6 +95,22 @@ Reuse `codexServiceTierOverride` as a string field.
 No schema migration is required because the DB already persists this column as
 text.
 
+Accepted normalized values:
+
+- `off`
+- `force_priority`
+- `force_default`
+
+Config/API rules:
+
+- trim surrounding whitespace before evaluating or persisting the value
+- treat unknown or empty values as `off`
+- treat the comparison as case-insensitive at read time, but persist canonical
+  lowercase values
+- for ineligible channel types, backend logic must ignore the field and behave
+  as `off`
+- frontend select inputs must only emit canonical values
+
 ### Request Rewriting
 
 Extend the existing effective Responses service-tier helper in the handlers
@@ -116,6 +132,33 @@ The helper remains the single source of truth for:
 - upstream forwarded request body
 - fast-mode billing decision
 - request-log service-tier metadata
+
+### Logging Invariant
+
+For every selected Responses attempt, the exact effective tuple must stay
+aligned across the whole pipeline:
+
+- effective request body
+- effective `serviceTier`
+- effective `isFastMode`
+- effective `serviceTierOverridden`
+
+This tuple must flow through:
+
+- successful completion
+- retry-wait records
+- failover records
+- recreated pending records
+- final error records
+- request-log SSE payloads
+- request-log list/detail fetches
+
+Requirement:
+
+- `serviceTierOverridden = true` must never be emitted with empty
+  `serviceTier`
+- a successful downgraded request must persist `serviceTier = "default"` and
+  `serviceTierOverridden = true`
 
 ### Logging
 
@@ -148,6 +191,15 @@ Extend the existing select options in `AddChannelModal.vue`:
 
 Update type definitions accordingly.
 
+Frontend copy requirements:
+
+- update the channel-setting label so it no longer implies one-way
+  “priority-only” override semantics
+- update the hint/help text in both English and Chinese to explain both
+  `force_priority` and `force_default`
+- the new option text must clearly state that only explicit `priority` is
+  downgraded
+
 ### Request Log UI
 
 Keep the existing override indicator, but distinguish the two outcomes:
@@ -167,6 +219,13 @@ Recommended minimal UI behavior:
 
 - keep current override icon
 - change tooltip/label based on final `serviceTier`
+
+UI behavior requirements:
+
+- downgraded rows must not display fast-mode wording or fast-mode explanatory
+  text
+- downgraded rows must display explicit “priority disabled by proxy” semantics
+- forced-fast rows must keep the existing fast-mode semantics
 
 ## API / Type Changes
 
@@ -197,13 +256,30 @@ Extend retry/error log regression coverage so downgraded attempts preserve:
 - `serviceTier = "default"`
 - `serviceTierOverridden = true`
 
+Extend success-path coverage so completed downgraded requests preserve:
+
+- `serviceTier = "default"`
+- `serviceTierOverridden = true`
+
+Extend config persistence coverage for:
+
+- `force_default` save/load round-trip
+
+Extend request-log fetch coverage for downgraded completed records across:
+
+- direct DB fetch
+- recent list fetch
+- SSE created/updated payloads
+
 ### Frontend Checks
 
 Verify:
 
 - channel modal shows the third option
+- channel modal copy explains both force-up and force-down behavior
 - saved channel round-trips with `force_default`
 - log table shows correct text/indicator for downgraded requests
+- downgraded rows do not show fast-mode wording/icon semantics
 
 ## Risks
 
