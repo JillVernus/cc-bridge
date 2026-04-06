@@ -4,6 +4,28 @@
 
 ---
 
+## [v1.5.21] - 2026-04-06
+
+### ✨ 新功能
+
+- **Codex Service Tier Override 新增强制 default 模式**:
+  - 为符合条件的 Responses / openai-oauth 渠道新增 `force_default` 选项，可将显式传入的 `service_tier: "priority"` 改写为 `default`。
+  - 渠道设置弹窗新增双向覆盖选项与中英文说明，支持按渠道强制 priority，或显式禁用 priority。
+
+### 🐛 修复
+
+- **Priority 降级后的计费与日志恢复正常档位**:
+  - 当渠道启用 `force_default` 时，请求日志会完整保留有效 `serviceTier = "default"` 与 `serviceTierOverridden = true`，覆盖成功、重试等待、失败切换与 SSE / 列表查询路径。
+  - Responses 成功路径的成本计算现按降级后的有效档位执行，不再误沿用 fast mode 定价。
+  - 请求日志表格新增“由代理禁用 priority / Priority disabled by proxy”语义，便于区分“强制 fast mode”与“禁用 fast mode”。
+
+### ✅ 测试
+
+- `cd backend-go && go test ./internal/config ./internal/handlers ./internal/requestlog -count=1`
+- `cd frontend && bun run type-check`
+
+---
+
 ## [v1.5.20] - 2026-03-29
 
 ### ✨ 新功能
