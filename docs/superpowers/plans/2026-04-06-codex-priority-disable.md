@@ -18,6 +18,7 @@
 - Modify: `backend-go/internal/handlers/config.go`
 - Modify: `frontend/src/services/api.ts`
 - Test: `backend-go/internal/config/config_db_save_test.go`
+- Test: `backend-go/internal/config/config_test.go` or equivalent file-backed config load test
 
 - [ ] **Step 1: Add the new allowed channel type union**
 
@@ -61,6 +62,15 @@ verify:
 - `force_default` survives save/load round-trip
 - whitespace/casing variants normalize to canonical lowercase
 - unknown or empty values behave as `off`
+
+- [ ] **Step 7: Add a file-backed normalization regression**
+
+Add one non-DB config test in `backend-go/internal/config/config_test.go` or an
+equivalent file-load test that proves:
+
+- mixed-case / whitespace legacy values normalize on read
+- unknown or empty values surface as effective `off`
+- canonical lowercase values are what runtime/config GET paths expose
 
 ### Task 2: Implement `force_default` In Effective Tier Resolution
 
