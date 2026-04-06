@@ -333,6 +333,75 @@ func TestHandleResponsesSuccess_StoresPriorityServiceTierForFastMode(t *testing.
 	}
 }
 
+func TestHandleResponsesSuccess_PreservesDowngradedDefaultServiceTier(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cfgManager := newTestConfigManager(t)
+	reqLogManager := newTestRequestLogManager(t)
+
+	startTime := time.Now().Add(-120 * time.Millisecond)
+	requestLogID := addPendingLogForTest(t, reqLogManager, startTime, "/v1/responses", "responses", "gpt-5", true, 2, "responses-2")
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"stream":true}`))
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+		},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`data: {"type":"response.output_text.delta","delta":"Hi"}`,
+			`data: {"type":"response.completed","response":{"id":"resp_2","model":"gpt-5","output":[{"type":"message","content":[{"type":"output_text","text":"Hi"}]}],"usage":{"input_tokens":10,"output_tokens":5,"cached_tokens":2}}}`,
+			`data: [DONE]`,
+			"",
+		}, "\n"))),
+	}
+
+	upstream := &config.UpstreamConfig{
+		Index:                    2,
+		Name:                     "responses-2",
+		ServiceType:              "responses",
+		CodexServiceTierOverride: config.CodexServiceTierOverrideForceDefault,
+	}
+	envCfg := &config.EnvConfig{LogLevel: "error"}
+
+	handleResponsesSuccess(
+		c,
+		resp,
+		nil,
+		upstream,
+		envCfg,
+		cfgManager,
+		nil,
+		startTime,
+		&types.ResponsesRequest{Model: "gpt-5", Stream: true},
+		[]byte(`{"model":"gpt-5","stream":true,"service_tier":"default"}`),
+		reqLogManager,
+		requestLogID,
+		nil,
+		2,
+		"responses-2",
+		false,
+		true,
+	)
+
+	got, err := reqLogManager.GetByID(requestLogID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	if got == nil {
+		t.Fatalf("expected request log")
+	}
+	if got.ServiceTier != "default" {
+		t.Fatalf("expected serviceTier default, got %q", got.ServiceTier)
+	}
+	if !got.ServiceTierOverridden {
+		t.Fatalf("expected serviceTierOverridden=true")
+	}
+}
+
 func TestHandleGeminiSuccess_StreamRecordsFirstToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

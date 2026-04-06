@@ -1,6 +1,7 @@
 package config
 
 import (
+	"database/sql"
 	"encoding/json"
 	"path/filepath"
 	"testing"
@@ -215,15 +216,53 @@ func TestDBConfigStorage_SaveAndLoadCodexServiceTierOverride(t *testing.T) {
 		Upstream:        []UpstreamConfig{},
 		CurrentUpstream: 0,
 		LoadBalance:     "failover",
-		ResponsesUpstream: []UpstreamConfig{{
-			ID:                       "resp-1",
-			Name:                     "Codex OAuth",
-			BaseURL:                  "https://chatgpt.com/backend-api/codex",
-			ServiceType:              "openai-oauth",
-			Priority:                 1,
-			Status:                   "active",
-			CodexServiceTierOverride: "force_priority",
-		}},
+		ResponsesUpstream: []UpstreamConfig{
+			{
+				ID:                       "resp-force-default",
+				Name:                     "Codex OAuth Default",
+				BaseURL:                  "https://chatgpt.com/backend-api/codex",
+				ServiceType:              "openai-oauth",
+				Priority:                 1,
+				Status:                   "active",
+				CodexServiceTierOverride: " Force_Default ",
+			},
+			{
+				ID:                       "resp-force-priority",
+				Name:                     "Codex Responses Priority",
+				BaseURL:                  "https://api.openai.com/v1/responses",
+				ServiceType:              "responses",
+				Priority:                 2,
+				Status:                   "active",
+				CodexServiceTierOverride: " Force_Priority ",
+			},
+			{
+				ID:                       "resp-unknown",
+				Name:                     "Codex Unknown",
+				BaseURL:                  "https://api.openai.com/v1/responses",
+				ServiceType:              "responses",
+				Priority:                 3,
+				Status:                   "active",
+				CodexServiceTierOverride: "  sometimes  ",
+			},
+			{
+				ID:                       "resp-empty",
+				Name:                     "Codex Empty",
+				BaseURL:                  "https://api.openai.com/v1/responses",
+				ServiceType:              "responses",
+				Priority:                 4,
+				Status:                   "active",
+				CodexServiceTierOverride: "   ",
+			},
+			{
+				ID:                       "resp-ineligible",
+				Name:                     "Codex Ineligible",
+				BaseURL:                  "https://api.openai.com/v1",
+				ServiceType:              "openai",
+				Priority:                 5,
+				Status:                   "active",
+				CodexServiceTierOverride: "force_default",
+			},
+		},
 		CurrentResponsesUpstream: 0,
 		ResponsesLoadBalance:     "failover",
 		GeminiUpstream:           []UpstreamConfig{},
@@ -237,15 +276,64 @@ func TestDBConfigStorage_SaveAndLoadCodexServiceTierOverride(t *testing.T) {
 		t.Fatalf("SaveConfigToDB() failed: %v", err)
 	}
 
+	stored := map[string]string{}
+	rows, err := db.Query(`
+		SELECT channel_id, codex_service_tier_override
+		FROM channels
+		WHERE channel_type = ?
+		ORDER BY priority, id
+	`, "responses")
+	if err != nil {
+		t.Fatalf("query stored codex_service_tier_override values: %v", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			channelID string
+			override  sql.NullString
+		)
+		if err := rows.Scan(&channelID, &override); err != nil {
+			t.Fatalf("scan stored codex_service_tier_override: %v", err)
+		}
+		stored[channelID] = override.String
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate stored codex_service_tier_override rows: %v", err)
+	}
+
+	wantStored := map[string]string{
+		"resp-force-default":  "force_default",
+		"resp-force-priority": "force_priority",
+		"resp-unknown":        "off",
+		"resp-empty":          "off",
+		"resp-ineligible":     "off",
+	}
+	if len(stored) != len(wantStored) {
+		t.Fatalf("stored row count = %d, want %d", len(stored), len(wantStored))
+	}
+	for channelID, want := range wantStored {
+		if got := stored[channelID]; got != want {
+			t.Fatalf("stored codex_service_tier_override for %s = %q, want %q", channelID, got, want)
+		}
+	}
+
 	loaded, err := dbStorage.LoadConfigFromDB()
 	if err != nil {
 		t.Fatalf("LoadConfigFromDB() failed: %v", err)
 	}
 
-	if len(loaded.ResponsesUpstream) != 1 {
-		t.Fatalf("len(ResponsesUpstream) = %d, want 1", len(loaded.ResponsesUpstream))
+	if len(loaded.ResponsesUpstream) != len(wantStored) {
+		t.Fatalf("len(ResponsesUpstream) = %d, want %d", len(loaded.ResponsesUpstream), len(wantStored))
 	}
-	if got := loaded.ResponsesUpstream[0].CodexServiceTierOverride; got != "force_priority" {
-		t.Fatalf("CodexServiceTierOverride = %q, want force_priority", got)
+
+	for _, upstream := range loaded.ResponsesUpstream {
+		want, ok := wantStored[upstream.ID]
+		if !ok {
+			t.Fatalf("unexpected loaded channel ID %q", upstream.ID)
+		}
+		if got := upstream.CodexServiceTierOverride; got != want {
+			t.Fatalf("loaded CodexServiceTierOverride for %s = %q, want %q", upstream.ID, got, want)
+		}
 	}
 }

@@ -155,6 +155,11 @@ func (s *DBConfigStorage) MigrateFromJSONIfNeeded(jsonPath string) error {
 // insertChannelTx inserts a channel into the database within a transaction
 func (s *DBConfigStorage) insertChannelTx(tx *database.Tx, channelType string, index int, upstream *UpstreamConfig) error {
 	channelID := upstream.ID
+	codexServiceTierOverride := NormalizeCodexServiceTierOverride(
+		channelType,
+		upstream.ServiceType,
+		upstream.CodexServiceTierOverride,
+	)
 
 	// Serialize complex fields to JSON
 	apiKeys, _ := json.Marshal(upstream.APIKeys)
@@ -225,7 +230,7 @@ func (s *DBConfigStorage) insertChannelTx(tx *database.Tx, channelType string, i
 		upstream.QuotaResetInterval, upstream.QuotaResetUnit, upstream.QuotaResetMode,
 		upstream.RateLimitRpm, upstream.QueueEnabled, upstream.QueueTimeout,
 		upstream.KeyLoadBalance, string(apiKeys), string(modelMapping),
-		string(priceMultipliers), string(oauthTokens), upstream.CodexServiceTierOverride, string(quotaModels),
+		string(priceMultipliers), string(oauthTokens), codexServiceTierOverride, string(quotaModels),
 		string(compositeMappings), string(contentFilter),
 	)
 	return err
@@ -295,6 +300,7 @@ func (s *DBConfigStorage) LoadConfigFromDB() (*Config, error) {
 
 	// Ensure defaults are present for missing/legacy records.
 	normalizeUserAgentConfig(&config.UserAgent)
+	normalizeConfigCodexServiceTierOverrides(config)
 
 	return config, nil
 }
@@ -429,9 +435,7 @@ func (s *DBConfigStorage) loadChannels(channelType string) ([]UpstreamConfig, er
 		if oauthTokensJSON.Valid && oauthTokensJSON.String != "" {
 			json.Unmarshal([]byte(oauthTokensJSON.String), &upstream.OAuthTokens)
 		}
-		if codexServiceTierOverride.Valid {
-			upstream.CodexServiceTierOverride = codexServiceTierOverride.String
-		}
+		upstream.CodexServiceTierOverride = NormalizeCodexServiceTierOverride(channelType, upstream.ServiceType, codexServiceTierOverride.String)
 		if quotaModelsJSON.Valid && quotaModelsJSON.String != "" {
 			json.Unmarshal([]byte(quotaModelsJSON.String), &upstream.QuotaModels)
 		}
@@ -451,6 +455,8 @@ func (s *DBConfigStorage) loadChannels(channelType string) ([]UpstreamConfig, er
 // SaveConfigToDB saves the current configuration to the database
 // Uses smart UPDATE/INSERT/DELETE to only modify changed channels
 func (s *DBConfigStorage) SaveConfigToDB(config *Config) error {
+	normalizeConfigCodexServiceTierOverrides(config)
+
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -590,6 +596,12 @@ func (s *DBConfigStorage) syncChannelsTx(tx *database.Tx, channelType string, ch
 
 // updateChannelTx updates an existing channel in the database
 func (s *DBConfigStorage) updateChannelTx(tx *database.Tx, channelType string, channelID string, index int, upstream *UpstreamConfig) error {
+	codexServiceTierOverride := NormalizeCodexServiceTierOverride(
+		channelType,
+		upstream.ServiceType,
+		upstream.CodexServiceTierOverride,
+	)
+
 	// Serialize complex fields to JSON
 	apiKeys, _ := json.Marshal(upstream.APIKeys)
 	modelMapping, _ := json.Marshal(upstream.ModelMapping)
@@ -665,7 +677,7 @@ func (s *DBConfigStorage) updateChannelTx(tx *database.Tx, channelType string, c
 		upstream.QuotaResetUnit, upstream.QuotaResetMode, upstream.RateLimitRpm,
 		upstream.QueueEnabled, upstream.QueueTimeout, upstream.KeyLoadBalance,
 		string(apiKeys), string(modelMapping), string(priceMultipliers),
-		string(oauthTokens), upstream.CodexServiceTierOverride, string(quotaModels), string(compositeMappings), string(contentFilter),
+		string(oauthTokens), codexServiceTierOverride, string(quotaModels), string(compositeMappings), string(contentFilter),
 		channelID, channelType,
 	)
 	return err

@@ -55,7 +55,7 @@ func TestResolveEffectiveResponsesServiceTier(t *testing.T) {
 			model: "gpt-5-codex",
 			upstream: &config.UpstreamConfig{
 				ServiceType:              "responses",
-				CodexServiceTierOverride: "force_priority",
+				CodexServiceTierOverride: config.CodexServiceTierOverrideForcePriority,
 			},
 			wantTier:        "priority",
 			wantFast:        true,
@@ -68,7 +68,7 @@ func TestResolveEffectiveResponsesServiceTier(t *testing.T) {
 			model: "gpt-5-codex",
 			upstream: &config.UpstreamConfig{
 				ServiceType:              "openai-oauth",
-				CodexServiceTierOverride: "force_priority",
+				CodexServiceTierOverride: config.CodexServiceTierOverrideForcePriority,
 			},
 			wantTier:        "priority",
 			wantFast:        true,
@@ -81,7 +81,7 @@ func TestResolveEffectiveResponsesServiceTier(t *testing.T) {
 			model: "gpt-5-codex",
 			upstream: &config.UpstreamConfig{
 				ServiceType:              "responses",
-				CodexServiceTierOverride: "force_priority",
+				CodexServiceTierOverride: config.CodexServiceTierOverrideForcePriority,
 			},
 			wantTier:        "priority",
 			wantFast:        true,
@@ -94,7 +94,7 @@ func TestResolveEffectiveResponsesServiceTier(t *testing.T) {
 			model: "gpt-5-codex",
 			upstream: &config.UpstreamConfig{
 				ServiceType:              "responses",
-				CodexServiceTierOverride: "force_priority",
+				CodexServiceTierOverride: config.CodexServiceTierOverrideForcePriority,
 			},
 			wantTier:        "flex",
 			wantFast:        false,
@@ -107,7 +107,7 @@ func TestResolveEffectiveResponsesServiceTier(t *testing.T) {
 			model: "gpt-5",
 			upstream: &config.UpstreamConfig{
 				ServiceType:              "responses",
-				CodexServiceTierOverride: "force_priority",
+				CodexServiceTierOverride: config.CodexServiceTierOverrideForcePriority,
 			},
 			wantTier:        "priority",
 			wantFast:        true,
@@ -120,12 +120,77 @@ func TestResolveEffectiveResponsesServiceTier(t *testing.T) {
 			model: "gpt-5-codex",
 			upstream: &config.UpstreamConfig{
 				ServiceType:              "responses",
-				CodexServiceTierOverride: "off",
+				CodexServiceTierOverride: config.CodexServiceTierOverrideOff,
 			},
 			wantTier:        "default",
 			wantFast:        false,
 			wantOverridden:  false,
 			wantServiceTier: strPtr("default"),
+		},
+		{
+			name:  "priority tier forced to default",
+			body:  `{"model":"gpt-5-codex","service_tier":"priority","input":"hi"}`,
+			model: "gpt-5-codex",
+			upstream: &config.UpstreamConfig{
+				ServiceType:              "responses",
+				CodexServiceTierOverride: config.CodexServiceTierOverrideForceDefault,
+			},
+			wantTier:        "default",
+			wantFast:        false,
+			wantOverridden:  true,
+			wantServiceTier: strPtr("default"),
+		},
+		{
+			name:  "priority tier forced to default without model guard",
+			body:  `{"model":"gpt-5","service_tier":"priority","input":"hi"}`,
+			model: "gpt-5",
+			upstream: &config.UpstreamConfig{
+				ServiceType:              "responses",
+				CodexServiceTierOverride: config.CodexServiceTierOverrideForceDefault,
+			},
+			wantTier:        "default",
+			wantFast:        false,
+			wantOverridden:  true,
+			wantServiceTier: strPtr("default"),
+		},
+		{
+			name:  "missing tier remains unchanged when forced default",
+			body:  `{"model":"gpt-5-codex","input":"hi"}`,
+			model: "gpt-5-codex",
+			upstream: &config.UpstreamConfig{
+				ServiceType:              "responses",
+				CodexServiceTierOverride: config.CodexServiceTierOverrideForceDefault,
+			},
+			wantTier:        "",
+			wantFast:        false,
+			wantOverridden:  false,
+			wantServiceTier: nil,
+		},
+		{
+			name:  "default tier remains unchanged when forced default",
+			body:  `{"model":"gpt-5-codex","service_tier":"default","input":"hi"}`,
+			model: "gpt-5-codex",
+			upstream: &config.UpstreamConfig{
+				ServiceType:              "responses",
+				CodexServiceTierOverride: config.CodexServiceTierOverrideForceDefault,
+			},
+			wantTier:        "default",
+			wantFast:        false,
+			wantOverridden:  false,
+			wantServiceTier: strPtr("default"),
+		},
+		{
+			name:  "other non-empty tier remains unchanged when forced default",
+			body:  `{"model":"gpt-5-codex","service_tier":"flex","input":"hi"}`,
+			model: "gpt-5-codex",
+			upstream: &config.UpstreamConfig{
+				ServiceType:              "responses",
+				CodexServiceTierOverride: config.CodexServiceTierOverrideForceDefault,
+			},
+			wantTier:        "flex",
+			wantFast:        false,
+			wantOverridden:  false,
+			wantServiceTier: strPtr("flex"),
 		},
 	}
 

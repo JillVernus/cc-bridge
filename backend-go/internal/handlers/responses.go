@@ -503,6 +503,7 @@ func handleMultiChannelResponses(
 		if selection.CompositeUpstream != nil && len(selection.FailoverChain) > 0 {
 			// Log the failover attempt for composite chain
 			if reqLogManager != nil && requestLogID != "" {
+				effectiveServiceTier, _, serviceTierOverridden := resolveResponsesServiceTierLogMetadata(bodyBytes, upstream, isFastMode)
 				completeTime := time.Now()
 				httpStatus := 0
 				upstreamErr := ""
@@ -533,6 +534,7 @@ func handleMultiChannelResponses(
 					UpstreamError:   upstreamErr,
 					FailoverInfo:    failoverInfoStr,
 				}
+				applyResponsesServiceTierMetadata(failoverRecord, effectiveServiceTier, serviceTierOverridden)
 				if err := reqLogManager.Update(requestLogID, failoverRecord); err != nil {
 					log.Printf("⚠️ Failed to update failover log: %v", err)
 				}
@@ -543,7 +545,6 @@ func handleMultiChannelResponses(
 					InitialTime:     time.Now(),
 					Model:           responsesReq.Model,
 					ReasoningEffort: reasoningEffort,
-					ServiceTier:     serviceTier,
 					Stream:          responsesReq.Stream,
 					Endpoint:        "/v1/responses",
 					ChannelID:       logChannelIndex,
@@ -552,6 +553,7 @@ func handleMultiChannelResponses(
 					SessionID:       sessionID,
 					APIKeyID:        apiKeyID,
 				}
+				applyResponsesServiceTierMetadata(newPendingLog, effectiveServiceTier, serviceTierOverridden)
 				if err := reqLogManager.Add(newPendingLog); err != nil {
 					log.Printf("⚠️ Failed to create failover pending log: %v", err)
 				} else {
@@ -582,6 +584,7 @@ func handleMultiChannelResponses(
 		if hasMoreChannels {
 			// Failover case: log this failed attempt and create new pending log for next attempt
 			if reqLogManager != nil && requestLogID != "" {
+				effectiveServiceTier, _, serviceTierOverridden := resolveResponsesServiceTierLogMetadata(bodyBytes, upstream, isFastMode)
 				completeTime := time.Now()
 				httpStatus := 0
 				upstreamErr := ""
@@ -614,6 +617,7 @@ func handleMultiChannelResponses(
 					UpstreamError:   upstreamErr,
 					FailoverInfo:    failoverInfo,
 				}
+				applyResponsesServiceTierMetadata(failoverRecord, effectiveServiceTier, serviceTierOverridden)
 				if err := reqLogManager.Update(requestLogID, failoverRecord); err != nil {
 					log.Printf("⚠️ Failed to update failover log: %v", err)
 				}
@@ -624,7 +628,6 @@ func handleMultiChannelResponses(
 					InitialTime:     time.Now(),
 					Model:           responsesReq.Model,
 					ReasoningEffort: reasoningEffort,
-					ServiceTier:     serviceTier,
 					Stream:          responsesReq.Stream,
 					Endpoint:        "/v1/responses",
 					ChannelID:       logChannelIndex,
@@ -633,6 +636,7 @@ func handleMultiChannelResponses(
 					SessionID:       sessionID,
 					APIKeyID:        apiKeyID,
 				}
+				applyResponsesServiceTierMetadata(newPendingLog, effectiveServiceTier, serviceTierOverridden)
 				if err := reqLogManager.Add(newPendingLog); err != nil {
 					log.Printf("⚠️ Failed to create failover pending log: %v", err)
 				} else {
@@ -662,6 +666,8 @@ func handleMultiChannelResponses(
 		errMsg := "all channels unavailable"
 		upstreamErr := ""
 		failoverInfo := ""
+		serviceTierForLog := serviceTier
+		serviceTierOverriddenForLog := false
 		if lastFailoverError != nil && lastFailoverError.Status != 0 {
 			httpStatus = lastFailoverError.Status
 			upstreamErr = string(lastFailoverError.Body)
@@ -687,6 +693,7 @@ func handleMultiChannelResponses(
 		if lastFailedUpstream != nil {
 			record.Type = lastFailedUpstream.ServiceType
 			record.ProviderName = lastFailedUpstream.Name
+			serviceTierForLog, _, serviceTierOverriddenForLog = resolveResponsesServiceTierLogMetadata(bodyBytes, lastFailedUpstream, isFastMode)
 		}
 		if lastFailedLogChannelIndex >= 0 {
 			record.ChannelID = lastFailedLogChannelIndex
@@ -694,6 +701,7 @@ func handleMultiChannelResponses(
 		if lastFailedLogChannelName != "" {
 			record.ChannelName = lastFailedLogChannelName
 		}
+		applyResponsesServiceTierMetadata(record, serviceTierForLog, serviceTierOverriddenForLog)
 		_ = reqLogManager.Update(requestLogID, record)
 	}
 
@@ -800,10 +808,12 @@ func tryResponsesChannelWithAllKeys(
 		retryWaitPending = false // Clear at start of each iteration
 
 		effectiveBodyBytes := bodyBytes
+		effectiveServiceTier := serviceTierForFastMode(isFastMode)
 		effectiveIsFastMode := isFastMode
 		serviceTierOverridden := false
-		if resolvedBodyBytes, _, resolvedFastMode, overridden, err := resolveEffectiveResponsesServiceTier(bodyBytes, upstream); err == nil {
+		if resolvedBodyBytes, resolvedServiceTier, resolvedFastMode, overridden, err := resolveEffectiveResponsesServiceTier(bodyBytes, upstream); err == nil {
 			effectiveBodyBytes = resolvedBodyBytes
+			effectiveServiceTier = resolvedServiceTier
 			effectiveIsFastMode = resolvedFastMode
 			serviceTierOverridden = overridden
 		} else {
@@ -855,6 +865,7 @@ func tryResponsesChannelWithAllKeys(
 						ChannelName:  logChannelName,
 						Error:        "client disconnected during upstream request",
 					}
+					applyResponsesServiceTierMetadata(record, effectiveServiceTier, serviceTierOverridden)
 					_ = reqLogManager.Update(currentRequestLogID, record)
 				}
 				return false, nil, currentRequestLogID
@@ -899,6 +910,7 @@ func tryResponsesChannelWithAllKeys(
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  failoverInfo,
 						}
+						applyResponsesServiceTierMetadata(retryWaitRecord, effectiveServiceTier, serviceTierOverridden)
 						if err := reqLogManager.Update(currentRequestLogID, retryWaitRecord); err != nil {
 							log.Printf("⚠️ Failed to update retry_wait log: %v", err)
 						}
@@ -911,7 +923,6 @@ func tryResponsesChannelWithAllKeys(
 							Status:      requestlog.StatusPending,
 							InitialTime: time.Now(),
 							Model:       responsesReq.Model,
-							ServiceTier: serviceTierForFastMode(isFastMode),
 							Stream:      responsesReq.Stream,
 							Endpoint:    "/v1/responses",
 							ChannelID:   logChannelIndex,
@@ -920,6 +931,7 @@ func tryResponsesChannelWithAllKeys(
 							SessionID:   sessionID,
 							APIKeyID:    apiKeyID,
 						}
+						applyResponsesServiceTierMetadata(newPendingLog, effectiveServiceTier, serviceTierOverridden)
 						if err := reqLogManager.Add(newPendingLog); err != nil {
 							log.Printf("⚠️ Failed to create retry pending log: %v", err)
 						} else {
@@ -960,6 +972,7 @@ func tryResponsesChannelWithAllKeys(
 								ChannelName:  logChannelName,
 								Error:        "client disconnected during retry wait",
 							}
+							applyResponsesServiceTierMetadata(record, effectiveServiceTier, serviceTierOverridden)
 							_ = reqLogManager.Update(currentRequestLogID, record)
 						}
 						return false, nil, currentRequestLogID
@@ -1034,6 +1047,7 @@ func tryResponsesChannelWithAllKeys(
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, decision.Reason),
 						}
+						applyResponsesServiceTierMetadata(record, effectiveServiceTier, serviceTierOverridden)
 						_ = reqLogManager.Update(currentRequestLogID, record)
 					}
 					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
@@ -1078,6 +1092,7 @@ func tryResponsesChannelWithAllKeys(
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  failoverInfo,
 						}
+						applyResponsesServiceTierMetadata(retryWaitRecord, effectiveServiceTier, serviceTierOverridden)
 						if err := reqLogManager.Update(currentRequestLogID, retryWaitRecord); err != nil {
 							log.Printf("⚠️ [Responses] Failed to update retry_wait log: %v", err)
 						}
@@ -1090,7 +1105,6 @@ func tryResponsesChannelWithAllKeys(
 							Status:      requestlog.StatusPending,
 							InitialTime: time.Now(),
 							Model:       responsesReq.Model,
-							ServiceTier: serviceTierForFastMode(isFastMode),
 							Stream:      responsesReq.Stream,
 							Endpoint:    "/v1/responses",
 							ChannelID:   logChannelIndex,
@@ -1099,6 +1113,7 @@ func tryResponsesChannelWithAllKeys(
 							SessionID:   sessionID,
 							APIKeyID:    apiKeyID,
 						}
+						applyResponsesServiceTierMetadata(newPendingLog, effectiveServiceTier, serviceTierOverridden)
 						if err := reqLogManager.Add(newPendingLog); err != nil {
 							log.Printf("⚠️ [Responses] Failed to create retry pending log: %v", err)
 						} else {
@@ -1139,6 +1154,7 @@ func tryResponsesChannelWithAllKeys(
 								ChannelName:  logChannelName,
 								Error:        "client disconnected during retry wait",
 							}
+							applyResponsesServiceTierMetadata(record, effectiveServiceTier, serviceTierOverridden)
 							_ = reqLogManager.Update(currentRequestLogID, record)
 						}
 						return false, nil, currentRequestLogID
@@ -1220,6 +1236,7 @@ func tryResponsesChannelWithAllKeys(
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, ""),
 						}
+						applyResponsesServiceTierMetadata(record, effectiveServiceTier, serviceTierOverridden)
 						_ = reqLogManager.Update(currentRequestLogID, record)
 					}
 					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
@@ -1251,6 +1268,7 @@ func tryResponsesChannelWithAllKeys(
 						UpstreamError: string(respBodyBytes),
 						FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, "", requestlog.FailoverActionReturnErr, ""),
 					}
+					applyResponsesServiceTierMetadata(record, effectiveServiceTier, serviceTierOverridden)
 					_ = reqLogManager.Update(currentRequestLogID, record)
 				}
 				SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
@@ -1313,6 +1331,19 @@ func tryResponsesChannelWithOAuth(
 		logChannelIndex = upstream.Index
 	}
 
+	effectiveBodyBytes := bodyBytes
+	effectiveServiceTier := serviceTierForFastMode(isFastMode)
+	effectiveIsFastMode := isFastMode
+	serviceTierOverridden := false
+	if resolvedBodyBytes, resolvedServiceTier, resolvedFastMode, overridden, err := resolveEffectiveResponsesServiceTier(bodyBytes, upstream); err == nil {
+		effectiveBodyBytes = resolvedBodyBytes
+		effectiveServiceTier = resolvedServiceTier
+		effectiveIsFastMode = resolvedFastMode
+		serviceTierOverridden = overridden
+	} else {
+		log.Printf("⚠️ [OAuth] failed to resolve effective service tier: %v", err)
+	}
+
 	// 辅助函数：更新请求日志为错误状态
 	updateErrorLog := func(httpStatus int, errMsg string) {
 		if reqLogManager != nil && requestLogID != "" {
@@ -1328,6 +1359,7 @@ func tryResponsesChannelWithOAuth(
 				ChannelName:   logChannelName,
 				UpstreamError: errMsg,
 			}
+			applyResponsesServiceTierMetadata(record, effectiveServiceTier, serviceTierOverridden)
 			if err := reqLogManager.Update(requestLogID, record); err != nil {
 				log.Printf("⚠️ 请求日志更新失败: %v", err)
 			}
@@ -1373,7 +1405,7 @@ func tryResponsesChannelWithOAuth(
 		}
 	}
 
-	c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	c.Request.Body = io.NopCloser(bytes.NewReader(effectiveBodyBytes))
 
 	if envCfg.ShouldLog("info") {
 		accountPreview := accountID
@@ -1387,7 +1419,7 @@ func tryResponsesChannelWithOAuth(
 	}
 
 	// 构建 OAuth 请求
-	providerReq, serviceTierOverridden, err := buildCodexOAuthRequest(c, cfgManager, upstream, bodyBytes, responsesReq, accessToken, accountID, true)
+	providerReq, requestServiceTierOverridden, err := buildCodexOAuthRequest(c, cfgManager, upstream, effectiveBodyBytes, responsesReq, accessToken, accountID, true)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to build OAuth request: %s", err.Error())
 		log.Printf("⚠️ [OAuth] 构建请求失败: %v", err)
@@ -1401,6 +1433,7 @@ func tryResponsesChannelWithOAuth(
 			Body:   []byte(fmt.Sprintf(`{"error":"%s"}`, errMsg)),
 		}
 	}
+	serviceTierOverridden = serviceTierOverridden || requestServiceTierOverridden
 
 	resp, err := sendResponsesRequest(providerReq, upstream, envCfg, responsesReq.Stream)
 	if err != nil {
@@ -1462,7 +1495,7 @@ func tryResponsesChannelWithOAuth(
 	quota.GetManager().UpdateFromHeaders(upstream.Index, upstream.Name, resp.Header)
 
 	provider := &providers.ResponsesProvider{SessionManager: sessionManager}
-	handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, startTime, &responsesReq, bodyBytes, reqLogManager, requestLogID, usageManager, logChannelIndex, logChannelName, isFastMode || serviceTierOverridden, serviceTierOverridden)
+	handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, startTime, &responsesReq, effectiveBodyBytes, reqLogManager, requestLogID, usageManager, logChannelIndex, logChannelName, effectiveIsFastMode, serviceTierOverridden)
 	return true, nil
 }
 
@@ -1780,10 +1813,12 @@ func handleSingleChannelResponses(
 		retryWaitPending = false // Clear at start of each iteration
 
 		effectiveBodyBytes := bodyBytes
+		effectiveServiceTier := serviceTierForFastMode(isFastMode)
 		effectiveIsFastMode := isFastMode
 		serviceTierOverridden := false
-		if resolvedBodyBytes, _, resolvedFastMode, overridden, err := resolveEffectiveResponsesServiceTier(bodyBytes, upstream); err == nil {
+		if resolvedBodyBytes, resolvedServiceTier, resolvedFastMode, overridden, err := resolveEffectiveResponsesServiceTier(bodyBytes, upstream); err == nil {
 			effectiveBodyBytes = resolvedBodyBytes
+			effectiveServiceTier = resolvedServiceTier
 			effectiveIsFastMode = resolvedFastMode
 			serviceTierOverridden = overridden
 		} else {
@@ -1860,6 +1895,7 @@ func handleSingleChannelResponses(
 						ChannelName:  logChannelName,
 						Error:        "client disconnected during upstream request",
 					}
+					applyResponsesServiceTierMetadata(record, effectiveServiceTier, serviceTierOverridden)
 					_ = reqLogManager.Update(currentRequestLogID, record)
 				}
 				return
@@ -1905,6 +1941,7 @@ func handleSingleChannelResponses(
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  failoverInfo,
 						}
+						applyResponsesServiceTierMetadata(retryWaitRecord, effectiveServiceTier, serviceTierOverridden)
 						if err := reqLogManager.Update(currentRequestLogID, retryWaitRecord); err != nil {
 							log.Printf("⚠️ Failed to update retry_wait log: %v", err)
 						}
@@ -1917,7 +1954,6 @@ func handleSingleChannelResponses(
 							Status:      requestlog.StatusPending,
 							InitialTime: time.Now(),
 							Model:       responsesReq.Model,
-							ServiceTier: serviceTierForFastMode(isFastMode),
 							Stream:      responsesReq.Stream,
 							Endpoint:    "/v1/responses",
 							ChannelID:   logChannelIndex,
@@ -1926,6 +1962,7 @@ func handleSingleChannelResponses(
 							SessionID:   sessionID,
 							APIKeyID:    apiKeyID,
 						}
+						applyResponsesServiceTierMetadata(newPendingLog, effectiveServiceTier, serviceTierOverridden)
 						if err := reqLogManager.Add(newPendingLog); err != nil {
 							log.Printf("⚠️ Failed to create retry pending log: %v", err)
 						} else {
@@ -1966,6 +2003,7 @@ func handleSingleChannelResponses(
 								ChannelName:  logChannelName,
 								Error:        "client disconnected during retry wait",
 							}
+							applyResponsesServiceTierMetadata(record, effectiveServiceTier, serviceTierOverridden)
 							_ = reqLogManager.Update(currentRequestLogID, record)
 						}
 						return
@@ -2056,6 +2094,7 @@ func handleSingleChannelResponses(
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, decision.Reason),
 						}
+						applyResponsesServiceTierMetadata(record, effectiveServiceTier, serviceTierOverridden)
 						_ = reqLogManager.Update(currentRequestLogID, record)
 					}
 					SaveDebugLog(c, cfgManager, reqLogManager, currentRequestLogID, resp.StatusCode, resp.Header, respBodyBytes)
@@ -2093,6 +2132,7 @@ func handleSingleChannelResponses(
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  failoverInfo,
 						}
+						applyResponsesServiceTierMetadata(retryWaitRecord, effectiveServiceTier, serviceTierOverridden)
 						if err := reqLogManager.Update(currentRequestLogID, retryWaitRecord); err != nil {
 							log.Printf("⚠️ [Responses] Failed to update retry_wait log: %v", err)
 						}
@@ -2105,7 +2145,6 @@ func handleSingleChannelResponses(
 							Status:      requestlog.StatusPending,
 							InitialTime: time.Now(),
 							Model:       responsesReq.Model,
-							ServiceTier: serviceTierForFastMode(isFastMode),
 							Stream:      responsesReq.Stream,
 							Endpoint:    "/v1/responses",
 							ChannelID:   logChannelIndex,
@@ -2114,6 +2153,7 @@ func handleSingleChannelResponses(
 							SessionID:   sessionID,
 							APIKeyID:    apiKeyID,
 						}
+						applyResponsesServiceTierMetadata(newPendingLog, effectiveServiceTier, serviceTierOverridden)
 						if err := reqLogManager.Add(newPendingLog); err != nil {
 							log.Printf("⚠️ [Responses] Failed to create retry pending log: %v", err)
 						} else {
@@ -2154,6 +2194,7 @@ func handleSingleChannelResponses(
 								ChannelName:  logChannelName,
 								Error:        "client disconnected during retry wait",
 							}
+							applyResponsesServiceTierMetadata(record, effectiveServiceTier, serviceTierOverridden)
 							_ = reqLogManager.Update(currentRequestLogID, record)
 						}
 						return
@@ -2249,6 +2290,7 @@ func handleSingleChannelResponses(
 							UpstreamError: string(respBodyBytes),
 							FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, decision.Reason, requestlog.FailoverActionReturnErr, ""),
 						}
+						applyResponsesServiceTierMetadata(record, effectiveServiceTier, serviceTierOverridden)
 						_ = reqLogManager.Update(currentRequestLogID, record)
 					}
 
@@ -2290,6 +2332,7 @@ func handleSingleChannelResponses(
 						UpstreamError: string(respBodyBytes),
 						FailoverInfo:  requestlog.FormatFailoverInfo(resp.StatusCode, "", requestlog.FailoverActionReturnErr, ""),
 					}
+					applyResponsesServiceTierMetadata(record, effectiveServiceTier, serviceTierOverridden)
 					_ = reqLogManager.Update(currentRequestLogID, record)
 				}
 
@@ -2332,6 +2375,7 @@ func handleSingleChannelResponses(
 		errMsg := "all Responses API keys are unavailable"
 		upstreamErr := ""
 		failoverInfo := ""
+		effectiveServiceTier, _, serviceTierOverridden := resolveResponsesServiceTierLogMetadata(bodyBytes, upstream, isFastMode)
 		if lastFailoverError != nil {
 			if lastFailoverError.Status > 0 {
 				httpStatus = lastFailoverError.Status
@@ -2357,6 +2401,7 @@ func handleSingleChannelResponses(
 			UpstreamError: upstreamErr,
 			FailoverInfo:  failoverInfo,
 		}
+		applyResponsesServiceTierMetadata(record, effectiveServiceTier, serviceTierOverridden)
 		_ = reqLogManager.Update(currentRequestLogID, record)
 	}
 
@@ -2469,6 +2514,10 @@ func handleResponsesSuccess(
 	defer resp.Body.Close()
 
 	upstreamType := upstream.ServiceType
+	effectiveServiceTier := serviceTierForFastMode(isFastMode)
+	if resolvedTier := normalizeResponsesServiceTier(gjson.GetBytes(originalRequestJSON, "service_tier").String()); resolvedTier != "" {
+		effectiveServiceTier = resolvedTier
+	}
 
 	// 检查是否为流式响应
 	isStream := originalReq != nil && originalReq.Stream
@@ -2641,21 +2690,20 @@ func handleResponsesSuccess(
 			)
 
 			record := &requestlog.RequestLog{
-				Status:                recordStatus,
-				CompleteTime:          completeTime,
-				DurationMs:            durationMs,
-				FirstTokenTime:        firstTokenTime,
-				FirstTokenDurationMs:  firstTokenDurationFromStart(startTime, firstTokenTime),
-				Type:                  upstreamType,
-				ProviderName:          upstream.Name,
-				ServiceTier:           serviceTierForFastMode(isFastMode),
-				ServiceTierOverridden: serviceTierOverridden,
-				ResponseModel:         responseModel,
-				HTTPStatus:            recordHTTPStatus,
-				ChannelID:             logChannelIndex,
-				ChannelName:           logChannelName,
-				Error:                 recordError,
+				Status:               recordStatus,
+				CompleteTime:         completeTime,
+				DurationMs:           durationMs,
+				FirstTokenTime:       firstTokenTime,
+				FirstTokenDurationMs: firstTokenDurationFromStart(startTime, firstTokenTime),
+				Type:                 upstreamType,
+				ProviderName:         upstream.Name,
+				ResponseModel:        responseModel,
+				HTTPStatus:           recordHTTPStatus,
+				ChannelID:            logChannelIndex,
+				ChannelName:          logChannelName,
+				Error:                recordError,
 			}
+			applyResponsesServiceTierMetadata(record, effectiveServiceTier, serviceTierOverridden)
 
 			if codexUsage != nil {
 				// Codex 的 input_tokens 已包含 cached_tokens，需要减去得到实际新输入
@@ -2768,18 +2816,17 @@ func handleResponsesSuccess(
 		}
 
 		record := &requestlog.RequestLog{
-			Status:                requestlog.StatusCompleted,
-			CompleteTime:          completeTime,
-			DurationMs:            durationMs,
-			Type:                  upstreamType,
-			ProviderName:          upstream.Name,
-			ServiceTier:           serviceTierForFastMode(isFastMode),
-			ServiceTierOverridden: serviceTierOverridden,
-			ResponseModel:         responseModel,
-			HTTPStatus:            resp.StatusCode,
-			ChannelID:             logChannelIndex,
-			ChannelName:           logChannelName,
+			Status:        requestlog.StatusCompleted,
+			CompleteTime:  completeTime,
+			DurationMs:    durationMs,
+			Type:          upstreamType,
+			ProviderName:  upstream.Name,
+			ResponseModel: responseModel,
+			HTTPStatus:    resp.StatusCode,
+			ChannelID:     logChannelIndex,
+			ChannelName:   logChannelName,
 		}
+		applyResponsesServiceTierMetadata(record, effectiveServiceTier, serviceTierOverridden)
 
 		if codexUsage != nil {
 			// Codex 的 input_tokens 已包含 cached_tokens，需要减去得到实际新输入

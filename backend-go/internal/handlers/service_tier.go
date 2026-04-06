@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/JillVernus/cc-bridge/internal/config"
+	"github.com/JillVernus/cc-bridge/internal/requestlog"
 )
 
 func isResponsesFastModeUpstream(serviceType string) bool {
@@ -36,7 +37,17 @@ func shouldForceCodexPriorityOverride(upstream *config.UpstreamConfig) bool {
 	if upstream.ServiceType != "responses" && upstream.ServiceType != "openai-oauth" {
 		return false
 	}
-	return strings.EqualFold(strings.TrimSpace(upstream.CodexServiceTierOverride), "force_priority")
+	return strings.EqualFold(strings.TrimSpace(upstream.CodexServiceTierOverride), config.CodexServiceTierOverrideForcePriority)
+}
+
+func shouldForceCodexDefaultOverride(upstream *config.UpstreamConfig) bool {
+	if upstream == nil {
+		return false
+	}
+	if upstream.ServiceType != "responses" && upstream.ServiceType != "openai-oauth" {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(upstream.CodexServiceTierOverride), config.CodexServiceTierOverrideForceDefault)
 }
 
 func resolveEffectiveResponsesServiceTier(
@@ -62,5 +73,45 @@ func resolveEffectiveResponsesServiceTier(
 		return effectiveBody, "priority", true, true, nil
 	}
 
+	if shouldForceCodexDefaultOverride(upstream) && serviceTier == "priority" {
+		reqMap["service_tier"] = "default"
+		effectiveBody, err := json.Marshal(reqMap)
+		if err != nil {
+			return nil, "", false, false, err
+		}
+		return effectiveBody, "default", false, true, nil
+	}
+
 	return bodyBytes, serviceTier, serviceTier == "priority", false, nil
+}
+
+func resolveResponsesServiceTierLogMetadata(
+	bodyBytes []byte,
+	upstream *config.UpstreamConfig,
+	fallbackIsFastMode bool,
+) (string, bool, bool) {
+	serviceTier := serviceTierForFastMode(fallbackIsFastMode)
+	isFastMode := fallbackIsFastMode
+	serviceTierOverridden := false
+
+	_, resolvedServiceTier, resolvedFastMode, overridden, err := resolveEffectiveResponsesServiceTier(bodyBytes, upstream)
+	if err == nil {
+		serviceTier = resolvedServiceTier
+		isFastMode = resolvedFastMode
+		serviceTierOverridden = overridden
+	}
+
+	return serviceTier, isFastMode, serviceTierOverridden
+}
+
+func applyResponsesServiceTierMetadata(record *requestlog.RequestLog, serviceTier string, serviceTierOverridden bool) {
+	if record == nil {
+		return
+	}
+	if strings.TrimSpace(serviceTier) != "" {
+		record.ServiceTier = serviceTier
+	}
+	if serviceTierOverridden {
+		record.ServiceTierOverridden = true
+	}
 }

@@ -285,7 +285,8 @@
                     :label="t('addChannel.codexServiceTierOverride')"
                     :items="[
                       { title: t('addChannel.codexServiceTierOverrideOff'), value: 'off' },
-                      { title: t('addChannel.codexServiceTierOverrideForcePriority'), value: 'force_priority' }
+                      { title: t('addChannel.codexServiceTierOverrideForcePriority'), value: 'force_priority' },
+                      { title: t('addChannel.codexServiceTierOverrideForceDefault'), value: 'force_default' }
                     ]"
                     prepend-inner-icon="mdi-flash"
                     variant="outlined"
@@ -1756,7 +1757,7 @@ const form = reactive({
     }
   >,
   oauthTokens: undefined as OAuthTokens | undefined,
-  codexServiceTierOverride: 'off' as 'off' | 'force_priority',
+  codexServiceTierOverride: 'off' as 'off' | 'force_priority' | 'force_default',
   // Composite channel mappings
   compositeMappings: [] as CompositeMapping[],
   // Quota settings
@@ -1882,9 +1883,7 @@ const isOAuthChannel = computed(() => form.serviceType === 'openai-oauth')
 const isCompositeChannel = computed(() => form.serviceType === 'composite')
 
 const showCodexServiceTierOverride = computed(() => {
-  return (
-    props.channelType === 'responses' && (form.serviceType === 'responses' || form.serviceType === 'openai-oauth')
-  )
+  return props.channelType === 'responses' && (form.serviceType === 'responses' || form.serviceType === 'openai-oauth')
 })
 
 // Key for CompositeChannelEditor to force re-creation on channel change

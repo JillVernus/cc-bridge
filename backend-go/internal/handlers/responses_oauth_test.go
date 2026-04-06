@@ -118,34 +118,43 @@ func TestBuildCodexOAuthRequest_AppliesCodexPriorityOverride(t *testing.T) {
 		overrideMode   string
 		wantTier       string
 		wantOverridden bool
+		wantSource     string
 	}{
 		{
 			name:           "missing tier forced to priority",
 			body:           `{"model":"gpt-5-codex","stream":true,"store":true}`,
-			overrideMode:   "force_priority",
+			overrideMode:   config.CodexServiceTierOverrideForcePriority,
 			wantTier:       "priority",
 			wantOverridden: true,
 		},
 		{
 			name:           "default tier forced to priority",
 			body:           `{"model":"gpt-5-codex","stream":true,"store":true,"service_tier":"default"}`,
-			overrideMode:   "force_priority",
+			overrideMode:   config.CodexServiceTierOverrideForcePriority,
 			wantTier:       "priority",
 			wantOverridden: true,
 		},
 		{
 			name:           "priority tier preserved without override flag",
 			body:           `{"model":"gpt-5-codex","stream":true,"store":true,"service_tier":"priority"}`,
-			overrideMode:   "force_priority",
+			overrideMode:   config.CodexServiceTierOverrideForcePriority,
 			wantTier:       "priority",
 			wantOverridden: false,
 		},
 		{
 			name:           "override off preserves default tier",
 			body:           `{"model":"gpt-5-codex","stream":true,"store":true,"service_tier":"default"}`,
-			overrideMode:   "off",
+			overrideMode:   config.CodexServiceTierOverrideOff,
 			wantTier:       "default",
 			wantOverridden: false,
+		},
+		{
+			name:           "priority tier forced to default and preserves unrelated fields",
+			body:           `{"model":"gpt-5-codex","stream":true,"store":true,"service_tier":"priority","metadata":{"source":"task3"}}`,
+			overrideMode:   config.CodexServiceTierOverrideForceDefault,
+			wantTier:       "default",
+			wantOverridden: true,
+			wantSource:     "task3",
 		},
 	}
 
@@ -192,6 +201,15 @@ func TestBuildCodexOAuthRequest_AppliesCodexPriorityOverride(t *testing.T) {
 			gotTier, _ := payload["service_tier"].(string)
 			if gotTier != tc.wantTier {
 				t.Fatalf("service_tier = %q, want %q", gotTier, tc.wantTier)
+			}
+			if tc.wantSource != "" {
+				metadata, ok := payload["metadata"].(map[string]interface{})
+				if !ok {
+					t.Fatalf("expected metadata to be preserved, got %#v", payload["metadata"])
+				}
+				if gotSource, _ := metadata["source"].(string); gotSource != tc.wantSource {
+					t.Fatalf("metadata.source = %q, want %q", gotSource, tc.wantSource)
+				}
 			}
 		})
 	}

@@ -36,6 +36,74 @@ type OAuthTokens struct {
 	LastRefresh  string `json:"last_refresh,omitempty"` // Timestamp of last token refresh
 }
 
+const (
+	CodexServiceTierOverrideOff           = "off"
+	CodexServiceTierOverrideForcePriority = "force_priority"
+	CodexServiceTierOverrideForceDefault  = "force_default"
+)
+
+// NormalizeCodexServiceTierOverride returns the canonical override mode for the
+// given channel pool and service type.
+func NormalizeCodexServiceTierOverride(channelType string, serviceType string, raw string) string {
+	if !isEligibleCodexServiceTierOverrideChannel(channelType, serviceType) {
+		return CodexServiceTierOverrideOff
+	}
+
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", CodexServiceTierOverrideOff:
+		return CodexServiceTierOverrideOff
+	case CodexServiceTierOverrideForcePriority:
+		return CodexServiceTierOverrideForcePriority
+	case CodexServiceTierOverrideForceDefault:
+		return CodexServiceTierOverrideForceDefault
+	default:
+		return CodexServiceTierOverrideOff
+	}
+}
+
+func isEligibleCodexServiceTierOverrideChannel(channelType string, serviceType string) bool {
+	if strings.ToLower(strings.TrimSpace(channelType)) != "responses" {
+		return false
+	}
+
+	switch strings.ToLower(strings.TrimSpace(serviceType)) {
+	case "responses", "openai-oauth":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeUpstreamCodexServiceTierOverride(channelType string, upstream *UpstreamConfig) {
+	if upstream == nil {
+		return
+	}
+	upstream.CodexServiceTierOverride = NormalizeCodexServiceTierOverride(
+		channelType,
+		upstream.ServiceType,
+		upstream.CodexServiceTierOverride,
+	)
+}
+
+func normalizeConfigCodexServiceTierOverrides(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+
+	for i := range cfg.Upstream {
+		normalizeUpstreamCodexServiceTierOverride("messages", &cfg.Upstream[i])
+	}
+	for i := range cfg.ResponsesUpstream {
+		normalizeUpstreamCodexServiceTierOverride("responses", &cfg.ResponsesUpstream[i])
+	}
+	for i := range cfg.GeminiUpstream {
+		normalizeUpstreamCodexServiceTierOverride("gemini", &cfg.GeminiUpstream[i])
+	}
+	for i := range cfg.ChatUpstream {
+		normalizeUpstreamCodexServiceTierOverride("chat", &cfg.ChatUpstream[i])
+	}
+}
+
 // GetEffectiveMultiplier 获取有效乘数（0 或未设置时返回 1.0）
 func (t *TokenPriceMultipliers) GetEffectiveMultiplier(tokenType string) float64 {
 	var m float64
@@ -117,6 +185,7 @@ type UpstreamConfig struct {
 	// OpenAI OAuth configuration (for serviceType="openai-oauth")
 	OAuthTokens *OAuthTokens `json:"oauthTokens,omitempty"`
 	// Codex Responses service tier override for eligible channels.
+	// Canonical values: off | force_priority | force_default.
 	CodexServiceTierOverride string `json:"codexServiceTierOverride,omitempty"`
 	// 配额设置（可选）
 	QuotaType          string     `json:"quotaType,omitempty"`          // "requests" | "credit" | "" (无配额)
@@ -255,7 +324,8 @@ type UpstreamUpdate struct {
 	PriceMultipliers map[string]TokenPriceMultipliers `json:"priceMultipliers"`
 	// OpenAI OAuth configuration
 	OAuthTokens *OAuthTokens `json:"oauthTokens"`
-	// Codex Responses service tier override for eligible channels
+	// Codex Responses service tier override for eligible channels.
+	// Canonical values: off | force_priority | force_default.
 	CodexServiceTierOverride *string `json:"codexServiceTierOverride"`
 	// 配额设置
 	QuotaType          *string    `json:"quotaType"`
@@ -637,6 +707,7 @@ func (cm *ConfigManager) loadConfig() error {
 	if err := json.Unmarshal(data, &cm.config); err != nil {
 		return err
 	}
+	normalizeConfigCodexServiceTierOverrides(&cm.config)
 
 	// 兼容旧配置：如果 ResponsesLoadBalance 为空则回退到主配置
 	if cm.config.LoadBalance == "" {
@@ -942,6 +1013,8 @@ func (cm *ConfigManager) warnInsecureChannels() {
 
 // saveConfigLocked 保存配置（已加锁）
 func (cm *ConfigManager) saveConfigLocked(config Config) error {
+	normalizeConfigCodexServiceTierOverrides(&config)
+
 	// When using database storage, skip JSON file operations
 	// Database is the source of truth in multi-instance deployments
 	if cm.dbStorage != nil {

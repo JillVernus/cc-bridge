@@ -1196,9 +1196,7 @@
                   <v-icon v-else-if="item.responseModel && item.responseModel !== item.model" size="10" class="ml-1"
                     >mdi-swap-horizontal</v-icon
                   >
-                  <v-icon v-if="item.serviceTier === 'priority'" size="12" class="ml-1" color="warning"
-                    >mdi-flash</v-icon
-                  >
+                  <v-icon v-if="isPriorityServiceTier(item)" size="12" class="ml-1" color="warning">mdi-flash</v-icon>
                   <v-icon v-if="item.serviceTierOverridden" size="12" class="ml-1" color="info">mdi-auto-fix</v-icon>
                   <v-icon
                     v-if="getXInitiatorIndicator(item)"
@@ -1225,11 +1223,11 @@
               <div v-if="item.responseModel && item.responseModel !== item.model">
                 <strong>Mapped:</strong> {{ item.model }} → {{ item.responseModel }}
               </div>
-              <div v-if="item.serviceTier === 'priority'">
+              <div v-if="isPriorityServiceTier(item)">
                 <strong>{{ t('requestLog.fastMode') }}:</strong> {{ t('common.yes') }}
               </div>
               <div v-if="item.serviceTierOverridden">
-                <strong>{{ t('requestLog.serviceTierOverridden') }}:</strong> {{ t('common.yes') }}
+                <strong>{{ getServiceTierOverrideLabel(item) }}:</strong> {{ t('common.yes') }}
               </div>
               <div v-if="getXInitiatorIndicator(item)">
                 <strong>X-Initiator:</strong> {{ getXInitiatorTooltip(item) }}
@@ -1272,7 +1270,7 @@
                 <v-icon size="20" class="ml-1" :color="getReasoningEffortColor(item.reasoningEffort)">
                   {{ getReasoningEffortIcon(item.reasoningEffort) }}
                 </v-icon>
-                <v-icon v-if="item.serviceTier === 'priority'" size="12" class="ml-1" color="warning">mdi-flash</v-icon>
+                <v-icon v-if="isPriorityServiceTier(item)" size="12" class="ml-1" color="warning">mdi-flash</v-icon>
                 <v-icon v-if="item.serviceTierOverridden" size="12" class="ml-1" color="info">mdi-auto-fix</v-icon>
                 <v-icon
                   v-if="getXInitiatorIndicator(item)"
@@ -1289,10 +1287,10 @@
               <span class="effort-value" :class="'effort-' + item.reasoningEffort.toLowerCase()">
                 {{ item.reasoningEffort }}
               </span>
-              <v-icon v-if="item.serviceTier === 'priority'" size="14" color="warning">mdi-flash</v-icon>
-              <span v-if="item.serviceTier === 'priority'" class="effort-label">{{ t('requestLog.fastMode') }}</span>
+              <v-icon v-if="isPriorityServiceTier(item)" size="14" color="warning">mdi-flash</v-icon>
+              <span v-if="isPriorityServiceTier(item)" class="effort-label">{{ t('requestLog.fastMode') }}</span>
               <v-icon v-if="item.serviceTierOverridden" size="14" class="ml-2" color="info">mdi-auto-fix</v-icon>
-              <span v-if="item.serviceTierOverridden" class="ml-1">{{ t('requestLog.serviceTierOverridden') }}</span>
+              <span v-if="item.serviceTierOverridden" class="ml-1">{{ getServiceTierOverrideLabel(item) }}</span>
               <span v-if="getXInitiatorIndicator(item)" class="ml-2 effort-label">X-Initiator</span>
               <span v-if="getXInitiatorIndicator(item)">{{ getXInitiatorTooltip(item) }}</span>
             </div>
@@ -1303,7 +1301,7 @@
               <span v-bind="props" class="text-caption font-weight-medium model-with-mapping">
                 {{ item.model }}
                 <v-icon size="12" class="ml-1">mdi-swap-horizontal</v-icon>
-                <v-icon v-if="item.serviceTier === 'priority'" size="12" class="ml-1" color="warning">mdi-flash</v-icon>
+                <v-icon v-if="isPriorityServiceTier(item)" size="12" class="ml-1" color="warning">mdi-flash</v-icon>
                 <v-icon v-if="item.serviceTierOverridden" size="12" class="ml-1" color="info">mdi-auto-fix</v-icon>
                 <v-icon
                   v-if="getXInitiatorIndicator(item)"
@@ -1319,18 +1317,18 @@
               <span class="request-model">{{ item.model }}</span>
               <v-icon size="14" class="mx-1">mdi-arrow-right</v-icon>
               <span class="response-model">{{ item.responseModel }}</span>
-              <v-icon v-if="item.serviceTier === 'priority'" size="14" class="ml-2" color="warning">mdi-flash</v-icon>
-              <span v-if="item.serviceTier === 'priority'" class="ml-1">{{ t('requestLog.fastMode') }}</span>
+              <v-icon v-if="isPriorityServiceTier(item)" size="14" class="ml-2" color="warning">mdi-flash</v-icon>
+              <span v-if="isPriorityServiceTier(item)" class="ml-1">{{ t('requestLog.fastMode') }}</span>
               <v-icon v-if="item.serviceTierOverridden" size="14" class="ml-2" color="info">mdi-auto-fix</v-icon>
-              <span v-if="item.serviceTierOverridden" class="ml-1">{{ t('requestLog.serviceTierOverridden') }}</span>
+              <span v-if="item.serviceTierOverridden" class="ml-1">{{ getServiceTierOverrideLabel(item) }}</span>
               <span v-if="getXInitiatorIndicator(item)" class="ml-2">· {{ getXInitiatorTooltip(item) }}</span>
             </div>
           </v-tooltip>
-          <v-tooltip v-else-if="item.serviceTier === 'priority' || item.serviceTierOverridden" location="top">
+          <v-tooltip v-else-if="hasServiceTierIndicator(item)" location="top">
             <template v-slot:activator="{ props }">
               <span v-bind="props" class="text-caption font-weight-medium">
                 {{ item.model }}
-                <v-icon size="12" class="ml-1" color="warning">mdi-flash</v-icon>
+                <v-icon v-if="isPriorityServiceTier(item)" size="12" class="ml-1" color="warning">mdi-flash</v-icon>
                 <v-icon v-if="item.serviceTierOverridden" size="12" class="ml-1" color="info">mdi-auto-fix</v-icon>
                 <v-icon
                   v-if="getXInitiatorIndicator(item)"
@@ -1342,14 +1340,10 @@
                 </v-icon>
               </span>
             </template>
-            <span v-if="item.serviceTier === 'priority'">{{ t('requestLog.fastMode') }}</span>
-            <span v-if="item.serviceTier === 'priority' && item.serviceTierOverridden"> · </span>
-            <span v-if="item.serviceTierOverridden">{{ t('requestLog.serviceTierOverridden') }}</span>
-            <span
-              v-if="getXInitiatorIndicator(item) && (item.serviceTier === 'priority' || item.serviceTierOverridden)"
-            >
-              ·
-            </span>
+            <span v-if="isPriorityServiceTier(item)">{{ t('requestLog.fastMode') }}</span>
+            <span v-if="isPriorityServiceTier(item) && item.serviceTierOverridden"> · </span>
+            <span v-if="item.serviceTierOverridden">{{ getServiceTierOverrideLabel(item) }}</span>
+            <span v-if="getXInitiatorIndicator(item) && hasServiceTierIndicator(item)"> · </span>
             <span v-if="getXInitiatorIndicator(item)">{{ getXInitiatorTooltip(item) }}</span>
           </v-tooltip>
           <v-tooltip v-else-if="getXInitiatorIndicator(item)" location="top">
@@ -2363,6 +2357,18 @@ const getReasoningEffortColor = (effort: string): string => {
     default:
       return 'grey'
   }
+}
+
+const isPriorityServiceTier = (item: RequestLog): boolean => item.serviceTier === 'priority'
+
+const hasServiceTierIndicator = (item: RequestLog): boolean =>
+  isPriorityServiceTier(item) || !!item.serviceTierOverridden
+
+const getServiceTierOverrideLabel = (item: RequestLog): string => {
+  if (item.serviceTierOverridden && item.serviceTier !== 'priority') {
+    return t('requestLog.priorityDisabledByProxy')
+  }
+  return t('requestLog.serviceTierOverridden')
 }
 
 // Summary table column widths
@@ -3470,7 +3476,10 @@ const forwardProxyOverrideBadgeLabel = computed(() => {
       })
     }
 
-    if (forwardProxyOverrideIsCostMode.value && hasForwardProxyOverrideCostDetails(forwardProxyOverrideNearestDomain.value)) {
+    if (
+      forwardProxyOverrideIsCostMode.value &&
+      hasForwardProxyOverrideCostDetails(forwardProxyOverrideNearestDomain.value)
+    ) {
       return t('forwardProxy.xInitiatorOverrideToolbarCostRemaining', {
         used: formatForwardProxyOverrideCost(forwardProxyOverrideNearestDomain.value.accumulatedCost!),
         total: formatForwardProxyOverrideCost(forwardProxyOverrideNearestDomain.value.budgetCost!),
