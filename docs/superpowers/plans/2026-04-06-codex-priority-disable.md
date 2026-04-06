@@ -28,27 +28,39 @@ Update the relevant backend/frontend type comments and TypeScript unions so
 - `force_priority`
 - `force_default`
 
-- [ ] **Step 2: Define normalization behavior in config handling**
+- [ ] **Step 2: Normalize create/update inputs**
 
-In backend config update/load paths, document and implement the rule that
-unknown or empty values behave as `off`, while persisted values use canonical
-lowercase strings.
+In backend config create/update handling, implement the rule that:
 
-- [ ] **Step 3: Keep DB persistence unchanged but round-trippable**
+- surrounding whitespace is trimmed
+- comparisons are case-insensitive
+- unknown or empty values become `off`
+- persisted values use canonical lowercase strings
+
+- [ ] **Step 3: Normalize loaded config values**
+
+In backend config load paths, ensure stored values are normalized on read so
+legacy casing/whitespace variants do not leak back into runtime behavior.
+
+- [ ] **Step 4: Keep DB persistence unchanged but round-trippable**
 
 Ensure `backend-go/internal/config/db_storage.go` continues to load/store the
 text field correctly for `force_default` without introducing any new migration.
 
-- [ ] **Step 4: Expose canonical values through config APIs**
+- [ ] **Step 5: Expose canonical values through config APIs**
 
 Ensure config GET responses emit canonical values for eligible channels and do
-not break existing create/update payload handling.
+not break existing create/update payload handling. Ineligible channel types
+should effectively behave as `off`.
 
-- [ ] **Step 5: Add persistence test coverage**
+- [ ] **Step 6: Add normalization and persistence test coverage**
 
-Extend `backend-go/internal/config/config_db_save_test.go` with a case that
-saves and reloads `codexServiceTierOverride: "force_default"` and verifies the
-value survives DB round-trip.
+Extend `backend-go/internal/config/config_db_save_test.go` with cases that
+verify:
+
+- `force_default` survives save/load round-trip
+- whitespace/casing variants normalize to canonical lowercase
+- unknown or empty values behave as `off`
 
 ### Task 2: Implement `force_default` In Effective Tier Resolution
 
@@ -122,6 +134,7 @@ override flag is set and unrelated fields remain preserved.
 - Modify: `backend-go/internal/handlers/responses.go`
 - Modify: `backend-go/internal/requestlog/service_tier_test.go`
 - Test: `backend-go/internal/handlers/responses_retry_wait_test.go`
+- Test: `backend-go/internal/handlers/first_token_stream_paths_test.go`
 
 - [ ] **Step 1: Audit every Responses log-write path**
 
@@ -149,13 +162,22 @@ Update the Responses success path so a completed downgraded request persists:
 
 instead of silently dropping the non-fast effective tier.
 
-- [ ] **Step 3: Add retry/error regression coverage**
+- [ ] **Step 3: Add a completed-success regression test**
+
+Extend `backend-go/internal/handlers/first_token_stream_paths_test.go` or an
+equivalent Responses success-path test file with a case that proves a completed
+`force_default` request persists:
+
+- `serviceTier = "default"`
+- `serviceTierOverridden = true`
+
+- [ ] **Step 4: Add retry/error regression coverage**
 
 Extend `backend-go/internal/handlers/responses_retry_wait_test.go` with a
 `force_default` retry scenario that proves retry/failure log records preserve
 the downgraded metadata.
 
-- [ ] **Step 4: Add request-log fetch/SSE coverage**
+- [ ] **Step 5: Add request-log fetch/SSE coverage**
 
 Extend `backend-go/internal/requestlog/service_tier_test.go` so a completed
 record with:
