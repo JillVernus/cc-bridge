@@ -2692,6 +2692,7 @@ func handleNormalResponse(
 				record.CacheReadCost = breakdown.CacheReadCost
 			}
 		}
+		record.PricedByTargetModel = pricingModel == responseModel && responseModel != "" && responseModel != requestModel
 
 		if err := reqLogManager.Update(requestLogID, record); err != nil {
 			log.Printf("⚠️ 请求日志更新失败: %v", err)
@@ -2929,6 +2930,7 @@ func handleStreamResponse(
 					record.CacheReadCost = breakdown.CacheReadCost
 				}
 			}
+			record.PricedByTargetModel = pricingModel == responseModel && responseModel != "" && responseModel != requestModel
 
 			if err := reqLogManager.Update(requestLogID, record); err != nil {
 				log.Printf("⚠️ 请求日志更新失败: %v", err)

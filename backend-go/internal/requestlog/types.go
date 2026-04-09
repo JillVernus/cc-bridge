@@ -69,7 +69,8 @@ type RequestLog struct {
 	InputCost         float64 `json:"inputCost"`
 	OutputCost        float64 `json:"outputCost"`
 	CacheCreationCost float64 `json:"cacheCreationCost"`
-	CacheReadCost     float64 `json:"cacheReadCost"`
+	CacheReadCost          float64 `json:"cacheReadCost"`
+	PricedByTargetModel   bool    `json:"pricedByTargetModel,omitempty"` // True when cost was calculated using the target (redirected) model's pricing
 	// 其他字段
 	HTTPStatus    int       `json:"httpStatus"`
 	Stream        bool      `json:"stream"`

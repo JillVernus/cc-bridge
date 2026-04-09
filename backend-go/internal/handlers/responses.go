@@ -2743,6 +2743,7 @@ func handleResponsesSuccess(
 					record.CacheReadCost = breakdown.CacheReadCost
 				}
 			}
+			record.PricedByTargetModel = pricingModel == responseModel && responseModel != "" && responseModel != originalReq.Model
 
 			if err := reqLogManager.Update(requestLogID, record); err != nil {
 				log.Printf("⚠️ 请求日志更新失败: %v", err)
@@ -2866,6 +2867,7 @@ func handleResponsesSuccess(
 				record.CacheReadCost = breakdown.CacheReadCost
 			}
 		}
+		record.PricedByTargetModel = pricingModel == responseModel && responseModel != "" && responseModel != originalReq.Model
 
 		if err := reqLogManager.Update(requestLogID, record); err != nil {
 			log.Printf("⚠️ 请求日志更新失败: %v", err)

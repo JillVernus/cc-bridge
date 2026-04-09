@@ -54,8 +54,91 @@ func UpdatePricing() gin.HandlerFunc {
 	}
 }
 
+// modelPricingRequest is the request body for adding/updating/deleting model pricing.
+// Model name is in the body (not URL path) to support names containing "/".
+type modelPricingRequest struct {
+	Model string `json:"model" binding:"required"`
+	pricing.ModelPricing
+}
+
 // AddModelPricing 添加或更新单个模型的定价
 func AddModelPricing() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		pm := pricing.GetManager()
+		if pm == nil {
+			c.JSON(500, gin.H{"error": "Pricing manager not initialized"})
+			return
+		}
+
+		var req modelPricingRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Invalid request body: " + err.Error()})
+			return
+		}
+
+		config := pm.GetConfig()
+		if config.Models == nil {
+			config.Models = make(map[string]pricing.ModelPricing)
+		}
+		config.Models[req.Model] = req.ModelPricing
+
+		if err := pm.UpdateConfig(config); err != nil {
+			c.JSON(500, gin.H{"error": "Failed to save pricing config: " + err.Error()})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"message": "模型定价已更新",
+			"model":   req.Model,
+			"pricing": req.ModelPricing,
+		})
+	}
+}
+
+// DeleteModelPricing 删除单个模型的定价
+func DeleteModelPricing() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		pm := pricing.GetManager()
+		if pm == nil {
+			c.JSON(500, gin.H{"error": "Pricing manager not initialized"})
+			return
+		}
+
+		var req modelPricingRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "Invalid request body: " + err.Error()})
+			return
+		}
+
+		config := pm.GetConfig()
+		if config.Models == nil {
+			c.JSON(404, gin.H{"error": "Model not found"})
+			return
+		}
+
+		if _, exists := config.Models[req.Model]; !exists {
+			c.JSON(404, gin.H{"error": "Model not found"})
+			return
+		}
+
+		delete(config.Models, req.Model)
+
+		if err := pm.UpdateConfig(config); err != nil {
+			c.JSON(500, gin.H{"error": "Failed to save pricing config: " + err.Error()})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"message": "模型定价已删除",
+			"model":   req.Model,
+		})
+	}
+}
+
+// AddModelPricingLegacy is a backward-compatible handler for PUT /pricing/models/:model.
+// It reads the model name from the URL path param and the pricing fields from the body,
+// then applies the same logic as AddModelPricing.
+func AddModelPricingLegacy() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		pm := pricing.GetManager()
 		if pm == nil {
@@ -94,8 +177,9 @@ func AddModelPricing() gin.HandlerFunc {
 	}
 }
 
-// DeleteModelPricing 删除单个模型的定价
-func DeleteModelPricing() gin.HandlerFunc {
+// DeleteModelPricingLegacy is a backward-compatible handler for DELETE /pricing/models/:model.
+// It reads the model name from the URL path param, then applies the same logic as DeleteModelPricing.
+func DeleteModelPricingLegacy() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		pm := pricing.GetManager()
 		if pm == nil {

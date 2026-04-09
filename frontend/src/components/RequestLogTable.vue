@@ -1511,10 +1511,14 @@
                 :class="{ 'price-zero': !item.price }"
               >
                 {{ formatPriceDetailed(item.price) }}
+                <span v-if="item.pricedByTargetModel" class="priced-by-target-badge" title="Priced by target model">T</span>
               </span>
             </template>
             <div class="cost-breakdown-tooltip">
               <div class="cost-breakdown-title">Cost Breakdown</div>
+              <div v-if="item.pricedByTargetModel" class="cost-breakdown-row" style="color: #7c4dff; font-style: italic;">
+                <span class="cost-label">Priced by target model</span>
+              </div>
               <div class="cost-breakdown-row" v-if="item.inputCost">
                 <span class="cost-label">Input:</span>
                 <span class="cost-value">{{ formatPriceDetailed(item.inputCost) }}</span>
@@ -1539,6 +1543,7 @@
           </v-tooltip>
           <span v-else class="text-caption price-value" :class="{ 'price-zero': !item.price }">
             {{ formatPriceDetailed(item.price) }}
+            <span v-if="item.pricedByTargetModel" class="priced-by-target-badge" title="Priced by target model">T</span>
           </span>
         </template>
 
@@ -5104,6 +5109,24 @@ const silentRefresh = async () => {
 .price-zero {
   color: #9e9e9e;
   font-weight: 400;
+}
+
+.priced-by-target-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  font-style: normal;
+  line-height: 1;
+  color: #fff;
+  background: #7c4dff;
+  border-radius: 3px;
+  vertical-align: middle;
+  cursor: help;
 }
 
 .price-with-tooltip {

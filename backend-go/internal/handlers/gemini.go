@@ -1447,6 +1447,7 @@ func handleGeminiSuccess(
 				record.CacheCreationCost = breakdown.CacheCreationCost
 				record.CacheReadCost = breakdown.CacheReadCost
 			}
+			record.PricedByTargetModel = pricingModel == record.ResponseModel && record.ResponseModel != "" && record.ResponseModel != model
 
 			if err := reqLogManager.Update(requestLogID, record); err != nil {
 				log.Printf("⚠️ 请求日志更新失败: %v", err)
@@ -1578,6 +1579,7 @@ func handleGeminiSuccess(
 			record.CacheCreationCost = breakdown.CacheCreationCost
 			record.CacheReadCost = breakdown.CacheReadCost
 		}
+		record.PricedByTargetModel = pricingModel == record.ResponseModel && record.ResponseModel != "" && record.ResponseModel != model
 
 		if err := reqLogManager.Update(requestLogID, record); err != nil {
 			log.Printf("⚠️ 请求日志更新失败: %v", err)

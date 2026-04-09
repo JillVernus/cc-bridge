@@ -890,16 +890,17 @@ class ApiService {
     model: string,
     pricing: ModelPricing
   ): Promise<{ message: string; model: string; pricing: ModelPricing }> {
-    return this.request(`/pricing/models/${encodeURIComponent(model)}`, {
+    return this.request(`/pricing/models`, {
       method: 'PUT',
-      body: JSON.stringify(pricing)
+      body: JSON.stringify({ model, ...pricing })
     })
   }
 
   // 删除单个模型的定价
   async deleteModelPricing(model: string): Promise<{ message: string; model: string }> {
-    return this.request(`/pricing/models/${encodeURIComponent(model)}`, {
-      method: 'DELETE'
+    return this.request(`/pricing/models`, {
+      method: 'DELETE',
+      body: JSON.stringify({ model })
     })
   }
 
@@ -1319,6 +1320,7 @@ export interface RequestLog {
   outputCost?: number
   cacheCreationCost?: number
   cacheReadCost?: number
+  pricedByTargetModel?: boolean // True when cost was calculated using the target (redirected) model's pricing
   // 其他字段
   httpStatus: number
   stream: boolean

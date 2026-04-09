@@ -217,6 +217,7 @@ func (h *RequestLogHandler) IngestAnthropicHookLog(c *gin.Context) {
 	cacheReadCost := req.CacheReadCost
 
 	// Auto-calculate pricing when hook payload does not provide any cost values.
+	pricedByTargetModel := false
 	if shouldAutoCalculateHookCost(req) {
 		pricingModel := responseModel
 		if pricingModel == "" {
@@ -224,6 +225,7 @@ func (h *RequestLogHandler) IngestAnthropicHookLog(c *gin.Context) {
 		} else if pm := pricing.GetManager(); pm != nil && !pm.HasPricing(pricingModel) && model != "" {
 			pricingModel = model
 		}
+		pricedByTargetModel = pricingModel == responseModel && responseModel != "" && responseModel != model
 
 		if pm := pricing.GetManager(); pm != nil && pricingModel != "" {
 			breakdown := pm.CalculateCostWithBreakdown(
@@ -264,6 +266,7 @@ func (h *RequestLogHandler) IngestAnthropicHookLog(c *gin.Context) {
 		OutputCost:               outputCost,
 		CacheCreationCost:        cacheCreationCost,
 		CacheReadCost:            cacheReadCost,
+		PricedByTargetModel:      pricedByTargetModel,
 		HTTPStatus:               httpStatus,
 		Stream:                   stream,
 		ChannelID:                1,

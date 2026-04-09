@@ -611,8 +611,11 @@ func main() {
 		// 定价配置 API
 		apiGroup.GET("/pricing", handlers.GetPricing())
 		apiGroup.PUT("/pricing", handlers.UpdatePricing())
-		apiGroup.PUT("/pricing/models/:model", handlers.AddModelPricing())
-		apiGroup.DELETE("/pricing/models/:model", handlers.DeleteModelPricing())
+		apiGroup.PUT("/pricing/models", handlers.AddModelPricing())
+		apiGroup.DELETE("/pricing/models", handlers.DeleteModelPricing())
+		// Legacy routes for backward compatibility (model name in URL path)
+		apiGroup.PUT("/pricing/models/:model", handlers.AddModelPricingLegacy())
+		apiGroup.DELETE("/pricing/models/:model", handlers.DeleteModelPricingLegacy())
 		apiGroup.POST("/pricing/reset", handlers.ResetPricingToDefault())
 
 		// 模型别名配置 API
