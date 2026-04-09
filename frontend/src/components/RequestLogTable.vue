@@ -2767,6 +2767,7 @@ const handleLogCreated = (payload: LogCreatedPayload) => {
     outputCost: payload.outputCost ?? 0,
     cacheCreationCost: payload.cacheCreationCost ?? 0,
     cacheReadCost: payload.cacheReadCost ?? 0,
+    pricedByTargetModel: payload.pricedByTargetModel ?? false,
     httpStatus: payload.httpStatus ?? 0,
     stream: payload.stream,
     channelId: payload.channelId,
@@ -2868,6 +2869,7 @@ const handleLogUpdated = (payload: LogUpdatedPayload) => {
     updated.outputCost = payload.outputCost
     updated.cacheCreationCost = payload.cacheCreationCost
     updated.cacheReadCost = payload.cacheReadCost
+    updated.pricedByTargetModel = payload.pricedByTargetModel ?? oldLog.pricedByTargetModel ?? false
     // Other fields
     updated.apiKeyId = payload.apiKeyId
     updated.hasDebugData = payload.hasDebugData

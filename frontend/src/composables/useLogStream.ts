@@ -34,6 +34,7 @@ export interface LogCreatedPayload {
   outputCost?: number
   cacheCreationCost?: number
   cacheReadCost?: number
+  pricedByTargetModel?: boolean
   apiKeyId?: number
   hasDebugData?: boolean
   clientId?: string
@@ -68,6 +69,7 @@ export interface LogUpdatedPayload {
   outputCost: number
   cacheCreationCost: number
   cacheReadCost: number
+  pricedByTargetModel?: boolean
   apiKeyId?: number
   hasDebugData: boolean
   error?: string
