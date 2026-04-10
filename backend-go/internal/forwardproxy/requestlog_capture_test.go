@@ -588,7 +588,7 @@ func TestHandleHTTPForward_UnknownSSEStreamStillParsesClaudeStyleUsage(t *testin
 		},
 	}
 
-	req := httptest.NewRequest(http.MethodPost, upstream.URL+"/backend-api/custom-codex-stream", strings.NewReader(`{"stream":true}`))
+	req := httptest.NewRequest(http.MethodPost, upstream.URL+"/v1/messages", strings.NewReader(`{"stream":true}`))
 	req.Header.Set("Content-Type", "application/json")
 
 	rec := httptest.NewRecorder()
@@ -607,8 +607,8 @@ func TestHandleHTTPForward_UnknownSSEStreamStillParsesClaudeStyleUsage(t *testin
 	}
 
 	got := recent.Requests[0]
-	if got.Type != "forward-proxy" {
-		t.Fatalf("expected forward-proxy type, got %q", got.Type)
+	if got.Type != "claude" {
+		t.Fatalf("expected claude type (path is /v1/messages), got %q", got.Type)
 	}
 	if got.InputTokens != 65 {
 		t.Fatalf("expected input tokens 65, got %d", got.InputTokens)

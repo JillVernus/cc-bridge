@@ -42,6 +42,7 @@ type LogCreatedPayload struct {
 	ChannelUID               string     `json:"channelUid,omitempty"`
 	ChannelName              string     `json:"channelName"`
 	Endpoint                 string     `json:"endpoint"`
+	Domain                   string     `json:"domain,omitempty"`
 	Stream                   bool       `json:"stream"`
 	InputTokens              int        `json:"inputTokens"`
 	OutputTokens             int        `json:"outputTokens"`
@@ -137,6 +138,7 @@ func NewLogCreatedEvent(record *RequestLog) *LogEvent {
 			ChannelUID:               record.ChannelUID,
 			ChannelName:              record.ChannelName,
 			Endpoint:                 record.Endpoint,
+			Domain:                   record.Domain,
 			Stream:                   record.Stream,
 			InputTokens:              record.InputTokens,
 			OutputTokens:             record.OutputTokens,

@@ -1328,6 +1328,7 @@ export interface RequestLog {
   channelUid?: string
   channelName: string
   endpoint: string
+  domain?: string
   clientId?: string
   sessionId?: string
   apiKeyId?: number // API key ID for tracking

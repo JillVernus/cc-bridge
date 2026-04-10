@@ -69,6 +69,7 @@ func createInterceptedPendingLog(
 	reqBody []byte,
 	originalXInitiator string,
 	effectiveXInitiator string,
+	hostOnly string,
 ) *requestlog.RequestLog {
 	kind := detectInterceptedRequestKind(req.URL.Path)
 	clientID, sessionID := extractInterceptedClientSession(kind.logType, reqBody)
@@ -82,6 +83,7 @@ func createInterceptedPendingLog(
 		Model:               model,
 		Stream:              stream,
 		Endpoint:            req.URL.Path,
+		Domain:              hostOnly,
 		ChannelID:           0,
 		ChannelUID:          "subscription:forward-proxy",
 		ChannelName:         "Subscription (Forward Proxy)",

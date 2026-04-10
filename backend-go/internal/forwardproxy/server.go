@@ -307,6 +307,39 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 
 	startTime := time.Now()
 
+	// Non-AI paths on intercepted domains: forward raw without body capture or logging.
+	if intercept && !isAIEndpoint(r.URL.Path) {
+		removeHopByHopHeaders(r.Header)
+		upstreamURL := r.URL.String()
+		upstreamReq, err := http.NewRequestWithContext(r.Context(), r.Method, upstreamURL, r.Body)
+		if err != nil {
+			http.Error(w, "Bad request: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		upstreamReq.Header = r.Header.Clone()
+		upstreamReq.ContentLength = r.ContentLength
+
+		resp, err := s.httpClient.Do(upstreamReq)
+		if err != nil {
+			http.Error(w, "Upstream error: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+
+		for key, values := range resp.Header {
+			if isHopByHopHeader(key) {
+				continue
+			}
+			for _, v := range values {
+				w.Header().Add(key, v)
+			}
+		}
+		w.WriteHeader(resp.StatusCode)
+		io.Copy(w, resp.Body)
+		return
+	}
+
+
 	// Read request body eagerly for metadata extraction (same as normal proxy path).
 	// This ensures the body is fully captured before forwarding.
 	var reqBody []byte
@@ -345,7 +378,7 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 	var pendingLogID string
 	if s.requestLogManager != nil && intercept {
 		providerDisplayName := s.resolveInterceptedProviderName(hostOnly)
-		pendingLog := createInterceptedPendingLog(r, startTime, providerDisplayName, reqBody, originalXInitiator, effectiveXInitiator)
+		pendingLog := createInterceptedPendingLog(r, startTime, providerDisplayName, reqBody, originalXInitiator, effectiveXInitiator, hostOnly)
 		if err := s.requestLogManager.Add(pendingLog); err != nil {
 			log.Printf("[fwd-proxy] failed to create pending log: %v", err)
 		} else {

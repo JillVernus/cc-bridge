@@ -78,6 +78,7 @@ type RequestLog struct {
 	ChannelUID    string    `json:"channelUid,omitempty"`
 	ChannelName   string    `json:"channelName"`
 	Endpoint      string    `json:"endpoint"`            // /v1/messages or /v1/responses
+	Domain        string    `json:"domain,omitempty"`   // Request domain (forward-proxy intercepted host)
 	ClientID      string    `json:"clientId,omitempty"`  // Client/machine identifier
 	SessionID     string    `json:"sessionId,omitempty"` // Claude Code conversation session ID
 	APIKeyID      *int64    `json:"apiKeyId"`            // API key ID for tracking (nil = not set, 0 = master key)

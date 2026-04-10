@@ -98,6 +98,22 @@ func (s *Server) handleMITMConnect(w http.ResponseWriter, _ *http.Request, targe
 	}
 }
 
+// isAIEndpoint returns true if the request path looks like an AI API endpoint
+// that should be captured for request logging and metric extraction.
+// Non-AI paths (health checks, static assets, etc.) are forwarded raw through
+// the MITM tunnel without body capture, reducing overhead.
+func isAIEndpoint(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.Contains(lower, "/v1/messages") ||
+		strings.Contains(lower, "/chat/completions") ||
+		strings.Contains(lower, "/v1/responses") ||
+		strings.Contains(lower, "/v1/embeddings") ||
+		strings.Contains(lower, "/v1/completions") ||
+		strings.Contains(lower, ":generatecontent") ||
+		strings.Contains(lower, ":streamgeneratecontent") ||
+		strings.Contains(lower, "/v1/gemini")
+}
+
 // proxyRequest forwards a single HTTP request and its response, optionally parsing the response.
 // Returns an error if the tunnel should be closed (upstream I/O failure).
 // upstreamReader must be reused across the keep-alive connection lifecycle.
@@ -113,6 +129,22 @@ func (s *Server) proxyRequest(clientConn io.Writer, upstreamConn net.Conn, upstr
 		RequestHeaders: req.Header.Clone(),
 		SeenAt:         startTime,
 	})
+
+	// Non-AI paths: forward raw through the MITM tunnel without body capture or logging.
+	if !isAIEndpoint(req.URL.Path) {
+		// Remove hop-by-hop headers before forwarding
+		removeHopByHopHeaders(req.Header)
+		if err := req.Write(upstreamConn); err != nil {
+			return err
+		}
+		resp, err := http.ReadResponse(upstreamReader, req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		s.forwardResponse(clientConn, resp)
+		return nil
+	}
 
 	// Read request body eagerly for metadata extraction (matches normal proxy path).
 	// metadata.user_id is at the end of the JSON body, after tool schemas and system
@@ -136,7 +168,7 @@ func (s *Server) proxyRequest(clientConn io.Writer, upstreamConn net.Conn, upstr
 	var pendingLogID string
 	if s.requestLogManager != nil {
 		providerDisplayName := s.resolveInterceptedProviderName(hostOnly)
-		pendingLog := createInterceptedPendingLog(req, startTime, providerDisplayName, reqBody, originalXInitiator, effectiveXInitiator)
+		pendingLog := createInterceptedPendingLog(req, startTime, providerDisplayName, reqBody, originalXInitiator, effectiveXInitiator, hostOnly)
 		if err := s.requestLogManager.Add(pendingLog); err != nil {
 			log.Printf("[fwd-proxy] failed to create pending log: %v", err)
 		} else {

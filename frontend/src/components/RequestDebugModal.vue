@@ -60,6 +60,10 @@
                           </v-chip>
                         </td>
                       </tr>
+                      <tr v-if="logItem.domain">
+                        <td class="meta-key">{{ t('debugModal.domain') }}</td>
+                        <td class="meta-value mono-text">{{ logItem.domain }}</td>
+                      </tr>
                       <tr>
                         <td class="meta-key">{{ t('debugModal.stream') }}</td>
                         <td class="meta-value">

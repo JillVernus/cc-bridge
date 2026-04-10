@@ -6,7 +6,7 @@ Guidance for Claude Code when working with this repository.
 
 **CC-Bridge** - Multi-vendor AI proxy server with OpenAI/Claude protocol conversion.
 
-**Tech Stack**: Go 1.22 (backend) + Vue 3 + Vuetify (frontend) + SQLite + Docker
+**Tech Stack**: Go 1.22 (backend) + Vue 3 + Vuetify (frontend) + PostgreSQL/SQLite + Docker
 
 ## Architecture
 

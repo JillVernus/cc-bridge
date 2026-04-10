@@ -1020,6 +1020,7 @@ export default {
     requestInfo: 'Request Info',
     requestId: 'Request ID',
     endpoint: 'Endpoint',
+    domain: 'Domain',
     stream: 'Stream',
     timing: 'Timing',
     startTime: 'Start Time',

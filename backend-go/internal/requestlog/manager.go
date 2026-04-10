@@ -403,6 +403,23 @@ func (m *Manager) initSchema() error {
 	if _, err := m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_request_logs_channel_uid ON request_logs(channel_uid)`); err != nil {
 		log.Printf("⚠️ Failed to create channel_uid index: %v", err)
 	}
+
+	// Migration: Add domain column for forward-proxy intercepted request domain
+	{
+		_, err := m.db.Exec(`ALTER TABLE request_logs ADD COLUMN IF NOT EXISTS domain TEXT`)
+		if err != nil {
+			// SQLite doesn't support IF NOT EXISTS for ALTER TABLE; try without it
+			_, err2 := m.db.Exec(`ALTER TABLE request_logs ADD COLUMN domain TEXT`)
+			if err2 != nil && !strings.Contains(strings.ToLower(err2.Error()), "duplicate column") {
+				log.Printf("⚠️ Failed to add domain column: %v", err2)
+			} else if err2 == nil {
+				log.Printf("✅ Added domain column to request_logs table")
+			}
+		} else {
+			log.Printf("✅ Added domain column to request_logs table")
+		}
+	}
+
 	// Best-effort backfill for historical rows (only when channels table exists).
 	var channelsTableExists int
 	if err := m.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='channels'`).Scan(&channelsTableExists); err == nil && channelsTableExists > 0 {
@@ -706,8 +723,8 @@ func (m *Manager) Add(record *RequestLog) error {
 		cache_creation_input_tokens, cache_read_input_tokens, total_tokens,
 		price, input_cost, output_cost, cache_creation_cost, cache_read_cost,
 		http_status, stream, channel_id, channel_uid, channel_name,
-		endpoint, client_id, session_id, api_key_id, error, upstream_error, failover_info, created_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		endpoint, domain, client_id, session_id, api_key_id, error, upstream_error, failover_info, created_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	// Convert api_key_id to nullable value (nil = not set, 0 = master key)
@@ -756,6 +773,7 @@ func (m *Manager) Add(record *RequestLog) error {
 		record.ChannelUID,
 		record.ChannelName,
 		record.Endpoint,
+			record.Domain,
 		record.ClientID,
 		record.SessionID,
 		apiKeyID,
@@ -961,7 +979,7 @@ func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 			   r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
 			   r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
 			   r.http_status, r.stream, r.channel_id, r.channel_uid, r.channel_name,
-			   r.endpoint, r.client_id, r.session_id, r.api_key_id, r.error, r.upstream_error, r.failover_info,
+			   r.endpoint, r.domain, r.client_id, r.session_id, r.api_key_id, r.error, r.upstream_error, r.failover_info,
 			   CASE WHEN d.request_id IS NOT NULL THEN 1 ELSE 0 END as has_debug_data
 		FROM request_logs r
 		LEFT JOIN request_debug_logs d ON r.id = d.request_id
@@ -985,7 +1003,7 @@ func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 	var channelID, apiKeyID sql.NullInt64
 	var serviceTierOverridden sql.NullBool
 	var pricedByTargetModel sql.NullBool
-	var channelUID, channelName, endpoint, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr, status, providerName, responseModel, reasoningEffort, serviceTier, originalXInitiator, effectiveXInitiator sql.NullString
+	var channelUID, channelName, endpoint, domain, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr, status, providerName, responseModel, reasoningEffort, serviceTier, originalXInitiator, effectiveXInitiator sql.NullString
 	var initialTime, firstTokenTime, completeTime sql.NullString
 	var hasDebugData int
 
@@ -996,7 +1014,7 @@ func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 		&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 		&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
 		&r.HTTPStatus, &r.Stream, &channelID, &channelUID, &channelName,
-		&endpoint, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr,
+		&endpoint, &domain, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr,
 		&hasDebugData,
 	)
 	if err != nil && isAnyMissingColumnErr(err) {
@@ -1067,6 +1085,9 @@ func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 	}
 	if endpoint.Valid {
 		r.Endpoint = endpoint.String
+		if domain.Valid {
+			r.Domain = domain.String
+		}
 	}
 	if clientID.Valid {
 		r.ClientID = clientID.String
@@ -1164,7 +1185,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 			   r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
 			   r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
 			   r.http_status, r.stream, r.channel_id, r.channel_uid, r.channel_name,
-			   r.endpoint, r.client_id, r.session_id, r.api_key_id, r.error, r.upstream_error, r.failover_info, r.created_at,
+			   r.endpoint, r.domain, r.client_id, r.session_id, r.api_key_id, r.error, r.upstream_error, r.failover_info, r.created_at,
 			   CASE WHEN d.request_id IS NOT NULL THEN 1 ELSE 0 END as has_debug_data
 		FROM request_logs r
 		LEFT JOIN request_debug_logs d ON r.id = d.request_id
@@ -1206,7 +1227,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		var channelID, apiKeyID sql.NullInt64
 		var serviceTierOverridden sql.NullBool
 		var pricedByTargetModel sql.NullBool
-		var channelUID, channelName, endpoint, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr, status, providerName, responseModel, reasoningEffort, serviceTier, originalXInitiator, effectiveXInitiator sql.NullString
+		var channelUID, channelName, endpoint, domain, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr, status, providerName, responseModel, reasoningEffort, serviceTier, originalXInitiator, effectiveXInitiator sql.NullString
 		var initialTime, firstTokenTime, completeTime, createdAt sql.NullString
 		var hasDebugData int
 
@@ -1229,7 +1250,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 				&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 				&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
 				&r.HTTPStatus, &r.Stream, &channelID, &channelUID, &channelName,
-				&endpoint, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr, &createdAt,
+				&endpoint, &domain, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr, &createdAt,
 				&hasDebugData,
 			)
 		}
@@ -1289,6 +1310,9 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		}
 		if channelName.Valid {
 			r.ChannelName = channelName.String
+			if domain.Valid {
+				r.Domain = domain.String
+			}
 		}
 		if endpoint.Valid {
 			r.Endpoint = endpoint.String
@@ -1856,7 +1880,7 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 			   r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
 			   r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
 			   r.http_status, r.stream, r.channel_id, r.channel_uid, r.channel_name,
-			   r.endpoint, r.client_id, r.session_id, r.api_key_id, r.error, r.upstream_error, r.failover_info, r.created_at,
+			   r.endpoint, r.domain, r.client_id, r.session_id, r.api_key_id, r.error, r.upstream_error, r.failover_info, r.created_at,
 			   CASE WHEN d.request_id IS NOT NULL THEN 1 ELSE 0 END as has_debug_data
 		FROM request_logs r
 		LEFT JOIN request_debug_logs d ON r.id = d.request_id
@@ -1882,7 +1906,7 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 	var pricedByTargetModel sql.NullBool
 	var firstTokenTime sql.NullString
 	var providerName, responseModel, reasoningEffort, serviceTier, originalXInitiator, effectiveXInitiator sql.NullString
-	var channelUID, channelName, endpoint, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr sql.NullString
+	var channelUID, channelName, endpoint, domain, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr sql.NullString
 	var hasDebugData int
 
 	err := m.db.QueryRow(m.convertQuery(query), id).Scan(
@@ -1892,7 +1916,7 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 		&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 		&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
 		&r.HTTPStatus, &r.Stream, &channelID, &channelUID, &channelName,
-		&endpoint, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr, &r.CreatedAt,
+		&endpoint, &domain, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr, &r.CreatedAt,
 		&hasDebugData,
 	)
 	if err != nil && isAnyMissingColumnErr(err) {
@@ -1950,6 +1974,9 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 	}
 	if channelUID.Valid {
 		r.ChannelUID = channelUID.String
+		if domain.Valid {
+			r.Domain = domain.String
+		}
 	}
 	if channelName.Valid {
 		r.ChannelName = channelName.String

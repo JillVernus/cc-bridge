@@ -1003,6 +1003,7 @@ export default {
     requestInfo: '请求信息',
     requestId: '请求 ID',
     endpoint: '端点',
+    domain: '域名',
     stream: '流式',
     timing: '时间',
     startTime: '开始时间',
