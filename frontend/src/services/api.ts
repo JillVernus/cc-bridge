@@ -1717,6 +1717,7 @@ export interface XInitiatorOverrideRuntimeStatus {
 
 export interface ForwardProxyConfig {
   enabled: boolean
+  discoveryEnabled: boolean
   interceptDomains: string[]
   domainAliases: Record<string, string>
   xInitiatorOverride: XInitiatorOverrideConfig
@@ -1741,6 +1742,7 @@ export interface ForwardProxyDiscoveryEntry {
 
 export interface ForwardProxyDiscoveryResponse {
   entries: ForwardProxyDiscoveryEntry[]
+  discoveryEnabled: boolean
   running: boolean
 }
 

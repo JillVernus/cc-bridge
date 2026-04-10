@@ -28,6 +28,7 @@ func TestHandleHTTPForward_RecordsDiscoveryForBlindTunnelCandidate(t *testing.T)
 	s := &Server{
 		httpClient:       upstream.Client(),
 		enabled:          true,
+		discoveryEnabled: true,
 		interceptDomains: map[string]bool{},
 		discoveryStore:   discoveryStore,
 	}

@@ -22,6 +22,7 @@ import (
 // Config holds the forward proxy runtime configuration, persisted as JSON.
 type Config struct {
 	Enabled            bool                     `json:"enabled"`
+	DiscoveryEnabled   bool                     `json:"discoveryEnabled"`
 	InterceptDomains   []string                 `json:"interceptDomains"`
 	DomainAliases      map[string]string        `json:"domainAliases"`
 	XInitiatorOverride XInitiatorOverrideConfig `json:"xInitiatorOverride"`
@@ -60,6 +61,7 @@ type Server struct {
 	interceptDomains map[string]bool
 	domainAliases    map[string]string
 	enabled          bool
+	discoveryEnabled bool
 	running          bool
 
 	xInitiatorOverride         XInitiatorOverrideConfig
@@ -496,6 +498,7 @@ func (s *Server) getConfigLocked() Config {
 	overrideCfg := normalizeXInitiatorOverrideConfig(s.xInitiatorOverride)
 	return Config{
 		Enabled:            s.enabled,
+		DiscoveryEnabled:   s.discoveryEnabled,
 		InterceptDomains:   domains,
 		DomainAliases:      cloneDomainAliases(s.domainAliases),
 		XInitiatorOverride: overrideCfg,
@@ -535,6 +538,7 @@ func (s *Server) UpdateConfig(cfg Config) error {
 	// Persist the new config to disk first (from immutable snapshot, no lock needed)
 	persistCfg := Config{
 		Enabled:            cfg.Enabled,
+		DiscoveryEnabled:   cfg.DiscoveryEnabled,
 		InterceptDomains:   cleanedDomains,
 		DomainAliases:      normalizedAliases,
 		XInitiatorOverride: cfg.XInitiatorOverride,
@@ -550,6 +554,7 @@ func (s *Server) UpdateConfig(cfg Config) error {
 	// Persist succeeded — now swap in-memory state
 	s.mu.Lock()
 	s.enabled = cfg.Enabled
+	s.discoveryEnabled = cfg.DiscoveryEnabled
 	s.interceptDomains = newDomains
 	s.domainAliases = cloneDomainAliases(normalizedAliases)
 	s.xInitiatorOverride = persistCfg.XInitiatorOverride
@@ -562,6 +567,9 @@ func (s *Server) UpdateConfig(cfg Config) error {
 
 func (s *Server) recordDiscovery(event DiscoveryEvent) {
 	if s == nil || s.discoveryStore == nil {
+		return
+	}
+	if !s.IsDiscoveryEnabled() {
 		return
 	}
 	s.discoveryStore.Record(event)
@@ -660,6 +668,13 @@ func (s *Server) IsEnabled() bool {
 	return s.enabled
 }
 
+// IsDiscoveryEnabled returns whether discovery recording is enabled.
+func (s *Server) IsDiscoveryEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.discoveryEnabled
+}
+
 // IsRunning returns whether the proxy listener is actually running.
 func (s *Server) IsRunning() bool {
 	s.mu.RLock()
@@ -688,6 +703,7 @@ func (s *Server) loadConfig() error {
 		return err
 	}
 	s.enabled = cfg.Enabled
+	s.discoveryEnabled = cfg.DiscoveryEnabled
 	s.interceptDomains = make(map[string]bool)
 	for _, d := range cfg.InterceptDomains {
 		trimmed := normalizeForwardProxyHost(d)

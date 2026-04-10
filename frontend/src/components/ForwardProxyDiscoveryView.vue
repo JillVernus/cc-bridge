@@ -16,7 +16,7 @@
             prepend-icon="mdi-delete-sweep-outline"
             @click="clearEntries"
             :loading="clearing"
-            :disabled="entries.length === 0"
+            :disabled="entries.length === 0 || !discoveryEnabled"
           >
             {{ t('common.clear') }}
           </v-btn>
@@ -26,6 +26,30 @@
 
     <v-alert v-if="!config.running" type="warning" variant="tonal">
       {{ t('forwardProxy.notRunning') }}
+    </v-alert>
+
+    <!-- Discovery on/off switch -->
+    <v-card variant="outlined" class="pa-3">
+      <div class="d-flex align-center justify-space-between">
+        <div>
+          <v-switch
+            v-model="discoveryEnabled"
+            :label="discoveryEnabled ? t('forwardProxy.discoveryEnabled') : t('forwardProxy.discoveryDisabled')"
+            color="primary"
+            density="compact"
+            hide-details
+            :disabled="!config.running"
+            @update:model-value="(v: boolean | null) => toggleDiscovery(v ?? false)"
+          />
+        </div>
+        <div class="text-caption text-grey" style="max-width: 320px">
+          {{ t('forwardProxy.discoveryToggleHint') }}
+        </div>
+      </div>
+    </v-card>
+
+    <v-alert v-if="!discoveryEnabled && config.running" type="info" variant="tonal" density="compact">
+      {{ t('forwardProxy.discoveryOffInfo') }}
     </v-alert>
 
     <v-alert v-if="error" type="error" variant="tonal">
@@ -147,6 +171,7 @@ const clearing = ref(false)
 const error = ref('')
 const defaultForwardProxyConfig = (): ForwardProxyConfig => ({
   enabled: false,
+  discoveryEnabled: false,
   interceptDomains: [],
   domainAliases: {},
   xInitiatorOverride: {
@@ -168,6 +193,7 @@ const defaultForwardProxyConfig = (): ForwardProxyConfig => ({
 })
 const config = ref<ForwardProxyConfig>(defaultForwardProxyConfig())
 const entries = ref<ForwardProxyDiscoveryEntry[]>([])
+const discoveryEnabled = ref(false)
 const revealedHeadersByEntry = ref<Record<string, boolean>>({})
 
 const headers = computed(() => [
@@ -246,10 +272,10 @@ const loadData = async () => {
       },
       xInitiatorOverrideRuntime: {
         ...defaultForwardProxyConfig().xInitiatorOverrideRuntime,
-        ...proxyConfig.xInitiatorOverrideRuntime,
         domains: proxyConfig.xInitiatorOverrideRuntime?.domains ?? []
       }
     }
+    discoveryEnabled.value = discovery.discoveryEnabled
     entries.value = discovery.entries
     const nextRevealState: Record<string, boolean> = {}
     for (const item of discovery.entries) {
@@ -273,12 +299,31 @@ const clearEntries = async () => {
   try {
     const result = await api.clearForwardProxyDiscovery()
     entries.value = result.entries
+    discoveryEnabled.value = result.discoveryEnabled
     revealedHeadersByEntry.value = {}
   } catch (err) {
     console.error('Failed to clear forward proxy discovery:', err)
     error.value = t('forwardProxy.discoveryClearFailed')
   } finally {
     clearing.value = false
+  }
+}
+
+const toggleDiscovery = async (value: boolean) => {
+  error.value = ''
+  try {
+    const result = await api.updateForwardProxyConfig({
+      discoveryEnabled: value
+    })
+    config.value = {
+      ...defaultForwardProxyConfig(),
+      ...result
+    }
+    discoveryEnabled.value = result.discoveryEnabled
+  } catch (err) {
+    console.error('Failed to toggle discovery:', err)
+    error.value = t('forwardProxy.discoveryToggleFailed')
+    discoveryEnabled.value = !value
   }
 }
 

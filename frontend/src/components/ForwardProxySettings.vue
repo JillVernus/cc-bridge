@@ -278,6 +278,7 @@ const clampPositiveNumber = (value: unknown, fallback: number) => {
 
 const defaultForwardProxyConfig = (): ForwardProxyConfig => ({
   enabled: false,
+  discoveryEnabled: false,
   interceptDomains: [],
   domainAliases: {},
   xInitiatorOverride: {

@@ -13,9 +13,10 @@ func GetForwardProxyConfig(fpServer *forwardproxy.Server) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if fpServer == nil {
 			c.JSON(http.StatusOK, gin.H{
-				"enabled":          false,
-				"interceptDomains": []string{},
-				"domainAliases":    map[string]string{},
+				"enabled":            false,
+				"discoveryEnabled":   false,
+				"interceptDomains":   []string{},
+				"domainAliases":      map[string]string{},
 				"xInitiatorOverride": forwardproxy.XInitiatorOverrideConfig{
 					Enabled:         false,
 					Mode:            forwardproxy.XInitiatorOverrideModeFixedWindow,
@@ -34,6 +35,7 @@ func GetForwardProxyConfig(fpServer *forwardproxy.Server) gin.HandlerFunc {
 		snapshot := fpServer.GetConfigSnapshot()
 		c.JSON(http.StatusOK, gin.H{
 			"enabled":                   snapshot.Config.Enabled,
+			"discoveryEnabled":          snapshot.Config.DiscoveryEnabled,
 			"interceptDomains":          snapshot.Config.InterceptDomains,
 			"domainAliases":             snapshot.Config.DomainAliases,
 			"xInitiatorOverride":        snapshot.Config.XInitiatorOverride,
@@ -54,6 +56,7 @@ func UpdateForwardProxyConfig(fpServer *forwardproxy.Server) gin.HandlerFunc {
 
 		var req struct {
 			Enabled            *bool                                  `json:"enabled"`
+			DiscoveryEnabled  *bool                                  `json:"discoveryEnabled"`
 			InterceptDomains   []string                               `json:"interceptDomains"`
 			DomainAliases      map[string]string                      `json:"domainAliases"`
 			XInitiatorOverride *forwardproxy.XInitiatorOverrideConfig `json:"xInitiatorOverride"`
@@ -66,6 +69,9 @@ func UpdateForwardProxyConfig(fpServer *forwardproxy.Server) gin.HandlerFunc {
 		cfg := fpServer.GetConfig()
 		if req.Enabled != nil {
 			cfg.Enabled = *req.Enabled
+		}
+		if req.DiscoveryEnabled != nil {
+			cfg.DiscoveryEnabled = *req.DiscoveryEnabled
 		}
 		if req.InterceptDomains != nil {
 			cfg.InterceptDomains = req.InterceptDomains
@@ -91,6 +97,7 @@ func UpdateForwardProxyConfig(fpServer *forwardproxy.Server) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{
 			"message":                   "Forward proxy config updated",
 			"enabled":                   snapshot.Config.Enabled,
+			"discoveryEnabled":          snapshot.Config.DiscoveryEnabled,
 			"interceptDomains":          snapshot.Config.InterceptDomains,
 			"domainAliases":             snapshot.Config.DomainAliases,
 			"xInitiatorOverride":        snapshot.Config.XInitiatorOverride,
@@ -124,12 +131,17 @@ func DownloadForwardProxyCACert(fpServer *forwardproxy.Server) gin.HandlerFunc {
 func GetForwardProxyDiscovery(fpServer *forwardproxy.Server) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if fpServer == nil {
-			c.JSON(http.StatusOK, gin.H{"entries": []forwardproxy.DiscoveryEntry{}})
+			c.JSON(http.StatusOK, gin.H{
+				"entries":          []forwardproxy.DiscoveryEntry{},
+				"discoveryEnabled": false,
+				"running":          false,
+			})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
-			"entries": fpServer.GetDiscoveryEntries(),
-			"running": fpServer.IsRunning(),
+			"entries":          fpServer.GetDiscoveryEntries(),
+			"discoveryEnabled": fpServer.IsDiscoveryEnabled(),
+			"running":          fpServer.IsRunning(),
 		})
 	}
 }
@@ -146,9 +158,10 @@ func ClearForwardProxyDiscovery(fpServer *forwardproxy.Server) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
-			"message": "Forward proxy discovery cleared",
-			"entries": []forwardproxy.DiscoveryEntry{},
-			"running": fpServer.IsRunning(),
+			"message":          "Forward proxy discovery cleared",
+			"entries":          []forwardproxy.DiscoveryEntry{},
+			"discoveryEnabled": fpServer.IsDiscoveryEnabled(),
+			"running":          fpServer.IsRunning(),
 		})
 	}
 }
