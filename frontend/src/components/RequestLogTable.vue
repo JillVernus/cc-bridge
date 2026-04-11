@@ -1145,6 +1145,11 @@
           </span>
         </template>
 
+        <template v-slot:item.tps="{ item }">
+          <span v-if="item.status === 'pending'" class="text-caption">-</span>
+          <span v-else class="text-caption mono-text">{{ formatRequestTps(item) }}</span>
+        </template>
+
         <template v-slot:item.providerName="{ item }">
           <div v-if="item.status === 'pending'" class="d-flex flex-column ga-1">
             <div class="skeleton-bar" style="width: 80px; height: 12px" />
@@ -1589,6 +1594,7 @@ import {
   type LogUpdatedPayload,
   type ConnectionState
 } from '../composables/useLogStream'
+import { calculateRequestLogTps, formatRequestLogTps } from '../utils/requestLogTps'
 
 // i18n
 const { t } = useI18n()
@@ -3060,6 +3066,7 @@ const defaultColumnWidths: Record<string, number> = {
   initialTime: 140,
   firstTokenDurationMs: 130,
   durationMs: 100,
+  tps: 96,
   providerName: 120,
   model: 200,
   apiKeyId: 120,
@@ -3077,6 +3084,7 @@ const defaultColumnVisibility: Record<string, boolean> = {
   initialTime: true,
   firstTokenDurationMs: true,
   durationMs: true,
+  tps: true,
   providerName: true,
   model: true,
   apiKeyId: true,
@@ -3234,6 +3242,7 @@ const columnDisplayNames = computed(() => ({
   initialTime: t('requestLog.time'),
   firstTokenDurationMs: t('requestLog.firstTokenDuration'),
   durationMs: t('requestLog.duration'),
+  tps: t('requestLog.tps'),
   providerName: t('requestLog.channel'),
   model: t('requestLog.model'),
   apiKeyId: t('requestLog.apiKey'),
@@ -3339,6 +3348,7 @@ const allHeaders = [
     sortable: false
   },
   { title: () => t('requestLog.duration'), key: 'durationMs', sortable: false },
+  { title: () => t('requestLog.tps'), key: 'tps', sortable: false },
   { title: () => t('requestLog.channel'), key: 'providerName', sortable: false },
   { title: () => t('requestLog.model'), key: 'model', sortable: false },
   { title: () => t('requestLog.apiKey'), key: 'apiKeyId', sortable: false },
@@ -3591,6 +3601,10 @@ const hasFirstTokenMetric = (item: RequestLog) => {
 const formatFirstTokenDuration = (item: RequestLog) => {
   if (!hasFirstTokenMetric(item)) return '—\u00A0\u00A0'
   return formatDuration(item.firstTokenDurationMs ?? 0)
+}
+
+const formatRequestTps = (item: RequestLog) => {
+  return formatRequestLogTps(calculateRequestLogTps(item))
 }
 
 // Format tokens: 6-char left-padded abbreviated number + space + symbol (e.g., " 1.2K (↑)")

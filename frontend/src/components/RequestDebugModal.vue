@@ -116,6 +116,10 @@
                           </span>
                         </td>
                       </tr>
+                      <tr>
+                        <td class="meta-key">{{ t('debugModal.tps') }}</td>
+                        <td class="meta-value mono-text">{{ formatRequestTps(logItem) }}</td>
+                      </tr>
                     </tbody>
                   </table>
                 </div>
@@ -337,6 +341,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api, type DebugLogEntry, type RequestLog } from '../services/api'
+import { calculateRequestLogTps, formatRequestLogTps } from '../utils/requestLogTps'
 import ParsedBody from './ParsedBody.vue'
 
 const { t } = useI18n()
@@ -428,6 +433,10 @@ const getServiceTierOverrideLabel = (item: RequestLog): string => {
     return t('requestLog.priorityDisabledByProxy')
   }
   return t('requestLog.serviceTierOverridden')
+}
+
+const formatRequestTps = (item: RequestLog): string => {
+  return formatRequestLogTps(calculateRequestLogTps(item))
 }
 
 const formatJson = (str: string | undefined): string => {

@@ -13,5 +13,5 @@
     "jsx": "preserve"
   },
   "include": ["src/**/*.ts", "src/**/*.vue"],
-  "exclude": ["dist", "node_modules"]
+  "exclude": ["dist", "node_modules", "src/**/*.test.ts"]
 }
