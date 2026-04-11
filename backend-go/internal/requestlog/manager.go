@@ -682,6 +682,7 @@ func requestLogUpdateQuery() string {
 			ELSE effective_x_initiator
 		END,
 		service_tier = CASE
+			WHEN ? AND TRIM(COALESCE(?, '')) = '' THEN ''
 			WHEN TRIM(COALESCE(?, '')) != '' THEN ?
 			ELSE service_tier
 		END,
@@ -896,6 +897,8 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 		record.OriginalXInitiator,
 		record.EffectiveXInitiator,
 		record.EffectiveXInitiator,
+		record.ServiceTierOverridden,
+		record.ServiceTier,
 		record.ServiceTier,
 		record.ServiceTier,
 		record.ServiceTierOverridden,

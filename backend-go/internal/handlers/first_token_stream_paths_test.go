@@ -377,7 +377,7 @@ func TestHandleResponsesSuccess_PreservesDowngradedDefaultServiceTier(t *testing
 		nil,
 		startTime,
 		&types.ResponsesRequest{Model: "gpt-5", Stream: true},
-		[]byte(`{"model":"gpt-5","stream":true,"service_tier":"default"}`),
+		[]byte(`{"model":"gpt-5","stream":true}`),
 		reqLogManager,
 		requestLogID,
 		nil,
@@ -394,8 +394,8 @@ func TestHandleResponsesSuccess_PreservesDowngradedDefaultServiceTier(t *testing
 	if got == nil {
 		t.Fatalf("expected request log")
 	}
-	if got.ServiceTier != "default" {
-		t.Fatalf("expected serviceTier default, got %q", got.ServiceTier)
+	if got.ServiceTier != "" {
+		t.Fatalf("expected serviceTier cleared, got %q", got.ServiceTier)
 	}
 	if !got.ServiceTierOverridden {
 		t.Fatalf("expected serviceTierOverridden=true")

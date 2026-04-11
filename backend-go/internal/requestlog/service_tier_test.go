@@ -1,6 +1,8 @@
 package requestlog
 
 import (
+	"encoding/json"
+	"strings"
 	"path/filepath"
 	"testing"
 	"time"
@@ -126,8 +128,8 @@ func TestRequestLog_ServiceTierAndDebugData_RoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatalf("updated event payload type mismatch")
 	}
-	if updatedPayload.ServiceTier != "priority" {
-		t.Fatalf("expected updated event serviceTier=priority, got %q", updatedPayload.ServiceTier)
+	if updatedPayload.ServiceTier == nil || *updatedPayload.ServiceTier != "priority" {
+		t.Fatalf("expected updated event serviceTier=priority, got %#v", updatedPayload.ServiceTier)
 	}
 	if !updatedPayload.ServiceTierOverridden {
 		t.Fatalf("expected updated event serviceTierOverridden=true")
@@ -157,7 +159,7 @@ func TestRequestLog_DowngradedServiceTier_RoundTrip(t *testing.T) {
 		Type:                  "responses",
 		ProviderName:          "responses-default",
 		Model:                 "gpt-5",
-		ServiceTier:           "default",
+		ServiceTier:           "priority",
 		ServiceTierOverridden: true,
 		Stream:                true,
 		ChannelID:             1,
@@ -176,7 +178,7 @@ func TestRequestLog_DowngradedServiceTier_RoundTrip(t *testing.T) {
 		Type:                  "responses",
 		ProviderName:          "responses-default",
 		ResponseModel:         "gpt-5",
-		ServiceTier:           "default",
+		ServiceTier:           "",
 		ServiceTierOverridden: true,
 		HTTPStatus:            200,
 		ChannelID:             1,
@@ -192,8 +194,8 @@ func TestRequestLog_DowngradedServiceTier_RoundTrip(t *testing.T) {
 	if got == nil {
 		t.Fatalf("expected record from GetByID")
 	}
-	if got.ServiceTier != "default" {
-		t.Fatalf("expected serviceTier=default from GetByID, got %q", got.ServiceTier)
+	if got.ServiceTier != "" {
+		t.Fatalf("expected serviceTier cleared from GetByID, got %q", got.ServiceTier)
 	}
 	if !got.ServiceTierOverridden {
 		t.Fatalf("expected serviceTierOverridden=true from GetByID")
@@ -206,8 +208,8 @@ func TestRequestLog_DowngradedServiceTier_RoundTrip(t *testing.T) {
 	if len(recent.Requests) == 0 {
 		t.Fatalf("expected at least one record from GetRecent")
 	}
-	if recent.Requests[0].ServiceTier != "default" {
-		t.Fatalf("expected serviceTier=default from GetRecent, got %q", recent.Requests[0].ServiceTier)
+	if recent.Requests[0].ServiceTier != "" {
+		t.Fatalf("expected serviceTier cleared from GetRecent, got %q", recent.Requests[0].ServiceTier)
 	}
 	if !recent.Requests[0].ServiceTierOverridden {
 		t.Fatalf("expected serviceTierOverridden=true from GetRecent")
@@ -217,8 +219,8 @@ func TestRequestLog_DowngradedServiceTier_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getCompleteRecordForSSE failed: %v", err)
 	}
-	if complete.ServiceTier != "default" {
-		t.Fatalf("expected serviceTier=default from complete SSE record, got %q", complete.ServiceTier)
+	if complete.ServiceTier != "" {
+		t.Fatalf("expected serviceTier cleared from complete SSE record, got %q", complete.ServiceTier)
 	}
 	if !complete.ServiceTierOverridden {
 		t.Fatalf("expected serviceTierOverridden=true from complete SSE record")
@@ -228,8 +230,8 @@ func TestRequestLog_DowngradedServiceTier_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getPartialRecordForSSE failed: %v", err)
 	}
-	if partial.ServiceTier != "default" {
-		t.Fatalf("expected serviceTier=default from partial SSE record, got %q", partial.ServiceTier)
+	if partial.ServiceTier != "" {
+		t.Fatalf("expected serviceTier cleared from partial SSE record, got %q", partial.ServiceTier)
 	}
 	if !partial.ServiceTierOverridden {
 		t.Fatalf("expected serviceTierOverridden=true from partial SSE record")
@@ -240,8 +242,8 @@ func TestRequestLog_DowngradedServiceTier_RoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatalf("created event payload type mismatch")
 	}
-	if createdPayload.ServiceTier != "default" {
-		t.Fatalf("expected created event serviceTier=default, got %q", createdPayload.ServiceTier)
+	if createdPayload.ServiceTier != "" {
+		t.Fatalf("expected created event serviceTier cleared, got %q", createdPayload.ServiceTier)
 	}
 	if !createdPayload.ServiceTierOverridden {
 		t.Fatalf("expected created event serviceTierOverridden=true")
@@ -252,8 +254,8 @@ func TestRequestLog_DowngradedServiceTier_RoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatalf("updated event payload type mismatch")
 	}
-	if updatedPayload.ServiceTier != "default" {
-		t.Fatalf("expected updated event serviceTier=default, got %q", updatedPayload.ServiceTier)
+	if updatedPayload.ServiceTier == nil || *updatedPayload.ServiceTier != "" {
+		t.Fatalf("expected updated event serviceTier cleared, got %#v", updatedPayload.ServiceTier)
 	}
 	if !updatedPayload.ServiceTierOverridden {
 		t.Fatalf("expected updated event serviceTierOverridden=true")
@@ -365,5 +367,23 @@ func TestRequestLog_XInitiatorMetadata_RoundTrip(t *testing.T) {
 	}
 	if updatedPayload.EffectiveXInitiator != "agent" {
 		t.Fatalf("expected updated event effectiveXInitiator=agent, got %q", updatedPayload.EffectiveXInitiator)
+	}
+}
+
+func TestLogUpdatedEvent_IncludesClearedServiceTierInJSON(t *testing.T) {
+	record := &RequestLog{
+		ID:                    "req_test_clear_service_tier",
+		Status:                StatusCompleted,
+		ServiceTier:           "",
+		ServiceTierOverridden: true,
+	}
+
+	updatedJSON, err := json.Marshal(NewLogUpdatedEvent(record.ID, record))
+	if err != nil {
+		t.Fatalf("failed to marshal updated event: %v", err)
+	}
+
+	if !strings.Contains(string(updatedJSON), `"serviceTier":""`) {
+		t.Fatalf("expected updated event JSON to include cleared serviceTier, got %s", string(updatedJSON))
 	}
 }

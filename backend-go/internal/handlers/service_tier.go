@@ -74,12 +74,12 @@ func resolveEffectiveResponsesServiceTier(
 	}
 
 	if shouldForceCodexDefaultOverride(upstream) && serviceTier == "priority" {
-		reqMap["service_tier"] = "default"
+		delete(reqMap, "service_tier")
 		effectiveBody, err := json.Marshal(reqMap)
 		if err != nil {
 			return nil, "", false, false, err
 		}
-		return effectiveBody, "default", false, true, nil
+		return effectiveBody, "", false, true, nil
 	}
 
 	return bodyBytes, serviceTier, serviceTier == "priority", false, nil

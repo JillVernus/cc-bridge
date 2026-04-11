@@ -99,12 +99,23 @@ type LogUpdatedPayload struct {
 	FailoverInfo          string    `json:"failoverInfo,omitempty"`
 	ResponseModel         string    `json:"responseModel,omitempty"`
 	ReasoningEffort       string    `json:"reasoningEffort,omitempty"`
-	ServiceTier           string    `json:"serviceTier,omitempty"`
+	ServiceTier           *string   `json:"serviceTier,omitempty"`
 	ServiceTierOverridden bool      `json:"serviceTierOverridden,omitempty"`
 	PricedByTargetModel   bool      `json:"pricedByTargetModel,omitempty"`
 	OriginalXInitiator    string    `json:"originalXInitiator,omitempty"`
 	EffectiveXInitiator   string    `json:"effectiveXInitiator,omitempty"`
 	CompleteTime          time.Time `json:"completeTime"`
+}
+
+func updatedEventServiceTier(record *RequestLog) *string {
+	if record == nil {
+		return nil
+	}
+	if record.ServiceTierOverridden || record.ServiceTier != "" {
+		serviceTier := record.ServiceTier
+		return &serviceTier
+	}
+	return nil
 }
 
 // StatsPayload contains data for log:stats events
@@ -200,7 +211,7 @@ func NewLogUpdatedEvent(id string, record *RequestLog) *LogEvent {
 			FailoverInfo:             record.FailoverInfo,
 			ResponseModel:            record.ResponseModel,
 			ReasoningEffort:          record.ReasoningEffort,
-			ServiceTier:              record.ServiceTier,
+			ServiceTier:              updatedEventServiceTier(record),
 			ServiceTierOverridden:    record.ServiceTierOverridden,
 			PricedByTargetModel:      record.PricedByTargetModel,
 			OriginalXInitiator:       record.OriginalXInitiator,

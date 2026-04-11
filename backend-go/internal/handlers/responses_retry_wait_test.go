@@ -183,8 +183,8 @@ func TestTryResponsesChannelWithAllKeys_RetryWaitPreservesDowngradedServiceTierM
 		if err := json.Unmarshal(reqBody, &payload); err != nil {
 			t.Fatalf("unmarshal request body: %v", err)
 		}
-		if got, _ := payload["service_tier"].(string); got != "default" {
-			t.Fatalf("expected downgraded service_tier=default, got %#v", payload["service_tier"])
+		if got, ok := payload["service_tier"]; ok {
+			t.Fatalf("expected downgraded request to omit service_tier, got %#v", got)
 		}
 
 		if atomic.AddInt32(&callCount, 1) == 1 {
@@ -295,8 +295,8 @@ func TestTryResponsesChannelWithAllKeys_RetryWaitPreservesDowngradedServiceTierM
 	if initialRecent.Status != requestlog.StatusRetryWait {
 		t.Fatalf("expected initial log status retry_wait, got %s", initialRecent.Status)
 	}
-	if initialRecent.ServiceTier != "default" {
-		t.Fatalf("expected initial retry_wait log serviceTier=default, got %q", initialRecent.ServiceTier)
+	if initialRecent.ServiceTier != "" {
+		t.Fatalf("expected initial retry_wait log serviceTier cleared, got %q", initialRecent.ServiceTier)
 	}
 	if !initialRecent.ServiceTierOverridden {
 		t.Fatalf("expected initial retry_wait log serviceTierOverridden=true")
@@ -305,8 +305,8 @@ func TestTryResponsesChannelWithAllKeys_RetryWaitPreservesDowngradedServiceTierM
 	if finalRecent.Status != requestlog.StatusCompleted {
 		t.Fatalf("expected final log status completed, got %s", finalRecent.Status)
 	}
-	if finalRecent.ServiceTier != "default" {
-		t.Fatalf("expected final log serviceTier=default, got %q", finalRecent.ServiceTier)
+	if finalRecent.ServiceTier != "" {
+		t.Fatalf("expected final log serviceTier cleared, got %q", finalRecent.ServiceTier)
 	}
 	if !finalRecent.ServiceTierOverridden {
 		t.Fatalf("expected final log serviceTierOverridden=true")

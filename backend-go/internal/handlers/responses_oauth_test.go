@@ -149,10 +149,10 @@ func TestBuildCodexOAuthRequest_AppliesCodexPriorityOverride(t *testing.T) {
 			wantOverridden: false,
 		},
 		{
-			name:           "priority tier forced to default and preserves unrelated fields",
+			name:           "priority tier removed when forced default and preserves unrelated fields",
 			body:           `{"model":"gpt-5-codex","stream":true,"store":true,"service_tier":"priority","metadata":{"source":"task3"}}`,
 			overrideMode:   config.CodexServiceTierOverrideForceDefault,
-			wantTier:       "default",
+			wantTier:       "",
 			wantOverridden: true,
 			wantSource:     "task3",
 		},
@@ -198,9 +198,16 @@ func TestBuildCodexOAuthRequest_AppliesCodexPriorityOverride(t *testing.T) {
 				t.Fatalf("failed to parse built request body: %v", err)
 			}
 
-			gotTier, _ := payload["service_tier"].(string)
-			if gotTier != tc.wantTier {
-				t.Fatalf("service_tier = %q, want %q", gotTier, tc.wantTier)
+			rawTier, hasTier := payload["service_tier"]
+			if tc.wantTier == "" {
+				if hasTier {
+					t.Fatalf("expected service_tier to be absent, got %#v", rawTier)
+				}
+			} else {
+				gotTier, _ := rawTier.(string)
+				if gotTier != tc.wantTier {
+					t.Fatalf("service_tier = %q, want %q", gotTier, tc.wantTier)
+				}
 			}
 			if tc.wantSource != "" {
 				metadata, ok := payload["metadata"].(map[string]interface{})
