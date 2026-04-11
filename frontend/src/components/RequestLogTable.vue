@@ -1087,67 +1087,49 @@
         </template>
 
         <template v-slot:item.firstTokenDurationMs="{ item }">
-          <!-- Stacked: First Token Duration + Duration -->
-          <v-tooltip v-if="isStacked('firstTokenDurationMs')" location="top" max-width="340">
+          <div v-if="item.status === 'pending'" class="skeleton-bar" style="width: 96px; height: 28px" />
+          <v-tooltip v-else location="top" max-width="340">
             <template v-slot:activator="{ props }">
-              <div v-bind="props" class="stacked-cell stacked-duration-cell">
-                <span v-if="item.status === 'pending'" class="stacked-duration-value">
-                  <div class="skeleton-bar" style="width: 44px; height: 10px" />
+              <div v-bind="props" class="timing-stacked">
+                <span class="timing-cell">
+                  <span class="timing-num" :class="hasFirstTokenMetric(item) ? 'duration-' + getDurationColor(item.firstTokenDurationMs ?? 0) : 'timing-muted'">
+                    {{ formatTimingMetric(item, 'firstToken') }}
+                  </span>
+                  <span class="timing-sym">F</span>
                 </span>
-                <span
-                  v-else-if="hasFirstTokenMetric(item)"
-                  class="stacked-duration-value duration-text"
-                  :class="'duration-' + getDurationColor(item.firstTokenDurationMs ?? 0)"
-                >
-                  {{ formatDuration(item.firstTokenDurationMs ?? 0) }}
+                <span class="timing-cell">
+                  <span class="timing-num" :class="'duration-' + getDurationColor(item.durationMs)">{{ formatTimingMetric(item, 'duration') }}</span>
+                  <span class="timing-sym">D</span>
                 </span>
-                <span v-else class="stacked-duration-value duration-text duration-muted">{{
-                  formatFirstTokenDuration(item)
-                }}</span>
-                <span v-if="item.status === 'pending'" class="stacked-duration-value">
-                  <div class="skeleton-bar" style="width: 44px; height: 10px" />
+                <span class="timing-cell">
+                  <span class="timing-num" :class="getStreamingDurationClass(item)">{{ formatTimingMetric(item, 'streamingDuration') }}</span>
+                  <span class="timing-sym">S</span>
                 </span>
-                <span
-                  v-else
-                  class="stacked-duration-value duration-text"
-                  :class="'duration-' + getDurationColor(item.durationMs)"
-                >
-                  {{ formatDuration(item.durationMs) }}
+                <span class="timing-cell">
+                  <span class="timing-num" :class="getTimingTpsClass(item)">{{ formatTimingMetric(item, 'tps') }}</span>
+                  <span class="timing-sym">T</span>
                 </span>
               </div>
             </template>
-            <div class="stacked-tooltip">
-              <div>
-                <strong>{{ t('requestLog.firstTokenDuration') }}:</strong>
-                {{ item.status === 'pending' ? '...' : formatFirstTokenDuration(item) }}
+            <div class="tokens-tooltip">
+              <div class="tooltip-row">
+                <span class="tooltip-label">{{ t('requestLog.firstTokenDuration') }}:</span>
+                <span>{{ formatFirstTokenDuration(item) }}</span>
               </div>
-              <div>
-                <strong>{{ t('requestLog.duration') }}:</strong>
-                {{ item.status === 'pending' ? '...' : formatDuration(item.durationMs) }}
+              <div class="tooltip-row">
+                <span class="tooltip-label">{{ t('requestLog.duration') }}:</span>
+                <span>{{ formatDuration(item.durationMs) }}</span>
+              </div>
+              <div class="tooltip-row">
+                <span class="tooltip-label">{{ t('requestLog.streamingDuration') }}:</span>
+                <span>{{ formatTimingMetric(item, 'streamingDuration') }}</span>
+              </div>
+              <div class="tooltip-row">
+                <span class="tooltip-label">{{ t('requestLog.tps') }}:</span>
+                <span>{{ formatTimingMetric(item, 'tps') }}</span>
               </div>
             </div>
           </v-tooltip>
-          <div v-else-if="item.status === 'pending'" class="skeleton-bar" style="width: 60px; height: 12px" />
-          <span
-            v-else-if="hasFirstTokenMetric(item)"
-            class="duration-text"
-            :class="'duration-' + getDurationColor(item.firstTokenDurationMs ?? 0)"
-          >
-            {{ formatDuration(item.firstTokenDurationMs ?? 0) }}
-          </span>
-          <span v-else class="text-caption">—</span>
-        </template>
-
-        <template v-slot:item.durationMs="{ item }">
-          <div v-if="item.status === 'pending'" class="skeleton-bar" style="width: 56px; height: 12px" />
-          <span v-else class="duration-text" :class="'duration-' + getDurationColor(item.durationMs)">
-            {{ formatDuration(item.durationMs) }}
-          </span>
-        </template>
-
-        <template v-slot:item.tps="{ item }">
-          <span v-if="item.status === 'pending'" class="text-caption">-</span>
-          <span v-else class="text-caption mono-text">{{ formatRequestTps(item) }}</span>
         </template>
 
         <template v-slot:item.providerName="{ item }">
@@ -1594,7 +1576,12 @@ import {
   type LogUpdatedPayload,
   type ConnectionState
 } from '../composables/useLogStream'
-import { calculateRequestLogTps, formatRequestLogTps } from '../utils/requestLogTps'
+import {
+  calculateRequestLogStreamingDurationMs,
+  calculateRequestLogTps,
+  formatRequestLogDurationCompact,
+  formatRequestLogTps
+} from '../utils/requestLogTps'
 
 // i18n
 const { t } = useI18n()
@@ -3064,9 +3051,7 @@ const {
 const defaultColumnWidths: Record<string, number> = {
   status: 70,
   initialTime: 140,
-  firstTokenDurationMs: 130,
-  durationMs: 100,
-  tps: 96,
+  firstTokenDurationMs: 156,
   providerName: 120,
   model: 200,
   apiKeyId: 120,
@@ -3083,8 +3068,6 @@ const defaultColumnVisibility: Record<string, boolean> = {
   status: true,
   initialTime: true,
   firstTokenDurationMs: true,
-  durationMs: true,
-  tps: true,
   providerName: true,
   model: true,
   apiKeyId: true,
@@ -3106,7 +3089,6 @@ interface StackPairConfig {
 
 const stackPairConfigs: StackPairConfig[] = [
   { primary: 'providerName', secondary: 'model' },
-  { primary: 'firstTokenDurationMs', secondary: 'durationMs' },
   { primary: 'clientId', secondary: 'sessionId' }
 ]
 
@@ -3115,8 +3097,6 @@ const getStackPairLabel = (primary: string): string => {
   switch (primary) {
     case 'providerName':
       return `${t('requestLog.channel')} + ${t('requestLog.model')}`
-    case 'firstTokenDurationMs':
-      return `${t('requestLog.firstTokenDuration')} + ${t('requestLog.duration')}`
     case 'clientId':
       return `${t('requestLog.client')} + ${t('requestLog.session')}`
     default:
@@ -3240,9 +3220,7 @@ const resetStackingPrefs = () => {
 const columnDisplayNames = computed(() => ({
   status: t('requestLog.status'),
   initialTime: t('requestLog.time'),
-  firstTokenDurationMs: t('requestLog.firstTokenDuration'),
-  durationMs: t('requestLog.duration'),
-  tps: t('requestLog.tps'),
+  firstTokenDurationMs: t('requestLog.timing'),
   providerName: t('requestLog.channel'),
   model: t('requestLog.model'),
   apiKeyId: t('requestLog.apiKey'),
@@ -3266,6 +3244,11 @@ const loadColumnVisibility = () => {
         delete parsed.outputTokens
         delete parsed.cacheCreation
         delete parsed.cacheHit
+      }
+      if ('durationMs' in parsed || 'tps' in parsed) {
+        parsed.firstTokenDurationMs = parsed.firstTokenDurationMs || parsed.durationMs || parsed.tps
+        delete parsed.durationMs
+        delete parsed.tps
       }
       columnVisibility.value = { ...defaultColumnVisibility, ...parsed }
       // Save migrated data
@@ -3316,6 +3299,11 @@ const loadColumnWidths = () => {
         delete parsed.cacheCreation
         delete parsed.cacheHit
       }
+      if ('durationMs' in parsed || 'tps' in parsed) {
+        parsed.firstTokenDurationMs = Math.max(parsed.firstTokenDurationMs || 0, parsed.durationMs || 0, parsed.tps || 0, 156)
+        delete parsed.durationMs
+        delete parsed.tps
+      }
       columnWidths.value = { ...defaultColumnWidths, ...parsed }
       // Save migrated data
       saveColumnWidths()
@@ -3342,13 +3330,7 @@ const resetColumnWidths = () => {
 
 const allHeaders = [
   { title: () => t('requestLog.time'), key: 'initialTime', sortable: false },
-  {
-    title: () => (isStacked('firstTokenDurationMs') ? t('requestLog.duration') : t('requestLog.firstTokenDuration')),
-    key: 'firstTokenDurationMs',
-    sortable: false
-  },
-  { title: () => t('requestLog.duration'), key: 'durationMs', sortable: false },
-  { title: () => t('requestLog.tps'), key: 'tps', sortable: false },
+  { title: () => t('requestLog.timing'), key: 'firstTokenDurationMs', sortable: false },
   { title: () => t('requestLog.channel'), key: 'providerName', sortable: false },
   { title: () => t('requestLog.model'), key: 'model', sortable: false },
   { title: () => t('requestLog.apiKey'), key: 'apiKeyId', sortable: false },
@@ -3603,8 +3585,35 @@ const formatFirstTokenDuration = (item: RequestLog) => {
   return formatDuration(item.firstTokenDurationMs ?? 0)
 }
 
+const formatTimingMetric = (
+  item: RequestLog,
+  metric: 'firstToken' | 'duration' | 'streamingDuration' | 'tps'
+) => {
+  switch (metric) {
+    case 'firstToken':
+      if (!hasFirstTokenMetric(item)) return '-'
+      return formatRequestLogDurationCompact(item.firstTokenDurationMs ?? 0)
+    case 'duration':
+      return formatRequestLogDurationCompact(item.durationMs)
+    case 'streamingDuration':
+      return formatRequestLogDurationCompact(calculateRequestLogStreamingDurationMs(item))
+    case 'tps':
+      return formatRequestLogTps(calculateRequestLogTps(item))
+  }
+}
+
 const formatRequestTps = (item: RequestLog) => {
   return formatRequestLogTps(calculateRequestLogTps(item))
+}
+
+const getStreamingDurationClass = (item: RequestLog) => {
+  const streamingDurationMs = calculateRequestLogStreamingDurationMs(item)
+  if (streamingDurationMs === null) return 'timing-muted'
+  return 'duration-' + getDurationColor(streamingDurationMs)
+}
+
+const getTimingTpsClass = (item: RequestLog) => {
+  return calculateRequestLogTps(item) === null ? 'timing-muted' : ''
 }
 
 // Format tokens: 6-char left-padded abbreviated number + space + symbol (e.g., " 1.2K (↑)")
@@ -5414,6 +5423,39 @@ const silentRefresh = async () => {
   font-family: 'Courier New', monospace;
   font-weight: 500;
   font-size: 0.85rem;
+}
+
+.timing-stacked {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  gap: 2px 6px;
+  line-height: 1.3;
+}
+
+.timing-cell {
+  display: inline-flex;
+  min-width: 58px;
+  font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, 'Courier New', monospace;
+  font-size: 0.75rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.timing-num {
+  flex: 1;
+  text-align: right;
+  letter-spacing: -0.02em;
+}
+
+.timing-sym {
+  width: 12px;
+  text-align: center;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.timing-muted {
+  color: rgba(var(--v-theme-on-surface), 0.6);
 }
 
 .duration-success {

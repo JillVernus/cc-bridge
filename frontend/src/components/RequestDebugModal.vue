@@ -118,7 +118,7 @@
                       </tr>
                       <tr>
                         <td class="meta-key">{{ t('debugModal.tps') }}</td>
-                        <td class="meta-value mono-text">{{ formatRequestTps(logItem) }}</td>
+                        <td class="meta-value">{{ formatRequestTps(logItem) }}</td>
                       </tr>
                     </tbody>
                   </table>
