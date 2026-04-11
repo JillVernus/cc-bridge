@@ -1111,22 +1111,22 @@
                 </span>
               </div>
             </template>
-            <div class="tokens-tooltip">
-              <div class="tooltip-row">
-                <span class="tooltip-label">{{ t('requestLog.firstTokenDuration') }}:</span>
-                <span>{{ formatFirstTokenDuration(item) }}</span>
+            <div class="timing-tooltip">
+              <div class="timing-tooltip-row">
+                <span class="timing-tooltip-label">{{ t('requestLog.firstTokenDuration') }}:</span>
+                <span class="timing-tooltip-value">{{ formatFirstTokenDuration(item) }}</span>
               </div>
-              <div class="tooltip-row">
-                <span class="tooltip-label">{{ t('requestLog.duration') }}:</span>
-                <span>{{ formatDuration(item.durationMs) }}</span>
+              <div class="timing-tooltip-row">
+                <span class="timing-tooltip-label">{{ t('requestLog.duration') }}:</span>
+                <span class="timing-tooltip-value">{{ formatDuration(item.durationMs) }}</span>
               </div>
-              <div class="tooltip-row">
-                <span class="tooltip-label">{{ t('requestLog.streamingDuration') }}:</span>
-                <span>{{ formatTimingMetric(item, 'streamingDuration') }}</span>
+              <div class="timing-tooltip-row">
+                <span class="timing-tooltip-label">{{ t('requestLog.streamingDuration') }}:</span>
+                <span class="timing-tooltip-value">{{ formatTimingMetric(item, 'streamingDuration') }}</span>
               </div>
-              <div class="tooltip-row">
-                <span class="tooltip-label">{{ t('requestLog.tps') }}:</span>
-                <span>{{ formatTimingMetric(item, 'tps') }}</span>
+              <div class="timing-tooltip-row">
+                <span class="timing-tooltip-label">{{ t('requestLog.tps') }}:</span>
+                <span class="timing-tooltip-value">{{ formatTimingMetric(item, 'tps') }}</span>
               </div>
             </div>
           </v-tooltip>
@@ -5077,6 +5077,28 @@ const silentRefresh = async () => {
 
 .tokens-tooltip .tooltip-label {
   color: rgba(255, 255, 255, 0.7);
+}
+
+.timing-tooltip {
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.timing-tooltip-row {
+  display: grid;
+  grid-template-columns: max-content minmax(72px, 1fr);
+  gap: 12px;
+  align-items: baseline;
+}
+
+.timing-tooltip-label {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.timing-tooltip-value {
+  text-align: right;
+  font-family: 'Courier New', monospace;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Error tooltip styles */

@@ -4,6 +4,31 @@
 
 ---
 
+## [v1.5.24] - 2026-04-11
+
+### ✨ 新功能
+
+- **请求日志新增 Domain、有效 Service Tier 与 TPS 可观测性**:
+  - 请求详情弹窗的 Metadata 标签页新增 `Domain`、`Effective Service Tier` 与 `Proxy Override` 展示，便于直接确认请求域名与代理对 `service_tier` 的覆盖结果。
+  - 请求日志表格新增紧凑的 `Timing` 指标矩阵，统一展示首 Token、总耗时、流式耗时与 TPS，并在弹窗中补充 TPS 行。
+  - 新增基于现有日志字段的前端 TPS 计算与格式化逻辑，无需后端 schema 迁移即可实时显示生成吞吐。
+
+### 🐛 修复
+
+- **Responses `service_tier` 覆盖与日志同步修复**:
+  - `force_default` 现会直接移除上游请求中的 `service_tier`，不再发送部分上游不支持的 `"default"` 值。
+  - 修复请求日志中 Domain 在部分普通渠道缺失的问题，并补齐 SSE `log:updated` 的域名同步，避免详情弹窗实时态和刷新态不一致。
+  - 修复被代理降级后的 `service_tier` 在实时日志中残留旧值的问题，避免界面短暂显示错误的 Fast mode / Priority forced 状态。
+  - 调整 Timing tooltip 的值列对齐与紧凑时长格式，耗时矩阵在 `>=1000ms` 时改为以秒显示，避免使用 `K` 表示毫秒。
+
+### ✅ 测试
+
+- `cd backend-go && go test ./...`
+- `cd frontend && bun test src/utils/requestLogTps.test.ts`
+- `cd frontend && bun run type-check`
+
+---
+
 ## [v1.5.22] - 2026-04-09
 
 ### ✨ 新功能
