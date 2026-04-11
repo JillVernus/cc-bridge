@@ -22,7 +22,7 @@ describe('requestLogTps', () => {
         firstTokenDurationMs: 2000
       })
     ).toBe(3000)
-    expect(formatRequestLogDurationCompact(3000)).toBe('3.0K')
+    expect(formatRequestLogDurationCompact(3000)).toBe('3.00s')
   })
 
   test('returns null for pending requests', () => {
@@ -92,5 +92,10 @@ describe('requestLogTps', () => {
         firstTokenDurationMs: 2000
       })
     ).toBeNull()
+  })
+
+  test('formats compact durations as ms below one second and seconds above it', () => {
+    expect(formatRequestLogDurationCompact(842)).toBe('842')
+    expect(formatRequestLogDurationCompact(1234)).toBe('1.23s')
   })
 })

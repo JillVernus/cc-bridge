@@ -34,8 +34,7 @@ export const calculateRequestLogTps = (item: RequestLogTpsSource): number | null
 
 export const formatRequestLogDurationCompact = (ms: number | null): string => {
   if (ms === null || !Number.isFinite(ms) || ms < 0) return '-'
-  if (ms >= 1000000) return (ms / 1000000).toFixed(1) + 'M'
-  if (ms >= 1000) return (ms / 1000).toFixed(1) + 'K'
+  if (ms >= 1000) return (ms / 1000).toFixed(2) + 's'
   return String(ms)
 }
 
