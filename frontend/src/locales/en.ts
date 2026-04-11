@@ -1022,6 +1022,8 @@ export default {
     endpoint: 'Endpoint',
     domain: 'Domain',
     stream: 'Stream',
+    effectiveServiceTier: 'Effective Service Tier',
+    proxyOverride: 'Proxy Override',
     timing: 'Timing',
     startTime: 'Start Time',
     endTime: 'End Time',

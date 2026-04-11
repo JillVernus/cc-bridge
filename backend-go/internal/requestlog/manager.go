@@ -21,17 +21,22 @@ import (
 // channelName may be empty if upstream is not selected yet.
 type ChannelUIDResolver func(endpoint string, channelIndex int, channelName string) string
 
+// ChannelDomainResolver resolves channel context to a displayable upstream domain.
+// endpoint uses API path form (e.g. "/v1/messages", "/v1/responses", "/v1/gemini").
+type ChannelDomainResolver func(endpoint string, channelIndex int, channelUID string, channelName string) string
+
 // Manager manages request log storage using SQLite
 type Manager struct {
-	db           *sql.DB
-	mu           sync.RWMutex
-	dbPath       string
-	broadcaster  *Broadcaster
-	dialect      database.Dialect // sqlite or postgresql
-	connStr      string           // PostgreSQL connection string (for LISTEN)
-	listenerCtx  context.Context
-	listenerStop context.CancelFunc
-	uidResolver  ChannelUIDResolver
+	db             *sql.DB
+	mu             sync.RWMutex
+	dbPath         string
+	broadcaster    *Broadcaster
+	dialect        database.Dialect // sqlite or postgresql
+	connStr        string           // PostgreSQL connection string (for LISTEN)
+	listenerCtx    context.Context
+	listenerStop   context.CancelFunc
+	uidResolver    ChannelUIDResolver
+	domainResolver ChannelDomainResolver
 }
 
 // NewManager creates a new request log manager with SQLite storage
@@ -571,6 +576,13 @@ func (m *Manager) SetChannelUIDResolver(resolver ChannelUIDResolver) {
 	m.uidResolver = resolver
 }
 
+// SetChannelDomainResolver configures upstream domain resolution for request logs.
+func (m *Manager) SetChannelDomainResolver(resolver ChannelDomainResolver) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.domainResolver = resolver
+}
+
 func normalizeChannelContext(record *RequestLog) {
 	if record == nil {
 		return
@@ -600,6 +612,24 @@ func (m *Manager) resolveChannelUID(record *RequestLog) {
 	}
 	if channelUID := strings.TrimSpace(m.uidResolver(record.Endpoint, record.ChannelID, record.ChannelName)); channelUID != "" {
 		record.ChannelUID = channelUID
+	}
+}
+
+func (m *Manager) resolveChannelDomain(record *RequestLog) {
+	if record == nil {
+		return
+	}
+	if record.Domain != "" {
+		return
+	}
+	if m.domainResolver == nil {
+		return
+	}
+	if record.ChannelUID == "" && record.ChannelName == "" && record.ChannelID < 0 {
+		return
+	}
+	if domain := strings.TrimSpace(m.domainResolver(record.Endpoint, record.ChannelID, record.ChannelUID, record.ChannelName)); domain != "" {
+		record.Domain = domain
 	}
 }
 
@@ -686,6 +716,10 @@ func requestLogUpdateQuery() string {
 			WHEN TRIM(COALESCE(?, '')) != '' THEN ?
 			ELSE channel_name
 		END,
+		domain = CASE
+			WHEN TRIM(COALESCE(?, '')) != '' THEN ?
+			ELSE domain
+		END,
 		error = ?,
 		upstream_error = ?,
 		failover_info = ?
@@ -700,6 +734,7 @@ func (m *Manager) Add(record *RequestLog) error {
 
 	normalizeChannelContext(record)
 	m.resolveChannelUID(record)
+	m.resolveChannelDomain(record)
 
 	if record.ID == "" {
 		record.ID = generateID()
@@ -773,7 +808,7 @@ func (m *Manager) Add(record *RequestLog) error {
 		record.ChannelUID,
 		record.ChannelName,
 		record.Endpoint,
-			record.Domain,
+		record.Domain,
 		record.ClientID,
 		record.SessionID,
 		apiKeyID,
@@ -838,6 +873,7 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 
 	normalizeChannelContext(record)
 	m.resolveChannelUID(record)
+	m.resolveChannelDomain(record)
 
 	// Calculate total tokens
 	record.TotalTokens = record.InputTokens + record.OutputTokens
@@ -882,6 +918,8 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 		record.ChannelUID,
 		record.ChannelName,
 		record.ChannelName,
+		record.Domain,
+		record.Domain,
 		record.Error,
 		record.UpstreamError,
 		record.FailoverInfo,
@@ -1246,7 +1284,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		} else {
 			err = rows.Scan(
 				&r.ID, &status, &initialTime, &firstTokenTime, &r.FirstTokenDurationMs, &completeTime, &r.DurationMs,
-							&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort, &serviceTier, &serviceTierOverridden, &pricedByTargetModel, &originalXInitiator, &effectiveXInitiator, &r.InputTokens, &r.OutputTokens,
+				&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort, &serviceTier, &serviceTierOverridden, &pricedByTargetModel, &originalXInitiator, &effectiveXInitiator, &r.InputTokens, &r.OutputTokens,
 				&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 				&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
 				&r.HTTPStatus, &r.Stream, &channelID, &channelUID, &channelName,
@@ -1911,7 +1949,7 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 
 	err := m.db.QueryRow(m.convertQuery(query), id).Scan(
 		&r.ID, &r.InitialTime, &firstTokenTime, &r.FirstTokenDurationMs, &r.CompleteTime, &r.DurationMs,
-				&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort, &serviceTier, &serviceTierOverridden, &pricedByTargetModel, &originalXInitiator, &effectiveXInitiator,
+		&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort, &serviceTier, &serviceTierOverridden, &pricedByTargetModel, &originalXInitiator, &effectiveXInitiator,
 		&r.InputTokens, &r.OutputTokens,
 		&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 		&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,

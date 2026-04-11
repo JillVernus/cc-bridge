@@ -79,6 +79,7 @@ type LogUpdatedPayload struct {
 	ChannelID                int        `json:"channelId"`
 	ChannelUID               string     `json:"channelUid,omitempty"`
 	ChannelName              string     `json:"channelName"`
+	Domain                   string     `json:"domain,omitempty"`
 	InputTokens              int        `json:"inputTokens"`
 	OutputTokens             int        `json:"outputTokens"`
 	CacheCreationInputTokens int        `json:"cacheCreationInputTokens"`
@@ -181,6 +182,7 @@ func NewLogUpdatedEvent(id string, record *RequestLog) *LogEvent {
 			ChannelID:                record.ChannelID,
 			ChannelUID:               record.ChannelUID,
 			ChannelName:              record.ChannelName,
+			Domain:                   record.Domain,
 			InputTokens:              record.InputTokens,
 			OutputTokens:             record.OutputTokens,
 			CacheCreationInputTokens: record.CacheCreationInputTokens,

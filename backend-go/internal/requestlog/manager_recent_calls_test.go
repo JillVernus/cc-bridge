@@ -356,6 +356,113 @@ func TestUpdate_PreservesResolvedChannelUIDWhenEndpointMissing(t *testing.T) {
 	}
 }
 
+func TestAdd_ResolvesChannelDomainViaResolver(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "request_logs_domain_add.db")
+	manager, err := NewManager(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create manager: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = manager.Close()
+	})
+
+	manager.SetChannelDomainResolver(func(endpoint string, channelIndex int, channelUID string, channelName string) string {
+		if endpoint == "/v1/responses" && channelUID == "responses-uid-5" {
+			return "api.example.com"
+		}
+		return ""
+	})
+
+	record := &RequestLog{
+		Status:       StatusCompleted,
+		InitialTime:  time.Date(2026, 2, 16, 11, 0, 0, 0, time.UTC),
+		Type:         "responses",
+		ProviderName: "responses-ch5",
+		Model:        "test-model",
+		HTTPStatus:   200,
+		Stream:       false,
+		ChannelID:    5,
+		ChannelUID:   "responses-uid-5",
+		ChannelName:  "responses-5",
+		Endpoint:     "/v1/responses",
+	}
+	if err := manager.Add(record); err != nil {
+		t.Fatalf("failed to add log: %v", err)
+	}
+
+	got, err := manager.GetByID(record.ID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	if got.Domain != "api.example.com" {
+		t.Fatalf("expected resolved domain api.example.com, got %q", got.Domain)
+	}
+}
+
+func TestUpdate_ResolvesChannelDomainViaResolverWhenChannelSelectedLater(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "request_logs_domain_update.db")
+	manager, err := NewManager(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create manager: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = manager.Close()
+	})
+
+	manager.SetChannelUIDResolver(func(endpoint string, channelIndex int, channelName string) string {
+		if channelName == "messages-a" {
+			return "uid-messages-a"
+		}
+		return ""
+	})
+	manager.SetChannelDomainResolver(func(endpoint string, channelIndex int, channelUID string, channelName string) string {
+		if channelUID == "uid-messages-a" {
+			return "messages.example.com"
+		}
+		return ""
+	})
+
+	base := time.Date(2026, 2, 16, 12, 0, 0, 0, time.UTC)
+	record := &RequestLog{
+		Status:       StatusPending,
+		InitialTime:  base,
+		Type:         "claude",
+		ProviderName: "messages-a",
+		Model:        "test-model",
+		Stream:       false,
+		Endpoint:     "/v1/messages",
+	}
+	if err := manager.Add(record); err != nil {
+		t.Fatalf("failed to add pending log: %v", err)
+	}
+
+	update := &RequestLog{
+		Status:       StatusCompleted,
+		CompleteTime: base.Add(2 * time.Second),
+		DurationMs:   2000,
+		Type:         "claude",
+		ProviderName: "messages-a",
+		Model:        "test-model",
+		HTTPStatus:   200,
+		ChannelID:    3,
+		ChannelName:  "messages-a",
+	}
+	if err := manager.Update(record.ID, update); err != nil {
+		t.Fatalf("failed to update log: %v", err)
+	}
+
+	got, err := manager.GetByID(record.ID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	if got.ChannelUID != "uid-messages-a" {
+		t.Fatalf("expected channel uid to be resolved, got %q", got.ChannelUID)
+	}
+	if got.Domain != "messages.example.com" {
+		t.Fatalf("expected resolved domain messages.example.com, got %q", got.Domain)
+	}
+}
+
 func TestLegacySchemaWithoutChannelUID_Compatibility(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "legacy_request_logs.db")
 	db, err := sql.Open("sqlite", dbPath)

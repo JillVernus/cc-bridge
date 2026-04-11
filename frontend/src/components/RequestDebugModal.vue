@@ -52,6 +52,10 @@
                         <td class="meta-key">{{ t('debugModal.requestId') }}</td>
                         <td class="meta-value mono-text">{{ logItem.id }}</td>
                       </tr>
+                      <tr v-if="logItem.domain">
+                        <td class="meta-key">{{ t('debugModal.domain') }}</td>
+                        <td class="meta-value mono-text">{{ logItem.domain }}</td>
+                      </tr>
                       <tr>
                         <td class="meta-key">{{ t('debugModal.endpoint') }}</td>
                         <td class="meta-value">
@@ -60,16 +64,28 @@
                           </v-chip>
                         </td>
                       </tr>
-                      <tr v-if="logItem.domain">
-                        <td class="meta-key">{{ t('debugModal.domain') }}</td>
-                        <td class="meta-value mono-text">{{ logItem.domain }}</td>
-                      </tr>
                       <tr>
                         <td class="meta-key">{{ t('debugModal.stream') }}</td>
                         <td class="meta-value">
                           <v-icon v-if="logItem.stream" size="small" color="success">mdi-check-circle</v-icon>
                           <v-icon v-else size="small" color="grey">mdi-close-circle</v-icon>
                           {{ logItem.stream ? t('common.yes') : t('common.no') }}
+                        </td>
+                      </tr>
+                      <tr v-if="logItem.serviceTier">
+                        <td class="meta-key">{{ t('debugModal.effectiveServiceTier') }}</td>
+                        <td class="meta-value">
+                          <v-chip size="x-small" variant="tonal" :color="getServiceTierColor(logItem.serviceTier)">
+                            {{ getServiceTierLabel(logItem.serviceTier) }}
+                          </v-chip>
+                        </td>
+                      </tr>
+                      <tr v-if="logItem.serviceTierOverridden">
+                        <td class="meta-key">{{ t('debugModal.proxyOverride') }}</td>
+                        <td class="meta-value">
+                          <v-chip size="x-small" color="info" variant="tonal">
+                            {{ getServiceTierOverrideLabel(logItem) }}
+                          </v-chip>
                         </td>
                       </tr>
                     </tbody>
@@ -392,6 +408,27 @@ const displayedRequestHeaders = computed(() => {
   }
   return debugData.value.requestHeaders ?? {}
 })
+
+const getServiceTierLabel = (serviceTier: string | undefined): string => {
+  if (serviceTier === 'priority') {
+    return t('requestLog.fastMode')
+  }
+  return serviceTier || '-'
+}
+
+const getServiceTierColor = (serviceTier: string | undefined): string => {
+  if (serviceTier === 'priority') {
+    return 'warning'
+  }
+  return 'grey'
+}
+
+const getServiceTierOverrideLabel = (item: RequestLog): string => {
+  if (item.serviceTierOverridden && item.serviceTier !== 'priority') {
+    return t('requestLog.priorityDisabledByProxy')
+  }
+  return t('requestLog.serviceTierOverridden')
+}
 
 const formatJson = (str: string | undefined): string => {
   if (!str) return ''

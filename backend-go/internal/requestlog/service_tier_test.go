@@ -120,6 +120,7 @@ func TestRequestLog_ServiceTierAndDebugData_RoundTrip(t *testing.T) {
 		t.Fatalf("expected created event hasDebugData=true")
 	}
 
+	complete.Domain = "api.example.com"
 	updatedEvent := NewLogUpdatedEvent(record.ID, complete)
 	updatedPayload, ok := updatedEvent.Data.(LogUpdatedPayload)
 	if !ok {
@@ -133,6 +134,9 @@ func TestRequestLog_ServiceTierAndDebugData_RoundTrip(t *testing.T) {
 	}
 	if !updatedPayload.HasDebugData {
 		t.Fatalf("expected updated event hasDebugData=true")
+	}
+	if updatedPayload.Domain != "api.example.com" {
+		t.Fatalf("expected updated event domain=api.example.com, got %q", updatedPayload.Domain)
 	}
 }
 

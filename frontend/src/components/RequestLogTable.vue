@@ -2773,6 +2773,7 @@ const handleLogCreated = (payload: LogCreatedPayload) => {
     channelId: payload.channelId,
     channelUid: payload.channelUid,
     channelName: payload.channelName,
+    domain: payload.domain,
     endpoint: payload.endpoint,
     apiKeyId: payload.apiKeyId,
     hasDebugData: payload.hasDebugData ?? false,
@@ -2858,6 +2859,7 @@ const handleLogUpdated = (payload: LogUpdatedPayload) => {
     updated.channelId = payload.channelId
     updated.channelUid = payload.channelUid ?? oldLog.channelUid
     updated.channelName = payload.channelName
+    updated.domain = payload.domain ?? oldLog.domain
     updated.inputTokens = payload.inputTokens
     updated.outputTokens = payload.outputTokens
     updated.cacheCreationInputTokens = payload.cacheCreationInputTokens

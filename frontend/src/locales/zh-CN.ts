@@ -1005,6 +1005,8 @@ export default {
     endpoint: '端点',
     domain: '域名',
     stream: '流式',
+    effectiveServiceTier: '生效的 Service Tier',
+    proxyOverride: '代理覆盖',
     timing: '时间',
     startTime: '开始时间',
     endTime: '结束时间',

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -133,6 +134,27 @@ func main() {
 	}
 
 	if reqLogManager != nil {
+		extractUpstreamDomain := func(rawBaseURL string) string {
+			trimmed := strings.TrimSpace(rawBaseURL)
+			if trimmed == "" {
+				return ""
+			}
+
+			parsed, err := url.Parse(trimmed)
+			if err == nil && parsed.Hostname() != "" {
+				return strings.ToLower(parsed.Hostname())
+			}
+
+			if !strings.Contains(trimmed, "://") {
+				parsed, err = url.Parse("https://" + trimmed)
+				if err == nil && parsed.Hostname() != "" {
+					return strings.ToLower(parsed.Hostname())
+				}
+			}
+
+			return ""
+		}
+
 		// Prefer stable channel UID linkage for request logs.
 		// This ensures reorders do not break restore and analytics.
 		reqLogManager.SetChannelUIDResolver(func(endpoint string, index int, channelName string) string {
@@ -172,6 +194,10 @@ func main() {
 					if uid := findByName(cfg.GeminiUpstream, normalizedName); uid != "" {
 						return uid
 					}
+				case "/v1/chat/completions":
+					if uid := findByName(cfg.ChatUpstream, normalizedName); uid != "" {
+						return uid
+					}
 				default:
 					if uid := findByName(cfg.Upstream, normalizedName); uid != "" {
 						return uid
@@ -180,6 +206,9 @@ func main() {
 						return uid
 					}
 					if uid := findByName(cfg.GeminiUpstream, normalizedName); uid != "" {
+						return uid
+					}
+					if uid := findByName(cfg.ChatUpstream, normalizedName); uid != "" {
 						return uid
 					}
 				}
@@ -193,6 +222,8 @@ func main() {
 				upstreams = cfg.ResponsesUpstream
 			case "/v1/gemini":
 				upstreams = cfg.GeminiUpstream
+			case "/v1/chat/completions":
+				upstreams = cfg.ChatUpstream
 			default:
 				return ""
 			}
@@ -200,6 +231,130 @@ func main() {
 				return strings.TrimSpace(upstreams[index].ID)
 			}
 			return ""
+		})
+
+		reqLogManager.SetChannelDomainResolver(func(endpoint string, index int, channelUID string, channelName string) string {
+			cfg := cfgManager.GetConfig()
+
+			findByUID := func(upstreams []config.UpstreamConfig, normalizedUID string) string {
+				for _, upstream := range upstreams {
+					if strings.TrimSpace(upstream.ID) == normalizedUID {
+						return extractUpstreamDomain(upstream.BaseURL)
+					}
+				}
+				return ""
+			}
+
+			findByName := func(upstreams []config.UpstreamConfig, normalizedName string) string {
+				matches := 0
+				resolvedDomain := ""
+				for _, upstream := range upstreams {
+					if strings.ToLower(strings.TrimSpace(upstream.Name)) != normalizedName {
+						continue
+					}
+					domain := extractUpstreamDomain(upstream.BaseURL)
+					if domain == "" {
+						continue
+					}
+					matches++
+					resolvedDomain = domain
+				}
+				if matches == 1 {
+					return resolvedDomain
+				}
+				return ""
+			}
+
+			findByIndex := func(upstreams []config.UpstreamConfig, idx int) string {
+				if idx < 0 || idx >= len(upstreams) {
+					return ""
+				}
+				return extractUpstreamDomain(upstreams[idx].BaseURL)
+			}
+
+			normalizedUID := strings.TrimSpace(channelUID)
+			normalizedName := strings.ToLower(strings.TrimSpace(channelName))
+
+			if normalizedUID != "" {
+				switch endpoint {
+				case "/v1/messages":
+					if domain := findByUID(cfg.Upstream, normalizedUID); domain != "" {
+						return domain
+					}
+				case "/v1/responses":
+					if domain := findByUID(cfg.ResponsesUpstream, normalizedUID); domain != "" {
+						return domain
+					}
+				case "/v1/gemini":
+					if domain := findByUID(cfg.GeminiUpstream, normalizedUID); domain != "" {
+						return domain
+					}
+				case "/v1/chat/completions":
+					if domain := findByUID(cfg.ChatUpstream, normalizedUID); domain != "" {
+						return domain
+					}
+				default:
+					if domain := findByUID(cfg.Upstream, normalizedUID); domain != "" {
+						return domain
+					}
+					if domain := findByUID(cfg.ResponsesUpstream, normalizedUID); domain != "" {
+						return domain
+					}
+					if domain := findByUID(cfg.GeminiUpstream, normalizedUID); domain != "" {
+						return domain
+					}
+					if domain := findByUID(cfg.ChatUpstream, normalizedUID); domain != "" {
+						return domain
+					}
+				}
+			}
+
+			if normalizedName != "" {
+				switch endpoint {
+				case "/v1/messages":
+					if domain := findByName(cfg.Upstream, normalizedName); domain != "" {
+						return domain
+					}
+				case "/v1/responses":
+					if domain := findByName(cfg.ResponsesUpstream, normalizedName); domain != "" {
+						return domain
+					}
+				case "/v1/gemini":
+					if domain := findByName(cfg.GeminiUpstream, normalizedName); domain != "" {
+						return domain
+					}
+				case "/v1/chat/completions":
+					if domain := findByName(cfg.ChatUpstream, normalizedName); domain != "" {
+						return domain
+					}
+				default:
+					if domain := findByName(cfg.Upstream, normalizedName); domain != "" {
+						return domain
+					}
+					if domain := findByName(cfg.ResponsesUpstream, normalizedName); domain != "" {
+						return domain
+					}
+					if domain := findByName(cfg.GeminiUpstream, normalizedName); domain != "" {
+						return domain
+					}
+					if domain := findByName(cfg.ChatUpstream, normalizedName); domain != "" {
+						return domain
+					}
+				}
+			}
+
+			switch endpoint {
+			case "/v1/messages":
+				return findByIndex(cfg.Upstream, index)
+			case "/v1/responses":
+				return findByIndex(cfg.ResponsesUpstream, index)
+			case "/v1/gemini":
+				return findByIndex(cfg.GeminiUpstream, index)
+			case "/v1/chat/completions":
+				return findByIndex(cfg.ChatUpstream, index)
+			default:
+				return ""
+			}
 		})
 
 		// Restore recent API call slots from persisted request logs (for channel metrics UI).
