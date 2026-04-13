@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS request_debug_logs (
     request_method TEXT NOT NULL,
     request_path TEXT NOT NULL,
     request_headers BLOB,
+    request_removed_headers BLOB,
     request_body BLOB,
     request_body_size INTEGER DEFAULT 0,
     response_status INTEGER DEFAULT 0,

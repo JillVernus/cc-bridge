@@ -36,8 +36,12 @@ func TestDebugLog_RoundTripPreservesRawHeadersAndReturnsMaskedView(t *testing.T)
 		RequestMethod: "POST",
 		RequestPath:   "/v1/responses",
 		RequestHeaders: map[string]string{
-			"Authorization": "Bearer super-secret-token",
-			"Content-Type":  "application/json",
+			"Authorization":    "Bearer super-secret-token",
+			"Content-Type":     "application/json",
+			"CF-Connecting-IP": "203.0.113.10",
+		},
+		RequestRemovedHeaders: map[string]string{
+			"CF-Connecting-IP": "Cf-*",
 		},
 		ResponseHeaders: map[string]string{
 			"Set-Cookie":   "session=abc123",
@@ -64,6 +68,9 @@ func TestDebugLog_RoundTripPreservesRawHeadersAndReturnsMaskedView(t *testing.T)
 	}
 	if got := entry.RequestHeaders["Content-Type"]; got != "application/json" {
 		t.Fatalf("expected Content-Type unchanged, got %q", got)
+	}
+	if got := entry.RequestRemovedHeaders["CF-Connecting-IP"]; got != "Cf-*" {
+		t.Fatalf("expected removed header rule preserved, got %q", got)
 	}
 	if got := entry.ResponseHeadersRaw["Set-Cookie"]; got != "session=abc123" {
 		t.Fatalf("expected raw Set-Cookie preserved, got %q", got)

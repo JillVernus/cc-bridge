@@ -914,6 +914,7 @@ func tryChannelWithAllKeys(
 			continue
 		}
 		applyMessagesUserAgentPolicy(c, cfgManager, upstream, providerReq)
+		ApplyOutboundHeaderPolicy(c, cfgManager, providerReq)
 
 		// 发送请求
 		resp, err := sendRequest(providerReq, upstream, envCfg, claudeReq.Stream)
@@ -1519,6 +1520,7 @@ func tryMessagesChannelWithOAuth(
 	if err != nil {
 		return false, makeError(500, fmt.Sprintf("Failed to build OAuth request: %s", err.Error()))
 	}
+	ApplyOutboundHeaderPolicy(c, cfgManager, providerReq)
 
 	resp, err := sendResponsesRequest(providerReq, upstream, envCfg, responsesReq.Stream)
 	if err != nil {
@@ -1618,7 +1620,7 @@ func handleSingleChannelProxy(
 	upstream, err := cfgManager.GetCurrentUpstream()
 	if err != nil {
 		finalizePendingWithError(503, "No channels configured. Please add a channel in the admin UI.", nil, nil, "")
-		c.JSON(503, gin.H{
+		WriteJSONWithOptionalDebugLog(c, cfgManager, reqLogManager, requestLogID, 503, gin.H{
 			"error": "No channels configured. Please add a channel in the admin UI.",
 			"code":  "NO_UPSTREAM",
 		})
@@ -1629,7 +1631,7 @@ func handleSingleChannelProxy(
 	if !isChannelAllowed(strings.TrimSpace(upstream.ID), allowedChannelsMsg) {
 		channelIndex := upstream.Index
 		finalizePendingWithError(403, fmt.Sprintf("Channel %s not allowed for this API key", upstream.Name), upstream, &channelIndex, upstream.Name)
-		c.JSON(403, gin.H{
+		WriteJSONWithOptionalDebugLog(c, cfgManager, reqLogManager, requestLogID, 403, gin.H{
 			"error": fmt.Sprintf("Channel %s not allowed for this API key", upstream.Name),
 			"code":  "CHANNEL_NOT_ALLOWED",
 		})
@@ -1641,7 +1643,7 @@ func handleSingleChannelProxy(
 	if len(upstream.APIKeys) == 0 && !config.IsCompositeChannel(upstream) && upstream.ServiceType != "openai-oauth" {
 		channelIndex := upstream.Index
 		finalizePendingWithError(503, fmt.Sprintf("Current channel \"%s\" has no API keys configured", upstream.Name), upstream, &channelIndex, upstream.Name)
-		c.JSON(503, gin.H{
+		WriteJSONWithOptionalDebugLog(c, cfgManager, reqLogManager, requestLogID, 503, gin.H{
 			"error": fmt.Sprintf("Current channel \"%s\" has no API keys configured", upstream.Name),
 			"code":  "NO_API_KEYS",
 		})
@@ -1662,7 +1664,7 @@ func handleSingleChannelProxy(
 		if !found {
 			channelIndex := upstream.Index
 			finalizePendingWithError(400, fmt.Sprintf("Composite channel '%s' has no mapping for model '%s'", upstream.Name, claudeReq.Model), upstream, &channelIndex, upstream.Name)
-			c.JSON(400, gin.H{
+			WriteJSONWithOptionalDebugLog(c, cfgManager, reqLogManager, requestLogID, 400, gin.H{
 				"error": fmt.Sprintf("Composite channel '%s' has no mapping for model '%s'", upstream.Name, claudeReq.Model),
 				"code":  "NO_COMPOSITE_MAPPING",
 			})
@@ -1677,7 +1679,7 @@ func handleSingleChannelProxy(
 			if targetIndex < 0 || targetIndex >= len(cfg.ResponsesUpstream) {
 				channelIndex := upstream.Index
 				finalizePendingWithError(503, fmt.Sprintf("Composite channel '%s' target channel ID '%s' not found", upstream.Name, resolved.TargetChannelID), upstream, &channelIndex, upstream.Name)
-				c.JSON(503, gin.H{
+				WriteJSONWithOptionalDebugLog(c, cfgManager, reqLogManager, requestLogID, 503, gin.H{
 					"error": fmt.Sprintf("Composite channel '%s' target channel ID '%s' not found", upstream.Name, resolved.TargetChannelID),
 					"code":  "COMPOSITE_TARGET_NOT_FOUND",
 				})
@@ -1688,7 +1690,7 @@ func handleSingleChannelProxy(
 			if targetIndex < 0 || targetIndex >= len(cfg.Upstream) {
 				channelIndex := upstream.Index
 				finalizePendingWithError(503, fmt.Sprintf("Composite channel '%s' target channel ID '%s' not found", upstream.Name, resolved.TargetChannelID), upstream, &channelIndex, upstream.Name)
-				c.JSON(503, gin.H{
+				WriteJSONWithOptionalDebugLog(c, cfgManager, reqLogManager, requestLogID, 503, gin.H{
 					"error": fmt.Sprintf("Composite channel '%s' target channel ID '%s' not found", upstream.Name, resolved.TargetChannelID),
 					"code":  "COMPOSITE_TARGET_NOT_FOUND",
 				})
@@ -1700,7 +1702,7 @@ func handleSingleChannelProxy(
 		if !isResolvedTargetAllowedForPool(strings.TrimSpace(targetUpstream.ID), resolvedTargetPool, allowedChannelsMsg, allowedChannelsResp) {
 			channelIndex := upstream.Index
 			finalizePendingWithError(403, fmt.Sprintf("Composite target channel %s not allowed for this API key", targetUpstream.Name), upstream, &channelIndex, upstream.Name)
-			c.JSON(403, gin.H{
+			WriteJSONWithOptionalDebugLog(c, cfgManager, reqLogManager, requestLogID, 403, gin.H{
 				"error": fmt.Sprintf("Composite target channel %s not allowed for this API key", targetUpstream.Name),
 				"code":  "CHANNEL_NOT_ALLOWED",
 			})
@@ -1754,7 +1756,7 @@ func handleSingleChannelProxy(
 				}
 				_ = reqLogManager.Update(requestLogID, record)
 			}
-			c.JSON(429, gin.H{
+			WriteJSONWithOptionalDebugLog(c, cfgManager, reqLogManager, requestLogID, 429, gin.H{
 				"error":   "Too Many Requests",
 				"message": fmt.Sprintf("Channel rate limit exceeded (%d RPM)", upstream.RateLimitRpm),
 			})
@@ -1872,6 +1874,7 @@ func handleSingleChannelProxy(
 		}
 		lastOriginalBodyBytes = originalBodyBytes
 		applyMessagesUserAgentPolicy(c, cfgManager, upstream, providerReq)
+		ApplyOutboundHeaderPolicy(c, cfgManager, providerReq)
 
 		// 请求日志记录
 		if envCfg.EnableRequestLogs {

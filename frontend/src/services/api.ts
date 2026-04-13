@@ -985,6 +985,21 @@ class ApiService {
     })
   }
 
+  // ============== Outbound Header Policy API ==============
+
+  async getOutboundHeaderPolicyConfig(): Promise<OutboundHeaderPolicyConfig> {
+    return this.request('/config/outbound-header-policy')
+  }
+
+  async updateOutboundHeaderPolicyConfig(
+    config: Partial<OutboundHeaderPolicyConfig>
+  ): Promise<OutboundHeaderPolicyConfig> {
+    return this.request('/config/outbound-header-policy', {
+      method: 'PUT',
+      body: JSON.stringify(config)
+    })
+  }
+
   // 获取请求的调试日志
   async getDebugLog(requestId: string): Promise<DebugLogEntry> {
     return this.request(`/logs/${encodeURIComponent(requestId)}/debug`)
@@ -1508,11 +1523,17 @@ export interface UserAgentConfig {
   responses: UserAgentEndpointConfig
 }
 
+export interface OutboundHeaderPolicyConfig {
+  enabled: boolean
+  stripRules: string[]
+}
+
 // Debug Log Entry
 export interface DebugLogEntry {
   requestId: string
   requestHeaders: Record<string, string>
   requestHeadersRaw?: Record<string, string>
+  requestRemovedHeaders?: Record<string, string>
   requestBody: string
   responseHeaders: Record<string, string>
   responseHeadersRaw?: Record<string, string>

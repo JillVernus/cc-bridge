@@ -2,10 +2,89 @@ package utils
 
 import (
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 )
+
+type OutboundHeaderPolicy struct {
+	Enabled     bool     `json:"enabled"`
+	StripRules  []string `json:"stripRules,omitempty"`
+	Initialized bool     `json:"initialized,omitempty"`
+}
+
+func DefaultOutboundHeaderPolicy() OutboundHeaderPolicy {
+	return OutboundHeaderPolicy{
+		Enabled:     true,
+		StripRules:  []string{"Cf-*", "X-Forwarded-*"},
+		Initialized: true,
+	}
+}
+
+func MatchHeaderStripRules(headers http.Header, policy OutboundHeaderPolicy) map[string]string {
+	if !policy.Enabled || len(headers) == 0 || len(policy.StripRules) == 0 {
+		return map[string]string{}
+	}
+
+	type compiledRule struct {
+		raw      string
+		needle   string
+		isPrefix bool
+	}
+
+	rules := make([]compiledRule, 0, len(policy.StripRules))
+	for _, rule := range policy.StripRules {
+		trimmed := strings.TrimSpace(rule)
+		if trimmed == "" {
+			continue
+		}
+		needle := strings.ToLower(trimmed)
+		compiled := compiledRule{raw: trimmed, needle: needle}
+		if strings.HasSuffix(needle, "*") {
+			compiled.isPrefix = true
+			compiled.needle = strings.TrimSuffix(needle, "*")
+		}
+		rules = append(rules, compiled)
+	}
+	if len(rules) == 0 {
+		return map[string]string{}
+	}
+
+	matched := make(map[string]string)
+	keys := make([]string, 0, len(headers))
+	for key := range headers {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		lowerKey := strings.ToLower(key)
+		for _, rule := range rules {
+			if rule.isPrefix {
+				if strings.HasPrefix(lowerKey, rule.needle) {
+					matched[key] = rule.raw
+					break
+				}
+				continue
+			}
+			if lowerKey == rule.needle {
+				matched[key] = rule.raw
+				break
+			}
+		}
+	}
+
+	return matched
+}
+
+func ApplyHeaderStripRules(headers http.Header, policy OutboundHeaderPolicy) map[string]string {
+	matched := MatchHeaderStripRules(headers, policy)
+	for key := range matched {
+		headers.Del(key)
+	}
+	return matched
+}
 
 // PrepareUpstreamHeaders 准备上游请求头（统一头部处理逻辑）
 // 保留原始请求头，移除代理相关头部，设置认证头

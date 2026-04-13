@@ -195,7 +195,7 @@ func handleChatSingleChannel(
 	upstream, err := cfgManager.GetCurrentChatUpstream()
 	if err != nil {
 		finalizeChatErrorLog(reqLogManager, requestLogID, startTime, req.Model, nil, http.StatusServiceUnavailable, "No Chat channels configured", nil)
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "No Chat channels configured"})
+		WriteJSONWithOptionalDebugLog(c, cfgManager, reqLogManager, requestLogID, http.StatusServiceUnavailable, gin.H{"error": "No Chat channels configured"})
 		return
 	}
 
@@ -209,7 +209,7 @@ func handleChatSingleChannel(
 		}
 		if !allowed {
 			finalizeChatErrorLog(reqLogManager, requestLogID, startTime, req.Model, upstream, http.StatusForbidden, "Channel not allowed", nil)
-			c.JSON(http.StatusForbidden, gin.H{
+			WriteJSONWithOptionalDebugLog(c, cfgManager, reqLogManager, requestLogID, http.StatusForbidden, gin.H{
 				"error": "channel not allowed",
 				"code":  "CHANNEL_NOT_ALLOWED",
 			})
@@ -222,7 +222,7 @@ func handleChatSingleChannel(
 		if !result.Allowed {
 			channelScheduler.RecordChatFailureWithStatusDetail(upstream.Index, http.StatusTooManyRequests, req.Model, upstream.Name)
 			finalizeChatErrorLog(reqLogManager, requestLogID, startTime, req.Model, upstream, http.StatusTooManyRequests, result.Error.Error(), nil)
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": "channel rate limit exceeded"})
+			WriteJSONWithOptionalDebugLog(c, cfgManager, reqLogManager, requestLogID, http.StatusTooManyRequests, gin.H{"error": "channel rate limit exceeded"})
 			return
 		}
 	}
@@ -231,7 +231,7 @@ func handleChatSingleChannel(
 	if err != nil {
 		channelScheduler.RecordChatFailureWithStatusDetail(upstream.Index, extractChatStatus(err), req.Model, upstream.Name)
 		finalizeChatErrorLog(reqLogManager, requestLogID, startTime, req.Model, upstream, extractChatStatus(err), err.Error(), firstTokenTime)
-		respondChatExecutionError(c, err)
+		respondChatExecutionError(c, cfgManager, reqLogManager, requestLogID, err)
 		return
 	}
 
@@ -257,7 +257,7 @@ func handleChatMultiChannel(
 	maxAttempts := channelScheduler.GetActiveChatChannelCount()
 	if maxAttempts <= 0 {
 		finalizeChatErrorLog(reqLogManager, requestLogID, startTime, req.Model, nil, http.StatusServiceUnavailable, "No active Chat channels", nil)
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "No active Chat channels"})
+		WriteJSONWithOptionalDebugLog(c, cfgManager, reqLogManager, requestLogID, http.StatusServiceUnavailable, gin.H{"error": "No active Chat channels"})
 		return
 	}
 
@@ -320,7 +320,7 @@ func handleChatMultiChannel(
 		lastFirstTokenTime = ce.FirstTokenTime
 	}
 	finalizeChatErrorLog(reqLogManager, requestLogID, startTime, req.Model, lastUpstream, statusCode, errStringOrDefault(lastErr, "all chat channels unavailable"), lastFirstTokenTime)
-	respondChatExecutionErrorWithFallback(c, lastErr, statusCode)
+	respondChatExecutionErrorWithFallback(c, cfgManager, reqLogManager, requestLogID, lastErr, statusCode)
 }
 
 func executeChatRequest(
@@ -365,6 +365,7 @@ func executeChatRequest(
 			cfgManager.MarkKeyAsFailed(apiKey)
 			continue
 		}
+		ApplyOutboundHeaderPolicy(c, cfgManager, providerReq)
 
 		resp, err := sendRequest(providerReq, upstream, envCfg, req.Stream)
 		if err != nil {
@@ -715,11 +716,24 @@ func finalizeChatErrorLog(reqLogManager *requestlog.Manager, requestLogID string
 	_ = reqLogManager.Update(requestLogID, record)
 }
 
-func respondChatExecutionError(c *gin.Context, err error) {
-	respondChatExecutionErrorWithFallback(c, err, http.StatusInternalServerError)
+func respondChatExecutionError(
+	c *gin.Context,
+	cfgManager *config.ConfigManager,
+	reqLogManager *requestlog.Manager,
+	requestLogID string,
+	err error,
+) {
+	respondChatExecutionErrorWithFallback(c, cfgManager, reqLogManager, requestLogID, err, http.StatusInternalServerError)
 }
 
-func respondChatExecutionErrorWithFallback(c *gin.Context, err error, fallbackStatus int) {
+func respondChatExecutionErrorWithFallback(
+	c *gin.Context,
+	cfgManager *config.ConfigManager,
+	reqLogManager *requestlog.Manager,
+	requestLogID string,
+	err error,
+	fallbackStatus int,
+) {
 	statusCode := fallbackStatus
 	body := []byte(errStringOrDefault(err, "chat request failed"))
 
@@ -734,11 +748,12 @@ func respondChatExecutionErrorWithFallback(c *gin.Context, err error, fallbackSt
 
 	var errObj map[string]interface{}
 	if json.Unmarshal(body, &errObj) == nil {
-		c.JSON(statusCode, errObj)
+		SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, statusCode, body)
+		c.Data(statusCode, "application/json; charset=utf-8", body)
 		return
 	}
 
-	c.JSON(statusCode, gin.H{"error": string(body)})
+	WriteJSONWithOptionalDebugLog(c, cfgManager, reqLogManager, requestLogID, statusCode, gin.H{"error": string(body)})
 }
 
 func extractChatStatus(err error) int {

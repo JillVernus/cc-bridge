@@ -44,6 +44,7 @@ type ServerConfig struct {
 type ConfigProvider interface {
 	IsDebugLogEnabled() bool
 	GetDebugLogMaxBodySize() int
+	GetOutboundHeaderPolicy() utils.OutboundHeaderPolicy
 }
 
 // Server is the HTTPS forward proxy.
@@ -317,6 +318,9 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		upstreamReq.Header = r.Header.Clone()
+		if s.configProvider != nil {
+			_ = utils.ApplyHeaderStripRules(upstreamReq.Header, s.configProvider.GetOutboundHeaderPolicy())
+		}
 		upstreamReq.ContentLength = r.ContentLength
 
 		resp, err := s.httpClient.Do(upstreamReq)
@@ -338,7 +342,6 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 		io.Copy(w, resp.Body)
 		return
 	}
-
 
 	// Read request body eagerly for metadata extraction (same as normal proxy path).
 	// This ensures the body is fully captured before forwarding.
@@ -394,6 +397,9 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	upstreamReq.Header = r.Header.Clone()
+	if s.configProvider != nil {
+		_ = utils.ApplyHeaderStripRules(upstreamReq.Header, s.configProvider.GetOutboundHeaderPolicy())
+	}
 	upstreamReq.ContentLength = r.ContentLength
 
 	// Forward to upstream (use dedicated client — no proxy env vars, HTTP/2 enabled)

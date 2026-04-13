@@ -134,6 +134,9 @@ func (s *Server) proxyRequest(clientConn io.Writer, upstreamConn net.Conn, upstr
 	if !isAIEndpoint(req.URL.Path) {
 		// Remove hop-by-hop headers before forwarding
 		removeHopByHopHeaders(req.Header)
+		if s.configProvider != nil {
+			_ = utils.ApplyHeaderStripRules(req.Header, s.configProvider.GetOutboundHeaderPolicy())
+		}
 		if err := req.Write(upstreamConn); err != nil {
 			return err
 		}
@@ -174,6 +177,9 @@ func (s *Server) proxyRequest(clientConn io.Writer, upstreamConn net.Conn, upstr
 		} else {
 			pendingLogID = pendingLog.ID
 		}
+	}
+	if s.configProvider != nil {
+		_ = utils.ApplyHeaderStripRules(req.Header, s.configProvider.GetOutboundHeaderPolicy())
 	}
 
 	if err := req.Write(upstreamConn); err != nil {

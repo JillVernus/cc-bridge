@@ -1,18 +1,21 @@
 package handlers
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 
 	"github.com/JillVernus/cc-bridge/internal/config"
 	"github.com/JillVernus/cc-bridge/internal/requestlog"
+	"github.com/JillVernus/cc-bridge/internal/utils"
 	"github.com/gin-gonic/gin"
 )
 
 // Context keys for debug logging
 const (
-	ContextKeyDebugRequestBody = "debug_request_body"
-	ContextKeyDebugReqHeaders  = "debug_request_headers"
+	ContextKeyDebugRequestBody       = "debug_request_body"
+	ContextKeyDebugReqHeaders        = "debug_request_headers"
+	ContextKeyDebugRemovedReqHeaders = "debug_removed_request_headers"
 )
 
 // StoreDebugRequestData stores request data in context for later debug logging
@@ -26,6 +29,17 @@ func StoreDebugRequestData(c *gin.Context, bodyBytes []byte) {
 		}
 	}
 	c.Set(ContextKeyDebugReqHeaders, headers)
+}
+
+func ApplyOutboundHeaderPolicy(c *gin.Context, cfgManager *config.ConfigManager, outboundReq *http.Request) {
+	if c == nil || cfgManager == nil || outboundReq == nil {
+		return
+	}
+
+	policy := cfgManager.GetOutboundHeaderPolicy()
+	removed := utils.MatchHeaderStripRules(c.Request.Header, policy)
+	c.Set(ContextKeyDebugRemovedReqHeaders, removed)
+	_ = utils.ApplyHeaderStripRules(outboundReq.Header, policy)
 }
 
 // SaveDebugLog saves debug log entry if debug logging is enabled
@@ -63,17 +77,24 @@ func SaveDebugLog(
 			reqHeaders = headers
 		}
 	}
+	reqRemovedHeaders := make(map[string]string)
+	if v, exists := c.Get(ContextKeyDebugRemovedReqHeaders); exists {
+		if headers, ok := v.(map[string]string); ok {
+			reqRemovedHeaders = headers
+		}
+	}
 
 	// Create debug log entry
 	entry := &requestlog.DebugLogEntry{
-		RequestID:        requestLogID,
-		RequestMethod:    c.Request.Method,
-		RequestPath:      c.Request.URL.Path,
-		RequestHeaders:   reqHeaders,
-		RequestBodySize:  len(reqBody),
-		ResponseStatus:   respStatus,
-		ResponseHeaders:  requestlog.HttpHeadersToMap(respHeaders),
-		ResponseBodySize: len(respBody),
+		RequestID:             requestLogID,
+		RequestMethod:         c.Request.Method,
+		RequestPath:           c.Request.URL.Path,
+		RequestHeaders:        reqHeaders,
+		RequestRemovedHeaders: reqRemovedHeaders,
+		RequestBodySize:       len(reqBody),
+		ResponseStatus:        respStatus,
+		ResponseHeaders:       requestlog.HttpHeadersToMap(respHeaders),
+		ResponseBodySize:      len(respBody),
 	}
 
 	// Apply body size limits
@@ -110,4 +131,29 @@ func SaveErrorDebugLog(
 	respBody []byte,
 ) {
 	SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, respStatus, nil, respBody)
+}
+
+// WriteJSONWithOptionalDebugLog writes a JSON response and persists the same body
+// into debug logs when a request log ID is available.
+func WriteJSONWithOptionalDebugLog(
+	c *gin.Context,
+	cfgManager *config.ConfigManager,
+	reqLogManager *requestlog.Manager,
+	requestLogID string,
+	status int,
+	payload interface{},
+) {
+	if c == nil {
+		return
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		c.JSON(status, payload)
+		SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, status, []byte(`{"error":"failed to marshal debug payload"}`))
+		return
+	}
+
+	SaveErrorDebugLog(c, cfgManager, reqLogManager, requestLogID, status, body)
+	c.Data(status, "application/json; charset=utf-8", body)
 }

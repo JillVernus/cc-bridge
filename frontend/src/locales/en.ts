@@ -55,6 +55,7 @@ export default {
     rateLimitSettings: 'Rate Limit Settings',
     debugLogSettings: 'Debug Log Settings',
     userAgentSettings: 'User-Agent Settings',
+    outboundHeaderSettings: 'Outbound Header Rules',
     failoverSettings: 'Failover Settings',
     logout: 'Logout',
     loggedOut: 'Logged out safely'
@@ -923,6 +924,23 @@ export default {
     saveFailed: 'Failed to save User-Agent configuration'
   },
 
+  outboundHeaders: {
+    title: 'Outbound Header Rules',
+    enabled: 'Enabled',
+    disabled: 'Disabled',
+    description:
+      'Keep raw inbound headers for debugging, but remove matching headers right before requests are sent upstream.',
+    rulesSection: 'Strip Rules',
+    rulesLabel: 'Header patterns',
+    rulesPlaceholder: 'Type a header or wildcard rule and press Enter',
+    rulesHint:
+      'Rules are case-insensitive. Use * only as a suffix for prefix matches, for example Cf-* or X-Forwarded-*.',
+    currentRules: 'Current rules ({count})',
+    examples: 'Quick add:',
+    loadFailed: 'Failed to load outbound header rules',
+    saveFailed: 'Failed to save outbound header rules'
+  },
+
   // Failover Settings
   failover: {
     title: 'Failover Settings',
@@ -1012,6 +1030,11 @@ export default {
     headers: 'Headers',
     body: 'Body',
     noHeaders: 'No headers captured',
+    removedHeadersSummary: '{count} removed',
+    removedHeadersHint:
+      'These request headers were captured by CC-Bridge but stripped before the upstream request was sent.',
+    removedBeforeUpstream: 'Removed before upstream',
+    removedByRule: 'matched: {rule}',
     showSensitiveHeaders: 'Show sensitive headers',
     hideSensitiveHeaders: 'Hide sensitive headers',
     noData: 'No debug data available for this request',
@@ -1106,7 +1129,8 @@ export default {
     discoveryPromoteFailed: 'Failed to add domain to intercept domains',
     discoveryEnabled: 'Discovery On',
     discoveryDisabled: 'Discovery Off',
-    discoveryToggleHint: 'When on, proxied hosts are recorded for discovery. Turn off to reduce overhead when not needed.',
+    discoveryToggleHint:
+      'When on, proxied hosts are recorded for discovery. Turn off to reduce overhead when not needed.',
     discoveryOffInfo: 'Discovery is off. Proxied hosts will not be recorded.',
     discoveryToggleFailed: 'Failed to toggle discovery',
     addToInterceptDomains: 'Add to Intercept',

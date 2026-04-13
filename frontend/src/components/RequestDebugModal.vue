@@ -59,7 +59,11 @@
                       <tr>
                         <td class="meta-key">{{ t('debugModal.endpoint') }}</td>
                         <td class="meta-value">
-                          <v-chip size="x-small" variant="tonal" :color="logItem.endpoint === '/v1/messages' ? 'deep-purple' : 'teal'">
+                          <v-chip
+                            size="x-small"
+                            variant="tonal"
+                            :color="logItem.endpoint === '/v1/messages' ? 'deep-purple' : 'teal'"
+                          >
                             {{ logItem.endpoint }}
                           </v-chip>
                         </td>
@@ -185,6 +189,15 @@
                   <v-icon size="small" class="mr-1">mdi-format-list-bulleted</v-icon>
                   {{ t('debugModal.headers') }}
                   <v-chip size="x-small" class="ml-2">{{ Object.keys(displayedRequestHeaders).length }}</v-chip>
+                  <v-chip
+                    v-if="removedRequestHeaderCount > 0"
+                    size="x-small"
+                    class="ml-2"
+                    color="warning"
+                    variant="tonal"
+                  >
+                    {{ t('debugModal.removedHeadersSummary', { count: removedRequestHeaderCount }) }}
+                  </v-chip>
                   <v-btn
                     v-if="canRevealRequestHeaders"
                     icon
@@ -192,22 +205,42 @@
                     size="x-small"
                     class="ml-2"
                     @click="requestHeadersRevealed = !requestHeadersRevealed"
-                    :title="requestHeadersRevealed ? t('debugModal.hideSensitiveHeaders') : t('debugModal.showSensitiveHeaders')"
+                    :title="
+                      requestHeadersRevealed
+                        ? t('debugModal.hideSensitiveHeaders')
+                        : t('debugModal.showSensitiveHeaders')
+                    "
                   >
                     <v-icon size="small">{{ requestHeadersRevealed ? 'mdi-eye-off' : 'mdi-eye' }}</v-icon>
                   </v-btn>
+                </div>
+                <div v-if="removedRequestHeaderCount > 0" class="text-caption text-medium-emphasis mb-2">
+                  {{ t('debugModal.removedHeadersHint') }}
                 </div>
                 <v-card variant="outlined" class="mb-4">
                   <div class="headers-container">
                     <table class="headers-table">
                       <tbody>
-                        <tr v-for="(value, key) in displayedRequestHeaders" :key="key">
-                          <td class="header-key">{{ key }}</td>
-                          <td class="header-value">{{ value }}</td>
+                        <tr v-for="entry in requestHeaderEntries" :key="entry.key">
+                          <td class="header-key">{{ entry.key }}</td>
+                          <td class="header-value">
+                            <div>{{ entry.value }}</div>
+                            <div v-if="entry.removedRule" class="mt-1">
+                              <v-chip size="x-small" color="warning" variant="tonal">
+                                {{ t('debugModal.removedBeforeUpstream') }}
+                              </v-chip>
+                              <span class="text-caption text-medium-emphasis ml-2">
+                                {{ t('debugModal.removedByRule', { rule: entry.removedRule }) }}
+                              </span>
+                            </div>
+                          </td>
                         </tr>
                       </tbody>
                     </table>
-                    <div v-if="Object.keys(displayedRequestHeaders).length === 0" class="pa-4 text-center text-medium-emphasis">
+                    <div
+                      v-if="Object.keys(displayedRequestHeaders).length === 0"
+                      class="pa-4 text-center text-medium-emphasis"
+                    >
                       {{ t('debugModal.noHeaders') }}
                     </div>
                   </div>
@@ -279,7 +312,10 @@
                         </tr>
                       </tbody>
                     </table>
-                    <div v-if="!debugData.responseHeaders || Object.keys(debugData.responseHeaders).length === 0" class="pa-4 text-center text-medium-emphasis">
+                    <div
+                      v-if="!debugData.responseHeaders || Object.keys(debugData.responseHeaders).length === 0"
+                      class="pa-4 text-center text-medium-emphasis"
+                    >
                       {{ t('debugModal.noHeaders') }}
                     </div>
                   </div>
@@ -338,9 +374,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api, type DebugLogEntry, type RequestLog } from '../services/api'
+import { isRetryableDebugLogError } from '../utils/debugLogRetry'
 import { calculateRequestLogTps, formatRequestLogTps } from '../utils/requestLogTps'
 import ParsedBody from './ParsedBody.vue'
 
@@ -363,47 +400,84 @@ const showCopySnackbar = ref(false)
 const requestParsed = ref(false)
 const responseParsed = ref(false)
 const requestHeadersRevealed = ref(false)
+const debugLogRetryTimer = ref<number | null>(null)
+
+const MAX_DEBUG_LOG_RETRIES = 5
+const DEBUG_LOG_RETRY_DELAY_MS = 400
+
+const clearDebugLogRetryTimer = () => {
+  if (debugLogRetryTimer.value !== null) {
+    window.clearTimeout(debugLogRetryTimer.value)
+    debugLogRetryTimer.value = null
+  }
+}
 
 // Load debug data when dialog opens
-watch(() => props.modelValue, (newVal) => {
-  if (newVal && props.requestId) {
-    loadDebugData(props.requestId)
-  } else if (!newVal) {
-    // Reset state when dialog closes
-    debugData.value = null
-    activeTab.value = 'metadata'
-    requestParsed.value = false
-    responseParsed.value = false
-    requestHeadersRevealed.value = false
+watch(
+  () => props.modelValue,
+  newVal => {
+    if (newVal && props.requestId) {
+      loadDebugData(props.requestId)
+    } else if (!newVal) {
+      clearDebugLogRetryTimer()
+      // Reset state when dialog closes
+      debugData.value = null
+      loading.value = false
+      activeTab.value = 'metadata'
+      requestParsed.value = false
+      responseParsed.value = false
+      requestHeadersRevealed.value = false
+    }
   }
+)
+
+watch(
+  () => props.requestId,
+  newRequestId => {
+    if (props.modelValue && newRequestId) {
+      loadDebugData(newRequestId)
+    }
+  }
+)
+
+onBeforeUnmount(() => {
+  clearDebugLogRetryTimer()
 })
 
-const loadDebugData = async (requestId: string) => {
+const loadDebugData = async (requestId: string, attempt: number = 0) => {
+  clearDebugLogRetryTimer()
   loading.value = true
+  if (attempt === 0) {
+    debugData.value = null
+  }
   try {
     debugData.value = await api.getDebugLog(requestId)
     requestHeadersRevealed.value = false
   } catch (err) {
-    // Debug data not available (debug mode was off) - this is expected
+    if (isRetryableDebugLogError(err) && props.modelValue && attempt < MAX_DEBUG_LOG_RETRIES) {
+      debugLogRetryTimer.value = window.setTimeout(() => {
+        debugLogRetryTimer.value = null
+        loadDebugData(requestId, attempt + 1)
+      }, DEBUG_LOG_RETRY_DELAY_MS)
+      return
+    }
     debugData.value = null
   } finally {
-    loading.value = false
+    if (debugLogRetryTimer.value === null) {
+      loading.value = false
+    }
   }
 }
 
-const sensitiveHeaderKeys = new Set([
-  'authorization',
-  'x-api-key',
-  'cookie',
-  'set-cookie',
-  'proxy-authorization'
-])
+const sensitiveHeaderKeys = new Set(['authorization', 'x-api-key', 'cookie', 'set-cookie', 'proxy-authorization'])
 
 const hasSensitiveRequestHeaders = (headers: Record<string, string> | undefined): boolean =>
   Object.keys(headers ?? {}).some(key => sensitiveHeaderKeys.has(key.trim().toLowerCase()))
 
-const canRevealRequestHeaders = computed(() =>
-  hasSensitiveRequestHeaders(debugData.value?.requestHeadersRaw) || hasSensitiveRequestHeaders(debugData.value?.requestHeaders)
+const canRevealRequestHeaders = computed(
+  () =>
+    hasSensitiveRequestHeaders(debugData.value?.requestHeadersRaw) ||
+    hasSensitiveRequestHeaders(debugData.value?.requestHeaders)
 )
 
 const displayedRequestHeaders = computed(() => {
@@ -413,6 +487,18 @@ const displayedRequestHeaders = computed(() => {
   }
   return debugData.value.requestHeaders ?? {}
 })
+
+const removedRequestHeaders = computed(() => debugData.value?.requestRemovedHeaders ?? {})
+
+const removedRequestHeaderCount = computed(() => Object.keys(removedRequestHeaders.value).length)
+
+const requestHeaderEntries = computed(() =>
+  Object.entries(displayedRequestHeaders.value).map(([key, value]) => ({
+    key,
+    value,
+    removedRule: removedRequestHeaders.value[key]
+  }))
+)
 
 const getServiceTierLabel = (serviceTier: string | undefined): string => {
   if (serviceTier === 'priority') {

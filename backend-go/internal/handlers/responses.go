@@ -848,6 +848,7 @@ func tryResponsesChannelWithAllKeys(
 			continue
 		}
 		applyResponsesUserAgentPolicy(c, cfgManager, upstream, providerReq)
+		ApplyOutboundHeaderPolicy(c, cfgManager, providerReq)
 
 		resp, err := sendResponsesRequest(providerReq, upstream, envCfg, responsesReq.Stream)
 		if err != nil {
@@ -1434,6 +1435,7 @@ func tryResponsesChannelWithOAuth(
 		}
 	}
 	serviceTierOverridden = serviceTierOverridden || requestServiceTierOverridden
+	ApplyOutboundHeaderPolicy(c, cfgManager, providerReq)
 
 	resp, err := sendResponsesRequest(providerReq, upstream, envCfg, responsesReq.Stream)
 	if err != nil {
@@ -1635,7 +1637,7 @@ func handleSingleChannelResponses(
 	upstream, err := cfgManager.GetCurrentResponsesUpstream()
 	if err != nil {
 		finalizePendingWithError(503, "No Responses channels configured. Please add a channel in the admin UI.", nil, nil, "")
-		c.JSON(503, gin.H{
+		WriteJSONWithOptionalDebugLog(c, cfgManager, reqLogManager, requestLogID, 503, gin.H{
 			"error": "No Responses channels configured. Please add a channel in the admin UI.",
 			"code":  "NO_RESPONSES_UPSTREAM",
 		})
@@ -1654,7 +1656,7 @@ func handleSingleChannelResponses(
 		if !allowed {
 			channelIndex := upstream.Index
 			finalizePendingWithError(403, fmt.Sprintf("Channel %s not allowed for this API key", upstream.Name), upstream, &channelIndex, upstream.Name)
-			c.JSON(403, gin.H{
+			WriteJSONWithOptionalDebugLog(c, cfgManager, reqLogManager, requestLogID, 403, gin.H{
 				"error": fmt.Sprintf("Channel %s not allowed for this API key", upstream.Name),
 				"code":  "CHANNEL_NOT_ALLOWED",
 			})
@@ -1692,7 +1694,7 @@ func handleSingleChannelResponses(
 				}
 				_ = reqLogManager.Update(requestLogID, record)
 			}
-			c.JSON(429, gin.H{
+			WriteJSONWithOptionalDebugLog(c, cfgManager, reqLogManager, requestLogID, 429, gin.H{
 				"error":   "Too Many Requests",
 				"message": fmt.Sprintf("Channel rate limit exceeded (%d RPM)", upstream.RateLimitRpm),
 			})
@@ -1740,7 +1742,7 @@ func handleSingleChannelResponses(
 	if len(upstream.APIKeys) == 0 && !config.IsCompositeChannel(upstream) {
 		channelIndex := upstream.Index
 		finalizePendingWithError(503, fmt.Sprintf("Current Responses channel \"%s\" has no API keys configured", upstream.Name), upstream, &channelIndex, upstream.Name)
-		c.JSON(503, gin.H{
+		WriteJSONWithOptionalDebugLog(c, cfgManager, reqLogManager, requestLogID, 503, gin.H{
 			"error": fmt.Sprintf("Current Responses channel \"%s\" has no API keys configured", upstream.Name),
 			"code":  "NO_API_KEYS",
 		})
@@ -1756,7 +1758,7 @@ func handleSingleChannelResponses(
 		if !found {
 			channelIndex := upstream.Index
 			finalizePendingWithError(400, fmt.Sprintf("Composite channel '%s' has no mapping for model '%s'", upstream.Name, responsesReq.Model), upstream, &channelIndex, upstream.Name)
-			c.JSON(400, gin.H{
+			WriteJSONWithOptionalDebugLog(c, cfgManager, reqLogManager, requestLogID, 400, gin.H{
 				"error": fmt.Sprintf("Composite channel '%s' has no mapping for model '%s'", upstream.Name, responsesReq.Model),
 				"code":  "NO_COMPOSITE_MAPPING",
 			})
@@ -1765,7 +1767,7 @@ func handleSingleChannelResponses(
 		if targetIndex < 0 || targetIndex >= len(cfg.ResponsesUpstream) {
 			channelIndex := upstream.Index
 			finalizePendingWithError(503, fmt.Sprintf("Composite channel '%s' target channel ID '%s' not found", upstream.Name, targetChannelID), upstream, &channelIndex, upstream.Name)
-			c.JSON(503, gin.H{
+			WriteJSONWithOptionalDebugLog(c, cfgManager, reqLogManager, requestLogID, 503, gin.H{
 				"error": fmt.Sprintf("Composite channel '%s' target channel ID '%s' not found", upstream.Name, targetChannelID),
 				"code":  "COMPOSITE_TARGET_NOT_FOUND",
 			})
@@ -1860,6 +1862,7 @@ func handleSingleChannelResponses(
 		}
 		lastOriginalBodyBytes = originalBodyBytes
 		applyResponsesUserAgentPolicy(c, cfgManager, upstream, providerReq)
+		ApplyOutboundHeaderPolicy(c, cfgManager, providerReq)
 
 		if envCfg.EnableRequestLogs {
 			log.Printf("📥 收到 Responses 请求: %s %s", c.Request.Method, c.Request.URL.Path)

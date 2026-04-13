@@ -24,6 +24,7 @@ import (
 	"github.com/JillVernus/cc-bridge/internal/requestlog"
 	"github.com/JillVernus/cc-bridge/internal/scheduler"
 	"github.com/JillVernus/cc-bridge/internal/session"
+	"github.com/JillVernus/cc-bridge/internal/utils"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
@@ -791,6 +792,10 @@ func main() {
 		apiGroup.GET("/config/user-agent", handlers.GetUserAgentConfig(cfgManager))
 		apiGroup.PUT("/config/user-agent", handlers.UpdateUserAgentConfig(cfgManager))
 
+		// 出站请求头策略 API
+		apiGroup.GET("/config/outbound-header-policy", handlers.GetOutboundHeaderPolicy(cfgManager))
+		apiGroup.PUT("/config/outbound-header-policy", handlers.UpdateOutboundHeaderPolicy(cfgManager))
+
 		// 故障转移配置 API
 		apiGroup.GET("/config/failover", handlers.GetFailoverConfig(cfgManager))
 		apiGroup.PUT("/config/failover", handlers.UpdateFailoverConfig(cfgManager))
@@ -907,6 +912,10 @@ func (a *fpConfigAdapter) IsDebugLogEnabled() bool {
 func (a *fpConfigAdapter) GetDebugLogMaxBodySize() int {
 	cfg := a.cm.GetDebugLogConfig()
 	return cfg.GetMaxBodySize()
+}
+
+func (a *fpConfigAdapter) GetOutboundHeaderPolicy() utils.OutboundHeaderPolicy {
+	return a.cm.GetOutboundHeaderPolicy()
 }
 
 func seedRecentCallMetricsFromLogs(reqLogManager *requestlog.Manager, channelScheduler *scheduler.ChannelScheduler, cfgManager *config.ConfigManager, onlyFillEmpty bool) {

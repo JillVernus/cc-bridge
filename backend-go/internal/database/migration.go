@@ -56,7 +56,10 @@ func RunMigrations(db DB) error {
 
 		// Execute migration
 		if _, err := db.Exec(upSQL); err != nil {
-			return fmt.Errorf("migration %d (%s) failed: %w", m.Version, m.Name, err)
+			if !isIgnorableAddColumnMigrationError(upSQL, err) {
+				return fmt.Errorf("migration %d (%s) failed: %w", m.Version, m.Name, err)
+			}
+			log.Printf("ℹ️ Migration %03d add-column already applied; recording as complete", m.Version)
 		}
 
 		// Record migration
@@ -72,6 +75,22 @@ func RunMigrations(db DB) error {
 	}
 
 	return nil
+}
+
+func isIgnorableAddColumnMigrationError(sql string, err error) bool {
+	if err == nil {
+		return false
+	}
+
+	normalizedSQL := strings.ToLower(sql)
+	if !strings.Contains(normalizedSQL, "alter table") || !strings.Contains(normalizedSQL, "add column") {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "duplicate column") ||
+		strings.Contains(msg, "already exists") ||
+		strings.Contains(msg, "duplicate_column")
 }
 
 // createMigrationsTable creates the schema_migrations table if it doesn't exist

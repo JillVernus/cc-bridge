@@ -529,7 +529,7 @@ func handleSingleChannelGemini(
 	upstream, err := cfgManager.GetCurrentGeminiUpstream()
 	if err != nil {
 		finalizePendingWithError(503, "No Gemini channel configured. Please add a Gemini channel in the Gemini tab.", nil, nil, "")
-		c.JSON(503, gin.H{
+		WriteJSONWithOptionalDebugLog(c, cfgManager, reqLogManager, requestLogID, 503, gin.H{
 			"error": gin.H{
 				"code":    503,
 				"message": "No Gemini channel configured. Please add a Gemini channel in the Gemini tab.",
@@ -551,7 +551,7 @@ func handleSingleChannelGemini(
 		if !allowed {
 			channelIndex := upstream.Index
 			finalizePendingWithError(403, fmt.Sprintf("Channel %s not allowed for this API key", upstream.Name), upstream, &channelIndex, upstream.Name)
-			c.JSON(403, gin.H{
+			WriteJSONWithOptionalDebugLog(c, cfgManager, reqLogManager, requestLogID, 403, gin.H{
 				"error": gin.H{
 					"code":    403,
 					"message": fmt.Sprintf("Channel %s not allowed for this API key", upstream.Name),
@@ -588,7 +588,7 @@ func handleSingleChannelGemini(
 				}
 				_ = reqLogManager.Update(requestLogID, record)
 			}
-			c.JSON(429, gin.H{
+			WriteJSONWithOptionalDebugLog(c, cfgManager, reqLogManager, requestLogID, 429, gin.H{
 				"error": gin.H{
 					"code":    429,
 					"message": fmt.Sprintf("Channel rate limit exceeded (%d RPM)", upstream.RateLimitRpm),
@@ -602,7 +602,7 @@ func handleSingleChannelGemini(
 	if len(upstream.APIKeys) == 0 {
 		channelIndex := upstream.Index
 		finalizePendingWithError(503, fmt.Sprintf("Gemini channel \"%s\" has no API keys configured", upstream.Name), upstream, &channelIndex, upstream.Name)
-		c.JSON(503, gin.H{
+		WriteJSONWithOptionalDebugLog(c, cfgManager, reqLogManager, requestLogID, 503, gin.H{
 			"error": gin.H{
 				"code":    503,
 				"message": fmt.Sprintf("Gemini channel \"%s\" has no API keys configured", upstream.Name),
@@ -790,6 +790,7 @@ func tryGeminiChannel(
 			failedKeys[apiKey] = true
 			continue
 		}
+		ApplyOutboundHeaderPolicy(c, cfgManager, providerReq)
 
 		resp, err := sendGeminiRequest(providerReq, upstream, envCfg, isStreaming)
 		if err != nil {

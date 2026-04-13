@@ -577,6 +577,9 @@ type Config struct {
 
 	// User-Agent 回退与自动捕获配置
 	UserAgent UserAgentConfig `json:"userAgent,omitempty"`
+
+	// 出站请求头隐私策略
+	OutboundHeaderPolicy utils.OutboundHeaderPolicy `json:"outboundHeaderPolicy,omitempty"`
 }
 
 // FailedKey 失败密钥记录
@@ -688,6 +691,7 @@ func (cm *ConfigManager) loadConfig() error {
 			ChatUpstream:             []UpstreamConfig{},
 			ChatLoadBalance:          "failover",
 			UserAgent:                GetDefaultUserAgentConfig(),
+			OutboundHeaderPolicy:     utils.DefaultOutboundHeaderPolicy(),
 		}
 
 		// 确保目录存在
@@ -820,10 +824,11 @@ func (cm *ConfigManager) loadConfig() error {
 
 	// User-Agent 配置迁移：为旧配置填充默认值
 	userAgentChanged := normalizeUserAgentConfig(&cm.config.UserAgent)
-	if userAgentChanged {
-		log.Printf("检测到缺失/无效的 User-Agent 配置，正在写入默认值...")
+	outboundHeaderPolicyChanged := normalizeOutboundHeaderPolicyConfig(&cm.config.OutboundHeaderPolicy)
+	if userAgentChanged || outboundHeaderPolicyChanged {
+		log.Printf("检测到缺失/无效的全局代理配置，正在写入默认值...")
 		if err := cm.saveConfigLocked(cm.config); err != nil {
-			log.Printf("保存 User-Agent 配置迁移失败: %v", err)
+			log.Printf("保存全局代理配置迁移失败: %v", err)
 			return err
 		}
 	}
@@ -3205,12 +3210,67 @@ func (cm *ConfigManager) GetDebugLogConfig() DebugLogConfig {
 	return cm.config.DebugLog
 }
 
+func normalizeOutboundHeaderPolicyConfig(cfg *utils.OutboundHeaderPolicy) bool {
+	if cfg == nil {
+		return false
+	}
+
+	changed := false
+	if !cfg.Initialized {
+		*cfg = utils.DefaultOutboundHeaderPolicy()
+		return true
+	}
+
+	rules := make([]string, 0, len(cfg.StripRules))
+	seen := make(map[string]struct{}, len(cfg.StripRules))
+	for _, rule := range cfg.StripRules {
+		trimmed := strings.TrimSpace(rule)
+		if trimmed == "" {
+			if rule != trimmed {
+				changed = true
+			}
+			continue
+		}
+		key := strings.ToLower(trimmed)
+		if _, exists := seen[key]; exists {
+			changed = true
+			continue
+		}
+		seen[key] = struct{}{}
+		rules = append(rules, trimmed)
+		if trimmed != rule {
+			changed = true
+		}
+	}
+	if len(rules) != len(cfg.StripRules) {
+		changed = true
+	}
+	cfg.StripRules = rules
+	return changed
+}
+
 // UpdateDebugLogConfig 更新调试日志配置
 func (cm *ConfigManager) UpdateDebugLogConfig(config DebugLogConfig) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
 	cm.config.DebugLog = config
+	return cm.saveConfigLocked(cm.config)
+}
+
+func (cm *ConfigManager) GetOutboundHeaderPolicy() utils.OutboundHeaderPolicy {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	return cm.config.OutboundHeaderPolicy
+}
+
+func (cm *ConfigManager) UpdateOutboundHeaderPolicy(policy utils.OutboundHeaderPolicy) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	policy.Initialized = true
+	normalizeOutboundHeaderPolicyConfig(&policy)
+	cm.config.OutboundHeaderPolicy = policy
 	return cm.saveConfigLocked(cm.config)
 }
 

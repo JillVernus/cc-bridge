@@ -1476,6 +1476,51 @@ func UpdateUserAgentConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	}
 }
 
+// GetOutboundHeaderPolicy 获取全局出站请求头移除规则
+func GetOutboundHeaderPolicy(cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		cfg := cfgManager.GetOutboundHeaderPolicy()
+		c.JSON(http.StatusOK, gin.H{
+			"enabled":    cfg.Enabled,
+			"stripRules": cfg.StripRules,
+		})
+	}
+}
+
+// UpdateOutboundHeaderPolicy 更新全局出站请求头移除规则
+func UpdateOutboundHeaderPolicy(cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Enabled    *bool    `json:"enabled"`
+			StripRules []string `json:"stripRules"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		cfg := cfgManager.GetOutboundHeaderPolicy()
+		if req.Enabled != nil {
+			cfg.Enabled = *req.Enabled
+		}
+		if req.StripRules != nil {
+			cfg.StripRules = req.StripRules
+		}
+
+		if err := cfgManager.UpdateOutboundHeaderPolicy(cfg); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		savedCfg := cfgManager.GetOutboundHeaderPolicy()
+		c.JSON(http.StatusOK, gin.H{
+			"enabled":    savedCfg.Enabled,
+			"stripRules": savedCfg.StripRules,
+		})
+	}
+}
+
 // GetFailoverConfig 获取故障转移配置
 func GetFailoverConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {

@@ -535,6 +535,7 @@ func (m *Manager) initSchema() error {
 		request_method TEXT NOT NULL,
 		request_path TEXT NOT NULL,
 		request_headers BLOB,
+		request_removed_headers BLOB,
 		request_body BLOB,
 		request_body_size INTEGER DEFAULT 0,
 		response_status INTEGER DEFAULT 0,
@@ -548,6 +549,17 @@ func (m *Manager) initSchema() error {
 	`
 	if _, err := m.db.Exec(debugSchema); err != nil {
 		log.Printf("⚠️ Failed to create request_debug_logs table: %v", err)
+	}
+	err = m.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('request_debug_logs') WHERE name='request_removed_headers'`).Scan(&count)
+	if err != nil {
+		log.Printf("⚠️ Failed to check request_removed_headers column: %v", err)
+	} else if count == 0 {
+		_, err = m.db.Exec(`ALTER TABLE request_debug_logs ADD COLUMN request_removed_headers BLOB`)
+		if err != nil {
+			log.Printf("⚠️ Failed to add request_removed_headers column: %v", err)
+		} else {
+			log.Printf("✅ Added request_removed_headers column to request_debug_logs table")
+		}
 	}
 
 	// Create channel_suspensions table for storing suspended channels (quota exhausted)

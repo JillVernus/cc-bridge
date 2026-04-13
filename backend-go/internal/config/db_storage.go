@@ -124,6 +124,10 @@ func (s *DBConfigStorage) MigrateFromJSONIfNeeded(jsonPath string) error {
 	userAgentConfig, _ := json.Marshal(config.UserAgent)
 	settings["user_agent"] = string(userAgentConfig)
 
+	// Migrate outbound header policy
+	outboundHeaderPolicyConfig, _ := json.Marshal(config.OutboundHeaderPolicy)
+	settings["outbound_header_policy"] = string(outboundHeaderPolicyConfig)
+
 	for key, value := range settings {
 		if value == "" {
 			continue
@@ -271,6 +275,8 @@ func (s *DBConfigStorage) LoadConfigFromDB() (*Config, error) {
 			json.Unmarshal([]byte(value), &config.Failover)
 		case "user_agent":
 			json.Unmarshal([]byte(value), &config.UserAgent)
+		case "outbound_header_policy":
+			json.Unmarshal([]byte(value), &config.OutboundHeaderPolicy)
 		}
 	}
 
@@ -300,6 +306,7 @@ func (s *DBConfigStorage) LoadConfigFromDB() (*Config, error) {
 
 	// Ensure defaults are present for missing/legacy records.
 	normalizeUserAgentConfig(&config.UserAgent)
+	normalizeOutboundHeaderPolicyConfig(&config.OutboundHeaderPolicy)
 	normalizeConfigCodexServiceTierOverrides(config)
 
 	return config, nil
@@ -499,6 +506,9 @@ func (s *DBConfigStorage) SaveConfigToDB(config *Config) error {
 
 	userAgentConfig, _ := json.Marshal(config.UserAgent)
 	settings["user_agent"] = string(userAgentConfig)
+
+	outboundHeaderPolicyConfig, _ := json.Marshal(config.OutboundHeaderPolicy)
+	settings["outbound_header_policy"] = string(outboundHeaderPolicyConfig)
 
 	for key, value := range settings {
 		var query string

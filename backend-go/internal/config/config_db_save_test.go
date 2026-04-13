@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/JillVernus/cc-bridge/internal/database"
+	"github.com/JillVernus/cc-bridge/internal/utils"
 )
 
 func newConfigTestDBStorage(t *testing.T) (*DBConfigStorage, database.DB) {
@@ -335,5 +336,54 @@ func TestDBConfigStorage_SaveAndLoadCodexServiceTierOverride(t *testing.T) {
 		if got := upstream.CodexServiceTierOverride; got != want {
 			t.Fatalf("loaded CodexServiceTierOverride for %s = %q, want %q", upstream.ID, got, want)
 		}
+	}
+}
+
+func TestDBConfigStorage_SaveAndLoadOutboundHeaderPolicy(t *testing.T) {
+	dbStorage, db := newConfigTestDBStorage(t)
+	defer db.Close()
+
+	cfg := Config{
+		Upstream:                 []UpstreamConfig{},
+		CurrentUpstream:          0,
+		LoadBalance:              "failover",
+		ResponsesUpstream:        []UpstreamConfig{},
+		CurrentResponsesUpstream: 0,
+		ResponsesLoadBalance:     "failover",
+		GeminiUpstream:           []UpstreamConfig{},
+		GeminiLoadBalance:        "failover",
+		ChatUpstream:             []UpstreamConfig{},
+		ChatLoadBalance:          "failover",
+		UserAgent:                GetDefaultUserAgentConfig(),
+		OutboundHeaderPolicy: utils.OutboundHeaderPolicy{
+			Enabled:     true,
+			StripRules:  []string{"Cf-*", "X-Forwarded-*", "True-Client-IP"},
+			Initialized: true,
+		},
+	}
+
+	if err := dbStorage.SaveConfigToDB(&cfg); err != nil {
+		t.Fatalf("SaveConfigToDB() failed: %v", err)
+	}
+
+	loaded, err := dbStorage.LoadConfigFromDB()
+	if err != nil {
+		t.Fatalf("LoadConfigFromDB() failed: %v", err)
+	}
+
+	if loaded.OutboundHeaderPolicy.Enabled != cfg.OutboundHeaderPolicy.Enabled {
+		t.Fatalf("OutboundHeaderPolicy.Enabled = %v, want %v", loaded.OutboundHeaderPolicy.Enabled, cfg.OutboundHeaderPolicy.Enabled)
+	}
+
+	gotJSON, err := json.Marshal(loaded.OutboundHeaderPolicy)
+	if err != nil {
+		t.Fatalf("marshal loaded outbound header policy: %v", err)
+	}
+	wantJSON, err := json.Marshal(cfg.OutboundHeaderPolicy)
+	if err != nil {
+		t.Fatalf("marshal expected outbound header policy: %v", err)
+	}
+	if string(gotJSON) != string(wantJSON) {
+		t.Fatalf("OutboundHeaderPolicy mismatch:\n got: %s\nwant: %s", gotJSON, wantJSON)
 	}
 }

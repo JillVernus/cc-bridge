@@ -8,6 +8,85 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func TestApplyHeaderStripRules_RemovesConfiguredWildcardHeaders(t *testing.T) {
+	headers := http.Header{}
+	headers.Set("CF-Connecting-IP", "203.0.113.10")
+	headers.Set("Cf-Ray", "abc123")
+	headers.Set("X-Forwarded-For", "198.51.100.8")
+	headers.Set("X-Forwarded-Proto", "https")
+	headers.Set("User-Agent", "TestClient/1.0")
+	headers.Set("Content-Type", "application/json")
+
+	policy := OutboundHeaderPolicy{
+		Enabled: true,
+		StripRules: []string{
+			"Cf-*",
+			"X-Forwarded-*",
+		},
+	}
+
+	removed := ApplyHeaderStripRules(headers, policy)
+
+	if got := removed["Cf-Connecting-Ip"]; got != "Cf-*" {
+		t.Fatalf("expected Cf-Connecting-Ip matched by Cf-*, got %q", got)
+	}
+	if got := removed["Cf-Ray"]; got != "Cf-*" {
+		t.Fatalf("expected Cf-Ray matched by Cf-*, got %q", got)
+	}
+	if got := removed["X-Forwarded-For"]; got != "X-Forwarded-*" {
+		t.Fatalf("expected X-Forwarded-For matched by X-Forwarded-*, got %q", got)
+	}
+	if got := removed["X-Forwarded-Proto"]; got != "X-Forwarded-*" {
+		t.Fatalf("expected X-Forwarded-Proto matched by X-Forwarded-*, got %q", got)
+	}
+	if headers.Get("Cf-Connecting-Ip") != "" {
+		t.Fatalf("expected Cf-Connecting-Ip removed from outbound headers")
+	}
+	if headers.Get("Cf-Ray") != "" {
+		t.Fatalf("expected Cf-Ray removed from outbound headers")
+	}
+	if headers.Get("X-Forwarded-For") != "" {
+		t.Fatalf("expected X-Forwarded-For removed from outbound headers")
+	}
+	if headers.Get("X-Forwarded-Proto") != "" {
+		t.Fatalf("expected X-Forwarded-Proto removed from outbound headers")
+	}
+	if got := headers.Get("User-Agent"); got != "TestClient/1.0" {
+		t.Fatalf("expected User-Agent preserved, got %q", got)
+	}
+}
+
+func TestMatchHeaderStripRules_IsCaseInsensitiveAndSupportsDisabledPolicy(t *testing.T) {
+	headers := http.Header{}
+	headers.Set("cf-worker", "worker-a")
+	headers.Set("X-Forwarded-Host", "proxy.example.com")
+
+	disabled := MatchHeaderStripRules(headers, OutboundHeaderPolicy{
+		Enabled: false,
+		StripRules: []string{
+			"Cf-*",
+			"X-Forwarded-*",
+		},
+	})
+	if len(disabled) != 0 {
+		t.Fatalf("expected disabled policy to match nothing, got %#v", disabled)
+	}
+
+	matched := MatchHeaderStripRules(headers, OutboundHeaderPolicy{
+		Enabled: true,
+		StripRules: []string{
+			"cf-*",
+			"x-forwarded-*",
+		},
+	})
+	if got := matched["Cf-Worker"]; got != "cf-*" {
+		t.Fatalf("expected canonicalized Cf-Worker match, got %q", got)
+	}
+	if got := matched["X-Forwarded-Host"]; got != "x-forwarded-*" {
+		t.Fatalf("expected X-Forwarded-Host match, got %q", got)
+	}
+}
+
 func TestPrepareUpstreamHeaders(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

@@ -55,6 +55,7 @@ export default {
     rateLimitSettings: '速率限制设置',
     debugLogSettings: '调试日志设置',
     userAgentSettings: 'User-Agent 设置',
+    outboundHeaderSettings: '出站请求头规则',
     failoverSettings: '故障转移设置',
     logout: '注销',
     loggedOut: '已安全注销'
@@ -986,6 +987,21 @@ export default {
     errorCodeOthers: '其他未匹配的错误码'
   },
 
+  outboundHeaders: {
+    title: '出站请求头规则',
+    enabled: '已启用',
+    disabled: '已禁用',
+    description: '保留 CC-Bridge 接收到的原始请求头用于调试，但在发送到上游前移除匹配规则的请求头。',
+    rulesSection: '移除规则',
+    rulesLabel: '请求头模式',
+    rulesPlaceholder: '输入请求头或通配规则后按回车',
+    rulesHint: '规则不区分大小写。* 仅支持放在末尾表示前缀匹配，例如 Cf-* 或 X-Forwarded-*。',
+    currentRules: '当前规则（{count}）',
+    examples: '快速添加：',
+    loadFailed: '加载出站请求头规则失败',
+    saveFailed: '保存出站请求头规则失败'
+  },
+
   // 调试详情弹窗
   debugModal: {
     title: '请求详情',
@@ -995,6 +1011,10 @@ export default {
     headers: '请求头',
     body: '请求体',
     noHeaders: '未捕获请求头',
+    removedHeadersSummary: '已移除 {count} 个',
+    removedHeadersHint: '这些请求头已被 CC-Bridge 捕获，但在发送到上游前被移除了。',
+    removedBeforeUpstream: '发送上游前已移除',
+    removedByRule: '匹配规则：{rule}',
     showSensitiveHeaders: '显示敏感请求头',
     hideSensitiveHeaders: '隐藏敏感请求头',
     noData: '该请求没有调试数据',

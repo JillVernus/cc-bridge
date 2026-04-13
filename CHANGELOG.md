@@ -4,6 +4,30 @@
 
 ---
 
+## [v1.5.25] - 2026-04-13
+
+### ✨ 新功能
+
+- **全局出站请求头移除规则与请求详情可观测性**:
+  - 新增全局 `Outbound Header Settings`，默认提供 `Cf-*` 与 `X-Forwarded-*` 规则，并支持管理员追加新的请求头模式。
+  - 出站请求在转发到上游前会按规则移除匹配头部，请求详情弹窗同步展示哪些请求头已在上游发送前被移除，以及对应命中的规则。
+
+### 🐛 修复
+
+- **Debug Log 与出站头规则持久化修复**:
+  - 修复本地早期错误响应路径未写入 debug log 的问题，开启调试日志后，即使是 `NO_UPSTREAM` 等代理侧错误也可在请求详情中查看 Request / Response 内容。
+  - 修复数据库存储模式下 `OutboundHeaderPolicy` 未保存 / 未加载，导致规则面板为空的问题。
+  - 新增数据库迁移，补齐旧版 `request_debug_logs` 表缺失的 `request_removed_headers` 字段，避免 PostgreSQL / 统一数据库模式下移除头部信息无法持久化。
+  - 为旧版 debug log schema 增加兼容回退，避免升级过程中的历史库结构差异导致调试日志读取或写入失败。
+
+### ✅ 测试
+
+- `cd backend-go && go test ./...`
+- `cd frontend && bun run type-check`
+- `cd frontend && bun run build`
+
+---
+
 ## [v1.5.24] - 2026-04-11
 
 ### ✨ 新功能

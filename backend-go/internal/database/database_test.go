@@ -318,6 +318,64 @@ func TestDialectHelper(t *testing.T) {
 	}
 }
 
+func TestRunMigrations_AddsRequestRemovedHeadersToExistingDebugLogsTable(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "ccbridge-db-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	db, err := New(Config{
+		Type: DialectSQLite,
+		URL:  dbPath,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create database: %v", err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE schema_migrations (
+			version INTEGER PRIMARY KEY,
+			name TEXT NOT NULL,
+			applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		INSERT INTO schema_migrations (version, name) VALUES (12, 'request_logs_priced_by_target_model');
+
+		CREATE TABLE request_debug_logs (
+			request_id TEXT PRIMARY KEY,
+			request_method TEXT NOT NULL,
+			request_path TEXT NOT NULL,
+			request_headers BLOB,
+			request_body BLOB,
+			request_body_size INTEGER DEFAULT 0,
+			response_status INTEGER DEFAULT 0,
+			response_headers BLOB,
+			response_body BLOB,
+			response_body_size INTEGER DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+	`)
+	if err != nil {
+		t.Fatalf("Failed to set up legacy schema: %v", err)
+	}
+
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("RunMigrations failed: %v", err)
+	}
+
+	var count int
+	err = db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('request_debug_logs') WHERE name = 'request_removed_headers'`).Scan(&count)
+	if err != nil {
+		t.Fatalf("Failed to inspect request_debug_logs schema: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("Expected request_removed_headers column to exist after migration, got %d", count)
+	}
+}
+
 func TestConvertPlaceholders(t *testing.T) {
 	query := "SELECT * FROM users WHERE id = ? AND name = ? AND active = ?"
 

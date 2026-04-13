@@ -46,7 +46,9 @@
 
           <v-alert type="info" variant="tonal" density="compact" class="mb-0">
             <div class="text-body-2">
-              <p class="mb-2"><strong>🔒 {{ t('auth.securityTips') }}</strong></p>
+              <p class="mb-2">
+                <strong>🔒 {{ t('auth.securityTips') }}</strong>
+              </p>
               <ul class="ml-4 mb-0">
                 <li>{{ t('auth.tip1') }}</li>
                 <li>{{ t('auth.tip2') }}</li>
@@ -65,7 +67,7 @@
       <template #prepend>
         <v-menu>
           <template #activator="{ props }">
-            <div class="app-logo" v-bind="props" style="cursor: pointer;" :title="t('common.settings')">
+            <div class="app-logo" v-bind="props" style="cursor: pointer" :title="t('common.settings')">
               <v-icon :size="$vuetify.display.mobile ? 22 : 32" color="white"> mdi-cog </v-icon>
             </div>
           </template>
@@ -99,6 +101,12 @@
                 <v-icon size="small">mdi-account-box-outline</v-icon>
               </template>
               <v-list-item-title>{{ t('app.userAgentSettings') }}</v-list-item-title>
+            </v-list-item>
+            <v-list-item @click="showOutboundHeaderSettings = true">
+              <template #prepend>
+                <v-icon size="small">mdi-filter-remove-outline</v-icon>
+              </template>
+              <v-list-item-title>{{ t('app.outboundHeaderSettings') }}</v-list-item-title>
             </v-list-item>
             <v-list-item @click="showFailoverSettings = true">
               <template #prepend>
@@ -166,8 +174,15 @@
       <span v-if="appVersion" class="version-badge mr-2">{{ appVersion }}</span>
 
       <!-- 语言切换 -->
-      <v-btn icon variant="text" size="small" class="header-btn" @click="toggleLocale" :title="currentLocale === 'zh-CN' ? 'English' : '中文'">
-        <span style="font-size: 14px; font-weight: 600;">{{ currentLocale === 'zh-CN' ? 'EN' : '中' }}</span>
+      <v-btn
+        icon
+        variant="text"
+        size="small"
+        class="header-btn"
+        @click="toggleLocale"
+        :title="currentLocale === 'zh-CN' ? 'English' : '中文'"
+      >
+        <span style="font-size: 14px; font-weight: 600">{{ currentLocale === 'zh-CN' ? 'EN' : '中' }}</span>
       </v-btn>
 
       <!-- 主题切换菜单 -->
@@ -179,38 +194,26 @@
         </template>
         <v-list density="compact" class="theme-menu">
           <v-list-subheader>{{ t('theme.title') }}</v-list-subheader>
-          <v-list-item
-            @click="setTheme('retro-light')"
-            :active="currentTheme === 'retro-light'"
-          >
+          <v-list-item @click="setTheme('retro-light')" :active="currentTheme === 'retro-light'">
             <template #prepend>
               <v-icon size="small">mdi-white-balance-sunny</v-icon>
             </template>
             <v-list-item-title>{{ t('theme.retroLight') }}</v-list-item-title>
           </v-list-item>
-          <v-list-item
-            @click="setTheme('retro-dark')"
-            :active="currentTheme === 'retro-dark'"
-          >
+          <v-list-item @click="setTheme('retro-dark')" :active="currentTheme === 'retro-dark'">
             <template #prepend>
               <v-icon size="small">mdi-weather-night</v-icon>
             </template>
             <v-list-item-title>{{ t('theme.retroDark') }}</v-list-item-title>
           </v-list-item>
-          <v-list-item
-            @click="setTheme('retro-deep-dark')"
-            :active="currentTheme === 'retro-deep-dark'"
-          >
+          <v-list-item @click="setTheme('retro-deep-dark')" :active="currentTheme === 'retro-deep-dark'">
             <template #prepend>
               <v-icon size="small">mdi-weather-night-partly-cloudy</v-icon>
             </template>
             <v-list-item-title>{{ t('theme.retroDeepDark') }}</v-list-item-title>
           </v-list-item>
           <v-divider class="my-1" />
-          <v-list-item
-            @click="setTheme('minimal-dark')"
-            :active="currentTheme === 'minimal-dark'"
-          >
+          <v-list-item @click="setTheme('minimal-dark')" :active="currentTheme === 'minimal-dark'">
             <template #prepend>
               <v-icon size="small">mdi-moon-waning-crescent</v-icon>
             </template>
@@ -286,161 +289,172 @@
         <ForwardProxyDiscoveryView v-if="activeTab === 'forward-proxy-discovery'" />
 
         <!-- 渠道管理视图 -->
-        <template v-if="activeTab !== 'logs' && activeTab !== 'apikeys' && activeTab !== 'report' && activeTab !== 'forward-proxy-discovery'">
-        <!-- 统计卡片 - 玻璃拟态风格 -->
-        <div class="stats-container mb-6">
-          <v-row class="stat-cards-row">
-            <v-col cols="6" sm="4">
-              <div class="stat-card stat-card-info">
-                <div class="stat-card-icon">
-                  <v-icon size="28">mdi-server-network</v-icon>
-                </div>
-                <div class="stat-card-content">
-                  <div class="stat-card-value">{{ currentChannelsData.channels?.length || 0 }}</div>
-                  <div class="stat-card-label">{{ t('stats.totalChannels') }}</div>
-                  <div class="stat-card-desc">{{ t('stats.configuredChannels') }}</div>
-                </div>
-                <div class="stat-card-glow"></div>
-              </div>
-            </v-col>
-
-            <v-col cols="6" sm="4">
-              <div class="stat-card stat-card-success">
-                <div class="stat-card-icon">
-                  <v-icon size="28">mdi-check-circle</v-icon>
-                </div>
-                <div class="stat-card-content">
-                  <div class="stat-card-value">
-                    {{ activeChannelCount }}<span class="stat-card-total">/{{ failoverChannelCount }}</span>
+        <template
+          v-if="
+            activeTab !== 'logs' &&
+            activeTab !== 'apikeys' &&
+            activeTab !== 'report' &&
+            activeTab !== 'forward-proxy-discovery'
+          "
+        >
+          <!-- 统计卡片 - 玻璃拟态风格 -->
+          <div class="stats-container mb-6">
+            <v-row class="stat-cards-row">
+              <v-col cols="6" sm="4">
+                <div class="stat-card stat-card-info">
+                  <div class="stat-card-icon">
+                    <v-icon size="28">mdi-server-network</v-icon>
                   </div>
-                  <div class="stat-card-label">{{ t('stats.activeChannels') }}</div>
-                  <div class="stat-card-desc">{{ t('stats.failoverScheduling') }}</div>
+                  <div class="stat-card-content">
+                    <div class="stat-card-value">{{ currentChannelsData.channels?.length || 0 }}</div>
+                    <div class="stat-card-label">{{ t('stats.totalChannels') }}</div>
+                    <div class="stat-card-desc">{{ t('stats.configuredChannels') }}</div>
+                  </div>
+                  <div class="stat-card-glow"></div>
                 </div>
-                <div class="stat-card-glow"></div>
-              </div>
-            </v-col>
+              </v-col>
 
-            <v-col cols="6" sm="4">
-              <div class="stat-card stat-card-emerald">
-                <div class="stat-card-icon">
-                  <v-icon size="28">mdi-chart-line</v-icon>
+              <v-col cols="6" sm="4">
+                <div class="stat-card stat-card-success">
+                  <div class="stat-card-icon">
+                    <v-icon size="28">mdi-check-circle</v-icon>
+                  </div>
+                  <div class="stat-card-content">
+                    <div class="stat-card-value">
+                      {{ activeChannelCount }}<span class="stat-card-total">/{{ failoverChannelCount }}</span>
+                    </div>
+                    <div class="stat-card-label">{{ t('stats.activeChannels') }}</div>
+                    <div class="stat-card-desc">{{ t('stats.failoverScheduling') }}</div>
+                  </div>
+                  <div class="stat-card-glow"></div>
                 </div>
-                <div class="stat-card-content">
-                  <div class="stat-card-value">--</div>
-                  <div class="stat-card-label">--</div>
-                  <div class="stat-card-desc">--</div>
-                </div>
-                <div class="stat-card-glow"></div>
-              </div>
-            </v-col>
-          </v-row>
-        </div>
+              </v-col>
 
-        <!-- 操作按钮区域 - 现代化设计 -->
-        <div class="action-bar mb-6">
-          <div class="action-bar-left">
+              <v-col cols="6" sm="4">
+                <div class="stat-card stat-card-emerald">
+                  <div class="stat-card-icon">
+                    <v-icon size="28">mdi-chart-line</v-icon>
+                  </div>
+                  <div class="stat-card-content">
+                    <div class="stat-card-value">--</div>
+                    <div class="stat-card-label">--</div>
+                    <div class="stat-card-desc">--</div>
+                  </div>
+                  <div class="stat-card-glow"></div>
+                </div>
+              </v-col>
+            </v-row>
+          </div>
+
+          <!-- 操作按钮区域 - 现代化设计 -->
+          <div class="action-bar mb-6">
+            <div class="action-bar-left">
+              <v-btn
+                color="primary"
+                size="large"
+                @click="openAddChannelModal"
+                prepend-icon="mdi-plus"
+                class="action-btn action-btn-primary"
+              >
+                {{ t('actions.addChannel') }}
+              </v-btn>
+            </div>
+
+            <div class="action-bar-right">
+              <!-- 负载均衡选择 -->
+              <v-menu>
+                <template v-slot:activator="{ props }">
+                  <v-btn
+                    v-bind="props"
+                    variant="tonal"
+                    size="large"
+                    append-icon="mdi-chevron-down"
+                    class="action-btn load-balance-btn"
+                  >
+                    <v-icon start size="20">mdi-tune</v-icon>
+                    {{ currentChannelsData.loadBalance }}
+                  </v-btn>
+                </template>
+                <v-list class="load-balance-menu" rounded="lg" elevation="8">
+                  <v-list-subheader>{{ t('loadBalance.title') }}</v-list-subheader>
+                  <v-list-item
+                    @click="updateLoadBalance('round-robin')"
+                    :active="currentChannelsData.loadBalance === 'round-robin'"
+                    rounded="lg"
+                  >
+                    <template v-slot:prepend>
+                      <v-avatar color="info" size="36" variant="tonal">
+                        <v-icon size="20">mdi-rotate-right</v-icon>
+                      </v-avatar>
+                    </template>
+                    <v-list-item-title class="font-weight-medium">{{ t('loadBalance.roundRobin') }}</v-list-item-title>
+                    <v-list-item-subtitle>{{ t('loadBalance.roundRobinDesc') }}</v-list-item-subtitle>
+                  </v-list-item>
+                  <v-list-item
+                    @click="updateLoadBalance('random')"
+                    :active="currentChannelsData.loadBalance === 'random'"
+                    rounded="lg"
+                  >
+                    <template v-slot:prepend>
+                      <v-avatar color="secondary" size="36" variant="tonal">
+                        <v-icon size="20">mdi-dice-6</v-icon>
+                      </v-avatar>
+                    </template>
+                    <v-list-item-title class="font-weight-medium">{{ t('loadBalance.random') }}</v-list-item-title>
+                    <v-list-item-subtitle>{{ t('loadBalance.randomDesc') }}</v-list-item-subtitle>
+                  </v-list-item>
+                  <v-list-item
+                    @click="updateLoadBalance('failover')"
+                    :active="currentChannelsData.loadBalance === 'failover'"
+                    rounded="lg"
+                  >
+                    <template v-slot:prepend>
+                      <v-avatar color="warning" size="36" variant="tonal">
+                        <v-icon size="20">mdi-backup-restore</v-icon>
+                      </v-avatar>
+                    </template>
+                    <v-list-item-title class="font-weight-medium">{{ t('loadBalance.failover') }}</v-list-item-title>
+                    <v-list-item-subtitle>{{ t('loadBalance.failoverDesc') }}</v-list-item-subtitle>
+                  </v-list-item>
+                </v-list>
+              </v-menu>
+            </div>
+          </div>
+
+          <!-- 渠道编排（高密度列表模式） -->
+          <ChannelOrchestration
+            v-if="currentChannelsData.channels?.length"
+            ref="channelOrchestrationRef"
+            :channels="currentChannelsData.channels"
+            :current-channel-index="currentChannelsData.current"
+            :channel-type="channelTypeForComponents"
+            @edit="editChannel"
+            @delete="deleteChannel"
+            @refresh="refreshChannels"
+            @error="showErrorToast"
+            @success="showSuccessToast"
+            class="mb-6"
+          />
+
+          <!-- 空状态 -->
+          <v-card v-if="!currentChannelsData.channels?.length" elevation="2" class="text-center pa-12" rounded="lg">
+            <v-avatar size="120" color="primary" class="mb-6">
+              <v-icon size="60" color="white">mdi-rocket-launch</v-icon>
+            </v-avatar>
+            <div class="text-h4 mb-4 font-weight-bold">{{ t('channel.noChannels') }}</div>
+            <div class="text-subtitle-1 text-medium-emphasis mb-8">
+              {{ t('channel.noChannelsDesc') }}
+            </div>
             <v-btn
               color="primary"
-              size="large"
+              size="x-large"
               @click="openAddChannelModal"
               prepend-icon="mdi-plus"
-              class="action-btn action-btn-primary"
+              variant="elevated"
             >
-              {{ t('actions.addChannel') }}
+              {{ t('actions.addFirstChannel') }}
             </v-btn>
-
-
-          </div>
-
-          <div class="action-bar-right">
-            <!-- 负载均衡选择 -->
-            <v-menu>
-              <template v-slot:activator="{ props }">
-                <v-btn
-                  v-bind="props"
-                  variant="tonal"
-                  size="large"
-                  append-icon="mdi-chevron-down"
-                  class="action-btn load-balance-btn"
-                >
-                  <v-icon start size="20">mdi-tune</v-icon>
-                  {{ currentChannelsData.loadBalance }}
-                </v-btn>
-              </template>
-              <v-list class="load-balance-menu" rounded="lg" elevation="8">
-                <v-list-subheader>{{ t('loadBalance.title') }}</v-list-subheader>
-                <v-list-item
-                  @click="updateLoadBalance('round-robin')"
-                  :active="currentChannelsData.loadBalance === 'round-robin'"
-                  rounded="lg"
-                >
-                  <template v-slot:prepend>
-                    <v-avatar color="info" size="36" variant="tonal">
-                      <v-icon size="20">mdi-rotate-right</v-icon>
-                    </v-avatar>
-                  </template>
-                  <v-list-item-title class="font-weight-medium">{{ t('loadBalance.roundRobin') }}</v-list-item-title>
-                  <v-list-item-subtitle>{{ t('loadBalance.roundRobinDesc') }}</v-list-item-subtitle>
-                </v-list-item>
-                <v-list-item
-                  @click="updateLoadBalance('random')"
-                  :active="currentChannelsData.loadBalance === 'random'"
-                  rounded="lg"
-                >
-                  <template v-slot:prepend>
-                    <v-avatar color="secondary" size="36" variant="tonal">
-                      <v-icon size="20">mdi-dice-6</v-icon>
-                    </v-avatar>
-                  </template>
-                  <v-list-item-title class="font-weight-medium">{{ t('loadBalance.random') }}</v-list-item-title>
-                  <v-list-item-subtitle>{{ t('loadBalance.randomDesc') }}</v-list-item-subtitle>
-                </v-list-item>
-                <v-list-item
-                  @click="updateLoadBalance('failover')"
-                  :active="currentChannelsData.loadBalance === 'failover'"
-                  rounded="lg"
-                >
-                  <template v-slot:prepend>
-                    <v-avatar color="warning" size="36" variant="tonal">
-                      <v-icon size="20">mdi-backup-restore</v-icon>
-                    </v-avatar>
-                  </template>
-                  <v-list-item-title class="font-weight-medium">{{ t('loadBalance.failover') }}</v-list-item-title>
-                  <v-list-item-subtitle>{{ t('loadBalance.failoverDesc') }}</v-list-item-subtitle>
-                </v-list-item>
-              </v-list>
-            </v-menu>
-          </div>
-        </div>
-
-        <!-- 渠道编排（高密度列表模式） -->
-        <ChannelOrchestration
-          v-if="currentChannelsData.channels?.length"
-          ref="channelOrchestrationRef"
-          :channels="currentChannelsData.channels"
-          :current-channel-index="currentChannelsData.current"
-          :channel-type="channelTypeForComponents"
-          @edit="editChannel"
-          @delete="deleteChannel"
-          @refresh="refreshChannels"
-          @error="showErrorToast"
-          @success="showSuccessToast"
-          class="mb-6"
-        />
-
-        <!-- 空状态 -->
-        <v-card v-if="!currentChannelsData.channels?.length" elevation="2" class="text-center pa-12" rounded="lg">
-          <v-avatar size="120" color="primary" class="mb-6">
-            <v-icon size="60" color="white">mdi-rocket-launch</v-icon>
-          </v-avatar>
-          <div class="text-h4 mb-4 font-weight-bold">{{ t('channel.noChannels') }}</div>
-          <div class="text-subtitle-1 text-medium-emphasis mb-8">
-            {{ t('channel.noChannelsDesc') }}
-          </div>
-          <v-btn color="primary" size="x-large" @click="openAddChannelModal" prepend-icon="mdi-plus" variant="elevated">
-            {{ t('actions.addFirstChannel') }}
-          </v-btn>
-        </v-card>
+          </v-card>
         </template>
       </v-container>
     </v-main>
@@ -476,7 +490,9 @@
         <v-card-actions>
           <v-spacer></v-spacer>
           <v-btn @click="showAddKeyModalRef = false" variant="text">{{ t('common.cancel') }}</v-btn>
-          <v-btn @click="addApiKey" :disabled="!newApiKey.trim()" color="primary" variant="elevated">{{ t('common.add') }}</v-btn>
+          <v-btn @click="addApiKey" :disabled="!newApiKey.trim()" color="primary" variant="elevated">{{
+            t('common.add')
+          }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -491,8 +507,12 @@
         <v-card-text>{{ t('channel.deleteConfirm') }}</v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn variant="text" @click="showDeleteChannelConfirm = false" :disabled="isDeleting">{{ t('common.cancel') }}</v-btn>
-          <v-btn color="error" variant="flat" @click="confirmDeleteChannel" :loading="isDeleting">{{ t('common.delete') }}</v-btn>
+          <v-btn variant="text" @click="showDeleteChannelConfirm = false" :disabled="isDeleting">{{
+            t('common.cancel')
+          }}</v-btn>
+          <v-btn color="error" variant="flat" @click="confirmDeleteChannel" :loading="isDeleting">{{
+            t('common.delete')
+          }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -507,8 +527,12 @@
         <v-card-text>{{ t('channel.apiKeyDeleteConfirm') }}</v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn variant="text" @click="showDeleteApiKeyConfirm = false" :disabled="isDeleting">{{ t('common.cancel') }}</v-btn>
-          <v-btn color="warning" variant="flat" @click="confirmDeleteApiKey" :loading="isDeleting">{{ t('common.delete') }}</v-btn>
+          <v-btn variant="text" @click="showDeleteApiKeyConfirm = false" :disabled="isDeleting">{{
+            t('common.cancel')
+          }}</v-btn>
+          <v-btn color="warning" variant="flat" @click="confirmDeleteApiKey" :loading="isDeleting">{{
+            t('common.delete')
+          }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -527,6 +551,9 @@
 
     <!-- User-Agent 设置对话框 -->
     <UserAgentSettings v-model="showUserAgentSettings" />
+
+    <!-- 出站请求头规则设置对话框 -->
+    <OutboundHeaderSettings v-model="showOutboundHeaderSettings" />
 
     <!-- 故障转移设置对话框 -->
     <FailoverSettings v-model="showFailoverSettings" />
@@ -572,11 +599,7 @@
           </v-alert>
 
           <v-list v-else density="compact" class="backup-list">
-            <v-list-item
-              v-for="backup in backupList"
-              :key="backup.filename"
-              class="backup-item mb-2"
-            >
+            <v-list-item v-for="backup in backupList" :key="backup.filename" class="backup-item mb-2">
               <template #prepend>
                 <v-icon color="primary">mdi-file-document</v-icon>
               </template>
@@ -621,10 +644,25 @@
           <v-icon class="mr-2" color="warning">mdi-alert-circle</v-icon>
           {{ t('backup.confirmRestore') }}
           <v-spacer />
-          <v-btn icon variant="text" size="small" @click="showRestoreConfirm = false" :disabled="isRestoringBackup" class="modal-action-btn">
+          <v-btn
+            icon
+            variant="text"
+            size="small"
+            @click="showRestoreConfirm = false"
+            :disabled="isRestoringBackup"
+            class="modal-action-btn"
+          >
             <v-icon>mdi-close</v-icon>
           </v-btn>
-          <v-btn icon variant="flat" size="small" color="warning" @click="executeRestore" :loading="isRestoringBackup" class="modal-action-btn">
+          <v-btn
+            icon
+            variant="flat"
+            size="small"
+            color="warning"
+            @click="executeRestore"
+            :loading="isRestoringBackup"
+            class="modal-action-btn"
+          >
             <v-icon>mdi-check</v-icon>
           </v-btn>
         </v-card-title>
@@ -664,6 +702,7 @@ import ModelAliasSettings from './components/ModelAliasSettings.vue'
 import RateLimitSettings from './components/RateLimitSettings.vue'
 import DebugLogSettings from './components/DebugLogSettings.vue'
 import UserAgentSettings from './components/UserAgentSettings.vue'
+import OutboundHeaderSettings from './components/OutboundHeaderSettings.vue'
 import FailoverSettings from './components/FailoverSettings.vue'
 import ForwardProxySettings from './components/ForwardProxySettings.vue'
 import ForwardProxyDiscoveryView from './components/ForwardProxyDiscoveryView.vue'
@@ -700,7 +739,9 @@ let channelsRefreshInFlight = false
 let metricsRefreshInFlight = false
 
 // 响应式数据
-const activeTab = ref<'messages' | 'responses' | 'gemini' | 'chat' | 'logs' | 'apikeys' | 'report' | 'forward-proxy-discovery'>('messages') // Tab 切换状态
+const activeTab = ref<
+  'messages' | 'responses' | 'gemini' | 'chat' | 'logs' | 'apikeys' | 'report' | 'forward-proxy-discovery'
+>('messages') // Tab 切换状态
 const channelsData = ref<ChannelsResponse>({ channels: [], current: -1, loadBalance: 'round-robin' })
 const responsesChannelsData = ref<ChannelsResponse>({ channels: [], current: -1, loadBalance: 'round-robin' }) // Responses渠道数据
 const geminiChannelsData = ref<ChannelsResponse>({ channels: [], current: -1, loadBalance: 'round-robin' }) // Gemini渠道数据
@@ -716,6 +757,7 @@ const showModelAliasSettings = ref(false) // 模型别名设置对话框
 const showRateLimitSettings = ref(false) // 速率限制设置对话框
 const showDebugLogSettings = ref(false) // 调试日志设置对话框
 const showUserAgentSettings = ref(false) // User-Agent 设置对话框
+const showOutboundHeaderSettings = ref(false) // 出站请求头规则设置对话框
 const showFailoverSettings = ref(false) // 故障转移设置对话框
 const showForwardProxySettings = ref(false) // 正向代理设置对话框
 const showBackupRestore = ref(false) // 备份恢复对话框
@@ -762,7 +804,12 @@ const isDeleting = ref(false)
 
 // 用于传递给子组件的 channelType (排除 'logs' 和 'apikeys')
 const channelTypeForComponents = computed((): 'messages' | 'responses' | 'gemini' | 'chat' => {
-  if (activeTab.value === 'logs' || activeTab.value === 'apikeys' || activeTab.value === 'report' || activeTab.value === 'forward-proxy-discovery') {
+  if (
+    activeTab.value === 'logs' ||
+    activeTab.value === 'apikeys' ||
+    activeTab.value === 'report' ||
+    activeTab.value === 'forward-proxy-discovery'
+  ) {
     return 'messages'
   }
   return activeTab.value
@@ -868,7 +915,10 @@ const refreshChannels = async () => {
   }
 }
 
-const saveChannel = async (channel: Omit<Channel, 'index' | 'latency' | 'status'>, options?: { isQuickAdd?: boolean }) => {
+const saveChannel = async (
+  channel: Omit<Channel, 'index' | 'latency' | 'status'>,
+  options?: { isQuickAdd?: boolean }
+) => {
   try {
     const isResponses = activeTab.value === 'responses'
     const isGemini = activeTab.value === 'gemini'
@@ -929,13 +979,19 @@ const saveChannel = async (channel: Omit<Channel, 'index' | 'latency' | 'status'
       // 快速添加模式：将新渠道设为第一优先级并设置5分钟促销期
       if (options?.isQuickAdd) {
         await refreshChannels() // 先刷新获取新渠道的 index
-        const data = isChat ? chatChannelsData.value : (isGemini ? geminiChannelsData.value : (isResponses ? responsesChannelsData.value : channelsData.value))
+        const data = isChat
+          ? chatChannelsData.value
+          : isGemini
+            ? geminiChannelsData.value
+            : isResponses
+              ? responsesChannelsData.value
+              : channelsData.value
 
         // 找到新添加的渠道（应该是列表中 index 最大的 active 状态渠道）
         const activeChannels = data.channels?.filter(ch => ch.status !== 'disabled') || []
         if (activeChannels.length > 0) {
           // 新添加的渠道会分配到最大的 index
-          const newChannel = activeChannels.reduce((max, ch) => ch.index > max.index ? ch : max, activeChannels[0])
+          const newChannel = activeChannels.reduce((max, ch) => (ch.index > max.index ? ch : max), activeChannels[0])
 
           try {
             // 1. 重新排序：将新渠道放到第一位
@@ -1061,7 +1117,10 @@ const addApiKey = async () => {
     newApiKey.value = ''
     await refreshChannels()
   } catch (error) {
-    showToast(t('channel.apiKeyAddFailed', { error: error instanceof Error ? error.message : 'Unknown error' }), 'error')
+    showToast(
+      t('channel.apiKeyAddFailed', { error: error instanceof Error ? error.message : 'Unknown error' }),
+      'error'
+    )
   }
 }
 
@@ -1097,14 +1156,16 @@ const confirmDeleteApiKey = async () => {
     showToast(t('channel.apiKeyDeleteSuccess'), 'success')
     await refreshChannels()
   } catch (error) {
-    showToast(t('channel.apiKeyDeleteFailed', { error: error instanceof Error ? error.message : 'Unknown error' }), 'error')
+    showToast(
+      t('channel.apiKeyDeleteFailed', { error: error instanceof Error ? error.message : 'Unknown error' }),
+      'error'
+    )
   } finally {
     isDeleting.value = false
     showDeleteApiKeyConfirm.value = false
     pendingDeleteApiKey.value = null
   }
 }
-
 
 const updateLoadBalance = async (strategy: string) => {
   try {
@@ -1123,7 +1184,10 @@ const updateLoadBalance = async (strategy: string) => {
     }
     showToast(t('loadBalance.updated', { strategy }), 'success')
   } catch (error) {
-    showToast(t('loadBalance.updateFailed', { error: error instanceof Error ? error.message : 'Unknown error' }), 'error')
+    showToast(
+      t('loadBalance.updateFailed', { error: error instanceof Error ? error.message : 'Unknown error' }),
+      'error'
+    )
   }
 }
 
@@ -1424,13 +1488,13 @@ const handleKeydown = (event: KeyboardEvent) => {
     showRateLimitSettings.value = false
     showDebugLogSettings.value = false
     showUserAgentSettings.value = false
+    showOutboundHeaderSettings.value = false
     showFailoverSettings.value = false
     showForwardProxySettings.value = false
     showBackupRestore.value = false
     showRestoreConfirm.value = false
     return
   }
-
 }
 
 // 初始化
@@ -1484,7 +1548,11 @@ onMounted(async () => {
 })
 
 // 启动自动刷新定时器
-const isChannelTab = () => activeTab.value === 'messages' || activeTab.value === 'responses' || activeTab.value === 'gemini' || activeTab.value === 'chat'
+const isChannelTab = () =>
+  activeTab.value === 'messages' ||
+  activeTab.value === 'responses' ||
+  activeTab.value === 'gemini' ||
+  activeTab.value === 'chat'
 
 const autoRefreshChannels = async () => {
   if (!isAuthenticated.value) return
@@ -1520,8 +1588,12 @@ const autoRefreshMetrics = async () => {
 
 const startAutoRefresh = () => {
   stopAutoRefresh()
-  channelsRefreshTimer = setInterval(() => { void autoRefreshChannels() }, CHANNELS_REFRESH_INTERVAL_MS)
-  metricsRefreshTimer = setInterval(() => { void autoRefreshMetrics() }, METRICS_REFRESH_INTERVAL_MS)
+  channelsRefreshTimer = setInterval(() => {
+    void autoRefreshChannels()
+  }, CHANNELS_REFRESH_INTERVAL_MS)
+  metricsRefreshTimer = setInterval(() => {
+    void autoRefreshMetrics()
+  }, METRICS_REFRESH_INTERVAL_MS)
 }
 
 // 停止自动刷新定时器
@@ -1582,47 +1654,47 @@ onUnmounted(() => {
    ===================================================== */
 
 /* ----- 应用栏 - 复古像素风格 ----- */
-.theme-retro .app-header{
+.theme-retro .app-header {
   background: rgb(var(--v-theme-surface)) !important;
   border-bottom: 2px solid rgb(var(--v-theme-on-surface));
   transition: none;
   padding: 0 16px !important;
 }
 
-.theme-retro .v-theme--dark .app-header{
+.theme-retro .v-theme--dark .app-header {
   background: rgb(var(--v-theme-surface)) !important;
   border-bottom: 2px solid rgba(255, 255, 255, 0.8);
 }
 
 /* 修复 Header 布局 */
-.theme-retro .app-header :deep(.v-toolbar__prepend){
+.theme-retro .app-header :deep(.v-toolbar__prepend) {
   margin-inline-end: 4px !important;
 }
 
-.theme-retro .app-header .v-toolbar-title{
+.theme-retro .app-header .v-toolbar-title {
   overflow: hidden !important;
   min-width: 0 !important;
   flex: 1 !important;
 }
 
-.theme-retro .app-header :deep(.v-toolbar__content){
+.theme-retro .app-header :deep(.v-toolbar__content) {
   overflow: visible !important;
 }
 
-.theme-retro .app-header :deep(.v-toolbar__content > .v-toolbar-title){
+.theme-retro .app-header :deep(.v-toolbar__content > .v-toolbar-title) {
   min-width: 0 !important;
   margin-inline-start: 0 !important;
   margin-inline-end: auto !important;
 }
 
-.theme-retro .app-header :deep(.v-toolbar-title__placeholder){
+.theme-retro .app-header :deep(.v-toolbar-title__placeholder) {
   width: 100%;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.theme-retro .app-logo{
+.theme-retro .app-logo {
   width: 42px;
   height: 42px;
   display: flex;
@@ -1635,50 +1707,50 @@ onUnmounted(() => {
   transition: all 0.1s ease;
 }
 
-.theme-retro .app-logo:hover{
+.theme-retro .app-logo:hover {
   transform: translate(-1px, -1px);
   box-shadow: 4px 4px 0 0 rgb(var(--v-theme-on-surface));
 }
 
-.theme-retro .app-logo:active{
+.theme-retro .app-logo:active {
   transform: translate(2px, 2px);
   box-shadow: none;
 }
 
-.theme-retro .v-theme--dark .app-logo{
+.theme-retro .v-theme--dark .app-logo {
   border-color: rgba(255, 255, 255, 0.8);
   box-shadow: 3px 3px 0 0 rgba(255, 255, 255, 0.8);
 }
 
-.theme-retro .v-theme--dark .app-logo:hover{
+.theme-retro .v-theme--dark .app-logo:hover {
   box-shadow: 4px 4px 0 0 rgba(255, 255, 255, 0.8);
 }
 
-.theme-retro .v-theme--dark .app-logo:active{
+.theme-retro .v-theme--dark .app-logo:active {
   box-shadow: none;
 }
 
 /* 自定义标题容器 */
-.theme-retro .header-title{
+.theme-retro .header-title {
   display: flex;
   align-items: center;
   flex-shrink: 0;
 }
 
 /* 导航按钮组 - 复古像素风格 */
-.theme-retro .nav-toggle{
+.theme-retro .nav-toggle {
   border: 2px solid rgb(var(--v-theme-on-surface)) !important;
   box-shadow: 3px 3px 0 0 rgb(var(--v-theme-on-surface)) !important;
   border-radius: 0 !important;
   background: rgb(var(--v-theme-surface)) !important;
 }
 
-.theme-retro .v-theme--dark .nav-toggle{
+.theme-retro .v-theme--dark .nav-toggle {
   border-color: rgba(255, 255, 255, 0.7) !important;
   box-shadow: 3px 3px 0 0 rgba(255, 255, 255, 0.7) !important;
 }
 
-.theme-retro .nav-btn{
+.theme-retro .nav-btn {
   border-radius: 0 !important;
   text-transform: none !important;
   font-weight: 600 !important;
@@ -1687,24 +1759,24 @@ onUnmounted(() => {
   min-width: 80px !important;
 }
 
-.theme-retro .nav-btn:not(:last-child){
+.theme-retro .nav-btn:not(:last-child) {
   border-right: 2px solid rgb(var(--v-theme-on-surface)) !important;
 }
 
-.theme-retro .v-theme--dark .nav-btn:not(:last-child){
+.theme-retro .v-theme--dark .nav-btn:not(:last-child) {
   border-right-color: rgba(255, 255, 255, 0.5) !important;
 }
 
-.theme-retro .nav-toggle .nav-btn.v-btn--active{
+.theme-retro .nav-toggle .nav-btn.v-btn--active {
   background: rgb(var(--v-theme-primary)) !important;
   color: white !important;
 }
 
-.theme-retro .nav-toggle .nav-btn:not(.v-btn--active):hover{
+.theme-retro .nav-toggle .nav-btn:not(.v-btn--active):hover {
   background: rgba(var(--v-theme-primary), 0.1) !important;
 }
 
-.theme-retro .version-badge{
+.theme-retro .version-badge {
   font-size: 12px;
   font-weight: 600;
   color: rgba(var(--v-theme-on-surface), 0.6);
@@ -1714,55 +1786,55 @@ onUnmounted(() => {
   font-family: 'Courier New', monospace;
 }
 
-.theme-retro .header-btn{
+.theme-retro .header-btn {
   border: 2px solid rgb(var(--v-theme-on-surface)) !important;
   box-shadow: 2px 2px 0 0 rgb(var(--v-theme-on-surface)) !important;
   margin-left: 4px;
   transition: all 0.1s ease !important;
 }
 
-.theme-retro .v-theme--dark .header-btn{
+.theme-retro .v-theme--dark .header-btn {
   border-color: rgba(255, 255, 255, 0.6) !important;
   box-shadow: 2px 2px 0 0 rgba(255, 255, 255, 0.6) !important;
 }
 
-.theme-retro .header-btn:hover{
+.theme-retro .header-btn:hover {
   background: rgba(var(--v-theme-primary), 0.1);
   transform: translate(-1px, -1px);
   box-shadow: 3px 3px 0 0 rgb(var(--v-theme-on-surface)) !important;
 }
 
-.theme-retro .header-btn:active{
+.theme-retro .header-btn:active {
   transform: translate(2px, 2px) !important;
   box-shadow: none !important;
 }
 
 /* ----- 统计卡片 - 复古像素风格 ----- */
-.theme-retro .stat-cards-row{
+.theme-retro .stat-cards-row {
   margin-top: -8px;
 }
 
 /* ----- 全局统计图表卡片 ----- */
-.theme-retro .global-chart-card{
+.theme-retro .global-chart-card {
   position: relative;
   background: rgb(var(--v-theme-surface));
   border: 2px solid rgb(var(--v-theme-on-surface));
   box-shadow: 6px 6px 0 0 rgb(var(--v-theme-on-surface));
 }
 
-.theme-retro .v-theme--dark .global-chart-card{
+.theme-retro .v-theme--dark .global-chart-card {
   border-color: rgba(255, 255, 255, 0.8);
   box-shadow: 6px 6px 0 0 rgba(255, 255, 255, 0.8);
 }
 
-.theme-retro .chart-collapse-btn{
+.theme-retro .chart-collapse-btn {
   position: absolute;
   top: 4px;
   right: 4px;
   z-index: 2;
 }
 
-.theme-retro .chart-expand-bar{
+.theme-retro .chart-expand-bar {
   display: flex;
   justify-content: center;
   padding: 4px;
@@ -1773,22 +1845,22 @@ onUnmounted(() => {
   transition: all 0.2s ease;
 }
 
-.theme-retro .chart-expand-bar:hover{
+.theme-retro .chart-expand-bar:hover {
   opacity: 1;
   background: rgba(var(--v-theme-surface-variant), 0.5);
 }
 
-.theme-retro .v-theme--dark .chart-expand-bar{
+.theme-retro .v-theme--dark .chart-expand-bar {
   border-color: rgba(255, 255, 255, 0.5);
 }
 
-.theme-retro .expand-chart-btn{
+.theme-retro .expand-chart-btn {
   text-transform: none !important;
   font-weight: 500 !important;
   letter-spacing: 0 !important;
 }
 
-.theme-retro .stat-card{
+.theme-retro .stat-card {
   position: relative;
   display: flex;
   align-items: center;
@@ -1802,32 +1874,32 @@ onUnmounted(() => {
   overflow: hidden;
   min-height: 100px;
 }
-.theme-retro .stat-card:hover{
+.theme-retro .stat-card:hover {
   transform: translate(-2px, -2px);
   box-shadow: 8px 8px 0 0 rgb(var(--v-theme-on-surface));
   border: 2px solid rgb(var(--v-theme-on-surface));
 }
 
-.theme-retro .stat-card:active{
+.theme-retro .stat-card:active {
   transform: translate(2px, 2px);
   box-shadow: 2px 2px 0 0 rgb(var(--v-theme-on-surface));
 }
 
-.theme-retro .v-theme--dark .stat-card{
+.theme-retro .v-theme--dark .stat-card {
   background: rgb(var(--v-theme-surface));
   border-color: rgba(255, 255, 255, 0.8);
   box-shadow: 6px 6px 0 0 rgba(255, 255, 255, 0.8);
 }
-.theme-retro .v-theme--dark .stat-card:hover{
+.theme-retro .v-theme--dark .stat-card:hover {
   box-shadow: 8px 8px 0 0 rgba(255, 255, 255, 0.8);
   border-color: rgba(255, 255, 255, 0.8);
 }
 
-.theme-retro .v-theme--dark .stat-card:active{
+.theme-retro .v-theme--dark .stat-card:active {
   box-shadow: 2px 2px 0 0 rgba(255, 255, 255, 0.8);
 }
 
-.theme-retro .stat-card-icon{
+.theme-retro .stat-card-icon {
   width: 56px;
   height: 56px;
   display: flex;
@@ -1839,33 +1911,33 @@ onUnmounted(() => {
   transition: transform 0.1s ease;
 }
 
-.theme-retro .v-theme--dark .stat-card-icon{
+.theme-retro .v-theme--dark .stat-card-icon {
   border-color: rgba(255, 255, 255, 0.6);
 }
 
-.theme-retro .stat-card:hover .stat-card-icon{
+.theme-retro .stat-card:hover .stat-card-icon {
   transform: scale(1.05);
 }
 
-.theme-retro .stat-card-content{
+.theme-retro .stat-card-content {
   flex: 1;
   min-width: 0;
 }
 
-.theme-retro .stat-card-value{
+.theme-retro .stat-card-value {
   font-size: 1.75rem;
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: -0.5px;
 }
 
-.theme-retro .stat-card-total{
+.theme-retro .stat-card-total {
   font-size: 1rem;
   font-weight: 500;
   opacity: 0.6;
 }
 
-.theme-retro .stat-card-label{
+.theme-retro .stat-card-label {
   font-size: 0.875rem;
   font-weight: 600;
   margin-top: 2px;
@@ -1873,7 +1945,7 @@ onUnmounted(() => {
   text-transform: uppercase;
 }
 
-.theme-retro .stat-card-desc{
+.theme-retro .stat-card-desc {
   font-size: 0.75rem;
   opacity: 0.6;
   margin-top: 2px;
@@ -1883,52 +1955,52 @@ onUnmounted(() => {
 }
 
 /* 隐藏光晕效果 */
-.theme-retro .stat-card-glow{
+.theme-retro .stat-card-glow {
   display: none;
 }
 
 /* 统计卡片颜色变体 */
-.theme-retro .stat-card-info .stat-card-icon{
+.theme-retro .stat-card-info .stat-card-icon {
   background: #3b82f6;
   color: white;
 }
-.theme-retro .stat-card-info .stat-card-value{
+.theme-retro .stat-card-info .stat-card-value {
   color: #3b82f6;
 }
-.theme-retro .v-theme--dark .stat-card-info .stat-card-value{
+.theme-retro .v-theme--dark .stat-card-info .stat-card-value {
   color: #60a5fa;
 }
 
-.theme-retro .stat-card-success .stat-card-icon{
+.theme-retro .stat-card-success .stat-card-icon {
   background: #10b981;
   color: white;
 }
-.theme-retro .stat-card-success .stat-card-value{
+.theme-retro .stat-card-success .stat-card-value {
   color: #10b981;
 }
-.theme-retro .v-theme--dark .stat-card-success .stat-card-value{
+.theme-retro .v-theme--dark .stat-card-success .stat-card-value {
   color: #34d399;
 }
 
-.theme-retro .stat-card-primary .stat-card-icon{
+.theme-retro .stat-card-primary .stat-card-icon {
   background: #6366f1;
   color: white;
 }
-.theme-retro .stat-card-primary .stat-card-value{
+.theme-retro .stat-card-primary .stat-card-value {
   color: #6366f1;
 }
-.theme-retro .v-theme--dark .stat-card-primary .stat-card-value{
+.theme-retro .v-theme--dark .stat-card-primary .stat-card-value {
   color: #818cf8;
 }
 
-.theme-retro .stat-card-emerald .stat-card-icon{
+.theme-retro .stat-card-emerald .stat-card-icon {
   background: #059669;
   color: white;
 }
-.theme-retro .stat-card-emerald .stat-card-value{
+.theme-retro .stat-card-emerald .stat-card-value {
   color: #059669;
 }
-.theme-retro .v-theme--dark .stat-card-emerald .stat-card-value{
+.theme-retro .v-theme--dark .stat-card-emerald .stat-card-value {
   color: #34d399;
 }
 
@@ -1956,46 +2028,46 @@ onUnmounted(() => {
 }
 
 /* 统计卡片图标配色 */
-.theme-retro .stat-card-icon .v-icon{
+.theme-retro .stat-card-icon .v-icon {
   color: white !important;
 }
 
-.theme-retro .stat-card-emerald .stat-card-icon .v-icon{
+.theme-retro .stat-card-emerald .stat-card-icon .v-icon {
   color: white !important;
 }
 
 /* 主按钮 - 复古像素风格 */
-.theme-retro .action-btn-primary{
+.theme-retro .action-btn-primary {
   background: rgb(var(--v-theme-primary)) !important;
   border: 2px solid rgb(var(--v-theme-on-surface)) !important;
   box-shadow: 4px 4px 0 0 rgb(var(--v-theme-on-surface)) !important;
   color: white !important;
 }
 
-.theme-retro .action-btn-primary:hover{
+.theme-retro .action-btn-primary:hover {
   transform: translate(-1px, -1px);
   box-shadow: 5px 5px 0 0 rgb(var(--v-theme-on-surface)) !important;
 }
 
-.theme-retro .action-btn-primary:active{
+.theme-retro .action-btn-primary:active {
   transform: translate(2px, 2px) !important;
   box-shadow: none !important;
 }
 
-.theme-retro .v-theme--dark .action-btn-primary{
+.theme-retro .v-theme--dark .action-btn-primary {
   border-color: rgba(255, 255, 255, 0.8) !important;
   box-shadow: 4px 4px 0 0 rgba(255, 255, 255, 0.8) !important;
 }
 
 /* 渠道编排容器 */
-.theme-retro .channel-orchestration{
+.theme-retro .channel-orchestration {
   background: transparent !important;
   box-shadow: none !important;
   border: none !important;
 }
 
 /* 渠道列表卡片样式 */
-.theme-retro .channel-list .channel-row{
+.theme-retro .channel-list .channel-row {
   background: rgb(var(--v-theme-surface)) !important;
   margin-bottom: 0;
   padding: 14px 12px 14px 28px !important;
@@ -2005,19 +2077,19 @@ onUnmounted(() => {
   position: relative;
 }
 
-.theme-retro .v-theme--dark .channel-list .channel-row{
+.theme-retro .v-theme--dark .channel-list .channel-row {
   border-color: rgba(255, 255, 255, 0.7) !important;
   box-shadow: 4px 4px 0 0 rgba(255, 255, 255, 0.7) !important;
 }
 
-.theme-retro .channel-list .channel-row:active{
+.theme-retro .channel-list .channel-row:active {
   transform: translate(2px, 2px);
   box-shadow: none !important;
   transition: transform 0.1s;
 }
 
 /* 序号角标 */
-.theme-retro .channel-row .priority-number{
+.theme-retro .channel-row .priority-number {
   position: absolute !important;
   top: -1px !important;
   left: -1px !important;
@@ -2036,25 +2108,25 @@ onUnmounted(() => {
   text-transform: uppercase;
 }
 
-.theme-retro .v-theme--dark .channel-row .priority-number{
+.theme-retro .v-theme--dark .channel-row .priority-number {
   border-color: rgba(255, 255, 255, 0.5) !important;
 }
 
 /* 拖拽手柄 */
-.theme-retro .drag-handle{
+.theme-retro .drag-handle {
   opacity: 0.3;
   padding: 8px;
   margin-left: -8px;
 }
 
 /* 渠道名称 */
-.theme-retro .channel-name{
+.theme-retro .channel-name {
   font-size: 14px !important;
   font-weight: 700 !important;
   color: rgb(var(--v-theme-on-surface));
 }
 
-.theme-retro .channel-name .text-caption.text-medium-emphasis{
+.theme-retro .channel-name .text-caption.text-medium-emphasis {
   background: rgb(var(--v-theme-surface-variant));
   padding: 2px 6px;
   font-size: 10px !important;
@@ -2064,34 +2136,34 @@ onUnmounted(() => {
   text-transform: uppercase;
 }
 
-.theme-retro .v-theme--dark .channel-name .text-caption.text-medium-emphasis{
+.theme-retro .v-theme--dark .channel-name .text-caption.text-medium-emphasis {
   border-color: rgba(255, 255, 255, 0.5);
 }
 
 /* 隐藏描述文字 */
-.theme-retro .channel-name .text-disabled{
+.theme-retro .channel-name .text-disabled {
   display: none !important;
 }
 
 /* 隐藏指标和密钥数 */
-.theme-retro .channel-metrics, 
-.theme-retro .channel-keys{
+.theme-retro .channel-metrics,
+.theme-retro .channel-keys {
   display: none !important;
 }
 
 /* --- 备用资源池 --- */
-.theme-retro .inactive-pool{
+.theme-retro .inactive-pool {
   background: rgb(var(--v-theme-surface)) !important;
   border: 2px dashed rgb(var(--v-theme-on-surface)) !important;
   padding: 8px !important;
   margin-top: 12px;
 }
 
-.theme-retro .v-theme--dark .inactive-pool{
+.theme-retro .v-theme--dark .inactive-pool {
   border-color: rgba(255, 255, 255, 0.5) !important;
 }
 
-.theme-retro .inactive-channel-row{
+.theme-retro .inactive-channel-row {
   background: rgb(var(--v-theme-surface)) !important;
   margin: 6px !important;
   padding: 12px !important;
@@ -2099,18 +2171,18 @@ onUnmounted(() => {
   box-shadow: 3px 3px 0 0 rgb(var(--v-theme-on-surface)) !important;
 }
 
-.theme-retro .v-theme--dark .inactive-channel-row{
+.theme-retro .v-theme--dark .inactive-channel-row {
   border-color: rgba(255, 255, 255, 0.6) !important;
   box-shadow: 3px 3px 0 0 rgba(255, 255, 255, 0.6) !important;
 }
 
-.theme-retro .inactive-channel-row .channel-info-main{
+.theme-retro .inactive-channel-row .channel-info-main {
   color: rgb(var(--v-theme-on-surface)) !important;
   font-weight: 600;
 }
 
 /* ----- 操作按钮区域 ----- */
-.theme-retro .action-bar{
+.theme-retro .action-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -2122,25 +2194,25 @@ onUnmounted(() => {
   box-shadow: 6px 6px 0 0 rgb(var(--v-theme-on-surface));
 }
 
-.theme-retro .v-theme--dark .action-bar{
+.theme-retro .v-theme--dark .action-bar {
   background: rgb(var(--v-theme-surface));
   border-color: rgba(255, 255, 255, 0.8);
   box-shadow: 6px 6px 0 0 rgba(255, 255, 255, 0.8);
 }
 
-.theme-retro .action-bar-left{
+.theme-retro .action-bar-left {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
 }
 
-.theme-retro .action-bar-right{
+.theme-retro .action-bar-right {
   display: flex;
   align-items: center;
 }
 
-.theme-retro .action-btn{
+.theme-retro .action-btn {
   font-weight: 600;
   letter-spacing: 0.3px;
   text-transform: uppercase;
@@ -2149,43 +2221,43 @@ onUnmounted(() => {
   box-shadow: 4px 4px 0 0 rgb(var(--v-theme-on-surface)) !important;
 }
 
-.theme-retro .v-theme--dark .action-btn{
+.theme-retro .v-theme--dark .action-btn {
   border-color: rgba(255, 255, 255, 0.7) !important;
   box-shadow: 4px 4px 0 0 rgba(255, 255, 255, 0.7) !important;
 }
 
-.theme-retro .action-btn:hover{
+.theme-retro .action-btn:hover {
   transform: translate(-1px, -1px);
   box-shadow: 5px 5px 0 0 rgb(var(--v-theme-on-surface)) !important;
 }
 
-.theme-retro .action-btn:active{
+.theme-retro .action-btn:active {
   transform: translate(2px, 2px) !important;
   box-shadow: none !important;
 }
 
-.theme-retro .load-balance-btn{
+.theme-retro .load-balance-btn {
   text-transform: uppercase;
 }
 
-.theme-retro .load-balance-menu{
+.theme-retro .load-balance-menu {
   min-width: 300px;
   padding: 8px;
   border: 2px solid rgb(var(--v-theme-on-surface)) !important;
   box-shadow: 4px 4px 0 0 rgb(var(--v-theme-on-surface)) !important;
 }
 
-.theme-retro .v-theme--dark .load-balance-menu{
+.theme-retro .v-theme--dark .load-balance-menu {
   border-color: rgba(255, 255, 255, 0.7) !important;
   box-shadow: 4px 4px 0 0 rgba(255, 255, 255, 0.7) !important;
 }
 
-.theme-retro .load-balance-menu .v-list-item{
+.theme-retro .load-balance-menu .v-list-item {
   margin-bottom: 4px;
   padding: 12px 16px;
 }
 
-.theme-retro .load-balance-menu .v-list-item:last-child{
+.theme-retro .load-balance-menu .v-list-item:last-child {
   margin-bottom: 0;
 }
 
@@ -2194,51 +2266,51 @@ onUnmounted(() => {
    ========================================= */
 @media (max-width: 600px) {
   /* --- 顶部导航栏 --- */
-  .theme-retro .app-header{
+  .theme-retro .app-header {
     padding: 0 12px !important;
     background: rgb(var(--v-theme-surface)) !important;
     border-bottom: 2px solid rgb(var(--v-theme-on-surface)) !important;
     box-shadow: none !important;
   }
 
-  .theme-retro .v-theme--dark .app-header{
+  .theme-retro .v-theme--dark .app-header {
     border-bottom-color: rgba(255, 255, 255, 0.7) !important;
   }
 
-  .theme-retro .app-logo{
+  .theme-retro .app-logo {
     width: 32px;
     height: 32px;
     margin-right: 8px;
     box-shadow: 2px 2px 0 0 rgb(var(--v-theme-on-surface));
   }
 
-  .theme-retro .v-theme--dark .app-logo{
+  .theme-retro .v-theme--dark .app-logo {
     box-shadow: 2px 2px 0 0 rgba(255, 255, 255, 0.7);
   }
 
   /* 移动端导航按钮调整 */
-  .theme-retro .nav-toggle{
+  .theme-retro .nav-toggle {
     box-shadow: 2px 2px 0 0 rgb(var(--v-theme-on-surface)) !important;
   }
 
-  .theme-retro .v-theme--dark .nav-toggle{
+  .theme-retro .v-theme--dark .nav-toggle {
     box-shadow: 2px 2px 0 0 rgba(255, 255, 255, 0.7) !important;
   }
 
-  .theme-retro .nav-btn{
+  .theme-retro .nav-btn {
     min-width: 70px !important;
     padding: 0 8px !important;
     min-height: 44px !important; /* Touch-friendly */
   }
 
   /* Touch-friendly header buttons */
-  .theme-retro .header-btn{
+  .theme-retro .header-btn {
     min-width: 44px !important;
     min-height: 44px !important;
   }
 
   /* --- 统计卡片优化 --- */
-  .theme-retro .stat-card{
+  .theme-retro .stat-card {
     padding: 14px 12px;
     gap: 10px;
     min-height: auto;
@@ -2247,21 +2319,21 @@ onUnmounted(() => {
     border: 2px solid rgb(var(--v-theme-on-surface)) !important;
   }
 
-  .theme-retro .v-theme--dark .stat-card{
+  .theme-retro .v-theme--dark .stat-card {
     box-shadow: 4px 4px 0 0 rgba(255, 255, 255, 0.7) !important;
     border-color: rgba(255, 255, 255, 0.7) !important;
   }
 
-  .theme-retro .stat-card-icon{
+  .theme-retro .stat-card-icon {
     width: 36px;
     height: 36px;
   }
 
-  .theme-retro .stat-card-icon .v-icon{
+  .theme-retro .stat-card-icon .v-icon {
     font-size: 18px !important;
   }
 
-  .theme-retro .stat-card-value{
+  .theme-retro .stat-card-value {
     font-size: 1.35rem;
     font-weight: 800 !important;
     line-height: 1.2;
@@ -2269,104 +2341,104 @@ onUnmounted(() => {
     letter-spacing: -0.5px;
   }
 
-  .theme-retro .stat-card-label{
+  .theme-retro .stat-card-label {
     font-size: 0.7rem;
     color: rgba(var(--v-theme-on-surface), 0.6);
     font-weight: 500;
     text-transform: uppercase;
   }
 
-  .theme-retro .stat-card-desc{
+  .theme-retro .stat-card-desc {
     display: none;
   }
 
-  .theme-retro .stat-cards-row{
+  .theme-retro .stat-cards-row {
     margin-bottom: 12px !important;
   }
 
-  .theme-retro .stat-cards-row .v-col{
+  .theme-retro .stat-cards-row .v-col {
     padding: 4px !important;
   }
 
   /* --- 操作按钮区域 --- */
-  .theme-retro .action-bar{
+  .theme-retro .action-bar {
     flex-direction: column;
     gap: 10px;
     padding: 12px !important;
     box-shadow: 4px 4px 0 0 rgb(var(--v-theme-on-surface)) !important;
   }
 
-  .theme-retro .v-theme--dark .action-bar{
+  .theme-retro .v-theme--dark .action-bar {
     box-shadow: 4px 4px 0 0 rgba(255, 255, 255, 0.7) !important;
   }
 
-  .theme-retro .action-bar-left{
+  .theme-retro .action-bar-left {
     width: 100%;
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 8px;
   }
 
-  .theme-retro .action-bar-left .action-btn{
+  .theme-retro .action-bar-left .action-btn {
     width: 100%;
     justify-content: center;
     min-height: 44px !important; /* Touch-friendly */
   }
 
   /* 刷新按钮独占一行 */
-  .theme-retro .action-bar-left .action-btn:nth-child(3){
+  .theme-retro .action-bar-left .action-btn:nth-child(3) {
     grid-column: 1 / -1;
   }
 
-  .theme-retro .action-bar-right{
+  .theme-retro .action-bar-right {
     width: 100%;
   }
 
-  .theme-retro .action-bar-right .load-balance-btn{
+  .theme-retro .action-bar-right .load-balance-btn {
     width: 100%;
     justify-content: center;
   }
 
   /* --- 渠道编排容器 --- */
-  .theme-retro .channel-orchestration .v-card-title{
+  .theme-retro .channel-orchestration .v-card-title {
     display: none !important;
   }
 
-  .theme-retro .channel-orchestration > .v-divider{
+  .theme-retro .channel-orchestration > .v-divider {
     display: none !important;
   }
 
   /* 隐藏"故障转移序列"标题区域 */
-  .theme-retro .channel-orchestration .px-4.pt-3.pb-2 > .d-flex.mb-2{
+  .theme-retro .channel-orchestration .px-4.pt-3.pb-2 > .d-flex.mb-2 {
     display: none !important;
   }
 
   /* --- 渠道列表卡片化 --- */
-  .theme-retro .channel-list .channel-row:active{
+  .theme-retro .channel-list .channel-row:active {
     transform: translate(2px, 2px);
     box-shadow: none !important;
     transition: transform 0.1s;
   }
 
   /* --- 通用优化 --- */
-  .theme-retro .v-chip{
+  .theme-retro .v-chip {
     font-weight: 600;
     border: 1px solid rgb(var(--v-theme-on-surface));
     text-transform: uppercase;
   }
 
-  .theme-retro .v-theme--dark .v-chip{
+  .theme-retro .v-theme--dark .v-chip {
     border-color: rgba(255, 255, 255, 0.5);
   }
 
   /* 隐藏分割线 */
-  .theme-retro .channel-orchestration .v-divider{
+  .theme-retro .channel-orchestration .v-divider {
     display: none !important;
   }
 }
 
 /* 心跳动画 - 简化为简单闪烁 */
-.theme-retro .pulse-animation{
+.theme-retro .pulse-animation {
   animation: pixel-blink 1s step-end infinite;
 }
 
@@ -2382,43 +2454,43 @@ onUnmounted(() => {
 
 /* ----- 响应式调整 ----- */
 @media (min-width: 768px) {
-  .theme-retro .app-header{
+  .theme-retro .app-header {
     padding: 0 24px !important;
   }
 }
 
 @media (min-width: 1024px) {
-  .theme-retro .app-header{
+  .theme-retro .app-header {
     padding: 0 32px !important;
   }
 }
 
 /* ----- 渠道列表动画 ----- */
-.theme-retro .d-contents{
+.theme-retro .d-contents {
   display: contents;
 }
 
-.theme-retro .channel-col{
+.theme-retro .channel-col {
   transition: all 0.2s ease;
   max-width: 640px;
 }
 
-.theme-retro .channel-list-enter-active, 
-.theme-retro .channel-list-leave-active{
+.theme-retro .channel-list-enter-active,
+.theme-retro .channel-list-leave-active {
   transition: all 0.2s ease;
 }
 
-.theme-retro .channel-list-enter-from{
+.theme-retro .channel-list-enter-from {
   opacity: 0;
   transform: translateY(10px);
 }
 
-.theme-retro .channel-list-leave-to{
+.theme-retro .channel-list-leave-to {
   opacity: 0;
   transform: translateY(-10px);
 }
 
-.theme-retro .channel-list-move{
+.theme-retro .channel-list-move {
   transition: transform 0.2s ease;
 }
 
@@ -2493,7 +2565,9 @@ onUnmounted(() => {
 /* Stat cards - minimal with soft shadows */
 .theme-minimal .stat-card {
   border: none !important;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+  box-shadow:
+    0 4px 6px -1px rgba(0, 0, 0, 0.1),
+    0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
   border-radius: 12px !important;
   transition: all 0.2s ease !important;
   padding: 20px 24px !important;
@@ -2501,7 +2575,9 @@ onUnmounted(() => {
 
 .theme-minimal .stat-card:hover {
   transform: translateY(-2px) !important;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+  box-shadow:
+    0 10px 15px -3px rgba(0, 0, 0, 0.1),
+    0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
 }
 
 .theme-minimal .stat-card:active {
@@ -2588,7 +2664,9 @@ onUnmounted(() => {
   background: rgb(var(--v-theme-surface));
   border-radius: 16px;
   padding: 16px;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  box-shadow:
+    0 4px 6px -1px rgba(0, 0, 0, 0.1),
+    0 2px 4px -1px rgba(0, 0, 0, 0.06);
 }
 
 .theme-minimal .stats-container .stat-cards-row {
@@ -2725,71 +2803,71 @@ onUnmounted(() => {
    Retro Pixel Theme - 复古像素主题
    Only applied when data-theme="retro"
    ========================================= */
-[data-theme="retro"] .v-application {
+[data-theme='retro'] .v-application {
   font-family: 'Courier New', Consolas, 'Liberation Mono', monospace !important;
 }
 
 /* Retro Light - cream background */
-[data-theme="retro"] .v-theme--light .v-main {
+[data-theme='retro'] .v-theme--light .v-main {
   background-color: #fffbeb !important;
 }
 
-[data-theme="retro"] .v-btn:not(.v-btn--icon) {
+[data-theme='retro'] .v-btn:not(.v-btn--icon) {
   border-radius: 0 !important;
   text-transform: uppercase !important;
   font-weight: 600 !important;
 }
 
-[data-theme="retro"] .v-card {
+[data-theme='retro'] .v-card {
   border-radius: 0 !important;
 }
 
-[data-theme="retro"] .v-chip {
+[data-theme='retro'] .v-chip {
   border-radius: 0 !important;
   font-weight: 600;
   text-transform: uppercase;
 }
 
-[data-theme="retro"] .v-text-field .v-field {
+[data-theme='retro'] .v-text-field .v-field {
   border-radius: 0 !important;
 }
 
-[data-theme="retro"] .v-dialog .v-card {
+[data-theme='retro'] .v-dialog .v-card {
   border: 2px solid currentColor !important;
   box-shadow: 6px 6px 0 0 currentColor !important;
 }
 
-[data-theme="retro"] .v-menu > .v-overlay__content > .v-list {
+[data-theme='retro'] .v-menu > .v-overlay__content > .v-list {
   border-radius: 0 !important;
   border: 2px solid rgb(var(--v-theme-on-surface)) !important;
   box-shadow: 4px 4px 0 0 rgb(var(--v-theme-on-surface)) !important;
 }
 
-[data-theme="retro"] .v-theme--dark .v-menu > .v-overlay__content > .v-list {
+[data-theme='retro'] .v-theme--dark .v-menu > .v-overlay__content > .v-list {
   border-color: rgba(255, 255, 255, 0.7) !important;
   box-shadow: 4px 4px 0 0 rgba(255, 255, 255, 0.7) !important;
 }
 
-[data-theme="retro"] .v-snackbar__wrapper {
+[data-theme='retro'] .v-snackbar__wrapper {
   border-radius: 0 !important;
   border: 2px solid currentColor !important;
   box-shadow: 4px 4px 0 0 currentColor !important;
 }
 
-[data-theme="retro"] .status-badge .badge-content {
+[data-theme='retro'] .status-badge .badge-content {
   border-radius: 0 !important;
   border: 1px solid rgb(var(--v-theme-on-surface));
 }
 
-[data-theme="retro"] .v-theme--dark .status-badge .badge-content {
+[data-theme='retro'] .v-theme--dark .status-badge .badge-content {
   border-color: rgba(255, 255, 255, 0.6);
 }
 
-[data-theme="retro"] .v-dialog .backup-list {
+[data-theme='retro'] .v-dialog .backup-list {
   background: transparent !important;
 }
 
-[data-theme="retro"] .v-dialog .backup-list .v-list-item {
+[data-theme='retro'] .v-dialog .backup-list .v-list-item {
   border: 2px solid rgb(var(--v-theme-on-surface)) !important;
   box-shadow: 3px 3px 0 0 rgb(var(--v-theme-on-surface)) !important;
   border-radius: 0 !important;
@@ -2797,33 +2875,33 @@ onUnmounted(() => {
   font-family: 'Courier New', Consolas, monospace !important;
 }
 
-[data-theme="retro"] .v-theme--dark .v-dialog .backup-list .v-list-item {
+[data-theme='retro'] .v-theme--dark .v-dialog .backup-list .v-list-item {
   border-color: rgba(255, 255, 255, 0.7) !important;
   box-shadow: 3px 3px 0 0 rgba(255, 255, 255, 0.7) !important;
 }
 
-[data-theme="retro"] .v-dialog .backup-list .v-list-item:hover {
+[data-theme='retro'] .v-dialog .backup-list .v-list-item:hover {
   transform: translate(-1px, -1px);
   box-shadow: 4px 4px 0 0 rgb(var(--v-theme-on-surface)) !important;
 }
 
-[data-theme="retro"] .v-theme--dark .v-dialog .backup-list .v-list-item:hover {
+[data-theme='retro'] .v-theme--dark .v-dialog .backup-list .v-list-item:hover {
   box-shadow: 4px 4px 0 0 rgba(255, 255, 255, 0.7) !important;
 }
 
-[data-theme="retro"] .v-dialog .backup-list .v-list-item-title,
-[data-theme="retro"] .v-dialog .backup-list .v-list-item-subtitle {
+[data-theme='retro'] .v-dialog .backup-list .v-list-item-title,
+[data-theme='retro'] .v-dialog .backup-list .v-list-item-subtitle {
   font-family: 'Courier New', Consolas, monospace !important;
 }
 
-[data-theme="retro"] .v-menu > .v-overlay__content > .v-list .v-list-item-title {
+[data-theme='retro'] .v-menu > .v-overlay__content > .v-list .v-list-item-title {
   font-family: 'Courier New', Consolas, monospace !important;
   font-weight: 600 !important;
   text-transform: uppercase !important;
   font-size: 0.85rem !important;
 }
 
-[data-theme="retro"] .v-dialog .v-card-title {
+[data-theme='retro'] .v-dialog .v-card-title {
   font-family: 'Courier New', Consolas, monospace !important;
   font-weight: 700 !important;
   text-transform: uppercase !important;
@@ -2834,17 +2912,25 @@ onUnmounted(() => {
    Minimal Theme - 简约主题
    Clean, modern styling with soft shadows
    ========================================= */
-[data-theme="minimal"] .v-application {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+[data-theme='minimal'] .v-application {
+  font-family:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    sans-serif !important;
 }
 
-[data-theme="minimal"] .v-card {
+[data-theme='minimal'] .v-card {
   border-radius: 12px !important;
   border: none !important;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+  box-shadow:
+    0 4px 6px -1px rgba(0, 0, 0, 0.1),
+    0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
 }
 
-[data-theme="minimal"] .v-btn:not(.v-btn--icon) {
+[data-theme='minimal'] .v-btn:not(.v-btn--icon) {
   border-radius: 8px !important;
   text-transform: none !important;
   font-weight: 500 !important;
@@ -2852,43 +2938,43 @@ onUnmounted(() => {
   box-shadow: none !important;
 }
 
-[data-theme="minimal"] .v-chip {
+[data-theme='minimal'] .v-chip {
   border-radius: 16px !important;
   font-weight: 500;
   text-transform: none;
   border: none !important;
 }
 
-[data-theme="minimal"] .v-text-field .v-field {
+[data-theme='minimal'] .v-text-field .v-field {
   border-radius: 8px !important;
 }
 
-[data-theme="minimal"] .v-dialog .v-card {
+[data-theme='minimal'] .v-dialog .v-card {
   border: none !important;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25) !important;
   border-radius: 16px !important;
 }
 
-[data-theme="minimal"] .v-menu > .v-overlay__content > .v-list {
+[data-theme='minimal'] .v-menu > .v-overlay__content > .v-list {
   border-radius: 12px !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3) !important;
 }
 
-[data-theme="minimal"] .v-snackbar__wrapper {
+[data-theme='minimal'] .v-snackbar__wrapper {
   border-radius: 12px !important;
   border: none !important;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3) !important;
 }
 
-[data-theme="minimal"] .v-dialog .backup-list .v-list-item {
+[data-theme='minimal'] .v-dialog .backup-list .v-list-item {
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
   box-shadow: none !important;
   border-radius: 8px !important;
   margin-bottom: 8px !important;
 }
 
-[data-theme="minimal"] .v-dialog .backup-list .v-list-item:hover {
+[data-theme='minimal'] .v-dialog .backup-list .v-list-item:hover {
   transform: none !important;
   background: rgba(255, 255, 255, 0.05) !important;
 }
