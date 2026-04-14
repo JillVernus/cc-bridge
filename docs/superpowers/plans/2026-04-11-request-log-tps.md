@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add post-first-token TPS to the request log table and request details modal using existing request-log fields.
+**Goal:** Add end-to-end TPS to the request log table and request details modal using existing request-log fields.
 
-**Architecture:** Introduce a small shared frontend helper that computes TPS from `outputTokens`, `durationMs`, and `firstTokenDurationMs`, then reuse it in both UI surfaces. Keep the change frontend-only to avoid redundant persisted data and backend payload churn.
+**Architecture:** Introduce a small shared frontend helper that computes TPS from `outputTokens` and `durationMs`, then reuse it in both UI surfaces. Keep the change frontend-only to avoid redundant persisted data and backend payload churn.
 
 **Tech Stack:** Vue 3, TypeScript, vue-tsc, Bun
 
@@ -22,8 +22,8 @@
 Add a small test file that covers:
 - valid completed request computes expected TPS
 - pending request returns null
-- missing `firstTokenDurationMs` returns null
-- invalid timing window returns null
+- missing `firstTokenDurationMs` still computes TPS when `durationMs` exists
+- zero or negative total duration returns null
 - zero `outputTokens` returns null
 
 - [ ] **Step 2: Run test to verify it fails**

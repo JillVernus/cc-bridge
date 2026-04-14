@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import { calculateRequestLogStreamingDurationMs, calculateRequestLogTps, formatRequestLogDurationCompact, formatRequestLogTps } from './requestLogTps'
 
 describe('requestLogTps', () => {
-  test('calculates post-first-token TPS for a completed request', () => {
+  test('calculates end-to-end TPS for a completed request', () => {
     const tps = calculateRequestLogTps({
       status: 'completed',
       stream: true,
@@ -12,8 +12,8 @@ describe('requestLogTps', () => {
       firstTokenDurationMs: 2000
     })
 
-    expect(tps).toBe(40)
-    expect(formatRequestLogTps(tps)).toBe('40.0')
+    expect(tps).toBe(24)
+    expect(formatRequestLogTps(tps)).toBe('24.0')
     expect(
       calculateRequestLogStreamingDurationMs({
         status: 'completed',
@@ -37,7 +37,7 @@ describe('requestLogTps', () => {
     ).toBeNull()
   })
 
-  test('returns null when first-token timing is missing', () => {
+  test('does not require first-token timing to calculate TPS', () => {
     expect(
       calculateRequestLogTps({
         status: 'completed',
@@ -45,16 +45,26 @@ describe('requestLogTps', () => {
         outputTokens: 120,
         durationMs: 5000
       })
-    ).toBeNull()
+    ).toBe(24)
   })
 
-  test('returns null when generation window is zero or negative', () => {
+  test('returns null when total duration is zero or negative', () => {
     expect(
       calculateRequestLogTps({
         status: 'completed',
         stream: true,
         outputTokens: 120,
-        durationMs: 2000,
+        durationMs: 0,
+        firstTokenDurationMs: 2000
+      })
+    ).toBeNull()
+
+    expect(
+      calculateRequestLogTps({
+        status: 'completed',
+        stream: true,
+        outputTokens: 120,
+        durationMs: -1,
         firstTokenDurationMs: 2000
       })
     ).toBeNull()
@@ -73,7 +83,7 @@ describe('requestLogTps', () => {
     expect(formatRequestLogTps(null)).toBe('-')
   })
 
-  test('returns null streaming duration and TPS for non-streaming requests', () => {
+  test('returns null streaming duration for non-streaming requests but still calculates TPS', () => {
     expect(
       calculateRequestLogStreamingDurationMs({
         status: 'completed',
@@ -91,7 +101,7 @@ describe('requestLogTps', () => {
         durationMs: 5000,
         firstTokenDurationMs: 2000
       })
-    ).toBeNull()
+    ).toBe(24)
   })
 
   test('formats compact durations as ms below one second and seconds above it', () => {

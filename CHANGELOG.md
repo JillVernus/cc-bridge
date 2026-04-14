@@ -35,7 +35,7 @@
 - **请求日志新增 Domain、有效 Service Tier 与 TPS 可观测性**:
   - 请求详情弹窗的 Metadata 标签页新增 `Domain`、`Effective Service Tier` 与 `Proxy Override` 展示，便于直接确认请求域名与代理对 `service_tier` 的覆盖结果。
   - 请求日志表格新增紧凑的 `Timing` 指标矩阵，统一展示首 Token、总耗时、流式耗时与 TPS，并在弹窗中补充 TPS 行。
-  - 新增基于现有日志字段的前端 TPS 计算与格式化逻辑，无需后端 schema 迁移即可实时显示生成吞吐。
+  - 新增基于现有日志字段的前端 TPS 计算与格式化逻辑，无需后端 schema 迁移即可实时显示基于总耗时的输出吞吐。
 
 ### 🐛 修复
 

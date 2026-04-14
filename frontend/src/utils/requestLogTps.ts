@@ -24,12 +24,12 @@ export const calculateRequestLogTps = (item: RequestLogTpsSource): number | null
   if (!item || item.status === 'pending') return null
 
   const outputTokens = item.outputTokens ?? 0
-  const generationWindowMs = calculateRequestLogStreamingDurationMs(item)
+  const durationMs = item.durationMs ?? 0
 
   if (outputTokens <= 0) return null
-  if (generationWindowMs === null) return null
+  if (durationMs <= 0) return null
 
-  return outputTokens / (generationWindowMs / 1000)
+  return outputTokens / (durationMs / 1000)
 }
 
 export const formatRequestLogDurationCompact = (ms: number | null): string => {

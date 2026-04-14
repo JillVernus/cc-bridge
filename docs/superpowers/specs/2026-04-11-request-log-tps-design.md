@@ -2,7 +2,7 @@
 
 ## Goal
 
-Add a `tokens per second` metric to the request log UI so users can quickly compare post-first-token generation speed in both the main request log table and the request details modal.
+Add a `tokens per second` metric to the request log UI so users can quickly compare end-to-end output throughput in both the main request log table and the request details modal.
 
 ## Scope
 
@@ -13,18 +13,17 @@ Add a `tokens per second` metric to the request log UI so users can quickly comp
 
 ## Metric Definition
 
-TPS means post-first-token generation throughput only.
+TPS means end-to-end output throughput over the full request duration.
 
 Formula:
 
-`TPS = outputTokens / ((durationMs - firstTokenDurationMs) / 1000)`
+`TPS = outputTokens / (durationMs / 1000)`
 
 Guardrails:
 
 - Show `-` for pending requests.
 - Show `-` when `outputTokens <= 0`.
-- Show `-` when `firstTokenDurationMs` is missing.
-- Show `-` when `durationMs <= firstTokenDurationMs`.
+- Show `-` when `durationMs <= 0`.
 
 Display format:
 
@@ -39,7 +38,6 @@ This approach avoids backend changes because the necessary source fields already
 
 - `outputTokens`
 - `durationMs`
-- `firstTokenDurationMs`
 - `status`
 
 ## UI Placement
@@ -50,7 +48,7 @@ Add a new `TPS` column near the existing timing columns so users can read:
 
 - first token latency
 - total duration
-- generation throughput
+- end-to-end output throughput
 
 The cell should show:
 
@@ -71,8 +69,8 @@ Because the frontend currently does not have a component test harness, add focus
 
 - valid completed request returns expected TPS
 - pending request returns null
-- missing first-token timing returns null
-- zero or negative post-first-token generation window returns null
+- missing first-token timing still returns expected TPS when total duration exists
+- zero or negative total duration returns null
 - zero output tokens returns null
 
 Then run frontend type-checking to verify the component integrations.
