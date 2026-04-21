@@ -865,8 +865,18 @@ const fetchOAuthQuotas = async () => {
     })
   )
 
-  // Update quotas
+  // Preserve the last known quota snapshot for currently visible OAuth channels.
+  // During reorders/status transitions, one or more fetches can fail transiently;
+  // replacing the whole map would make the bar disappear even though we still
+  // have valid quota data from moments earlier.
+  const activeQuotaKeys = new Set(oauthChannels.map(getQuotaKey))
   const newQuotas: Record<string, QuotaInfo> = {}
+  for (const [key, quota] of Object.entries(channelQuotas.value)) {
+    if (activeQuotaKeys.has(key)) {
+      newQuotas[key] = quota
+    }
+  }
+
   for (const result of results) {
     if (result.status === 'fulfilled' && result.value) {
       newQuotas[result.value.key] = result.value.quota

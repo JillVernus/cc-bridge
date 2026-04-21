@@ -365,9 +365,13 @@ func (m *Manager) GetStatus(channelID int) *QuotaStatus {
 }
 
 // GetStatusForChannel returns quota status for a channel index/name pair.
-// It protects against stale index remapping by validating channel name.
-// If index lookup mismatches the expected name, it attempts to locate by name
-// and remap the in-memory key to the current channel index.
+// It protects against stale index remapping by validating channel name and,
+// when needed, falls back to a name-based lookup.
+//
+// This method is intentionally read-only. Reorders and DB reloads can cause
+// two channels to temporarily "swap" indices while in-flight requests still
+// report quota updates using the previous index. Mutating the map during read
+// lookups can destroy the other channel's cached quota state.
 func (m *Manager) GetStatusForChannel(channelID int, channelName string) *QuotaStatus {
 	if m == nil {
 		return nil
@@ -375,17 +379,17 @@ func (m *Manager) GetStatusForChannel(channelID int, channelName string) *QuotaS
 
 	name := strings.TrimSpace(channelName)
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
 	if status, exists := m.quotas[channelID]; exists {
 		// Fast path: channel identity matches or cannot be validated.
 		if name == "" || status.ChannelName == "" || status.ChannelName == name {
-			if status.ChannelName == "" && name != "" {
-				status.ChannelName = name
-				m.persist(status)
+			cloned := cloneStatus(status)
+			if cloned != nil && cloned.ChannelName == "" && name != "" {
+				cloned.ChannelName = name
 			}
-			return cloneStatus(status)
+			return cloned
 		}
 	}
 
@@ -394,37 +398,30 @@ func (m *Manager) GetStatusForChannel(channelID int, channelName string) *QuotaS
 	}
 
 	// Slow path: find best status with matching channel name and remap.
-	matchID := -1
 	var match *QuotaStatus
 	var matchUpdatedAt time.Time
-	for id, candidate := range m.quotas {
+	for _, candidate := range m.quotas {
 		if candidate == nil || candidate.ChannelName != name {
 			continue
 		}
 		candidateUpdatedAt := statusUpdatedAt(candidate)
 		if match == nil || candidateUpdatedAt.After(matchUpdatedAt) {
 			match = candidate
-			matchID = id
 			matchUpdatedAt = candidateUpdatedAt
 		}
 	}
 
 	if match == nil {
-		// Avoid returning stale data for the wrong channel.
-		delete(m.quotas, channelID)
 		return nil
 	}
 
-	remapped := *match
-	remapped.ChannelID = channelID
-	remapped.ChannelName = name
-	m.quotas[channelID] = &remapped
-	if matchID >= 0 && matchID != channelID {
-		delete(m.quotas, matchID)
+	cloned := cloneStatus(match)
+	if cloned == nil {
+		return nil
 	}
-	m.persist(&remapped)
-
-	return cloneStatus(&remapped)
+	cloned.ChannelID = channelID
+	cloned.ChannelName = name
+	return cloned
 }
 
 func cloneStatus(status *QuotaStatus) *QuotaStatus {

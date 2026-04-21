@@ -32,7 +32,7 @@ func TestGetStatusForChannel_MatchByIDAndName(t *testing.T) {
 	}
 }
 
-func TestGetStatusForChannel_RemapByNameWithLatestTimestamp(t *testing.T) {
+func TestGetStatusForChannel_LookupByNameWithLatestTimestamp(t *testing.T) {
 	m := &Manager{
 		quotas: make(map[int]*QuotaStatus),
 	}
@@ -68,13 +68,6 @@ func TestGetStatusForChannel_RemapByNameWithLatestTimestamp(t *testing.T) {
 	if got.CodexQuota == nil || got.CodexQuota.PrimaryUsedPercent != 12 {
 		t.Fatalf("expected latest quota payload to be selected, got %+v", got.CodexQuota)
 	}
-
-	if _, exists := m.quotas[9]; !exists {
-		t.Fatalf("expected remapped status to be stored at new channel index")
-	}
-	if _, exists := m.quotas[4]; exists {
-		t.Fatalf("expected previous matched index to be cleaned up")
-	}
 }
 
 func TestGetStatusForChannel_RejectsMismatchedStaleEntry(t *testing.T) {
@@ -95,8 +88,39 @@ func TestGetStatusForChannel_RejectsMismatchedStaleEntry(t *testing.T) {
 	if got != nil {
 		t.Fatalf("expected nil for stale mismatched entry, got %+v", got)
 	}
+}
 
-	if _, exists := m.quotas[3]; exists {
-		t.Fatalf("expected stale mismatched entry to be removed")
+func TestGetStatusForChannel_SwappedIndicesDoNotDestroyOtherChannelState(t *testing.T) {
+	m := &Manager{
+		quotas: make(map[int]*QuotaStatus),
+	}
+
+	now := time.Now()
+	m.quotas[4] = &QuotaStatus{
+		ChannelID:   4,
+		ChannelName: "oauth-a",
+		CodexQuota: &CodexQuotaInfo{
+			PrimaryUsedPercent: 25,
+			UpdatedAt:          now.Add(-1 * time.Minute),
+		},
+	}
+	m.quotas[7] = &QuotaStatus{
+		ChannelID:   7,
+		ChannelName: "oauth-b",
+		CodexQuota: &CodexQuotaInfo{
+			PrimaryUsedPercent: 65,
+			UpdatedAt:          now,
+		},
+	}
+
+	// Simulate a reorder or DB reload that swaps the current indices.
+	gotA := m.GetStatusForChannel(7, "oauth-a")
+	if gotA == nil || gotA.CodexQuota == nil || gotA.CodexQuota.PrimaryUsedPercent != 25 {
+		t.Fatalf("expected oauth-a quota after swap, got %+v", gotA)
+	}
+
+	gotB := m.GetStatusForChannel(4, "oauth-b")
+	if gotB == nil || gotB.CodexQuota == nil || gotB.CodexQuota.PrimaryUsedPercent != 65 {
+		t.Fatalf("expected oauth-b quota after swap, got %+v", gotB)
 	}
 }
