@@ -59,7 +59,7 @@
               </div>
 
               <!-- 状态指示器 -->
-              <ChannelStatusBadge :status="element.status || 'active'" :metrics="getChannelMetrics(element.index)" />
+              <ChannelStatusBadge :status="element.status || 'active'" :metrics="getChannelMetrics(element)" />
 
               <!-- 渠道名称和描述 -->
               <div class="channel-name">
@@ -97,7 +97,7 @@
                 <div class="recent-calls-display">
                   <div class="recent-calls-blocks">
                     <template
-                      v-for="(call, callIndex) in getRecentCalls(element.index)"
+                      v-for="(call, callIndex) in getRecentCalls(element)"
                       :key="`${element.index}-${callIndex}`"
                     >
                       <v-tooltip location="top" :open-delay="120">
@@ -126,7 +126,7 @@
                       </v-tooltip>
                     </template>
                   </div>
-                  <span class="recent-calls-rate">{{ getRecentSuccessRate(element.index) }}</span>
+                  <span class="recent-calls-rate">{{ getRecentSuccessRate(element) }}</span>
                 </div>
               </div>
 
@@ -1006,8 +1006,15 @@ const initActiveChannels = () => {
 watch(() => props.channels, initActiveChannels, { immediate: true, deep: true })
 
 // 获取渠道指标
-const getChannelMetrics = (channelIndex: number): ChannelMetrics | undefined => {
-  return metrics.value.find(m => m.channelIndex === channelIndex)
+const getChannelMetrics = (channel: Channel): ChannelMetrics | undefined => {
+  if (channel.id && channel.id.trim().length > 0) {
+    const byStableID = metrics.value.find(m => m.channelId === channel.id)
+    if (byStableID) {
+      return byStableID
+    }
+  }
+
+  return metrics.value.find(m => m.channelIndex === channel.index)
 }
 
 const recentCallsLimit = 20
@@ -1021,14 +1028,14 @@ type RecentCallSlot = {
   routedChannelName?: string
 }
 
-const getRecentCalls = (channelIndex: number): RecentCallSlot[] => {
+const getRecentCalls = (channel: Channel): RecentCallSlot[] => {
   if (showGreyPlaceholder.value) {
     return Array.from({ length: recentCallsLimit }, () => ({
       state: 'unused' as const
     }))
   }
 
-  const recentCalls = getChannelMetrics(channelIndex)?.recentCalls ?? []
+  const recentCalls = getChannelMetrics(channel)?.recentCalls ?? []
   const normalizedCalls: RecentCallSlot[] = recentCalls.slice(-recentCallsLimit).map((call: RecentCallStat) => ({
     state: call.success ? 'success' : 'failure',
     statusCode: call.statusCode,
@@ -1048,8 +1055,8 @@ const getRecentCalls = (channelIndex: number): RecentCallSlot[] => {
   return [...leadingUnused, ...normalizedCalls]
 }
 
-const getRecentSuccessRate = (channelIndex: number): string => {
-  const recentCalls = getChannelMetrics(channelIndex)?.recentCalls?.slice(-recentCallsLimit) ?? []
+const getRecentSuccessRate = (channel: Channel): string => {
+  const recentCalls = getChannelMetrics(channel)?.recentCalls?.slice(-recentCallsLimit) ?? []
   if (recentCalls.length === 0) return '0%'
 
   const successCount = recentCalls.filter(call => call.success).length

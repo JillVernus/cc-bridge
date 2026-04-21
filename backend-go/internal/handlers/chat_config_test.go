@@ -51,6 +51,7 @@ func TestGetChatChannelMetrics_ReturnsSharedMetricsShape(t *testing.T) {
 
 	var resp []struct {
 		ChannelIndex        int                    `json:"channelIndex"`
+		ChannelID           string                 `json:"channelId"`
 		RequestCount        int64                  `json:"requestCount"`
 		SuccessCount        int64                  `json:"successCount"`
 		FailureCount        int64                  `json:"failureCount"`
@@ -71,6 +72,9 @@ func TestGetChatChannelMetrics_ReturnsSharedMetricsShape(t *testing.T) {
 	item := resp[0]
 	if item.ChannelIndex != 0 {
 		t.Fatalf("expected channelIndex 0, got %d", item.ChannelIndex)
+	}
+	if item.ChannelID != "chat-primary" {
+		t.Fatalf("expected channelId chat-primary, got %q", item.ChannelID)
 	}
 	if item.RequestCount != 1 || item.SuccessCount != 1 || item.FailureCount != 0 {
 		t.Fatalf("unexpected counters: %+v", item)

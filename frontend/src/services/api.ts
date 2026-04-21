@@ -54,6 +54,7 @@ export interface RecentCallStat {
 
 export interface ChannelMetrics {
   channelIndex: number
+  channelId?: string
   requestCount: number
   successCount: number
   failureCount: number
@@ -258,6 +259,7 @@ const normalizeChannelMetricsEntry = (entry: Record<string, unknown>): ChannelMe
 
   return {
     channelIndex: asFiniteNumber(entry.channelIndex, asFiniteNumber(entry.index)),
+    channelId: typeof entry.channelId === 'string' && entry.channelId.trim() ? entry.channelId.trim() : undefined,
     requestCount: asFiniteNumber(entry.requestCount),
     successCount: asFiniteNumber(entry.successCount),
     failureCount: asFiniteNumber(entry.failureCount),

@@ -54,6 +54,7 @@ func getChannelMetricsByType(metricsManager *metrics.MetricsManager, cfgManager 
 
 			item := gin.H{
 				"channelIndex":        m.ChannelIndex,
+				"channelId":           strings.TrimSpace(m.ChannelID),
 				"requestCount":        m.RequestCount,
 				"successCount":        m.SuccessCount,
 				"failureCount":        m.FailureCount,

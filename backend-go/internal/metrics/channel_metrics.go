@@ -27,6 +27,7 @@ type RecentCall struct {
 // ChannelMetrics 渠道指标
 type ChannelMetrics struct {
 	ChannelIndex        int          `json:"channelIndex"`
+	ChannelID           string       `json:"channelId,omitempty"`
 	RequestCount        int64        `json:"requestCount"`
 	SuccessCount        int64        `json:"successCount"`
 	FailureCount        int64        `json:"failureCount"`
@@ -655,6 +656,7 @@ func (m *MetricsManager) GetMetrics(channelIndex int) *ChannelMetrics {
 		// 返回副本
 		return &ChannelMetrics{
 			ChannelIndex:        metrics.ChannelIndex,
+			ChannelID:           strings.TrimSpace(metrics.boundChannelID),
 			RequestCount:        metrics.RequestCount,
 			SuccessCount:        metrics.SuccessCount,
 			FailureCount:        metrics.FailureCount,
@@ -679,6 +681,7 @@ func (m *MetricsManager) GetAllMetrics() []*ChannelMetrics {
 		copy(recentCalls, metrics.RecentCalls)
 		result = append(result, &ChannelMetrics{
 			ChannelIndex:        metrics.ChannelIndex,
+			ChannelID:           strings.TrimSpace(metrics.boundChannelID),
 			RequestCount:        metrics.RequestCount,
 			SuccessCount:        metrics.SuccessCount,
 			FailureCount:        metrics.FailureCount,
