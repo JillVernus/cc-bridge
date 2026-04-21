@@ -55,9 +55,14 @@ type updateUpstreamRequest struct {
 }
 
 func findResponsesUpstreamByID(cfgManager *config.ConfigManager, channelID string) (*config.UpstreamConfig, bool) {
+	found, _, ok := findResponsesUpstreamByIDWithIndex(cfgManager, channelID)
+	return found, ok
+}
+
+func findResponsesUpstreamByIDWithIndex(cfgManager *config.ConfigManager, channelID string) (*config.UpstreamConfig, int, bool) {
 	targetID := strings.TrimSpace(channelID)
 	if targetID == "" {
-		return nil, false
+		return nil, -1, false
 	}
 
 	cfg := cfgManager.GetConfig()
@@ -67,10 +72,10 @@ func findResponsesUpstreamByID(cfgManager *config.ConfigManager, channelID strin
 		}
 
 		found := cfg.ResponsesUpstream[i]
-		return &found, true
+		return &found, i, true
 	}
 
-	return nil, false
+	return nil, -1, false
 }
 
 func applyResponsesImportToMessagesCreate(
@@ -1248,140 +1253,161 @@ func GetResponsesChannelOAuthStatus(cfgManager *config.ConfigManager) gin.Handle
 			return
 		}
 
-		upstream := cfg.ResponsesUpstream[id]
+		writeResponsesChannelOAuthStatus(c, id, &cfg.ResponsesUpstream[id])
+	}
+}
 
-		// Only openai-oauth channels have OAuth tokens
-		if upstream.ServiceType != "openai-oauth" {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error":       "Channel is not an OAuth channel",
-				"serviceType": upstream.ServiceType,
-			})
+// GetResponsesChannelOAuthStatusByChannelID returns the OAuth status for a Responses channel using its stable channel ID.
+func GetResponsesChannelOAuthStatusByChannelID(cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		channelID := c.Param("channelID")
+		upstream, index, ok := findResponsesUpstreamByIDWithIndex(cfgManager, channelID)
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Channel not found"})
 			return
 		}
 
-		// Check if OAuth tokens are configured
-		if upstream.OAuthTokens == nil {
-			c.JSON(http.StatusOK, gin.H{
-				"channelId":   id,
-				"channelName": upstream.Name,
-				"serviceType": upstream.ServiceType,
-				"configured":  false,
-				"message":     "OAuth tokens not configured",
-			})
-			return
-		}
+		writeResponsesChannelOAuthStatus(c, index, upstream)
+	}
+}
 
-		// Parse OAuth status from tokens
-		status, err := codex.ParseOAuthStatus(
-			upstream.OAuthTokens.IDToken,
-			upstream.OAuthTokens.AccessToken,
-			upstream.OAuthTokens.LastRefresh,
-		)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to parse OAuth status",
-			})
-			return
-		}
+func writeResponsesChannelOAuthStatus(c *gin.Context, channelIndex int, upstream *config.UpstreamConfig) {
+	if upstream == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Channel not found"})
+		return
+	}
 
-		// Build response with channel info and OAuth status
-		response := gin.H{
-			"channelId":   id,
+	// Only openai-oauth channels have OAuth tokens
+	if upstream.ServiceType != "openai-oauth" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":       "Channel is not an OAuth channel",
+			"serviceType": upstream.ServiceType,
+		})
+		return
+	}
+
+	// Check if OAuth tokens are configured
+	if upstream.OAuthTokens == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"channelId":   channelIndex,
 			"channelName": upstream.Name,
 			"serviceType": upstream.ServiceType,
-			"configured":  true,
-			"status":      status,
-		}
-
-		// Add token health indicators
-		if status.TokenExpiresAt != nil {
-			now := time.Now()
-			if status.TokenExpiresAt.Before(now) {
-				response["tokenStatus"] = "expired"
-			} else if status.TokenExpiresAt.Before(now.Add(5 * time.Minute)) {
-				response["tokenStatus"] = "expiring_soon"
-			} else {
-				response["tokenStatus"] = "valid"
-			}
-			response["tokenExpiresIn"] = int(status.TokenExpiresAt.Sub(now).Seconds())
-		}
-
-		// Add quota/rate limit information
-		// Use name-aware lookup to avoid stale quota data when channel indices are re-indexed.
-		if quotaStatus := quota.GetManager().GetStatusForChannel(id, upstream.Name); quotaStatus != nil {
-			quotaInfo := gin.H{}
-
-			// Codex-specific quota (primary/secondary windows)
-			if quotaStatus.CodexQuota != nil {
-				cq := quotaStatus.CodexQuota
-				codexQuotaInfo := gin.H{
-					"plan_type":              cq.PlanType,
-					"primary_used_percent":   cq.PrimaryUsedPercent,
-					"secondary_used_percent": cq.SecondaryUsedPercent,
-					"updated_at":             cq.UpdatedAt,
-				}
-				if cq.PrimaryWindowMinutes > 0 {
-					codexQuotaInfo["primary_window_minutes"] = cq.PrimaryWindowMinutes
-				}
-				if !cq.PrimaryResetAt.IsZero() {
-					codexQuotaInfo["primary_reset_at"] = cq.PrimaryResetAt
-				}
-				if cq.SecondaryWindowMinutes > 0 {
-					codexQuotaInfo["secondary_window_minutes"] = cq.SecondaryWindowMinutes
-				}
-				if !cq.SecondaryResetAt.IsZero() {
-					codexQuotaInfo["secondary_reset_at"] = cq.SecondaryResetAt
-				}
-				if cq.PrimaryOverSecondaryLimitPercent > 0 {
-					codexQuotaInfo["primary_over_secondary_limit_percent"] = cq.PrimaryOverSecondaryLimitPercent
-				}
-				codexQuotaInfo["credits_has_credits"] = cq.CreditsHasCredits
-				codexQuotaInfo["credits_unlimited"] = cq.CreditsUnlimited
-				if cq.CreditsBalance != "" {
-					codexQuotaInfo["credits_balance"] = cq.CreditsBalance
-				}
-				quotaInfo["codex_quota"] = codexQuotaInfo
-			}
-
-			// Standard OpenAI rate limits
-			if quotaStatus.RateLimit != nil {
-				rl := quotaStatus.RateLimit
-				rateLimitInfo := gin.H{
-					"updated_at": rl.UpdatedAt,
-				}
-				if rl.LimitRequests > 0 {
-					rateLimitInfo["limit_requests"] = rl.LimitRequests
-					rateLimitInfo["remaining_requests"] = rl.RemainingRequests
-					if !rl.ResetRequests.IsZero() {
-						rateLimitInfo["reset_requests"] = rl.ResetRequests
-					}
-				}
-				if rl.LimitTokens > 0 {
-					rateLimitInfo["limit_tokens"] = rl.LimitTokens
-					rateLimitInfo["remaining_tokens"] = rl.RemainingTokens
-					if !rl.ResetTokens.IsZero() {
-						rateLimitInfo["reset_tokens"] = rl.ResetTokens
-					}
-				}
-				quotaInfo["rate_limit"] = rateLimitInfo
-			}
-
-			if quotaStatus.IsExceeded {
-				quotaInfo["is_exceeded"] = true
-				quotaInfo["exceeded_at"] = quotaStatus.ExceededAt
-				quotaInfo["recover_at"] = quotaStatus.RecoverAt
-				if quotaStatus.ExceededReason != "" {
-					quotaInfo["exceeded_reason"] = quotaStatus.ExceededReason
-				}
-			}
-
-			if len(quotaInfo) > 0 {
-				response["quota"] = quotaInfo
-			}
-		}
-
-		c.JSON(http.StatusOK, response)
+			"configured":  false,
+			"message":     "OAuth tokens not configured",
+		})
+		return
 	}
+
+	// Parse OAuth status from tokens
+	status, err := codex.ParseOAuthStatus(
+		upstream.OAuthTokens.IDToken,
+		upstream.OAuthTokens.AccessToken,
+		upstream.OAuthTokens.LastRefresh,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to parse OAuth status",
+		})
+		return
+	}
+
+	// Build response with channel info and OAuth status
+	response := gin.H{
+		"channelId":   channelIndex,
+		"channelName": upstream.Name,
+		"serviceType": upstream.ServiceType,
+		"configured":  true,
+		"status":      status,
+	}
+
+	// Add token health indicators
+	if status.TokenExpiresAt != nil {
+		now := time.Now()
+		if status.TokenExpiresAt.Before(now) {
+			response["tokenStatus"] = "expired"
+		} else if status.TokenExpiresAt.Before(now.Add(5 * time.Minute)) {
+			response["tokenStatus"] = "expiring_soon"
+		} else {
+			response["tokenStatus"] = "valid"
+		}
+		response["tokenExpiresIn"] = int(status.TokenExpiresAt.Sub(now).Seconds())
+	}
+
+	// Add quota/rate limit information
+	// Use name-aware lookup to avoid stale quota data when channel indices are re-indexed.
+	if quotaStatus := quota.GetManager().GetStatusForChannel(channelIndex, upstream.Name); quotaStatus != nil {
+		quotaInfo := gin.H{}
+
+		// Codex-specific quota (primary/secondary windows)
+		if quotaStatus.CodexQuota != nil {
+			cq := quotaStatus.CodexQuota
+			codexQuotaInfo := gin.H{
+				"plan_type":              cq.PlanType,
+				"primary_used_percent":   cq.PrimaryUsedPercent,
+				"secondary_used_percent": cq.SecondaryUsedPercent,
+				"updated_at":             cq.UpdatedAt,
+			}
+			if cq.PrimaryWindowMinutes > 0 {
+				codexQuotaInfo["primary_window_minutes"] = cq.PrimaryWindowMinutes
+			}
+			if !cq.PrimaryResetAt.IsZero() {
+				codexQuotaInfo["primary_reset_at"] = cq.PrimaryResetAt
+			}
+			if cq.SecondaryWindowMinutes > 0 {
+				codexQuotaInfo["secondary_window_minutes"] = cq.SecondaryWindowMinutes
+			}
+			if !cq.SecondaryResetAt.IsZero() {
+				codexQuotaInfo["secondary_reset_at"] = cq.SecondaryResetAt
+			}
+			if cq.PrimaryOverSecondaryLimitPercent > 0 {
+				codexQuotaInfo["primary_over_secondary_limit_percent"] = cq.PrimaryOverSecondaryLimitPercent
+			}
+			codexQuotaInfo["credits_has_credits"] = cq.CreditsHasCredits
+			codexQuotaInfo["credits_unlimited"] = cq.CreditsUnlimited
+			if cq.CreditsBalance != "" {
+				codexQuotaInfo["credits_balance"] = cq.CreditsBalance
+			}
+			quotaInfo["codex_quota"] = codexQuotaInfo
+		}
+
+		// Standard OpenAI rate limits
+		if quotaStatus.RateLimit != nil {
+			rl := quotaStatus.RateLimit
+			rateLimitInfo := gin.H{
+				"updated_at": rl.UpdatedAt,
+			}
+			if rl.LimitRequests > 0 {
+				rateLimitInfo["limit_requests"] = rl.LimitRequests
+				rateLimitInfo["remaining_requests"] = rl.RemainingRequests
+				if !rl.ResetRequests.IsZero() {
+					rateLimitInfo["reset_requests"] = rl.ResetRequests
+				}
+			}
+			if rl.LimitTokens > 0 {
+				rateLimitInfo["limit_tokens"] = rl.LimitTokens
+				rateLimitInfo["remaining_tokens"] = rl.RemainingTokens
+				if !rl.ResetTokens.IsZero() {
+					rateLimitInfo["reset_tokens"] = rl.ResetTokens
+				}
+			}
+			quotaInfo["rate_limit"] = rateLimitInfo
+		}
+
+		if quotaStatus.IsExceeded {
+			quotaInfo["is_exceeded"] = true
+			quotaInfo["exceeded_at"] = quotaStatus.ExceededAt
+			quotaInfo["recover_at"] = quotaStatus.RecoverAt
+			if quotaStatus.ExceededReason != "" {
+				quotaInfo["exceeded_reason"] = quotaStatus.ExceededReason
+			}
+		}
+
+		if len(quotaInfo) > 0 {
+			response["quota"] = quotaInfo
+		}
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // GetDebugLogConfig 获取调试日志配置

@@ -8,7 +8,9 @@
         <v-chip v-if="isMultiChannelMode" size="small" color="success" variant="tonal" class="ml-3">
           {{ t('orchestration.multiChannelMode') }}
         </v-chip>
-        <v-chip v-else size="small" color="warning" variant="tonal" class="ml-3"> {{ t('orchestration.singleChannelMode') }} </v-chip>
+        <v-chip v-else size="small" color="warning" variant="tonal" class="ml-3">
+          {{ t('orchestration.singleChannelMode') }}
+        </v-chip>
       </div>
       <div class="d-flex align-center ga-2">
         <v-progress-circular v-if="isLoadingMetrics" indeterminate size="16" width="2" color="primary" />
@@ -34,7 +36,7 @@
       <!-- 拖拽列表 -->
       <draggable
         v-model="activeChannels"
-        item-key="index"
+        :item-key="getChannelItemKey"
         handle=".drag-handle"
         ghost-class="ghost"
         @change="onDragChange"
@@ -42,409 +44,471 @@
       >
         <template #item="{ element, index }">
           <div class="channel-item-wrapper">
-            <div class="channel-row" :class="{ 'is-suspended': element.status === 'suspended', 'has-quota-column': true }">
-            <!-- 拖拽手柄 -->
-            <div class="drag-handle">
-              <v-icon size="small" color="grey">mdi-drag-vertical</v-icon>
-            </div>
-
-            <!-- 优先级序号 -->
-            <div class="priority-number">
-              <span class="text-caption font-weight-bold">{{ index + 1 }}</span>
-            </div>
-
-            <!-- 状态指示器 -->
-            <ChannelStatusBadge :status="element.status || 'active'" :metrics="getChannelMetrics(element.index)" />
-
-            <!-- 渠道名称和描述 -->
-            <div class="channel-name">
-              <span class="font-weight-medium">{{ element.name }}</span>
-              <!-- 官网链接按钮 -->
-              <v-btn
-                :href="getWebsiteUrl(element)"
-                target="_blank"
-                rel="noopener"
-                icon
-                size="x-small"
-                variant="text"
-                color="primary"
-                class="ml-1"
-                :title="t('orchestration.openWebsite')"
-              >
-                <v-icon size="14">mdi-open-in-new</v-icon>
-              </v-btn>
-              <v-icon v-if="element.serviceType === 'claude' || element.serviceType === 'composite'" size="14" icon="custom:claude" class="ml-2" />
-              <v-icon v-else-if="element.serviceType === 'gemini'" size="14" icon="custom:gemini" class="ml-2" />
-              <v-icon v-else size="14" icon="custom:codex" class="ml-2" />
-              <span class="text-caption text-medium-emphasis ml-1">{{ element.serviceType }}</span>
-              <span v-if="element.description" class="text-caption text-disabled ml-3">{{ element.description }}</span>
-            </div>
-
-            <!-- 指标显示 -->
-            <div class="channel-metrics">
-              <div class="recent-calls-display">
-                <div class="recent-calls-blocks">
-                  <template v-for="(call, callIndex) in getRecentCalls(element.index)" :key="`${element.index}-${callIndex}`">
-                    <v-tooltip location="top" :open-delay="120">
-                      <template #activator="{ props: tooltipProps }">
-                        <span
-                          v-bind="tooltipProps"
-                          class="recent-call-block"
-                          :class="{
-                            'is-success': call.state === 'success',
-                            'is-failure': call.state === 'failure',
-                            'is-unused': call.state === 'unused'
-                          }"
-                        />
-                      </template>
-                      <div class="text-caption recent-call-tooltip">
-                        <div
-                          v-for="(line, lineIndex) in getRecentCallTooltipLines(call, element.serviceType === 'composite')"
-                          :key="`${element.index}-${callIndex}-${lineIndex}`"
-                        >
-                          {{ line }}
-                        </div>
-                      </div>
-                    </v-tooltip>
-                  </template>
-                </div>
-                <span class="recent-calls-rate">{{ getRecentSuccessRate(element.index) }}</span>
+            <div
+              class="channel-row"
+              :class="{ 'is-suspended': element.status === 'suspended', 'has-quota-column': true }"
+            >
+              <!-- 拖拽手柄 -->
+              <div class="drag-handle">
+                <v-icon size="small" color="grey">mdi-drag-vertical</v-icon>
               </div>
-            </div>
 
-            <!-- Inline Quota Bar (usage quota or OAuth quota) -->
-            <div class="channel-quota">
-              <!-- User-configured usage quota (requests/credit) -->
-              <template v-if="hasUsageQuota(element)">
-                <v-menu location="top" :close-on-content-click="false">
-                  <template #activator="{ props: menuProps }">
-                    <v-tooltip location="top" :open-delay="300">
-                      <template #activator="{ props: tooltipProps }">
-                        <div v-bind="{ ...menuProps, ...tooltipProps }" class="quota-bar-container">
+              <!-- 优先级序号 -->
+              <div class="priority-number">
+                <span class="text-caption font-weight-bold">{{ index + 1 }}</span>
+              </div>
+
+              <!-- 状态指示器 -->
+              <ChannelStatusBadge :status="element.status || 'active'" :metrics="getChannelMetrics(element.index)" />
+
+              <!-- 渠道名称和描述 -->
+              <div class="channel-name">
+                <span class="font-weight-medium">{{ element.name }}</span>
+                <!-- 官网链接按钮 -->
+                <v-btn
+                  :href="getWebsiteUrl(element)"
+                  target="_blank"
+                  rel="noopener"
+                  icon
+                  size="x-small"
+                  variant="text"
+                  color="primary"
+                  class="ml-1"
+                  :title="t('orchestration.openWebsite')"
+                >
+                  <v-icon size="14">mdi-open-in-new</v-icon>
+                </v-btn>
+                <v-icon
+                  v-if="element.serviceType === 'claude' || element.serviceType === 'composite'"
+                  size="14"
+                  icon="custom:claude"
+                  class="ml-2"
+                />
+                <v-icon v-else-if="element.serviceType === 'gemini'" size="14" icon="custom:gemini" class="ml-2" />
+                <v-icon v-else size="14" icon="custom:codex" class="ml-2" />
+                <span class="text-caption text-medium-emphasis ml-1">{{ element.serviceType }}</span>
+                <span v-if="element.description" class="text-caption text-disabled ml-3">{{
+                  element.description
+                }}</span>
+              </div>
+
+              <!-- 指标显示 -->
+              <div class="channel-metrics">
+                <div class="recent-calls-display">
+                  <div class="recent-calls-blocks">
+                    <template
+                      v-for="(call, callIndex) in getRecentCalls(element.index)"
+                      :key="`${element.index}-${callIndex}`"
+                    >
+                      <v-tooltip location="top" :open-delay="120">
+                        <template #activator="{ props: tooltipProps }">
+                          <span
+                            v-bind="tooltipProps"
+                            class="recent-call-block"
+                            :class="{
+                              'is-success': call.state === 'success',
+                              'is-failure': call.state === 'failure',
+                              'is-unused': call.state === 'unused'
+                            }"
+                          />
+                        </template>
+                        <div class="text-caption recent-call-tooltip">
+                          <div
+                            v-for="(line, lineIndex) in getRecentCallTooltipLines(
+                              call,
+                              element.serviceType === 'composite'
+                            )"
+                            :key="`${element.index}-${callIndex}-${lineIndex}`"
+                          >
+                            {{ line }}
+                          </div>
+                        </div>
+                      </v-tooltip>
+                    </template>
+                  </div>
+                  <span class="recent-calls-rate">{{ getRecentSuccessRate(element.index) }}</span>
+                </div>
+              </div>
+
+              <!-- Inline Quota Bar (usage quota or OAuth quota) -->
+              <div class="channel-quota">
+                <!-- User-configured usage quota (requests/credit) -->
+                <template v-if="hasUsageQuota(element)">
+                  <v-menu location="top" :close-on-content-click="false">
+                    <template #activator="{ props: menuProps }">
+                      <v-tooltip location="top" :open-delay="300">
+                        <template #activator="{ props: tooltipProps }">
+                          <div v-bind="{ ...menuProps, ...tooltipProps }" class="quota-bar-container">
+                            <template v-if="getUsageQuota(element.index)">
+                              <div class="quota-bar-wrapper">
+                                <div
+                                  class="quota-bar"
+                                  :style="{
+                                    width: `${getUsageQuota(element.index)!.remainingPercent}%`,
+                                    backgroundColor: getUsageQuotaBarColor(
+                                      getUsageQuota(element.index)!.remainingPercent
+                                    )
+                                  }"
+                                />
+                              </div>
+                              <span class="quota-text"
+                                >{{ getUsageQuota(element.index)!.remainingPercent.toFixed(0) }}%</span
+                              >
+                            </template>
+                            <span v-else class="text-caption text-medium-emphasis">--</span>
+                          </div>
+                        </template>
+                        <!-- Hover tooltip (no reset button) -->
+                        <div class="quota-tooltip">
                           <template v-if="getUsageQuota(element.index)">
+                            <div class="text-caption font-weight-bold mb-1">
+                              {{ element.quotaType === 'credit' ? t('quota.creditQuota') : t('quota.requestQuota') }}
+                            </div>
+                            <div class="quota-tooltip-row">
+                              <span>{{ t('quota.used') }}:</span>
+                              <span>{{
+                                formatQuotaValue(getUsageQuota(element.index)!.used, element.quotaType || '')
+                              }}</span>
+                            </div>
+                            <div class="quota-tooltip-row">
+                              <span>{{ t('quota.remaining') }}:</span>
+                              <span
+                                >{{
+                                  formatQuotaValue(getUsageQuota(element.index)!.remaining, element.quotaType || '')
+                                }}
+                                ({{ getUsageQuota(element.index)!.remainingPercent.toFixed(0) }}%)</span
+                              >
+                            </div>
+                            <div class="quota-tooltip-row">
+                              <span>{{ t('quota.limit') }}:</span>
+                              <span>{{
+                                formatQuotaValue(getUsageQuota(element.index)!.limit, element.quotaType || '')
+                              }}</span>
+                            </div>
+                            <div
+                              v-if="getUsageQuota(element.index)!.nextResetAt"
+                              class="text-caption text-medium-emphasis mt-1"
+                            >
+                              {{ t('quota.nextReset') }}:
+                              {{ new Date(getUsageQuota(element.index)!.nextResetAt!).toLocaleString() }}
+                            </div>
+                            <div
+                              v-if="element.quotaModels && element.quotaModels.length > 0"
+                              class="text-caption text-medium-emphasis mt-1"
+                            >
+                              {{ t('quota.quotaModelsApplied') }}: {{ element.quotaModels.join(', ') }}
+                            </div>
+                          </template>
+                        </div>
+                      </v-tooltip>
+                    </template>
+                    <!-- Click menu (with reset button) -->
+                    <v-card min-width="200" class="pa-3">
+                      <template v-if="getUsageQuota(element.index)">
+                        <div class="text-caption font-weight-bold mb-1">
+                          {{ element.quotaType === 'credit' ? t('quota.creditQuota') : t('quota.requestQuota') }}
+                        </div>
+                        <div class="quota-tooltip-row">
+                          <span>{{ t('quota.used') }}:</span>
+                          <span>{{
+                            formatQuotaValue(getUsageQuota(element.index)!.used, element.quotaType || '')
+                          }}</span>
+                        </div>
+                        <div class="quota-tooltip-row">
+                          <span>{{ t('quota.remaining') }}:</span>
+                          <span
+                            >{{
+                              formatQuotaValue(getUsageQuota(element.index)!.remaining, element.quotaType || '')
+                            }}
+                            ({{ getUsageQuota(element.index)!.remainingPercent.toFixed(0) }}%)</span
+                          >
+                        </div>
+                        <div class="quota-tooltip-row">
+                          <span>{{ t('quota.limit') }}:</span>
+                          <span>{{
+                            formatQuotaValue(getUsageQuota(element.index)!.limit, element.quotaType || '')
+                          }}</span>
+                        </div>
+                        <div
+                          v-if="getUsageQuota(element.index)!.nextResetAt"
+                          class="text-caption text-medium-emphasis mt-1"
+                        >
+                          {{ t('quota.nextReset') }}:
+                          {{ new Date(getUsageQuota(element.index)!.nextResetAt!).toLocaleString() }}
+                        </div>
+                        <div
+                          v-if="element.quotaModels && element.quotaModels.length > 0"
+                          class="text-caption text-medium-emphasis mt-1"
+                        >
+                          {{ t('quota.quotaModelsApplied') }}: {{ element.quotaModels.join(', ') }}
+                        </div>
+                        <v-btn
+                          size="x-small"
+                          variant="tonal"
+                          color="warning"
+                          class="mt-2"
+                          @click="resetUsageQuota(element.index)"
+                        >
+                          <v-icon start size="small">mdi-refresh</v-icon>
+                          {{ t('quota.manualReset') }}
+                        </v-btn>
+                        <!-- Activate/Suspend button -->
+                        <v-btn
+                          v-if="element.status === 'suspended'"
+                          size="x-small"
+                          variant="tonal"
+                          color="success"
+                          class="mt-2 ml-2"
+                          @click="resumeChannel(element.index)"
+                        >
+                          <v-icon start size="small">mdi-play-circle</v-icon>
+                          {{ t('quota.activate') }}
+                        </v-btn>
+                        <v-btn
+                          v-else
+                          size="x-small"
+                          variant="tonal"
+                          color="warning"
+                          class="mt-2 ml-2"
+                          @click="setChannelStatus(element.index, 'suspended')"
+                        >
+                          <v-icon start size="small">mdi-pause-circle</v-icon>
+                          {{ t('quota.suspend') }}
+                        </v-btn>
+                      </template>
+                      <template v-else>
+                        <div class="text-caption">{{ t('quota.noData') }}</div>
+                      </template>
+                    </v-card>
+                  </v-menu>
+                </template>
+                <!-- OAuth quota for openai-oauth channels in responses tab -->
+                <template v-else-if="element.serviceType === 'openai-oauth' && channelType === 'responses'">
+                  <v-tooltip location="top" :open-delay="200">
+                    <template #activator="{ props: tooltipProps }">
+                      <div v-bind="tooltipProps" class="oauth-quota-dual-bar" @click="openOAuthStatus(element)">
+                        <template v-if="getChannelQuota(element)?.codex_quota">
+                          <!-- 5h quota bar -->
+                          <div class="oauth-quota-row">
+                            <span class="oauth-quota-label">5h</span>
                             <div class="quota-bar-wrapper">
                               <div
                                 class="quota-bar"
                                 :style="{
-                                  width: `${getUsageQuota(element.index)!.remainingPercent}%`,
-                                  backgroundColor: getUsageQuotaBarColor(getUsageQuota(element.index)!.remainingPercent)
+                                  width: `${getOAuthWindowRemainingPercent(element, 'primary')}%`,
+                                  backgroundColor: getQuotaBarColor(getOAuthWindowUsedPercent(element, 'primary'))
                                 }"
                               />
                             </div>
-                            <span class="quota-text">{{ getUsageQuota(element.index)!.remainingPercent.toFixed(0) }}%</span>
-                          </template>
-                          <span v-else class="text-caption text-medium-emphasis">--</span>
-                        </div>
-                      </template>
-                      <!-- Hover tooltip (no reset button) -->
-                      <div class="quota-tooltip">
-                        <template v-if="getUsageQuota(element.index)">
-                          <div class="text-caption font-weight-bold mb-1">
-                            {{ element.quotaType === 'credit' ? t('quota.creditQuota') : t('quota.requestQuota') }}
+                            <span class="quota-text">{{ getOAuthWindowRemainingPercent(element, 'primary') }}%</span>
                           </div>
-                          <div class="quota-tooltip-row">
-                            <span>{{ t('quota.used') }}:</span>
-                            <span>{{ formatQuotaValue(getUsageQuota(element.index)!.used, element.quotaType || '') }}</span>
-                          </div>
-                          <div class="quota-tooltip-row">
-                            <span>{{ t('quota.remaining') }}:</span>
-                            <span>{{ formatQuotaValue(getUsageQuota(element.index)!.remaining, element.quotaType || '') }} ({{ getUsageQuota(element.index)!.remainingPercent.toFixed(0) }}%)</span>
-                          </div>
-                          <div class="quota-tooltip-row">
-                            <span>{{ t('quota.limit') }}:</span>
-                            <span>{{ formatQuotaValue(getUsageQuota(element.index)!.limit, element.quotaType || '') }}</span>
-                          </div>
-                          <div v-if="getUsageQuota(element.index)!.nextResetAt" class="text-caption text-medium-emphasis mt-1">
-                            {{ t('quota.nextReset') }}: {{ new Date(getUsageQuota(element.index)!.nextResetAt!).toLocaleString() }}
-                          </div>
-                          <div v-if="element.quotaModels && element.quotaModels.length > 0" class="text-caption text-medium-emphasis mt-1">
-                            {{ t('quota.quotaModelsApplied') }}: {{ element.quotaModels.join(', ') }}
+                          <!-- 7d quota bar -->
+                          <div class="oauth-quota-row">
+                            <span class="oauth-quota-label">7d</span>
+                            <div class="quota-bar-wrapper">
+                              <div
+                                class="quota-bar"
+                                :style="{
+                                  width: `${getOAuthWindowRemainingPercent(element, 'secondary')}%`,
+                                  backgroundColor: getQuotaBarColor(getOAuthWindowUsedPercent(element, 'secondary'))
+                                }"
+                              />
+                            </div>
+                            <span class="quota-text">{{ getOAuthWindowRemainingPercent(element, 'secondary') }}%</span>
                           </div>
                         </template>
+                        <span v-else class="text-caption text-medium-emphasis">--</span>
                       </div>
-                    </v-tooltip>
-                  </template>
-                  <!-- Click menu (with reset button) -->
-                  <v-card min-width="200" class="pa-3">
-                    <template v-if="getUsageQuota(element.index)">
-                      <div class="text-caption font-weight-bold mb-1">
-                        {{ element.quotaType === 'credit' ? t('quota.creditQuota') : t('quota.requestQuota') }}
-                      </div>
-                      <div class="quota-tooltip-row">
-                        <span>{{ t('quota.used') }}:</span>
-                        <span>{{ formatQuotaValue(getUsageQuota(element.index)!.used, element.quotaType || '') }}</span>
-                      </div>
-                      <div class="quota-tooltip-row">
-                        <span>{{ t('quota.remaining') }}:</span>
-                        <span>{{ formatQuotaValue(getUsageQuota(element.index)!.remaining, element.quotaType || '') }} ({{ getUsageQuota(element.index)!.remainingPercent.toFixed(0) }}%)</span>
-                      </div>
-                      <div class="quota-tooltip-row">
-                        <span>{{ t('quota.limit') }}:</span>
-                        <span>{{ formatQuotaValue(getUsageQuota(element.index)!.limit, element.quotaType || '') }}</span>
-                      </div>
-                      <div v-if="getUsageQuota(element.index)!.nextResetAt" class="text-caption text-medium-emphasis mt-1">
-                        {{ t('quota.nextReset') }}: {{ new Date(getUsageQuota(element.index)!.nextResetAt!).toLocaleString() }}
-                      </div>
-                      <div v-if="element.quotaModels && element.quotaModels.length > 0" class="text-caption text-medium-emphasis mt-1">
-                        {{ t('quota.quotaModelsApplied') }}: {{ element.quotaModels.join(', ') }}
-                      </div>
-                      <v-btn
-                        size="x-small"
-                        variant="tonal"
-                        color="warning"
-                        class="mt-2"
-                        @click="resetUsageQuota(element.index)"
-                      >
-                        <v-icon start size="small">mdi-refresh</v-icon>
-                        {{ t('quota.manualReset') }}
-                      </v-btn>
-                      <!-- Activate/Suspend button -->
-                      <v-btn
-                        v-if="element.status === 'suspended'"
-                        size="x-small"
-                        variant="tonal"
-                        color="success"
-                        class="mt-2 ml-2"
-                        @click="resumeChannel(element.index)"
-                      >
-                        <v-icon start size="small">mdi-play-circle</v-icon>
-                        {{ t('quota.activate') }}
-                      </v-btn>
-                      <v-btn
-                        v-else
-                        size="x-small"
-                        variant="tonal"
-                        color="warning"
-                        class="mt-2 ml-2"
-                        @click="setChannelStatus(element.index, 'suspended')"
-                      >
-                        <v-icon start size="small">mdi-pause-circle</v-icon>
-                        {{ t('quota.suspend') }}
-                      </v-btn>
                     </template>
-                    <template v-else>
-                      <div class="text-caption">{{ t('quota.noData') }}</div>
-                    </template>
-                  </v-card>
-                </v-menu>
-              </template>
-              <!-- OAuth quota for openai-oauth channels in responses tab -->
-              <template v-else-if="element.serviceType === 'openai-oauth' && channelType === 'responses'">
-                <v-tooltip location="top" :open-delay="200">
-                  <template #activator="{ props: tooltipProps }">
-                    <div v-bind="tooltipProps" class="oauth-quota-dual-bar" @click="openOAuthStatus(element)">
+                    <div class="quota-tooltip">
                       <template v-if="getChannelQuota(element)?.codex_quota">
-                        <!-- 5h quota bar -->
-                        <div class="oauth-quota-row">
-                          <span class="oauth-quota-label">5h</span>
-                          <div class="quota-bar-wrapper">
-                            <div
-                              class="quota-bar"
-                              :style="{
-                                width: `${getOAuthWindowRemainingPercent(element, 'primary')}%`,
-                                backgroundColor: getQuotaBarColor(getOAuthWindowUsedPercent(element, 'primary'))
-                              }"
-                            />
-                          </div>
-                          <span class="quota-text">{{ getOAuthWindowRemainingPercent(element, 'primary') }}%</span>
+                        <div class="text-caption font-weight-bold mb-1">{{ t('oauth.usageQuota') }}</div>
+                        <div class="quota-tooltip-row">
+                          <span>{{ t('oauth.primaryWindow') }}:</span>
+                          <span
+                            >{{ getOAuthWindowRemainingPercent(element, 'primary') }}%
+                            {{ t('orchestration.quotaRemaining') }}</span
+                          >
                         </div>
-                        <!-- 7d quota bar -->
-                        <div class="oauth-quota-row">
-                          <span class="oauth-quota-label">7d</span>
-                          <div class="quota-bar-wrapper">
-                            <div
-                              class="quota-bar"
-                              :style="{
-                                width: `${getOAuthWindowRemainingPercent(element, 'secondary')}%`,
-                                backgroundColor: getQuotaBarColor(getOAuthWindowUsedPercent(element, 'secondary'))
-                              }"
-                            />
-                          </div>
-                          <span class="quota-text">{{ getOAuthWindowRemainingPercent(element, 'secondary') }}%</span>
+                        <div class="quota-tooltip-row">
+                          <span>{{ t('oauth.secondaryWindow') }}:</span>
+                          <span
+                            >{{ getOAuthWindowRemainingPercent(element, 'secondary') }}%
+                            {{ t('orchestration.quotaRemaining') }}</span
+                          >
+                        </div>
+                        <div class="text-caption text-medium-emphasis mt-1">
+                          {{ t('orchestration.clickForDetails') }}
                         </div>
                       </template>
-                      <span v-else class="text-caption text-medium-emphasis">--</span>
+                      <template v-else>
+                        <div class="text-caption">{{ t('oauth.noQuotaData') }}</div>
+                      </template>
                     </div>
-                  </template>
-                  <div class="quota-tooltip">
-                    <template v-if="getChannelQuota(element)?.codex_quota">
-                      <div class="text-caption font-weight-bold mb-1">{{ t('oauth.usageQuota') }}</div>
-                      <div class="quota-tooltip-row">
-                        <span>{{ t('oauth.primaryWindow') }}:</span>
-                        <span>{{ getOAuthWindowRemainingPercent(element, 'primary') }}% {{ t('orchestration.quotaRemaining') }}</span>
-                      </div>
-                      <div class="quota-tooltip-row">
-                        <span>{{ t('oauth.secondaryWindow') }}:</span>
-                        <span>{{ getOAuthWindowRemainingPercent(element, 'secondary') }}% {{ t('orchestration.quotaRemaining') }}</span>
-                      </div>
-                      <div class="text-caption text-medium-emphasis mt-1">{{ t('orchestration.clickForDetails') }}</div>
-                    </template>
-                    <template v-else>
-                      <div class="text-caption">{{ t('oauth.noQuotaData') }}</div>
-                    </template>
-                  </div>
-                </v-tooltip>
-              </template>
-              <!-- No quota configured -->
-              <span v-else class="text-caption text-medium-emphasis">--</span>
-            </div>
-
-            <!-- API密钥数量 -->
-            <div class="channel-keys">
-              <v-chip size="x-small" variant="outlined" class="keys-chip" @click="$emit('edit', element)">
-                <v-icon start size="x-small">mdi-key</v-icon>
-                {{ element.apiKeyCount ?? element.apiKeys?.length ?? 0 }}
-              </v-chip>
-            </div>
-
-            <!-- 操作按钮 -->
-            <div class="channel-actions">
-              <!-- 图表展开按钮 -->
-              <v-btn
-                icon
-                size="small"
-                variant="text"
-                :color="expandedChartChannelId === element.index ? 'primary' : 'default'"
-                @click="toggleChannelChart(element.index)"
-                :title="t('chart.view.traffic')"
-                class="chart-toggle-btn"
-              >
-                <v-icon size="18">{{ expandedChartChannelId === element.index ? 'mdi-chart-line' : 'mdi-chart-line-variant' }}</v-icon>
-              </v-btn>
-
-              <!-- 内联操作按钮（宽屏显示） -->
-              <div class="inline-actions">
-                <!-- 编辑 -->
-                <v-btn
-                  icon
-                  size="small"
-                  variant="text"
-                  color="primary"
-                  @click="$emit('edit', element)"
-                  :title="t('common.edit')"
-                >
-                  <v-icon size="18">mdi-pencil</v-icon>
-                </v-btn>
-
-                <!-- 暂停/恢复 -->
-                <v-btn
-                  v-if="element.status === 'suspended'"
-                  icon
-                  size="small"
-                  variant="text"
-                  color="success"
-                  @click="resumeChannel(element.index)"
-                  :title="t('orchestration.resume')"
-                >
-                  <v-icon size="18">mdi-play-circle</v-icon>
-                </v-btn>
-                <v-btn
-                  v-else
-                  icon
-                  size="small"
-                  variant="text"
-                  color="warning"
-                  @click="setChannelStatus(element.index, 'suspended')"
-                  :title="t('orchestration.pause')"
-                >
-                  <v-icon size="18">mdi-pause-circle</v-icon>
-                </v-btn>
-
-                <!-- 移至备用池 -->
-                <v-btn
-                  icon
-                  size="small"
-                  variant="text"
-                  color="error"
-                  @click="setChannelStatus(element.index, 'disabled')"
-                  :title="t('orchestration.moveToPool')"
-                >
-                  <v-icon size="18">mdi-stop-circle</v-icon>
-                </v-btn>
+                  </v-tooltip>
+                </template>
+                <!-- No quota configured -->
+                <span v-else class="text-caption text-medium-emphasis">--</span>
               </div>
 
-              <!-- 更多操作菜单（宽屏：只有抢优先级和删除；窄屏：所有操作） -->
-              <v-menu>
-                <template #activator="{ props }">
-                  <v-btn icon size="small" variant="text" v-bind="props">
-                    <v-icon size="18">mdi-dots-vertical</v-icon>
+              <!-- API密钥数量 -->
+              <div class="channel-keys">
+                <v-chip size="x-small" variant="outlined" class="keys-chip" @click="$emit('edit', element)">
+                  <v-icon start size="x-small">mdi-key</v-icon>
+                  {{ element.apiKeyCount ?? element.apiKeys?.length ?? 0 }}
+                </v-chip>
+              </div>
+
+              <!-- 操作按钮 -->
+              <div class="channel-actions">
+                <!-- 图表展开按钮 -->
+                <v-btn
+                  icon
+                  size="small"
+                  variant="text"
+                  :color="expandedChartChannelId === element.index ? 'primary' : 'default'"
+                  @click="toggleChannelChart(element.index)"
+                  :title="t('chart.view.traffic')"
+                  class="chart-toggle-btn"
+                >
+                  <v-icon size="18">{{
+                    expandedChartChannelId === element.index ? 'mdi-chart-line' : 'mdi-chart-line-variant'
+                  }}</v-icon>
+                </v-btn>
+
+                <!-- 内联操作按钮（宽屏显示） -->
+                <div class="inline-actions">
+                  <!-- 编辑 -->
+                  <v-btn
+                    icon
+                    size="small"
+                    variant="text"
+                    color="primary"
+                    @click="$emit('edit', element)"
+                    :title="t('common.edit')"
+                  >
+                    <v-icon size="18">mdi-pencil</v-icon>
                   </v-btn>
-                </template>
-                <v-list density="compact">
-                  <!-- 窄屏时显示的额外选项 -->
-                  <v-list-item class="menu-item-narrow" @click="$emit('edit', element)">
-                    <template #prepend>
-                      <v-icon size="small">mdi-pencil</v-icon>
-                    </template>
-                    <v-list-item-title>{{ t('common.edit') }}</v-list-item-title>
-                  </v-list-item>
-                  <!-- OAuth Status (only for openai-oauth channels in responses mode) -->
-                  <v-list-item
-                    v-if="element.serviceType === 'openai-oauth' && channelType === 'responses'"
-                    @click="openOAuthStatus(element)"
-                  >
-                    <template #prepend>
-                      <v-icon size="small" color="info">mdi-shield-account</v-icon>
-                    </template>
-                    <v-list-item-title>{{ t('oauth.viewStatus') }}</v-list-item-title>
-                  </v-list-item>
-                  <v-list-item
+
+                  <!-- 暂停/恢复 -->
+                  <v-btn
                     v-if="element.status === 'suspended'"
-                    class="menu-item-narrow"
+                    icon
+                    size="small"
+                    variant="text"
+                    color="success"
                     @click="resumeChannel(element.index)"
+                    :title="t('orchestration.resume')"
                   >
-                    <template #prepend>
-                      <v-icon size="small" color="success">mdi-play-circle</v-icon>
-                    </template>
-                    <v-list-item-title>{{ t('orchestration.resumeReset') }}</v-list-item-title>
-                  </v-list-item>
-                  <v-list-item
-                    v-if="element.status !== 'suspended'"
-                    class="menu-item-narrow"
+                    <v-icon size="18">mdi-play-circle</v-icon>
+                  </v-btn>
+                  <v-btn
+                    v-else
+                    icon
+                    size="small"
+                    variant="text"
+                    color="warning"
                     @click="setChannelStatus(element.index, 'suspended')"
+                    :title="t('orchestration.pause')"
                   >
-                    <template #prepend>
-                      <v-icon size="small" color="warning">mdi-pause-circle</v-icon>
-                    </template>
-                    <v-list-item-title>{{ t('orchestration.pause') }}</v-list-item-title>
-                  </v-list-item>
-                  <v-list-item class="menu-item-narrow" @click="setChannelStatus(element.index, 'disabled')">
-                    <template #prepend>
-                      <v-icon size="small" color="error">mdi-stop-circle</v-icon>
-                    </template>
-                    <v-list-item-title>{{ t('orchestration.moveToPool') }}</v-list-item-title>
-                  </v-list-item>
-                  <v-divider class="menu-item-narrow" />
-                  <!-- 始终显示的选项 -->
-                  <v-list-item @click="setPromotion(element)">
-                    <template #prepend>
-                      <v-icon size="small" color="info">mdi-rocket-launch</v-icon>
-                    </template>
-                    <v-list-item-title>{{ t('orchestration.boostPriority') }}</v-list-item-title>
-                  </v-list-item>
-                  <v-divider />
-                  <v-list-item @click="handleDeleteChannel(element)" :disabled="!canDeleteChannel(element)">
-                    <template #prepend>
-                      <v-icon size="small" :color="canDeleteChannel(element) ? 'error' : 'grey'">mdi-delete</v-icon>
-                    </template>
-                    <v-list-item-title>
-                      {{ t('common.delete') }}
-                      <span v-if="!canDeleteChannel(element)" class="text-caption text-disabled ml-1">
-                        {{ t('orchestration.keepAtLeastOne') }}
-                      </span>
-                    </v-list-item-title>
-                  </v-list-item>
-                </v-list>
-              </v-menu>
+                    <v-icon size="18">mdi-pause-circle</v-icon>
+                  </v-btn>
+
+                  <!-- 移至备用池 -->
+                  <v-btn
+                    icon
+                    size="small"
+                    variant="text"
+                    color="error"
+                    @click="setChannelStatus(element.index, 'disabled')"
+                    :title="t('orchestration.moveToPool')"
+                  >
+                    <v-icon size="18">mdi-stop-circle</v-icon>
+                  </v-btn>
+                </div>
+
+                <!-- 更多操作菜单（宽屏：只有抢优先级和删除；窄屏：所有操作） -->
+                <v-menu>
+                  <template #activator="{ props }">
+                    <v-btn icon size="small" variant="text" v-bind="props">
+                      <v-icon size="18">mdi-dots-vertical</v-icon>
+                    </v-btn>
+                  </template>
+                  <v-list density="compact">
+                    <!-- 窄屏时显示的额外选项 -->
+                    <v-list-item class="menu-item-narrow" @click="$emit('edit', element)">
+                      <template #prepend>
+                        <v-icon size="small">mdi-pencil</v-icon>
+                      </template>
+                      <v-list-item-title>{{ t('common.edit') }}</v-list-item-title>
+                    </v-list-item>
+                    <!-- OAuth Status (only for openai-oauth channels in responses mode) -->
+                    <v-list-item
+                      v-if="element.serviceType === 'openai-oauth' && channelType === 'responses'"
+                      @click="openOAuthStatus(element)"
+                    >
+                      <template #prepend>
+                        <v-icon size="small" color="info">mdi-shield-account</v-icon>
+                      </template>
+                      <v-list-item-title>{{ t('oauth.viewStatus') }}</v-list-item-title>
+                    </v-list-item>
+                    <v-list-item
+                      v-if="element.status === 'suspended'"
+                      class="menu-item-narrow"
+                      @click="resumeChannel(element.index)"
+                    >
+                      <template #prepend>
+                        <v-icon size="small" color="success">mdi-play-circle</v-icon>
+                      </template>
+                      <v-list-item-title>{{ t('orchestration.resumeReset') }}</v-list-item-title>
+                    </v-list-item>
+                    <v-list-item
+                      v-if="element.status !== 'suspended'"
+                      class="menu-item-narrow"
+                      @click="setChannelStatus(element.index, 'suspended')"
+                    >
+                      <template #prepend>
+                        <v-icon size="small" color="warning">mdi-pause-circle</v-icon>
+                      </template>
+                      <v-list-item-title>{{ t('orchestration.pause') }}</v-list-item-title>
+                    </v-list-item>
+                    <v-list-item class="menu-item-narrow" @click="setChannelStatus(element.index, 'disabled')">
+                      <template #prepend>
+                        <v-icon size="small" color="error">mdi-stop-circle</v-icon>
+                      </template>
+                      <v-list-item-title>{{ t('orchestration.moveToPool') }}</v-list-item-title>
+                    </v-list-item>
+                    <v-divider class="menu-item-narrow" />
+                    <!-- 始终显示的选项 -->
+                    <v-list-item @click="setPromotion(element)">
+                      <template #prepend>
+                        <v-icon size="small" color="info">mdi-rocket-launch</v-icon>
+                      </template>
+                      <v-list-item-title>{{ t('orchestration.boostPriority') }}</v-list-item-title>
+                    </v-list-item>
+                    <v-divider />
+                    <v-list-item @click="handleDeleteChannel(element)" :disabled="!canDeleteChannel(element)">
+                      <template #prepend>
+                        <v-icon size="small" :color="canDeleteChannel(element) ? 'error' : 'grey'">mdi-delete</v-icon>
+                      </template>
+                      <v-list-item-title>
+                        {{ t('common.delete') }}
+                        <span v-if="!canDeleteChannel(element)" class="text-caption text-disabled ml-1">
+                          {{ t('orchestration.keepAtLeastOne') }}
+                        </span>
+                      </v-list-item-title>
+                    </v-list-item>
+                  </v-list>
+                </v-menu>
+              </div>
             </div>
-          </div>
-          <!-- 渠道统计图表 - 展开时显示 -->
-          <ChannelStatsChart
-            v-if="expandedChartChannelId === element.index"
-            :channel-id="element.index"
-            :channel-type="channelType"
-            @close="expandedChartChannelId = null"
-          />
+            <!-- 渠道统计图表 - 展开时显示 -->
+            <ChannelStatsChart
+              v-if="expandedChartChannelId === element.index"
+              :channel-id="element.index"
+              :channel-type="channelType"
+              @close="expandedChartChannelId = null"
+            />
           </div>
         </template>
       </draggable>
@@ -465,13 +529,19 @@
         <div class="text-subtitle-2 text-medium-emphasis d-flex align-center">
           <v-icon size="small" class="mr-1" color="purple">mdi-layers-triple</v-icon>
           {{ t('orchestration.compositePool') }}
-          <v-chip size="x-small" class="ml-2" color="purple" variant="tonal">{{ disabledCompositeChannels.length }}</v-chip>
+          <v-chip size="x-small" class="ml-2" color="purple" variant="tonal">{{
+            disabledCompositeChannels.length
+          }}</v-chip>
         </div>
         <span class="text-caption text-medium-emphasis">{{ t('orchestration.compositePoolDesc') }}</span>
       </div>
 
       <div class="inactive-pool composite-pool">
-        <div v-for="channel in disabledCompositeChannels" :key="channel.index" class="inactive-channel-row composite-channel-row">
+        <div
+          v-for="channel in disabledCompositeChannels"
+          :key="getChannelItemKey(channel)"
+          class="inactive-channel-row composite-channel-row"
+        >
           <!-- 渠道信息 -->
           <div class="channel-info">
             <div class="channel-info-main">
@@ -534,7 +604,7 @@
       </div>
 
       <div v-if="inactiveChannels.length > 0" class="inactive-pool">
-        <div v-for="channel in inactiveChannels" :key="channel.index" class="inactive-channel-row">
+        <div v-for="channel in inactiveChannels" :key="getChannelItemKey(channel)" class="inactive-channel-row">
           <!-- 渠道信息 -->
           <div class="channel-info">
             <div class="channel-info-main">
@@ -599,6 +669,7 @@
     <OAuthStatusDialog
       v-model="showOAuthStatusDialog"
       :channel-id="oauthStatusChannelId"
+      :channel-index="oauthStatusChannelIndex"
     />
   </v-card>
 </template>
@@ -607,7 +678,16 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import draggable from 'vuedraggable'
-import { api, type Channel, type ChannelMetrics, type ChannelStatus, type RecentCallStat, type QuotaInfo, type ChannelUsageStatus, type CodexQuotaInfo } from '../services/api'
+import {
+  api,
+  type Channel,
+  type ChannelMetrics,
+  type ChannelStatus,
+  type RecentCallStat,
+  type QuotaInfo,
+  type ChannelUsageStatus,
+  type CodexQuotaInfo
+} from '../services/api'
 import ChannelStatusBadge from './ChannelStatusBadge.vue'
 import ChannelStatsChart from './ChannelStatsChart.vue'
 import OAuthStatusDialog from './OAuthStatusDialog.vue'
@@ -647,12 +727,14 @@ const expandedChartChannelId = ref<number | null>(null) // 展开图表的渠道
 
 // OAuth status dialog state
 const showOAuthStatusDialog = ref(false)
-const oauthStatusChannelId = ref<number | null>(null)
+const oauthStatusChannelId = ref<string | null>(null)
+const oauthStatusChannelIndex = ref<number | null>(null)
 
 // Quota data for OAuth channels (keyed by stable channel id when available)
 const channelQuotas = ref<Record<string, QuotaInfo>>({})
 const oauthQuotaClock = ref(Date.now())
 let oauthQuotaResetTimer: ReturnType<typeof setTimeout> | null = null
+let oauthQuotaRequestSequence = 0
 
 const clearOAuthQuotaResetTimer = () => {
   if (oauthQuotaResetTimer) {
@@ -737,6 +819,10 @@ const getQuotaKey = (channel: Channel): string => {
   return `idx:${channel.index}`
 }
 
+const getChannelItemKey = (channel: Channel): string => {
+  return getQuotaKey(channel)
+}
+
 // Get quota for a channel
 const getChannelQuota = (channel: Channel): QuotaInfo | undefined => {
   return channelQuotas.value[getQuotaKey(channel)]
@@ -744,6 +830,8 @@ const getChannelQuota = (channel: Channel): QuotaInfo | undefined => {
 
 // Fetch quota for OAuth channels
 const fetchOAuthQuotas = async () => {
+  const requestSequence = ++oauthQuotaRequestSequence
+
   // Only fetch for responses channels with openai-oauth service type
   if (props.channelType !== 'responses') {
     channelQuotas.value = {}
@@ -762,9 +850,11 @@ const fetchOAuthQuotas = async () => {
 
   // Fetch quota for each OAuth channel in parallel
   const results = await Promise.allSettled(
-    oauthChannels.map(async (ch) => {
+    oauthChannels.map(async ch => {
       try {
-        const status = await api.getResponsesChannelOAuthStatus(ch.index)
+        const status = ch.id
+          ? await api.getResponsesChannelOAuthStatusByStableId(ch.id)
+          : await api.getResponsesChannelOAuthStatus(ch.index)
         if (status.quota) {
           return { key: getQuotaKey(ch), quota: status.quota }
         }
@@ -782,6 +872,11 @@ const fetchOAuthQuotas = async () => {
       newQuotas[result.value.key] = result.value.quota
     }
   }
+
+  if (requestSequence !== oauthQuotaRequestSequence) {
+    return
+  }
+
   channelQuotas.value = newQuotas
   oauthQuotaClock.value = Date.now()
   scheduleOAuthQuotaAutoReset()
@@ -802,9 +897,9 @@ const hasUsageQuota = (channel: Channel): boolean => {
 
 // Get usage quota bar color based on remaining percent
 const getUsageQuotaBarColor = (remainingPercent: number): string => {
-  if (remainingPercent >= 50) return 'rgb(76, 175, 80)'   // success - green
-  if (remainingPercent >= 20) return 'rgb(255, 193, 7)'   // warning - yellow
-  return 'rgb(244, 67, 54)'                                // error - red
+  if (remainingPercent >= 50) return 'rgb(76, 175, 80)' // success - green
+  if (remainingPercent >= 20) return 'rgb(255, 193, 7)' // warning - yellow
+  return 'rgb(244, 67, 54)' // error - red
 }
 
 // Format usage quota value for display
@@ -848,7 +943,8 @@ const resetUsageQuota = async (channelIndex: number) => {
 
 // Open OAuth status dialog for a channel
 const openOAuthStatus = (channel: Channel) => {
-  oauthStatusChannelId.value = channel.index
+  oauthStatusChannelId.value = channel.id?.trim() || null
+  oauthStatusChannelIndex.value = channel.index
   showOAuthStatusDialog.value = true
 }
 
@@ -884,9 +980,7 @@ const inactiveChannels = computed(() => {
 // 2. 有一个 active + 几个 suspended → 单渠道模式
 // 3. 有多个 active 渠道 → 多渠道模式
 const isMultiChannelMode = computed(() => {
-  const activeCount = props.channels.filter(
-    ch => ch.status === 'active' || ch.status === undefined
-  ).length
+  const activeCount = props.channels.filter(ch => ch.status === 'active' || ch.status === undefined).length
   return activeCount > 1
 })
 
@@ -1027,10 +1121,7 @@ const refreshMetrics = async () => {
     } else {
       metricsPromise = api.getGeminiChannelMetrics()
     }
-    const [metricsData, statsData] = await Promise.all([
-      metricsPromise,
-      api.getSchedulerStats(requestedType)
-    ])
+    const [metricsData, statsData] = await Promise.all([metricsPromise, api.getSchedulerStats(requestedType)])
     if (requestedType !== props.channelType) {
       return
     }
@@ -1148,9 +1239,7 @@ const setPromotion = async (channel: Channel) => {
 // 规则：故障转移序列中至少要保留一个 active 状态的渠道
 const canDeleteChannel = (channel: Channel): boolean => {
   // 统计当前 active 状态的渠道数量
-  const activeCount = activeChannels.value.filter(
-    ch => ch.status === 'active' || ch.status === undefined
-  ).length
+  const activeCount = activeChannels.value.filter(ch => ch.status === 'active' || ch.status === undefined).length
 
   // 如果要删除的是 active 渠道，且只剩一个 active，则不允许删除
   const isActive = channel.status === 'active' || channel.status === undefined
@@ -1182,19 +1271,24 @@ onUnmounted(() => {
 })
 
 // Re-fetch quotas when tab changes
-watch(() => props.channelType, () => {
-  // Prevent briefly showing previous tab's metrics while new data is loading.
-  showGreyPlaceholder.value = true
-  metrics.value = []
-  schedulerStats.value = null
-  void refreshMetrics()
-  fetchOAuthQuotas()
-  fetchUsageQuotas()
-})
+watch(
+  () => props.channelType,
+  () => {
+    // Prevent briefly showing previous tab's metrics while new data is loading.
+    showGreyPlaceholder.value = true
+    metrics.value = []
+    schedulerStats.value = null
+    void refreshMetrics()
+    fetchOAuthQuotas()
+    fetchUsageQuotas()
+  }
+)
 
-const channelQuotaCacheKey = computed(() => props.channels
-  .map(ch => `${ch.id ?? ''}:${ch.index}:${ch.priority ?? ''}:${ch.status ?? ''}:${ch.serviceType}`)
-  .join('|'))
+const channelQuotaCacheKey = computed(() =>
+  props.channels
+    .map(ch => `${ch.id ?? ''}:${ch.index}:${ch.priority ?? ''}:${ch.status ?? ''}:${ch.serviceType}`)
+    .join('|')
+)
 
 // Channel indices can change after DB polling / reorder operations.
 // Re-fetch quota snapshots whenever the channel mapping changes.
@@ -1462,7 +1556,9 @@ defineExpose({
 .quota-bar {
   height: 100%;
   border-radius: 3px;
-  transition: width 0.3s ease, background-color 0.3s ease;
+  transition:
+    width 0.3s ease,
+    background-color 0.3s ease;
 }
 
 .quota-text {
@@ -1537,23 +1633,23 @@ defineExpose({
   background-color: rgba(var(--v-theme-on-surface), 0.15) !important;
 }
 
-.inline-actions :deep(.v-btn[color="primary"]:hover) {
+.inline-actions :deep(.v-btn[color='primary']:hover) {
   background-color: rgba(var(--v-theme-primary), 0.2) !important;
 }
 
-.inline-actions :deep(.v-btn[color="info"]:hover) {
+.inline-actions :deep(.v-btn[color='info']:hover) {
   background-color: rgba(var(--v-theme-info), 0.2) !important;
 }
 
-.inline-actions :deep(.v-btn[color="warning"]:hover) {
+.inline-actions :deep(.v-btn[color='warning']:hover) {
   background-color: rgba(var(--v-theme-warning), 0.2) !important;
 }
 
-.inline-actions :deep(.v-btn[color="success"]:hover) {
+.inline-actions :deep(.v-btn[color='success']:hover) {
   background-color: rgba(var(--v-theme-success), 0.2) !important;
 }
 
-.inline-actions :deep(.v-btn[color="error"]:hover) {
+.inline-actions :deep(.v-btn[color='error']:hover) {
   background-color: rgba(var(--v-theme-error), 0.2) !important;
 }
 
@@ -1755,60 +1851,60 @@ defineExpose({
 /* =========================================
    Minimal Dark Theme Overrides
    ========================================= */
-[data-theme="minimal"] .channel-row {
+[data-theme='minimal'] .channel-row {
   border: none !important;
   box-shadow: none !important;
   border-radius: 12px !important;
   transition: all 0.2s ease !important;
 }
 
-[data-theme="minimal"] .channel-row:hover {
+[data-theme='minimal'] .channel-row:hover {
   background: rgba(255, 255, 255, 0.12) !important;
   transform: none !important;
   box-shadow: none !important;
 }
 
-[data-theme="minimal"] .channel-row:active {
+[data-theme='minimal'] .channel-row:active {
   transform: none !important;
   box-shadow: none !important;
   background: rgba(255, 255, 255, 0.15) !important;
 }
 
-[data-theme="minimal"] .channel-row.is-suspended {
+[data-theme='minimal'] .channel-row.is-suspended {
   border: none !important;
   box-shadow: none !important;
 }
 
-[data-theme="minimal"] .channel-row.is-suspended:hover {
+[data-theme='minimal'] .channel-row.is-suspended:hover {
   box-shadow: none !important;
 }
 
-[data-theme="minimal"] .channel-row.ghost {
+[data-theme='minimal'] .channel-row.ghost {
   border: 2px dashed rgb(var(--v-theme-primary)) !important;
   box-shadow: none !important;
   border-radius: 12px !important;
 }
 
-[data-theme="minimal"] .inactive-pool {
+[data-theme='minimal'] .inactive-pool {
   border: 1px dashed rgba(255, 255, 255, 0.15) !important;
   border-radius: 12px !important;
   background: rgba(255, 255, 255, 0.02) !important;
 }
 
-[data-theme="minimal"] .inactive-channel-row {
+[data-theme='minimal'] .inactive-channel-row {
   border: none !important;
   box-shadow: none !important;
   border-radius: 10px !important;
   transition: all 0.2s ease !important;
 }
 
-[data-theme="minimal"] .inactive-channel-row:hover {
+[data-theme='minimal'] .inactive-channel-row:hover {
   background: rgba(255, 255, 255, 0.12) !important;
   transform: none !important;
   box-shadow: none !important;
 }
 
-[data-theme="minimal"] .inactive-channel-row:active {
+[data-theme='minimal'] .inactive-channel-row:active {
   transform: none !important;
   box-shadow: none !important;
 }

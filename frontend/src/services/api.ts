@@ -644,6 +644,11 @@ class ApiService {
     return this.request(`/responses/channels/${channelId}/oauth/status`)
   }
 
+  // 获取 Responses 渠道 OAuth 状态（使用稳定 channel ID，避免重排后的索引漂移）
+  async getResponsesChannelOAuthStatusByStableId(channelId: string): Promise<OAuthStatusResponse> {
+    return this.request(`/responses/channels/by-id/${encodeURIComponent(channelId)}/oauth/status`)
+  }
+
   // ============== 促销期管理 API ==============
 
   // 设置 Messages 渠道促销期

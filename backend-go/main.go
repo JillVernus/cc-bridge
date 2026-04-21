@@ -670,6 +670,7 @@ func main() {
 		apiGroup.POST("/responses/channels/:id/resume", handlers.ResumeChannel(channelScheduler, true))
 		apiGroup.POST("/responses/channels/:id/promotion", handlers.SetResponsesChannelPromotion(cfgManager))
 		apiGroup.GET("/responses/channels/metrics", handlers.GetResponsesChannelMetrics(responsesMetricsManager, cfgManager))
+		apiGroup.GET("/responses/channels/by-id/:channelID/oauth/status", handlers.GetResponsesChannelOAuthStatusByChannelID(cfgManager))
 		apiGroup.GET("/responses/channels/:id/oauth/status", handlers.GetResponsesChannelOAuthStatus(cfgManager))
 		apiGroup.GET("/responses/channels/:id/models", handlers.FetchResponsesUpstreamModels(cfgManager))
 

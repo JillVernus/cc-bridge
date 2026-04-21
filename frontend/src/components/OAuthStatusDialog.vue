@@ -8,7 +8,15 @@
         <v-btn icon variant="text" size="small" @click="close" class="modal-action-btn">
           <v-icon>mdi-close</v-icon>
         </v-btn>
-        <v-btn icon variant="flat" size="small" color="primary" @click="refresh" :loading="loading" class="modal-action-btn">
+        <v-btn
+          icon
+          variant="flat"
+          size="small"
+          color="primary"
+          @click="refresh"
+          :loading="loading"
+          class="modal-action-btn"
+        >
           <v-icon>mdi-refresh</v-icon>
         </v-btn>
       </v-card-title>
@@ -36,12 +44,7 @@
         <div v-else-if="oauthStatus?.status" class="oauth-status-content">
           <!-- Token status indicator -->
           <div class="d-flex align-center mb-4">
-            <v-chip
-              :color="tokenStatusColor"
-              variant="tonal"
-              size="small"
-              class="mr-2"
-            >
+            <v-chip :color="tokenStatusColor" variant="tonal" size="small" class="mr-2">
               <v-icon start size="small">{{ tokenStatusIcon }}</v-icon>
               {{ t(`oauth.tokenStatus.${oauthStatus.tokenStatus || 'valid'}`) }}
             </v-chip>
@@ -51,13 +54,7 @@
           </div>
 
           <!-- Quota exceeded warning -->
-          <v-alert
-            v-if="oauthStatus.quota?.is_exceeded"
-            type="error"
-            variant="tonal"
-            class="mb-4"
-            density="compact"
-          >
+          <v-alert v-if="oauthStatus.quota?.is_exceeded" type="error" variant="tonal" class="mb-4" density="compact">
             <div class="d-flex align-center">
               <v-icon class="mr-2">mdi-alert-octagon</v-icon>
               <div>
@@ -74,7 +71,13 @@
             <div class="text-subtitle-2 mb-2 d-flex align-center">
               <v-icon size="small" class="mr-1">mdi-speedometer</v-icon>
               {{ t('oauth.usageQuota') }}
-              <v-chip v-if="oauthStatus.quota.codex_quota.plan_type" size="x-small" color="primary" variant="tonal" class="ml-2">
+              <v-chip
+                v-if="oauthStatus.quota.codex_quota.plan_type"
+                size="x-small"
+                color="primary"
+                variant="tonal"
+                class="ml-2"
+              >
                 {{ oauthStatus.quota.codex_quota.plan_type }}
               </v-chip>
             </div>
@@ -82,7 +85,11 @@
             <!-- Primary Window (Short-term) -->
             <div class="mb-3">
               <div class="d-flex justify-space-between text-caption mb-1">
-                <span>{{ t('oauth.primaryWindow') }} ({{ formatWindowDuration(oauthStatus.quota.codex_quota.primary_window_minutes) }})</span>
+                <span
+                  >{{ t('oauth.primaryWindow') }} ({{
+                    formatWindowDuration(oauthStatus.quota.codex_quota.primary_window_minutes)
+                  }})</span
+                >
                 <span>{{ t('oauth.availablePercent', { percent: primaryRemainingPercent }) }}</span>
               </div>
               <v-progress-linear
@@ -99,7 +106,11 @@
             <!-- Secondary Window (Long-term) -->
             <div class="mb-3">
               <div class="d-flex justify-space-between text-caption mb-1">
-                <span>{{ t('oauth.secondaryWindow') }} ({{ formatWindowDuration(oauthStatus.quota.codex_quota.secondary_window_minutes) }})</span>
+                <span
+                  >{{ t('oauth.secondaryWindow') }} ({{
+                    formatWindowDuration(oauthStatus.quota.codex_quota.secondary_window_minutes)
+                  }})</span
+                >
                 <span>{{ t('oauth.availablePercent', { percent: secondaryRemainingPercent }) }}</span>
               </div>
               <v-progress-linear
@@ -108,16 +119,26 @@
                 height="8"
                 rounded
               />
-              <div v-if="oauthStatus.quota.codex_quota.secondary_reset_at" class="text-caption text-medium-emphasis mt-1">
+              <div
+                v-if="oauthStatus.quota.codex_quota.secondary_reset_at"
+                class="text-caption text-medium-emphasis mt-1"
+              >
                 {{ t('oauth.resetsAt', { time: formatDate(oauthStatus.quota.codex_quota.secondary_reset_at) }) }}
               </div>
             </div>
 
             <!-- Credits info -->
-            <div v-if="oauthStatus.quota.codex_quota.credits_has_credits || oauthStatus.quota.codex_quota.credits_unlimited" class="text-caption text-medium-emphasis">
+            <div
+              v-if="
+                oauthStatus.quota.codex_quota.credits_has_credits || oauthStatus.quota.codex_quota.credits_unlimited
+              "
+              class="text-caption text-medium-emphasis"
+            >
               <v-icon size="x-small" class="mr-1">mdi-credit-card</v-icon>
               <span v-if="oauthStatus.quota.codex_quota.credits_unlimited">{{ t('oauth.creditsUnlimited') }}</span>
-              <span v-else-if="oauthStatus.quota.codex_quota.credits_balance">{{ t('oauth.creditsBalance', { balance: oauthStatus.quota.codex_quota.credits_balance }) }}</span>
+              <span v-else-if="oauthStatus.quota.codex_quota.credits_balance">{{
+                t('oauth.creditsBalance', { balance: oauthStatus.quota.codex_quota.credits_balance })
+              }}</span>
               <span v-else>{{ t('oauth.creditsAvailable') }}</span>
             </div>
 
@@ -139,7 +160,8 @@
               <div class="d-flex justify-space-between text-caption mb-1">
                 <span>{{ t('oauth.requestLimit') }}</span>
                 <span>
-                  {{ oauthStatus.quota.rate_limit.remaining_requests ?? 0 }} / {{ oauthStatus.quota.rate_limit.limit_requests }}
+                  {{ oauthStatus.quota.rate_limit.remaining_requests ?? 0 }} /
+                  {{ oauthStatus.quota.rate_limit.limit_requests }}
                 </span>
               </div>
               <v-progress-linear
@@ -158,7 +180,8 @@
               <div class="d-flex justify-space-between text-caption mb-1">
                 <span>{{ t('oauth.tokenLimit') }}</span>
                 <span>
-                  {{ formatNumber(oauthStatus.quota.rate_limit.remaining_tokens ?? 0) }} / {{ formatNumber(oauthStatus.quota.rate_limit.limit_tokens) }}
+                  {{ formatNumber(oauthStatus.quota.rate_limit.remaining_tokens ?? 0) }} /
+                  {{ formatNumber(oauthStatus.quota.rate_limit.limit_tokens) }}
                 </span>
               </div>
               <v-progress-linear
@@ -179,13 +202,7 @@
           </div>
 
           <!-- No quota data message -->
-          <v-alert
-            v-else
-            type="info"
-            variant="tonal"
-            class="mb-4"
-            density="compact"
-          >
+          <v-alert v-else type="info" variant="tonal" class="mb-4" density="compact">
             <div class="d-flex align-center">
               <v-icon class="mr-2">mdi-information</v-icon>
               {{ t('oauth.noQuotaData') }}
@@ -228,8 +245,12 @@
               <template #prepend>
                 <v-icon size="small" color="primary">mdi-account</v-icon>
               </template>
-              <v-list-item-title class="text-caption text-medium-emphasis">{{ t('oauth.accountId') }}</v-list-item-title>
-              <v-list-item-subtitle class="font-weight-medium text-mono">{{ oauthStatus.status.masked_account_id }}</v-list-item-subtitle>
+              <v-list-item-title class="text-caption text-medium-emphasis">{{
+                t('oauth.accountId')
+              }}</v-list-item-title>
+              <v-list-item-subtitle class="font-weight-medium text-mono">{{
+                oauthStatus.status.masked_account_id
+              }}</v-list-item-subtitle>
             </v-list-item>
 
             <!-- Subscription Active Until -->
@@ -237,8 +258,12 @@
               <template #prepend>
                 <v-icon size="small" color="primary">mdi-calendar-check</v-icon>
               </template>
-              <v-list-item-title class="text-caption text-medium-emphasis">{{ t('oauth.subscriptionActiveUntil') }}</v-list-item-title>
-              <v-list-item-subtitle class="font-weight-medium">{{ formatDate(oauthStatus.status.subscription_active_until) }}</v-list-item-subtitle>
+              <v-list-item-title class="text-caption text-medium-emphasis">{{
+                t('oauth.subscriptionActiveUntil')
+              }}</v-list-item-title>
+              <v-list-item-subtitle class="font-weight-medium">{{
+                formatDate(oauthStatus.status.subscription_active_until)
+              }}</v-list-item-subtitle>
             </v-list-item>
 
             <!-- Token Expiry -->
@@ -246,8 +271,12 @@
               <template #prepend>
                 <v-icon size="small" color="primary">mdi-clock-outline</v-icon>
               </template>
-              <v-list-item-title class="text-caption text-medium-emphasis">{{ t('oauth.tokenExpiry') }}</v-list-item-title>
-              <v-list-item-subtitle class="font-weight-medium">{{ formatDate(oauthStatus.status.token_expires_at) }}</v-list-item-subtitle>
+              <v-list-item-title class="text-caption text-medium-emphasis">{{
+                t('oauth.tokenExpiry')
+              }}</v-list-item-title>
+              <v-list-item-subtitle class="font-weight-medium">{{
+                formatDate(oauthStatus.status.token_expires_at)
+              }}</v-list-item-subtitle>
             </v-list-item>
 
             <!-- Last Refresh -->
@@ -255,8 +284,12 @@
               <template #prepend>
                 <v-icon size="small" color="primary">mdi-refresh</v-icon>
               </template>
-              <v-list-item-title class="text-caption text-medium-emphasis">{{ t('oauth.lastRefresh') }}</v-list-item-title>
-              <v-list-item-subtitle class="font-weight-medium">{{ formatDate(oauthStatus.status.last_refresh) }}</v-list-item-subtitle>
+              <v-list-item-title class="text-caption text-medium-emphasis">{{
+                t('oauth.lastRefresh')
+              }}</v-list-item-title>
+              <v-list-item-subtitle class="font-weight-medium">{{
+                formatDate(oauthStatus.status.last_refresh)
+              }}</v-list-item-subtitle>
             </v-list-item>
           </v-list>
         </div>
@@ -274,7 +307,8 @@ const { t } = useI18n()
 
 const props = defineProps<{
   modelValue: boolean
-  channelId: number | null
+  channelId: string | null
+  channelIndex: number | null
 }>()
 
 const emit = defineEmits<{
@@ -283,7 +317,7 @@ const emit = defineEmits<{
 
 const dialogVisible = computed({
   get: () => props.modelValue,
-  set: (value) => emit('update:modelValue', value)
+  set: value => emit('update:modelValue', value)
 })
 
 const loading = ref(false)
@@ -291,6 +325,7 @@ const error = ref<string | null>(null)
 const oauthStatus = ref<OAuthStatusResponse | null>(null)
 const quotaClock = ref(Date.now())
 let quotaResetTimer: ReturnType<typeof setTimeout> | null = null
+let loadStatusRequestSequence = 0
 
 const clearQuotaResetTimer = () => {
   if (quotaResetTimer) {
@@ -369,19 +404,27 @@ const scheduleQuotaAutoReset = () => {
 
 const tokenStatusColor = computed(() => {
   switch (oauthStatus.value?.tokenStatus) {
-    case 'valid': return 'success'
-    case 'expiring_soon': return 'warning'
-    case 'expired': return 'error'
-    default: return 'grey'
+    case 'valid':
+      return 'success'
+    case 'expiring_soon':
+      return 'warning'
+    case 'expired':
+      return 'error'
+    default:
+      return 'grey'
   }
 })
 
 const tokenStatusIcon = computed(() => {
   switch (oauthStatus.value?.tokenStatus) {
-    case 'valid': return 'mdi-check-circle'
-    case 'expiring_soon': return 'mdi-alert'
-    case 'expired': return 'mdi-close-circle'
-    default: return 'mdi-help-circle'
+    case 'valid':
+      return 'mdi-check-circle'
+    case 'expiring_soon':
+      return 'mdi-alert'
+    case 'expired':
+      return 'mdi-close-circle'
+    default:
+      return 'mdi-help-circle'
   }
 })
 
@@ -450,20 +493,35 @@ const formatWindowDuration = (minutes: number | undefined): string => {
 }
 
 const loadStatus = async () => {
-  if (props.channelId === null) return
+  if (props.channelId === null && props.channelIndex === null) return
+
+  const requestSequence = ++loadStatusRequestSequence
 
   loading.value = true
   error.value = null
 
   try {
-    oauthStatus.value = await api.getResponsesChannelOAuthStatus(props.channelId)
+    const status = props.channelId
+      ? await api.getResponsesChannelOAuthStatusByStableId(props.channelId)
+      : await api.getResponsesChannelOAuthStatus(props.channelIndex as number)
+
+    if (requestSequence !== loadStatusRequestSequence) {
+      return
+    }
+
+    oauthStatus.value = status
     quotaClock.value = Date.now()
     scheduleQuotaAutoReset()
   } catch (err) {
+    if (requestSequence !== loadStatusRequestSequence) {
+      return
+    }
     error.value = err instanceof Error ? err.message : t('oauth.loadError')
     clearQuotaResetTimer()
   } finally {
-    loading.value = false
+    if (requestSequence === loadStatusRequestSequence) {
+      loading.value = false
+    }
   }
 }
 
@@ -475,19 +533,25 @@ const close = () => {
   dialogVisible.value = false
 }
 
-watch(() => props.modelValue, (newVal) => {
-  if (newVal && props.channelId !== null) {
-    loadStatus()
-    return
+watch(
+  () => props.modelValue,
+  newVal => {
+    if (newVal && (props.channelId !== null || props.channelIndex !== null)) {
+      loadStatus()
+      return
+    }
+    clearQuotaResetTimer()
   }
-  clearQuotaResetTimer()
-})
+)
 
-watch(() => props.channelId, () => {
-  if (props.modelValue && props.channelId !== null) {
-    loadStatus()
+watch(
+  () => [props.channelId, props.channelIndex],
+  () => {
+    if (props.modelValue && (props.channelId !== null || props.channelIndex !== null)) {
+      loadStatus()
+    }
   }
-})
+)
 
 onUnmounted(() => {
   clearQuotaResetTimer()
