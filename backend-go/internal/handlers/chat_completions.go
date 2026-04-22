@@ -136,6 +136,9 @@ func ChatCompletionsHandlerWithAPIKey(
 		}
 
 		userID, sessionID := parseClaudeCodeUserID(strings.TrimSpace(req.User))
+		if sessionID == "" {
+			sessionID = utils.GetSessionIDHeader(c.Request.Header)
+		}
 
 		var apiKeyID *int64
 		if id, exists := c.Get(middleware.ContextKeyAPIKeyID); exists {

@@ -182,7 +182,7 @@ func ResponsesHandlerWithAPIKey(
 			sessionID = promptCacheKey
 			compoundUserID = promptCacheKey
 		} else {
-			// 优先级: Conversation_id Header > Session_id Header > prompt_cache_key > metadata.user_id
+			// 优先级: Conversation_id Header > X-Claude-Code-Session-Id/Session_id Header > prompt_cache_key > metadata.user_id
 			compoundUserID = extractConversationID(c, bodyBytes)
 			userID, sessionID = parseClaudeCodeUserID(compoundUserID)
 		}
@@ -1554,7 +1554,7 @@ func buildCodexOAuthRequest(
 	}
 
 	// 构建 OAuth 请求头输入，转发原始请求的关键头部
-	sessionID := strings.TrimSpace(c.GetHeader("Session_id"))
+	sessionID := utils.GetSessionIDHeader(c.Request.Header)
 	if sessionID == "" {
 		sessionID = strings.TrimSpace(responsesReq.PromptCacheKey)
 	}
@@ -3030,15 +3030,15 @@ func parseInputToItems(input interface{}) ([]types.ResponsesItem, error) {
 }
 
 // extractConversationID 从请求中提取对话标识（用于 Responses API 渠道亲和）
-// 优先级: Conversation_id Header > Session_id Header > prompt_cache_key > metadata.user_id
+// 优先级: Conversation_id Header > X-Claude-Code-Session-Id/Session_id Header > prompt_cache_key > metadata.user_id
 func extractConversationID(c *gin.Context, bodyBytes []byte) string {
 	// 1. HTTP Header: Conversation_id
 	if convID := c.GetHeader("Conversation_id"); convID != "" {
 		return convID
 	}
 
-	// 2. HTTP Header: Session_id
-	if sessID := c.GetHeader("Session_id"); sessID != "" {
+	// 2. HTTP Header: X-Claude-Code-Session-Id / Session_id
+	if sessID := utils.GetSessionIDHeader(c.Request.Header); sessID != "" {
 		return sessID
 	}
 

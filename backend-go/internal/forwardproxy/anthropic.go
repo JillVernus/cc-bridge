@@ -271,13 +271,31 @@ func createPendingLog(req *http.Request, startTime time.Time, hostOnly string, r
 	}
 }
 
-// parseClaudeCodeUserID splits the compound user_id format used by Claude  Code.
-// Format: "user_<hash>_account__session_<session_uuid>"
+// parseClaudeCodeUserID splits the compound user_id format used by Claude Code.
+// Supports two formats:
+//   - Legacy: "user_<hash>_account__session_<session_uuid>"
+//   - JSON:   {"device_id":"...","account_uuid":"...","session_id":"..."}
 func parseClaudeCodeUserID(compoundUserID string) (userID, sessionID string) {
 	compoundUserID = strings.TrimSpace(compoundUserID)
 	if compoundUserID == "" {
 		return "", ""
 	}
+
+	if strings.HasPrefix(compoundUserID, "{") {
+		var parsed struct {
+			DeviceID    string `json:"device_id"`
+			AccountUUID string `json:"account_uuid"`
+			SessionID   string `json:"session_id"`
+		}
+		if json.Unmarshal([]byte(compoundUserID), &parsed) == nil && parsed.DeviceID != "" {
+			uid := parsed.DeviceID
+			if parsed.AccountUUID != "" {
+				uid = parsed.AccountUUID
+			}
+			return uid, parsed.SessionID
+		}
+	}
+
 	const delimiter = "_account__session_"
 	idx := strings.Index(compoundUserID, delimiter)
 	if idx == -1 {

@@ -19,6 +19,21 @@ type CodexOAuthHeadersInput struct {
 	Originator     string // Original Originator from incoming request
 }
 
+// SessionIDHeaderNew is the header name used by recent Claude Code versions.
+const SessionIDHeaderNew = "X-Claude-Code-Session-Id"
+
+// SessionIDHeaderLegacy is the legacy header name for session tracking.
+const SessionIDHeaderLegacy = "Session_id"
+
+// GetSessionIDHeader returns the session ID from the request, checking the new
+// X-Claude-Code-Session-Id header first, falling back to the legacy Session_id.
+func GetSessionIDHeader(h http.Header) string {
+	if v := strings.TrimSpace(h.Get(SessionIDHeaderNew)); v != "" {
+		return v
+	}
+	return strings.TrimSpace(h.Get(SessionIDHeaderLegacy))
+}
+
 // SetCodexOAuthHeaders sets the required headers for Codex OAuth API requests.
 // These headers are required when authenticating with a ChatGPT subscription OAuth token
 // instead of a standard API key.
@@ -46,7 +61,8 @@ func SetCodexOAuthHeaders(headers http.Header, input CodexOAuthHeadersInput) {
 		headers.Set("Conversation_id", input.ConversationID)
 	}
 	if input.SessionID != "" {
-		headers.Set("Session_id", input.SessionID)
+		headers.Set(SessionIDHeaderLegacy, input.SessionID)
+		headers.Set(SessionIDHeaderNew, input.SessionID)
 	}
 
 	// Content headers

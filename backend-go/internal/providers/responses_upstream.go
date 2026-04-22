@@ -92,7 +92,7 @@ func extractPromptCacheKeyForResponsesBridge(c *gin.Context, rawRequest map[stri
 	}
 
 	if c != nil {
-		if sessionID := strings.TrimSpace(c.GetHeader("Session_id")); sessionID != "" {
+		if sessionID := utils.GetSessionIDHeader(c.Request.Header); sessionID != "" {
 			return sessionID
 		}
 	}

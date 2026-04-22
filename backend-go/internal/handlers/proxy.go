@@ -105,6 +105,9 @@ func ProxyHandlerWithAPIKey(envCfg *config.EnvConfig, cfgManager *config.ConfigM
 		// 提取 user_id 用于 Trace 亲和性
 		compoundUserID := extractUserID(bodyBytes)
 		userID, sessionID := parseClaudeCodeUserID(compoundUserID)
+		if sessionID == "" {
+			sessionID = utils.GetSessionIDHeader(c.Request.Header)
+		}
 
 		// 提取 API Key ID 用于请求日志 (nil 表示未设置)
 		var apiKeyID *int64
@@ -203,15 +206,31 @@ func extractUserID(bodyBytes []byte) string {
 }
 
 // parseClaudeCodeUserID 解析 Claude Code 的复合 user_id 格式
-// 格式: user_<hash>_account__session_<session_uuid>
-// 返回: (userID, sessionID)
+// 支持两种格式:
+//   - Legacy: user_<hash>_account__session_<session_uuid>
+//   - JSON:   {"device_id":"...","account_uuid":"...","session_id":"..."}
 func parseClaudeCodeUserID(compoundUserID string) (userID string, sessionID string) {
 	compoundUserID = strings.TrimSpace(compoundUserID)
 	if compoundUserID == "" {
 		return "", ""
 	}
 
-	// 查找分隔符 "_account__session_"
+	if strings.HasPrefix(compoundUserID, "{") {
+		var parsed struct {
+			DeviceID    string `json:"device_id"`
+			AccountUUID string `json:"account_uuid"`
+			SessionID   string `json:"session_id"`
+		}
+		if json.Unmarshal([]byte(compoundUserID), &parsed) == nil && parsed.DeviceID != "" {
+			uid := parsed.DeviceID
+			if parsed.AccountUUID != "" {
+				uid = parsed.AccountUUID
+			}
+			return uid, parsed.SessionID
+		}
+	}
+
+	// Legacy: 查找分隔符 "_account__session_"
 	const delimiter = "_account__session_"
 	idx := strings.Index(compoundUserID, delimiter)
 	if idx == -1 {

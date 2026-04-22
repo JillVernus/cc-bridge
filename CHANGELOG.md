@@ -4,6 +4,17 @@
 
 ---
 
+## [v1.5.26] - 2026-04-22
+
+### 🐛 修复
+
+- **支持 Claude Code 新版会话头 `X-Claude-Code-Session-Id`**:
+  - 所有 API 端点（Messages / Responses / Chat Completions）现在同时识别新头 `X-Claude-Code-Session-Id` 和旧头 `Session_id`，新头优先。
+  - `parseClaudeCodeUserID` 支持解析新版 JSON 格式的 `metadata.user_id`（`{"device_id":"...","session_id":"..."}`），兼容旧版复合字符串格式。
+  - 出站转发同时发送两种头部，保持上游兼容。
+
+---
+
 ## [v1.5.25] - 2026-04-13
 
 ### ✨ 新功能
