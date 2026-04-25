@@ -357,6 +357,12 @@ func TestRunMigrations_AddsRequestRemovedHeadersToExistingDebugLogsTable(t *test
 			response_body_size INTEGER DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
+
+		CREATE TABLE channel_quota (
+			channel_id INTEGER PRIMARY KEY,
+			channel_name TEXT NOT NULL,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
 	`)
 	if err != nil {
 		t.Fatalf("Failed to set up legacy schema: %v", err)
@@ -373,6 +379,70 @@ func TestRunMigrations_AddsRequestRemovedHeadersToExistingDebugLogsTable(t *test
 	}
 	if count != 1 {
 		t.Fatalf("Expected request_removed_headers column to exist after migration, got %d", count)
+	}
+}
+
+func TestRunMigrations_AddsChannelStableIDToExistingChannelQuotaTable(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "ccbridge-db-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	db, err := New(Config{
+		Type: DialectSQLite,
+		URL:  dbPath,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create database: %v", err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE schema_migrations (
+			version INTEGER PRIMARY KEY,
+			name TEXT NOT NULL,
+			applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		INSERT INTO schema_migrations (version, name) VALUES (13, 'request_debug_logs_removed_headers');
+
+		CREATE TABLE channel_quota (
+			channel_id INTEGER PRIMARY KEY,
+			channel_name TEXT NOT NULL,
+			plan_type TEXT,
+			primary_used_percent INTEGER DEFAULT 0,
+			primary_window_minutes INTEGER DEFAULT 0,
+			primary_reset_at DATETIME,
+			secondary_used_percent INTEGER DEFAULT 0,
+			secondary_window_minutes INTEGER DEFAULT 0,
+			secondary_reset_at DATETIME,
+			credits_has_credits BOOLEAN DEFAULT 0,
+			credits_unlimited BOOLEAN DEFAULT 0,
+			credits_balance TEXT,
+			is_exceeded BOOLEAN DEFAULT 0,
+			exceeded_at DATETIME,
+			recover_at DATETIME,
+			exceeded_reason TEXT,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+	`)
+	if err != nil {
+		t.Fatalf("Failed to set up legacy schema: %v", err)
+	}
+
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("RunMigrations failed: %v", err)
+	}
+
+	var count int
+	err = db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('channel_quota') WHERE name = 'channel_stable_id'`).Scan(&count)
+	if err != nil {
+		t.Fatalf("Failed to inspect channel_quota schema: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("Expected channel_stable_id column to exist after migration, got %d", count)
 	}
 }
 

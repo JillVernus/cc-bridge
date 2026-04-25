@@ -20,6 +20,7 @@ type Persister interface {
 // PersistedQuota represents quota data for persistence
 type PersistedQuota struct {
 	ChannelID              int
+	ChannelStableID        string
 	ChannelName            string
 	PlanType               string
 	PrimaryUsedPercent     int
@@ -82,10 +83,11 @@ type RateLimitInfo struct {
 
 // QuotaStatus represents the overall quota status for a channel
 type QuotaStatus struct {
-	ChannelID   int             `json:"channel_id"`
-	ChannelName string          `json:"channel_name"`
-	RateLimit   *RateLimitInfo  `json:"rate_limit,omitempty"`
-	CodexQuota  *CodexQuotaInfo `json:"codex_quota,omitempty"`
+	ChannelID       int             `json:"channel_id"`
+	ChannelStableID string          `json:"channel_stable_id,omitempty"`
+	ChannelName     string          `json:"channel_name"`
+	RateLimit       *RateLimitInfo  `json:"rate_limit,omitempty"`
+	CodexQuota      *CodexQuotaInfo `json:"codex_quota,omitempty"`
 
 	// Cooldown state (set when 429 is received)
 	IsExceeded     bool      `json:"is_exceeded"`
@@ -148,10 +150,11 @@ func (m *Manager) loadFromPersistence() {
 	loaded := 0
 	for _, pq := range quotas {
 		status := &QuotaStatus{
-			ChannelID:      pq.ChannelID,
-			ChannelName:    pq.ChannelName,
-			IsExceeded:     pq.IsExceeded,
-			ExceededReason: pq.ExceededReason,
+			ChannelID:       pq.ChannelID,
+			ChannelStableID: strings.TrimSpace(pq.ChannelStableID),
+			ChannelName:     pq.ChannelName,
+			IsExceeded:      pq.IsExceeded,
+			ExceededReason:  pq.ExceededReason,
 		}
 
 		if pq.ExceededAt != nil {
@@ -198,11 +201,12 @@ func (m *Manager) persist(status *QuotaStatus) {
 	}
 
 	pq := &PersistedQuota{
-		ChannelID:      status.ChannelID,
-		ChannelName:    status.ChannelName,
-		IsExceeded:     status.IsExceeded,
-		ExceededReason: status.ExceededReason,
-		UpdatedAt:      time.Now(),
+		ChannelID:       status.ChannelID,
+		ChannelStableID: strings.TrimSpace(status.ChannelStableID),
+		ChannelName:     status.ChannelName,
+		IsExceeded:      status.IsExceeded,
+		ExceededReason:  status.ExceededReason,
+		UpdatedAt:       time.Now(),
 	}
 
 	if !status.ExceededAt.IsZero() {
@@ -238,6 +242,12 @@ func (m *Manager) persist(status *QuotaStatus) {
 
 // UpdateFromHeaders updates quota info from HTTP response headers
 func (m *Manager) UpdateFromHeaders(channelID int, channelName string, headers http.Header) {
+	m.UpdateFromHeadersForChannel(channelID, "", channelName, headers)
+}
+
+// UpdateFromHeadersForChannel updates quota info and records the stable channel
+// ID when available, preventing stale index/name matches after channel changes.
+func (m *Manager) UpdateFromHeadersForChannel(channelID int, channelStableID string, channelName string, headers http.Header) {
 	if m == nil {
 		return
 	}
@@ -250,8 +260,9 @@ func (m *Manager) UpdateFromHeaders(channelID int, channelName string, headers h
 			codexInfo.PrimaryUsedPercent, codexInfo.SecondaryUsedPercent, codexInfo.PlanType)
 
 		m.mu.Lock()
-		status := m.getOrCreateStatus(channelID, channelName)
+		status := m.getOrCreateStatusForChannel(channelID, channelStableID, channelName)
 		status.CodexQuota = codexInfo
+		status.ChannelStableID = strings.TrimSpace(channelStableID)
 		status.ChannelName = channelName
 
 		// Clear exceeded state if we got a successful response
@@ -275,8 +286,9 @@ func (m *Manager) UpdateFromHeaders(channelID int, channelName string, headers h
 			info.RemainingTokens, info.LimitTokens)
 
 		m.mu.Lock()
-		status := m.getOrCreateStatus(channelID, channelName)
+		status := m.getOrCreateStatusForChannel(channelID, channelStableID, channelName)
 		status.RateLimit = info
+		status.ChannelStableID = strings.TrimSpace(channelStableID)
 		status.ChannelName = channelName
 
 		// Clear exceeded state if we got a successful response
@@ -293,14 +305,24 @@ func (m *Manager) UpdateFromHeaders(channelID int, channelName string, headers h
 
 // getOrCreateStatus returns existing status or creates a new one (must be called with lock held)
 func (m *Manager) getOrCreateStatus(channelID int, channelName string) *QuotaStatus {
+	return m.getOrCreateStatusForChannel(channelID, "", channelName)
+}
+
+// getOrCreateStatusForChannel returns existing status or creates a new one
+// (must be called with lock held).
+func (m *Manager) getOrCreateStatusForChannel(channelID int, channelStableID string, channelName string) *QuotaStatus {
+	stableID := strings.TrimSpace(channelStableID)
 	status, exists := m.quotas[channelID]
-	if !exists {
-		status = &QuotaStatus{
-			ChannelID:   channelID,
-			ChannelName: channelName,
-		}
-		m.quotas[channelID] = status
+	if exists {
+		return status
 	}
+
+	status = &QuotaStatus{
+		ChannelID:       channelID,
+		ChannelStableID: stableID,
+		ChannelName:     channelName,
+	}
+	m.quotas[channelID] = status
 	return status
 }
 
@@ -364,46 +386,57 @@ func (m *Manager) GetStatus(channelID int) *QuotaStatus {
 	return nil
 }
 
-// GetStatusForChannel returns quota status for a channel index/name pair.
-// It protects against stale index remapping by validating channel name and,
-// when needed, falls back to a name-based lookup.
+// GetStatusForChannel returns quota status for a channel identity.
+// It protects against stale index remapping by validating stable channel ID
+// first, then channel name for legacy entries without stable IDs.
 //
 // This method is intentionally read-only. Reorders and DB reloads can cause
 // two channels to temporarily "swap" indices while in-flight requests still
 // report quota updates using the previous index. Mutating the map during read
 // lookups can destroy the other channel's cached quota state.
-func (m *Manager) GetStatusForChannel(channelID int, channelName string) *QuotaStatus {
+func (m *Manager) GetStatusForChannel(channelID int, channelStableID string, channelName string) *QuotaStatus {
 	if m == nil {
 		return nil
 	}
 
+	stableID := strings.TrimSpace(channelStableID)
 	name := strings.TrimSpace(channelName)
 
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	if status, exists := m.quotas[channelID]; exists {
-		// Fast path: channel identity matches or cannot be validated.
-		if name == "" || status.ChannelName == "" || status.ChannelName == name {
-			cloned := cloneStatus(status)
-			if cloned != nil && cloned.ChannelName == "" && name != "" {
-				cloned.ChannelName = name
+		if stableID != "" {
+			statusStableID := strings.TrimSpace(status.ChannelStableID)
+			if statusStableID == stableID {
+				return cloneStatusForChannel(status, channelID, stableID, name)
 			}
-			return cloned
+			return nil
+		} else if strings.TrimSpace(status.ChannelStableID) != "" {
+			return nil
+		}
+
+		// Fast path: channel identity matches or cannot be validated.
+		if stableID == "" && (name == "" || status.ChannelName == "" || status.ChannelName == name) {
+			return cloneStatusForChannel(status, channelID, stableID, name)
 		}
 	}
 
-	if name == "" {
-		return nil
-	}
-
-	// Slow path: find best status with matching channel name and remap.
+	// Slow path: find best status with matching stable ID or legacy name.
 	var match *QuotaStatus
 	var matchUpdatedAt time.Time
 	for _, candidate := range m.quotas {
-		if candidate == nil || candidate.ChannelName != name {
+		if candidate == nil {
 			continue
 		}
+
+		candidateStableID := strings.TrimSpace(candidate.ChannelStableID)
+		matchesStableID := stableID != "" && candidateStableID == stableID
+		matchesLegacyName := stableID == "" && candidateStableID == "" && name != "" && candidate.ChannelName == name
+		if !matchesStableID && !matchesLegacyName {
+			continue
+		}
+
 		candidateUpdatedAt := statusUpdatedAt(candidate)
 		if match == nil || candidateUpdatedAt.After(matchUpdatedAt) {
 			match = candidate
@@ -415,12 +448,21 @@ func (m *Manager) GetStatusForChannel(channelID int, channelName string) *QuotaS
 		return nil
 	}
 
-	cloned := cloneStatus(match)
+	return cloneStatusForChannel(match, channelID, stableID, name)
+}
+
+func cloneStatusForChannel(status *QuotaStatus, channelID int, channelStableID string, channelName string) *QuotaStatus {
+	cloned := cloneStatus(status)
 	if cloned == nil {
 		return nil
 	}
 	cloned.ChannelID = channelID
-	cloned.ChannelName = name
+	if stableID := strings.TrimSpace(channelStableID); stableID != "" {
+		cloned.ChannelStableID = stableID
+	}
+	if name := strings.TrimSpace(channelName); name != "" {
+		cloned.ChannelName = name
+	}
 	return cloned
 }
 

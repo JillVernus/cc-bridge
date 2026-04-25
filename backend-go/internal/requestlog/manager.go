@@ -506,6 +506,7 @@ func (m *Manager) initSchema() error {
 	quotaSchema := `
 	CREATE TABLE IF NOT EXISTS channel_quota (
 		channel_id INTEGER PRIMARY KEY,
+		channel_stable_id TEXT,
 		channel_name TEXT NOT NULL,
 		plan_type TEXT,
 		primary_used_percent INTEGER DEFAULT 0,
@@ -526,6 +527,15 @@ func (m *Manager) initSchema() error {
 	`
 	if _, err := m.db.Exec(quotaSchema); err != nil {
 		log.Printf("⚠️ Failed to create channel_quota table: %v", err)
+	}
+	if err = m.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('channel_quota') WHERE name='channel_stable_id'`).Scan(&count); err != nil {
+		log.Printf("⚠️ Failed to check channel_stable_id column: %v", err)
+	} else if count == 0 {
+		if _, err = m.db.Exec(`ALTER TABLE channel_quota ADD COLUMN channel_stable_id TEXT`); err != nil {
+			log.Printf("⚠️ Failed to add channel_stable_id column: %v", err)
+		} else {
+			log.Printf("✅ Added channel_stable_id column to channel_quota table")
+		}
 	}
 
 	// Create request_debug_logs table for storing full request/response data
@@ -3613,6 +3623,7 @@ func percentileMs(sorted []int64, p float64) int64 {
 // ChannelQuota represents persisted quota data for a channel
 type ChannelQuota struct {
 	ChannelID              int
+	ChannelStableID        string
 	ChannelName            string
 	PlanType               string
 	PrimaryUsedPercent     int
@@ -3638,13 +3649,14 @@ func (m *Manager) SaveChannelQuota(q *ChannelQuota) error {
 
 	query := `
 	INSERT INTO channel_quota (
-		channel_id, channel_name, plan_type,
+		channel_id, channel_stable_id, channel_name, plan_type,
 		primary_used_percent, primary_window_minutes, primary_reset_at,
 		secondary_used_percent, secondary_window_minutes, secondary_reset_at,
 		credits_has_credits, credits_unlimited, credits_balance,
 		is_exceeded, exceeded_at, recover_at, exceeded_reason, updated_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(channel_id) DO UPDATE SET
+		channel_stable_id = excluded.channel_stable_id,
 		channel_name = excluded.channel_name,
 		plan_type = excluded.plan_type,
 		primary_used_percent = excluded.primary_used_percent,
@@ -3664,7 +3676,7 @@ func (m *Manager) SaveChannelQuota(q *ChannelQuota) error {
 	`
 
 	_, err := m.db.Exec(m.convertQuery(query),
-		q.ChannelID, q.ChannelName, q.PlanType,
+		q.ChannelID, q.ChannelStableID, q.ChannelName, q.PlanType,
 		q.PrimaryUsedPercent, q.PrimaryWindowMinutes, q.PrimaryResetAt,
 		q.SecondaryUsedPercent, q.SecondaryWindowMinutes, q.SecondaryResetAt,
 		q.CreditsHasCredits, q.CreditsUnlimited, q.CreditsBalance,
@@ -3679,7 +3691,7 @@ func (m *Manager) GetChannelQuota(channelID int) (*ChannelQuota, error) {
 	defer m.mu.RUnlock()
 
 	query := `
-	SELECT channel_id, channel_name, plan_type,
+	SELECT channel_id, channel_stable_id, channel_name, plan_type,
 		primary_used_percent, primary_window_minutes, primary_reset_at,
 		secondary_used_percent, secondary_window_minutes, secondary_reset_at,
 		credits_has_credits, credits_unlimited, credits_balance,
@@ -3691,7 +3703,7 @@ func (m *Manager) GetChannelQuota(channelID int) (*ChannelQuota, error) {
 	var primaryResetAt, secondaryResetAt, exceededAt, recoverAt sql.NullTime
 
 	err := m.db.QueryRow(m.convertQuery(query), channelID).Scan(
-		&q.ChannelID, &q.ChannelName, &q.PlanType,
+		&q.ChannelID, &q.ChannelStableID, &q.ChannelName, &q.PlanType,
 		&q.PrimaryUsedPercent, &q.PrimaryWindowMinutes, &primaryResetAt,
 		&q.SecondaryUsedPercent, &q.SecondaryWindowMinutes, &secondaryResetAt,
 		&q.CreditsHasCredits, &q.CreditsUnlimited, &q.CreditsBalance,
@@ -3726,7 +3738,7 @@ func (m *Manager) GetAllChannelQuotas() ([]*ChannelQuota, error) {
 	defer m.mu.RUnlock()
 
 	query := `
-	SELECT channel_id, channel_name, plan_type,
+	SELECT channel_id, channel_stable_id, channel_name, plan_type,
 		primary_used_percent, primary_window_minutes, primary_reset_at,
 		secondary_used_percent, secondary_window_minutes, secondary_reset_at,
 		credits_has_credits, credits_unlimited, credits_balance,
@@ -3746,7 +3758,7 @@ func (m *Manager) GetAllChannelQuotas() ([]*ChannelQuota, error) {
 		var primaryResetAt, secondaryResetAt, exceededAt, recoverAt sql.NullTime
 
 		err := rows.Scan(
-			&q.ChannelID, &q.ChannelName, &q.PlanType,
+			&q.ChannelID, &q.ChannelStableID, &q.ChannelName, &q.PlanType,
 			&q.PrimaryUsedPercent, &q.PrimaryWindowMinutes, &primaryResetAt,
 			&q.SecondaryUsedPercent, &q.SecondaryWindowMinutes, &secondaryResetAt,
 			&q.CreditsHasCredits, &q.CreditsUnlimited, &q.CreditsBalance,

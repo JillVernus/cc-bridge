@@ -41,7 +41,7 @@ func TestGetResponsesChannelOAuthStatusByChannelID_ReturnsMatchingOAuthChannel(t
 	headers.Set("X-Codex-Plan-Type", "plus")
 	headers.Set("X-Codex-Primary-Used-Percent", "12")
 	headers.Set("X-Codex-Secondary-Used-Percent", "44")
-	quota.GetManager().UpdateFromHeaders(1, "OAuth Stable A", headers)
+	quota.GetManager().UpdateFromHeadersForChannel(1, "oauth-stable-a", "OAuth Stable A", headers)
 
 	router := gin.New()
 	router.GET("/api/responses/channels/by-id/:channelID/oauth/status", GetResponsesChannelOAuthStatusByChannelID(cfgManager))

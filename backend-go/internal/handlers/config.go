@@ -1333,9 +1333,9 @@ func writeResponsesChannelOAuthStatus(c *gin.Context, channelIndex int, upstream
 		response["tokenExpiresIn"] = int(status.TokenExpiresAt.Sub(now).Seconds())
 	}
 
-	// Add quota/rate limit information
-	// Use name-aware lookup to avoid stale quota data when channel indices are re-indexed.
-	if quotaStatus := quota.GetManager().GetStatusForChannel(channelIndex, upstream.Name); quotaStatus != nil {
+	// Add quota/rate limit information.
+	// Prefer stable channel IDs so stale quota rows do not follow mutable indices.
+	if quotaStatus := quota.GetManager().GetStatusForChannel(channelIndex, upstream.ID, upstream.Name); quotaStatus != nil {
 		quotaInfo := gin.H{}
 
 		// Codex-specific quota (primary/secondary windows)

@@ -79,6 +79,7 @@ CREATE INDEX IF NOT EXISTS idx_request_logs_api_key_id ON request_logs(api_key_i
 -- Channel quota table (for Codex quota tracking)
 CREATE TABLE IF NOT EXISTS channel_quota (
     channel_id INTEGER PRIMARY KEY,
+    channel_stable_id TEXT,
     channel_name TEXT NOT NULL,
     plan_type TEXT,
     primary_used_percent INTEGER DEFAULT 0,

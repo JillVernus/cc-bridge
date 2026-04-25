@@ -21,6 +21,7 @@ func NewRequestLogAdapter(manager *requestlog.Manager) *RequestLogAdapter {
 func (a *RequestLogAdapter) SaveChannelQuota(q *PersistedQuota) error {
 	cq := &requestlog.ChannelQuota{
 		ChannelID:              q.ChannelID,
+		ChannelStableID:        q.ChannelStableID,
 		ChannelName:            q.ChannelName,
 		PlanType:               q.PlanType,
 		PrimaryUsedPercent:     q.PrimaryUsedPercent,
@@ -70,6 +71,7 @@ func convertToPersistedQuota(cq *requestlog.ChannelQuota) *PersistedQuota {
 	}
 	return &PersistedQuota{
 		ChannelID:              cq.ChannelID,
+		ChannelStableID:        cq.ChannelStableID,
 		ChannelName:            cq.ChannelName,
 		PlanType:               cq.PlanType,
 		PrimaryUsedPercent:     cq.PrimaryUsedPercent,

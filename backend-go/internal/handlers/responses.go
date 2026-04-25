@@ -1494,7 +1494,7 @@ func tryResponsesChannelWithOAuth(
 	}
 
 	// 更新配额信息从响应头
-	quota.GetManager().UpdateFromHeaders(upstream.Index, upstream.Name, resp.Header)
+	quota.GetManager().UpdateFromHeadersForChannel(upstream.Index, upstream.ID, upstream.Name, resp.Header)
 
 	provider := &providers.ResponsesProvider{SessionManager: sessionManager}
 	handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, startTime, &responsesReq, effectiveBodyBytes, reqLogManager, requestLogID, usageManager, logChannelIndex, logChannelName, effectiveIsFastMode, serviceTierOverridden)
