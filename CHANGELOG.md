@@ -4,6 +4,21 @@
 
 ---
 
+## [v1.5.27] - 2026-04-25
+
+### 🐛 修复
+
+- **Codex OAuth 配额条稳定性修复**:
+  - Codex quota 持久化新增稳定渠道 ID，避免渠道移动、重排或 PostgreSQL 迁移后配额条错误跟随可变 index。
+  - 新增 `channel_quota.channel_stable_id` 数据库迁移，覆盖 SQLite 与 PostgreSQL 已迁移数据库。
+  - 旧版无稳定 ID 的配额行不会再错误匹配到稳定 ID 渠道，等待下一次成功 Codex 响应后自动写入新配额快照。
+
+### ✅ 测试
+
+- `cd backend-go && go test ./...`
+
+---
+
 ## [v1.5.26] - 2026-04-22
 
 ### 🐛 修复
