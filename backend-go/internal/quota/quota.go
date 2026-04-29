@@ -312,22 +312,79 @@ func (m *Manager) getOrCreateStatus(channelID int, channelName string) *QuotaSta
 // (must be called with lock held).
 func (m *Manager) getOrCreateStatusForChannel(channelID int, channelStableID string, channelName string) *QuotaStatus {
 	stableID := strings.TrimSpace(channelStableID)
-	status, exists := m.quotas[channelID]
-	if exists {
-		return status
+	name := strings.TrimSpace(channelName)
+
+	if stableID != "" {
+		if status := m.findStatusByStableIDLocked(stableID); status != nil {
+			status.ChannelID = channelID
+			status.ChannelStableID = stableID
+			if name != "" {
+				status.ChannelName = name
+			}
+			return status
+		}
 	}
 
-	status = &QuotaStatus{
+	if status, exists := m.quotas[channelID]; exists {
+		statusStableID := strings.TrimSpace(status.ChannelStableID)
+		if stableID == "" || statusStableID == "" || statusStableID == stableID {
+			status.ChannelStableID = stableID
+			if name != "" {
+				status.ChannelName = name
+			}
+			return status
+		}
+	}
+
+	status := &QuotaStatus{
 		ChannelID:       channelID,
 		ChannelStableID: stableID,
 		ChannelName:     channelName,
 	}
-	m.quotas[channelID] = status
+	m.quotas[m.quotaMapKeyForNewStatusLocked(channelID)] = status
 	return status
+}
+
+func (m *Manager) findStatusByStableIDLocked(stableID string) *QuotaStatus {
+	stableID = strings.TrimSpace(stableID)
+	if stableID == "" {
+		return nil
+	}
+
+	var match *QuotaStatus
+	var matchUpdatedAt time.Time
+	for _, candidate := range m.quotas {
+		if candidate == nil || strings.TrimSpace(candidate.ChannelStableID) != stableID {
+			continue
+		}
+		candidateUpdatedAt := statusUpdatedAt(candidate)
+		if match == nil || candidateUpdatedAt.After(matchUpdatedAt) {
+			match = candidate
+			matchUpdatedAt = candidateUpdatedAt
+		}
+	}
+	return match
+}
+
+func (m *Manager) quotaMapKeyForNewStatusLocked(channelID int) int {
+	if _, exists := m.quotas[channelID]; !exists {
+		return channelID
+	}
+
+	for key := -1; ; key-- {
+		if _, exists := m.quotas[key]; !exists {
+			return key
+		}
+	}
 }
 
 // SetExceeded marks a channel as quota exceeded
 func (m *Manager) SetExceeded(channelID int, channelName string, reason string, retryAfter time.Duration) {
+	m.SetExceededForChannel(channelID, "", channelName, reason, retryAfter)
+}
+
+// SetExceededForChannel marks a stable channel identity as quota exceeded.
+func (m *Manager) SetExceededForChannel(channelID int, channelStableID string, channelName string, reason string, retryAfter time.Duration) {
 	if m == nil {
 		return
 	}
@@ -335,7 +392,7 @@ func (m *Manager) SetExceeded(channelID int, channelName string, reason string, 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	status := m.getOrCreateStatus(channelID, channelName)
+	status := m.getOrCreateStatusForChannel(channelID, channelStableID, channelName)
 
 	now := time.Now()
 	status.IsExceeded = true
@@ -411,7 +468,6 @@ func (m *Manager) GetStatusForChannel(channelID int, channelStableID string, cha
 			if statusStableID == stableID {
 				return cloneStatusForChannel(status, channelID, stableID, name)
 			}
-			return nil
 		} else if strings.TrimSpace(status.ChannelStableID) != "" {
 			return nil
 		}

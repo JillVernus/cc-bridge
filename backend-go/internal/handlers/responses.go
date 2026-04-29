@@ -1469,7 +1469,7 @@ func tryResponsesChannelWithOAuth(
 		// 对于 429 错误，记录配额超限状态
 		if resp.StatusCode == 429 {
 			retryAfter := quota.ParseRetryAfter(resp.Header.Get("Retry-After"))
-			quota.GetManager().SetExceeded(upstream.Index, upstream.Name, "rate_limit_exceeded", retryAfter)
+			quota.GetManager().SetExceededForChannel(upstream.Index, upstream.ID, upstream.Name, "rate_limit_exceeded", retryAfter)
 		}
 
 		// 对于 401 错误，尝试强制刷新 token

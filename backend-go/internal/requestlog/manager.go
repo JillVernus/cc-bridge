@@ -3647,6 +3647,120 @@ func (m *Manager) SaveChannelQuota(q *ChannelQuota) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	stableID := strings.TrimSpace(q.ChannelStableID)
+	now := time.Now()
+
+	if stableID != "" {
+		var existingChannelID int
+		err := m.db.QueryRow(m.convertQuery(`
+			SELECT channel_id
+			FROM channel_quota
+			WHERE channel_stable_id = ?
+			ORDER BY updated_at DESC
+			LIMIT 1
+		`), stableID).Scan(&existingChannelID)
+		if err != nil && err != sql.ErrNoRows {
+			return err
+		}
+		if err == nil {
+			targetChannelID := existingChannelID
+			if q.ChannelID != existingChannelID {
+				available, err := m.channelQuotaIDAvailableForStableID(q.ChannelID, stableID)
+				if err != nil {
+					return err
+				}
+				if available {
+					targetChannelID = q.ChannelID
+				}
+			}
+
+			return m.updateChannelQuotaByID(existingChannelID, targetChannelID, q, now)
+		}
+
+		insertChannelID := q.ChannelID
+		available, err := m.channelQuotaIDAvailableForStableID(q.ChannelID, stableID)
+		if err != nil {
+			return err
+		}
+		if !available {
+			insertChannelID, err = m.nextSyntheticChannelQuotaID()
+			if err != nil {
+				return err
+			}
+		}
+		return m.insertOrUpdateChannelQuota(insertChannelID, q, now)
+	}
+
+	return m.insertOrUpdateChannelQuota(q.ChannelID, q, now)
+}
+
+func (m *Manager) channelQuotaIDAvailableForStableID(channelID int, stableID string) (bool, error) {
+	var existingStableID sql.NullString
+	err := m.db.QueryRow(m.convertQuery(`
+		SELECT channel_stable_id
+		FROM channel_quota
+		WHERE channel_id = ?
+	`), channelID).Scan(&existingStableID)
+	if err == sql.ErrNoRows {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return !existingStableID.Valid || strings.TrimSpace(existingStableID.String) == "" || strings.TrimSpace(existingStableID.String) == stableID, nil
+}
+
+func (m *Manager) nextSyntheticChannelQuotaID() (int, error) {
+	var minID sql.NullInt64
+	if err := m.db.QueryRow(`
+		SELECT MIN(channel_id)
+		FROM channel_quota
+		WHERE channel_id < 0
+	`).Scan(&minID); err != nil {
+		return 0, err
+	}
+	if !minID.Valid {
+		return -1, nil
+	}
+	return int(minID.Int64) - 1, nil
+}
+
+func (m *Manager) updateChannelQuotaByID(existingChannelID int, targetChannelID int, q *ChannelQuota, updatedAt time.Time) error {
+	query := `
+	UPDATE channel_quota SET
+		channel_id = ?,
+		channel_stable_id = ?,
+		channel_name = ?,
+		plan_type = ?,
+		primary_used_percent = ?,
+		primary_window_minutes = ?,
+		primary_reset_at = ?,
+		secondary_used_percent = ?,
+		secondary_window_minutes = ?,
+		secondary_reset_at = ?,
+		credits_has_credits = ?,
+		credits_unlimited = ?,
+		credits_balance = ?,
+		is_exceeded = ?,
+		exceeded_at = ?,
+		recover_at = ?,
+		exceeded_reason = ?,
+		updated_at = ?
+	WHERE channel_id = ?
+	`
+
+	_, err := m.db.Exec(m.convertQuery(query),
+		targetChannelID, q.ChannelStableID, q.ChannelName, q.PlanType,
+		q.PrimaryUsedPercent, q.PrimaryWindowMinutes, q.PrimaryResetAt,
+		q.SecondaryUsedPercent, q.SecondaryWindowMinutes, q.SecondaryResetAt,
+		q.CreditsHasCredits, q.CreditsUnlimited, q.CreditsBalance,
+		q.IsExceeded, q.ExceededAt, q.RecoverAt, q.ExceededReason, updatedAt,
+		existingChannelID,
+	)
+	return err
+}
+
+func (m *Manager) insertOrUpdateChannelQuota(channelID int, q *ChannelQuota, updatedAt time.Time) error {
 	query := `
 	INSERT INTO channel_quota (
 		channel_id, channel_stable_id, channel_name, plan_type,
@@ -3676,11 +3790,11 @@ func (m *Manager) SaveChannelQuota(q *ChannelQuota) error {
 	`
 
 	_, err := m.db.Exec(m.convertQuery(query),
-		q.ChannelID, q.ChannelStableID, q.ChannelName, q.PlanType,
+		channelID, q.ChannelStableID, q.ChannelName, q.PlanType,
 		q.PrimaryUsedPercent, q.PrimaryWindowMinutes, q.PrimaryResetAt,
 		q.SecondaryUsedPercent, q.SecondaryWindowMinutes, q.SecondaryResetAt,
 		q.CreditsHasCredits, q.CreditsUnlimited, q.CreditsBalance,
-		q.IsExceeded, q.ExceededAt, q.RecoverAt, q.ExceededReason, time.Now(),
+		q.IsExceeded, q.ExceededAt, q.RecoverAt, q.ExceededReason, updatedAt,
 	)
 	return err
 }

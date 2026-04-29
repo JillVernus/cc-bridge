@@ -1578,7 +1578,7 @@ const autoRefreshMetrics = async () => {
   if (metricsRefreshInFlight) return
   metricsRefreshInFlight = true
   try {
-    await orchestration.refreshMetrics()
+    await Promise.all([orchestration.refreshMetrics(), orchestration.fetchOAuthQuotas()])
   } catch (error) {
     console.warn('自动刷新指标失败:', error)
   } finally {
