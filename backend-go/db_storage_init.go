@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/JillVernus/cc-bridge/internal/aliases"
@@ -25,6 +27,12 @@ type DBStorageManager struct {
 	apiKeyManager  *apikey.Manager
 }
 
+var (
+	openDatabaseForStorage          = database.New
+	runDatabaseMigrationsForStorage = database.RunMigrations
+	fatalf                          = log.Fatalf
+)
+
 // InitDBStorage initializes database storage if STORAGE_BACKEND=database
 // Returns nil if JSON storage is used (default)
 func InitDBStorage(envCfg *config.EnvConfig, cfgManager *config.ConfigManager) *DBStorageManager {
@@ -46,20 +54,10 @@ func InitDBStorage(envCfg *config.EnvConfig, cfgManager *config.ConfigManager) *
 		dbCfg.URL = ".config/cc-bridge.db"
 	}
 
-	// Create database connection
-	db, err := database.New(dbCfg)
+	attempts, retryDelay := databaseStartupRetryConfig()
+	db, err := openDatabaseWithRetry(dbCfg, attempts, retryDelay, openDatabaseForStorage, runDatabaseMigrationsForStorage)
 	if err != nil {
-		log.Printf("⚠️ Failed to initialize database storage: %v", err)
-		log.Printf("📁 Falling back to JSON file storage")
-		return nil
-	}
-
-	// Run migrations
-	if err := database.RunMigrations(db); err != nil {
-		log.Printf("⚠️ Failed to run database migrations: %v", err)
-		db.Close()
-		log.Printf("📁 Falling back to JSON file storage")
-		return nil
+		fatalf("🚨 STORAGE_BACKEND=database is configured, but database storage failed to initialize after %d attempt(s): %v. Refusing to start without the configured database.", attempts, err)
 	}
 
 	// Ensure api_keys table has all required columns (for DBs migrated before columns were added)
@@ -127,6 +125,62 @@ func InitDBStorage(envCfg *config.EnvConfig, cfgManager *config.ConfigManager) *
 
 	log.Printf("✅ Database storage initialized (poll interval: %v)", pollInterval)
 	return mgr
+}
+
+func databaseStartupRetryConfig() (int, time.Duration) {
+	attempts := getPositiveEnvInt("DATABASE_STARTUP_RETRIES", 30)
+	delaySeconds := getPositiveEnvInt("DATABASE_STARTUP_RETRY_DELAY_SECONDS", 2)
+	return attempts, time.Duration(delaySeconds) * time.Second
+}
+
+func getPositiveEnvInt(key string, defaultValue int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return defaultValue
+	}
+	return parsed
+}
+
+func openDatabaseWithRetry(
+	cfg database.Config,
+	maxAttempts int,
+	retryDelay time.Duration,
+	open func(database.Config) (database.DB, error),
+	runMigrations func(database.DB) error,
+) (database.DB, error) {
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		db, err := open(cfg)
+		if err == nil {
+			if err = runMigrations(db); err == nil {
+				return db, nil
+			}
+			lastErr = fmt.Errorf("run database migrations: %w", err)
+			if closeErr := db.Close(); closeErr != nil {
+				log.Printf("⚠️ Failed to close database after migration error: %v", closeErr)
+			}
+		} else {
+			lastErr = fmt.Errorf("connect to database: %w", err)
+		}
+
+		if attempt < maxAttempts {
+			log.Printf("⚠️ Database startup attempt %d/%d failed: %v; retrying in %v", attempt, maxAttempts, lastErr, retryDelay)
+			if retryDelay > 0 {
+				time.Sleep(retryDelay)
+			}
+		}
+	}
+
+	return nil, lastErr
 }
 
 // MigrateFromJSON migrates all JSON config files to the database
