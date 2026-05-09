@@ -468,6 +468,9 @@ func (m *Manager) GetStatusForChannel(channelID int, channelStableID string, cha
 			if statusStableID == stableID {
 				return cloneStatusForChannel(status, channelID, stableID, name)
 			}
+			if statusStableID == "" && name != "" && status.ChannelName == name {
+				return cloneStatusForChannel(status, channelID, stableID, name)
+			}
 		} else if strings.TrimSpace(status.ChannelStableID) != "" {
 			return nil
 		}

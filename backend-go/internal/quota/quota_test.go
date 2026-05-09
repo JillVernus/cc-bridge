@@ -1,10 +1,32 @@
 package quota
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
 )
+
+type testQuotaPersister struct {
+	quotas []*PersistedQuota
+}
+
+func (p *testQuotaPersister) SaveChannelQuota(q *PersistedQuota) error {
+	return fmt.Errorf("unexpected SaveChannelQuota call: %+v", q)
+}
+
+func (p *testQuotaPersister) GetChannelQuota(channelID int) (*PersistedQuota, error) {
+	for _, quota := range p.quotas {
+		if quota.ChannelID == channelID {
+			return quota, nil
+		}
+	}
+	return nil, nil
+}
+
+func (p *testQuotaPersister) GetAllChannelQuotas() ([]*PersistedQuota, error) {
+	return p.quotas, nil
+}
 
 func TestGetStatusForChannel_MatchByIDAndName(t *testing.T) {
 	m := &Manager{
@@ -112,7 +134,27 @@ func TestGetStatusForChannel_RejectsSameNameWithDifferentStableID(t *testing.T) 
 	}
 }
 
-func TestGetStatusForChannel_RejectsLegacyRowWhenStableIDRequested(t *testing.T) {
+func TestGetStatusForChannel_RejectsLegacyRowWhenStableIDRequestedAndNameDiffers(t *testing.T) {
+	m := &Manager{
+		quotas: make(map[int]*QuotaStatus),
+	}
+
+	m.quotas[3] = &QuotaStatus{
+		ChannelID:   3,
+		ChannelName: "shared-name",
+		CodexQuota: &CodexQuotaInfo{
+			PrimaryUsedPercent: 77,
+			UpdatedAt:          time.Now(),
+		},
+	}
+
+	got := m.GetStatusForChannel(3, "new-stable-id", "different-name")
+	if got != nil {
+		t.Fatalf("expected nil for mismatched legacy quota row when stable id is available, got %+v", got)
+	}
+}
+
+func TestGetStatusForChannel_StableIDFallsBackToCurrentLegacyRowWhenNameMatches(t *testing.T) {
 	m := &Manager{
 		quotas: make(map[int]*QuotaStatus),
 	}
@@ -127,8 +169,43 @@ func TestGetStatusForChannel_RejectsLegacyRowWhenStableIDRequested(t *testing.T)
 	}
 
 	got := m.GetStatusForChannel(3, "new-stable-id", "shared-name")
-	if got != nil {
-		t.Fatalf("expected nil for legacy quota row when stable id is available, got %+v", got)
+	if got == nil {
+		t.Fatalf("expected legacy quota row to be reused for same current index and name")
+	}
+	if got.ChannelID != 3 || got.ChannelStableID != "new-stable-id" || got.ChannelName != "shared-name" {
+		t.Fatalf("unexpected fallback identity: %+v", got)
+	}
+	if got.CodexQuota == nil || got.CodexQuota.PrimaryUsedPercent != 77 {
+		t.Fatalf("expected legacy quota payload, got %+v", got.CodexQuota)
+	}
+}
+
+func TestSetPersister_LoadedLegacyQuotaCanBeReadByStableIDWhenCurrentNameMatches(t *testing.T) {
+	now := time.Now()
+	m := &Manager{
+		quotas: make(map[int]*QuotaStatus),
+	}
+	m.SetPersister(&testQuotaPersister{
+		quotas: []*PersistedQuota{
+			{
+				ChannelID:          3,
+				ChannelName:        "shared-name",
+				PlanType:           "plus",
+				PrimaryUsedPercent: 77,
+				UpdatedAt:          now,
+			},
+		},
+	})
+
+	got := m.GetStatusForChannel(3, "new-stable-id", "shared-name")
+	if got == nil {
+		t.Fatalf("expected loaded legacy quota row to be reused for same current index and name")
+	}
+	if got.ChannelID != 3 || got.ChannelStableID != "new-stable-id" || got.ChannelName != "shared-name" {
+		t.Fatalf("unexpected loaded fallback identity: %+v", got)
+	}
+	if got.CodexQuota == nil || got.CodexQuota.PlanType != "plus" || got.CodexQuota.PrimaryUsedPercent != 77 {
+		t.Fatalf("expected loaded legacy codex quota payload, got %+v", got.CodexQuota)
 	}
 }
 

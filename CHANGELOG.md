@@ -4,6 +4,20 @@
 
 ---
 
+## [v1.5.31] - 2026-05-09
+
+### 🐛 修复
+
+- **Codex OAuth 配额条历史持久化读取修复**:
+  - 修复升级到稳定 channel ID 匹配后，旧版数据库中未写入 `channel_stable_id` 的 Codex OAuth 配额记录无法在页面刷新 / 服务重启后显示的问题。
+  - 稳定 ID 查询现在会在“当前 index 与 channel name 仍匹配”时安全复用旧版无稳定 ID 的持久化配额记录，同时继续拒绝名称不匹配或稳定 ID 冲突的旧数据。
+  - 新增 quota manager 回归测试，覆盖 DB 载入旧版配额记录后通过稳定 ID 读取的场景。
+
+### ✅ 测试
+
+- `cd backend-go && go test ./internal/quota -count=1 -v`
+- `cd backend-go && go test ./internal/handlers ./internal/requestlog ./internal/database -count=1`
+
 ## [v1.5.30] - 2026-05-09
 
 ### 🐛 修复
