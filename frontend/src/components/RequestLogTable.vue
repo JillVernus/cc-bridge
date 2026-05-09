@@ -61,7 +61,7 @@
                         summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
                       }}</v-icon>
                     </span>
-                    <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'name')"></div>
+                    <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'name')"></div>
                   </th>
                   <th
                     class="text-end resizable-summary-header sortable-header"
@@ -74,7 +74,7 @@
                         summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
                       }}</v-icon>
                     </span>
-                    <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'requests')"></div>
+                    <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'requests')"></div>
                   </th>
                   <th
                     class="text-end resizable-summary-header sortable-header"
@@ -87,7 +87,7 @@
                         summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
                       }}</v-icon>
                     </span>
-                    <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'input')"></div>
+                    <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'input')"></div>
                   </th>
                   <th
                     class="text-end resizable-summary-header sortable-header"
@@ -100,7 +100,7 @@
                         summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
                       }}</v-icon>
                     </span>
-                    <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'output')"></div>
+                    <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'output')"></div>
                   </th>
                   <th
                     class="text-end resizable-summary-header sortable-header"
@@ -113,7 +113,7 @@
                         summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
                       }}</v-icon>
                     </span>
-                    <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'cacheCreation')"></div>
+                    <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'cacheCreation')"></div>
                   </th>
                   <th
                     class="text-end resizable-summary-header sortable-header"
@@ -126,7 +126,7 @@
                         summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
                       }}</v-icon>
                     </span>
-                    <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'cacheHit')"></div>
+                    <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'cacheHit')"></div>
                   </th>
                   <th
                     class="text-end resizable-summary-header sortable-header"
@@ -139,7 +139,7 @@
                         summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
                       }}</v-icon>
                     </span>
-                    <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'cacheHitRate')"></div>
+                    <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'cacheHitRate')"></div>
                   </th>
                   <th
                     class="text-end resizable-summary-header sortable-header"
@@ -152,7 +152,7 @@
                         summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
                       }}</v-icon>
                     </span>
-                    <div class="resize-handle" @mousedown.stop="startSummaryResize($event, 'cost')"></div>
+                    <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'cost')"></div>
                   </th>
                 </tr>
               </thead>
@@ -302,7 +302,7 @@
       </div>
 
       <!-- Splitter 1 -->
-      <div class="panel-splitter" @mousedown="startPanelResize($event, 'splitter1')">
+      <div class="panel-splitter" @pointerdown="startPanelResize($event, 'splitter1')">
         <div class="splitter-handle"></div>
       </div>
 
@@ -329,63 +329,63 @@
                 <tr>
                   <th class="resizable-summary-header" :style="{ width: activeSessionColumnWidths.session + 'px' }">
                     {{ t('requestLog.session') }}
-                    <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'session')"></div>
+                    <div class="resize-handle" @pointerdown="startActiveSessionResize($event, 'session')"></div>
                   </th>
                   <th
                     class="text-end resizable-summary-header"
                     :style="{ width: activeSessionColumnWidths.live + 'px' }"
                   >
                     {{ t('requestLog.live') }}
-                    <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'live')"></div>
+                    <div class="resize-handle" @pointerdown="startActiveSessionResize($event, 'live')"></div>
                   </th>
                   <th
                     class="text-end resizable-summary-header"
                     :style="{ width: activeSessionColumnWidths.requests + 'px' }"
                   >
                     {{ t('requestLog.requests') }}
-                    <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'requests')"></div>
+                    <div class="resize-handle" @pointerdown="startActiveSessionResize($event, 'requests')"></div>
                   </th>
                   <th
                     class="text-end resizable-summary-header"
                     :style="{ width: activeSessionColumnWidths.input + 'px' }"
                   >
                     {{ t('requestLog.input') }}
-                    <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'input')"></div>
+                    <div class="resize-handle" @pointerdown="startActiveSessionResize($event, 'input')"></div>
                   </th>
                   <th
                     class="text-end resizable-summary-header"
                     :style="{ width: activeSessionColumnWidths.output + 'px' }"
                   >
                     {{ t('requestLog.output') }}
-                    <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'output')"></div>
+                    <div class="resize-handle" @pointerdown="startActiveSessionResize($event, 'output')"></div>
                   </th>
                   <th
                     class="text-end resizable-summary-header"
                     :style="{ width: activeSessionColumnWidths.cache + 'px' }"
                   >
                     {{ t('requestLog.cacheCreation') }}
-                    <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'cache')"></div>
+                    <div class="resize-handle" @pointerdown="startActiveSessionResize($event, 'cache')"></div>
                   </th>
                   <th
                     class="text-end resizable-summary-header"
                     :style="{ width: activeSessionColumnWidths.hit + 'px' }"
                   >
                     {{ t('requestLog.cacheHit') }}
-                    <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'hit')"></div>
+                    <div class="resize-handle" @pointerdown="startActiveSessionResize($event, 'hit')"></div>
                   </th>
                   <th
                     class="text-end resizable-summary-header"
                     :style="{ width: activeSessionColumnWidths.hitRate + 'px' }"
                   >
                     {{ t('requestLog.cacheHitRate') }}
-                    <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'hitRate')"></div>
+                    <div class="resize-handle" @pointerdown="startActiveSessionResize($event, 'hitRate')"></div>
                   </th>
                   <th
                     class="text-end resizable-summary-header"
                     :style="{ width: activeSessionColumnWidths.cost + 'px' }"
                   >
                     {{ t('requestLog.cost') }}
-                    <div class="resize-handle" @mousedown="startActiveSessionResize($event, 'cost')"></div>
+                    <div class="resize-handle" @pointerdown="startActiveSessionResize($event, 'cost')"></div>
                   </th>
                 </tr>
               </thead>
@@ -507,7 +507,7 @@
       </div>
 
       <!-- Splitter 2 -->
-      <div v-if="!isDateFilterCollapsed" class="panel-splitter" @mousedown="startPanelResize($event, 'splitter2')">
+      <div v-if="!isDateFilterCollapsed" class="panel-splitter" @pointerdown="startPanelResize($event, 'splitter2')">
         <div class="splitter-handle"></div>
       </div>
       <!-- Spacer when collapsed -->
@@ -1034,7 +1034,7 @@
                 <div
                   v-if="column.key && column.key !== 'status'"
                   class="resize-handle"
-                  @mousedown="startResize($event, column.key)"
+                  @pointerdown="startResize($event, column.key)"
                 ></div>
               </div>
             </th>
@@ -1582,12 +1582,33 @@ import {
   formatRequestLogDurationCompact,
   formatRequestLogTps
 } from '../utils/requestLogTps'
+import {
+  POINTER_RESIZE_EVENTS,
+  calculatePointerResizeWidth,
+  capturePointerResize,
+  releasePointerResize,
+  type PointerCaptureTarget
+} from '../utils/pointerResize'
 
 // i18n
 const { t } = useI18n()
 
 // Viewport detection for responsive stacking
 const { width: viewportWidth } = useDisplay()
+
+const resizePointerTarget = ref<PointerCaptureTarget | null>(null)
+const resizePointerId = ref<number | null>(null)
+
+const beginPointerResize = (e: PointerEvent) => {
+  resizePointerTarget.value = capturePointerResize(e)
+  resizePointerId.value = e.pointerId
+}
+
+const finishPointerResize = () => {
+  releasePointerResize(resizePointerTarget.value, resizePointerId.value)
+  resizePointerTarget.value = null
+  resizePointerId.value = null
+}
 
 const emit = defineEmits<{
   (e: 'dateRangeChange', payload: { from: string; to: string }): void
@@ -2219,23 +2240,29 @@ const resizingActiveSessionColumn = ref<string | null>(null)
 const activeSessionResizeStartX = ref(0)
 const activeSessionResizeStartWidth = ref(0)
 
-const startActiveSessionResize = (e: MouseEvent, column: string) => {
+const startActiveSessionResize = (e: PointerEvent, column: string) => {
   e.preventDefault()
+  beginPointerResize(e)
   resizingActiveSessionColumn.value = column
   activeSessionResizeStartX.value = e.pageX
   activeSessionResizeStartWidth.value = activeSessionColumnWidths.value[column]
 
-  document.addEventListener('mousemove', onActiveSessionResize)
-  document.addEventListener('mouseup', stopActiveSessionResize)
+  document.addEventListener(POINTER_RESIZE_EVENTS.move, onActiveSessionResize)
+  document.addEventListener(POINTER_RESIZE_EVENTS.stop, stopActiveSessionResize)
+  document.addEventListener(POINTER_RESIZE_EVENTS.cancel, stopActiveSessionResize)
   document.body.style.cursor = 'col-resize'
   document.body.style.userSelect = 'none'
 }
 
-const onActiveSessionResize = (e: MouseEvent) => {
+const onActiveSessionResize = (e: PointerEvent) => {
   if (!resizingActiveSessionColumn.value) return
 
-  const diff = e.pageX - activeSessionResizeStartX.value
-  const newWidth = Math.max(30, activeSessionResizeStartWidth.value + diff)
+  const newWidth = calculatePointerResizeWidth({
+    startX: activeSessionResizeStartX.value,
+    startWidth: activeSessionResizeStartWidth.value,
+    currentX: e.pageX,
+    minWidth: 30
+  })
   activeSessionColumnWidths.value[resizingActiveSessionColumn.value] = newWidth
 }
 
@@ -2244,8 +2271,10 @@ const stopActiveSessionResize = () => {
     saveActiveSessionColumnWidths()
   }
   resizingActiveSessionColumn.value = null
-  document.removeEventListener('mousemove', onActiveSessionResize)
-  document.removeEventListener('mouseup', stopActiveSessionResize)
+  document.removeEventListener(POINTER_RESIZE_EVENTS.move, onActiveSessionResize)
+  document.removeEventListener(POINTER_RESIZE_EVENTS.stop, stopActiveSessionResize)
+  document.removeEventListener(POINTER_RESIZE_EVENTS.cancel, stopActiveSessionResize)
+  finishPointerResize()
   document.body.style.cursor = ''
   document.body.style.userSelect = ''
 }
@@ -2409,23 +2438,30 @@ const resizingSummaryColumn = ref<string | null>(null)
 const summaryResizeStartX = ref(0)
 const summaryResizeStartWidth = ref(0)
 
-const startSummaryResize = (e: MouseEvent, columnKey: string) => {
+const startSummaryResize = (e: PointerEvent, columnKey: string) => {
   e.preventDefault()
+  beginPointerResize(e)
   resizingSummaryColumn.value = columnKey
   summaryResizeStartX.value = e.pageX
   summaryResizeStartWidth.value = summaryColumnWidths.value[columnKey]
 
-  document.addEventListener('mousemove', onSummaryResize)
-  document.addEventListener('mouseup', stopSummaryResize)
+  document.addEventListener(POINTER_RESIZE_EVENTS.move, onSummaryResize)
+  document.addEventListener(POINTER_RESIZE_EVENTS.stop, stopSummaryResize)
+  document.addEventListener(POINTER_RESIZE_EVENTS.cancel, stopSummaryResize)
   document.body.style.cursor = 'col-resize'
   document.body.style.userSelect = 'none'
 }
 
-const onSummaryResize = (e: MouseEvent) => {
+const onSummaryResize = (e: PointerEvent) => {
   if (!resizingSummaryColumn.value) return
 
-  const diff = e.pageX - summaryResizeStartX.value
-  const newWidth = Math.max(50, Math.min(400, summaryResizeStartWidth.value + diff))
+  const newWidth = calculatePointerResizeWidth({
+    startX: summaryResizeStartX.value,
+    startWidth: summaryResizeStartWidth.value,
+    currentX: e.pageX,
+    minWidth: 50,
+    maxWidth: 400
+  })
   summaryColumnWidths.value[resizingSummaryColumn.value] = newWidth
 }
 
@@ -2434,8 +2470,10 @@ const stopSummaryResize = () => {
     saveSummaryColumnWidths()
   }
   resizingSummaryColumn.value = null
-  document.removeEventListener('mousemove', onSummaryResize)
-  document.removeEventListener('mouseup', stopSummaryResize)
+  document.removeEventListener(POINTER_RESIZE_EVENTS.move, onSummaryResize)
+  document.removeEventListener(POINTER_RESIZE_EVENTS.stop, stopSummaryResize)
+  document.removeEventListener(POINTER_RESIZE_EVENTS.cancel, stopSummaryResize)
+  finishPointerResize()
   document.body.style.cursor = ''
   document.body.style.userSelect = ''
 }
@@ -2551,19 +2589,21 @@ const resizingSplitter = ref<string | null>(null)
 const panelResizeStartX = ref(0)
 const panelResizeStartWidths = ref<{ summary: number; reserved: number; dateFilter: number }>({ ...defaultPanelWidths })
 
-const startPanelResize = (e: MouseEvent, splitter: string) => {
+const startPanelResize = (e: PointerEvent, splitter: string) => {
   e.preventDefault()
+  beginPointerResize(e)
   resizingSplitter.value = splitter
   panelResizeStartX.value = e.pageX
   panelResizeStartWidths.value = { ...panelWidths.value }
 
-  document.addEventListener('mousemove', onPanelResize)
-  document.addEventListener('mouseup', stopPanelResize)
+  document.addEventListener(POINTER_RESIZE_EVENTS.move, onPanelResize)
+  document.addEventListener(POINTER_RESIZE_EVENTS.stop, stopPanelResize)
+  document.addEventListener(POINTER_RESIZE_EVENTS.cancel, stopPanelResize)
   document.body.style.cursor = 'col-resize'
   document.body.style.userSelect = 'none'
 }
 
-const onPanelResize = (e: MouseEvent) => {
+const onPanelResize = (e: PointerEvent) => {
   if (!resizingSplitter.value || !topPanelsContainer.value) return
 
   const containerWidth = topPanelsContainer.value.offsetWidth
@@ -2631,8 +2671,10 @@ const stopPanelResize = () => {
     savePanelWidths()
   }
   resizingSplitter.value = null
-  document.removeEventListener('mousemove', onPanelResize)
-  document.removeEventListener('mouseup', stopPanelResize)
+  document.removeEventListener(POINTER_RESIZE_EVENTS.move, onPanelResize)
+  document.removeEventListener(POINTER_RESIZE_EVENTS.stop, stopPanelResize)
+  document.removeEventListener(POINTER_RESIZE_EVENTS.cancel, stopPanelResize)
+  finishPointerResize()
   document.body.style.cursor = ''
   document.body.style.userSelect = ''
 }
@@ -3357,23 +3399,30 @@ const resizingColumn = ref<string | null>(null)
 const resizeStartX = ref(0)
 const resizeStartWidth = ref(0)
 
-const startResize = (e: MouseEvent, columnKey: string) => {
+const startResize = (e: PointerEvent, columnKey: string) => {
   e.preventDefault()
+  beginPointerResize(e)
   resizingColumn.value = columnKey
   resizeStartX.value = e.pageX
   resizeStartWidth.value = columnWidths.value[columnKey]
 
-  document.addEventListener('mousemove', onResize)
-  document.addEventListener('mouseup', stopResize)
+  document.addEventListener(POINTER_RESIZE_EVENTS.move, onResize)
+  document.addEventListener(POINTER_RESIZE_EVENTS.stop, stopResize)
+  document.addEventListener(POINTER_RESIZE_EVENTS.cancel, stopResize)
   document.body.style.cursor = 'col-resize'
   document.body.style.userSelect = 'none'
 }
 
-const onResize = (e: MouseEvent) => {
+const onResize = (e: PointerEvent) => {
   if (!resizingColumn.value) return
 
-  const diff = e.pageX - resizeStartX.value
-  const newWidth = Math.max(50, Math.min(500, resizeStartWidth.value + diff))
+  const newWidth = calculatePointerResizeWidth({
+    startX: resizeStartX.value,
+    startWidth: resizeStartWidth.value,
+    currentX: e.pageX,
+    minWidth: 50,
+    maxWidth: 500
+  })
   columnWidths.value[resizingColumn.value] = newWidth
 }
 
@@ -3382,8 +3431,10 @@ const stopResize = () => {
     saveColumnWidths()
   }
   resizingColumn.value = null
-  document.removeEventListener('mousemove', onResize)
-  document.removeEventListener('mouseup', stopResize)
+  document.removeEventListener(POINTER_RESIZE_EVENTS.move, onResize)
+  document.removeEventListener(POINTER_RESIZE_EVENTS.stop, stopResize)
+  document.removeEventListener(POINTER_RESIZE_EVENTS.cancel, stopResize)
+  finishPointerResize()
   document.body.style.cursor = ''
   document.body.style.userSelect = ''
 }
@@ -3949,6 +4000,10 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  stopResize()
+  stopSummaryResize()
+  stopActiveSessionResize()
+  stopPanelResize()
   stopAutoRefresh()
   stopSSEStatsRefresh()
   disconnectSSE()
@@ -4312,9 +4367,11 @@ const silentRefresh = async () => {
 
 /* Panel splitter */
 .panel-splitter {
-  width: 12px;
+  width: 24px;
   flex-shrink: 0;
   cursor: col-resize;
+  touch-action: none;
+  user-select: none;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4323,7 +4380,7 @@ const silentRefresh = async () => {
 }
 
 .panel-splitter-spacer {
-  width: 12px;
+  width: 24px;
   flex-shrink: 0;
 }
 
@@ -4643,10 +4700,11 @@ const silentRefresh = async () => {
 .resizable-summary-table .resize-handle {
   position: absolute;
   top: 0;
-  right: -4px;
+  right: -12px;
   bottom: 0;
-  width: 8px;
+  width: 24px;
   cursor: col-resize;
+  touch-action: none;
   user-select: none;
   z-index: 100;
   background: transparent;
@@ -4668,8 +4726,8 @@ const silentRefresh = async () => {
 
 .resizable-summary-table .resize-handle:hover {
   background: rgba(var(--v-theme-primary), 0.2);
-  width: 12px;
-  right: -6px;
+  width: 24px;
+  right: -12px;
 }
 
 .resizable-summary-table .resize-handle:hover::before {
@@ -4940,10 +4998,11 @@ const silentRefresh = async () => {
 .resize-handle {
   position: absolute;
   top: -8px;
-  right: -4px;
+  right: -12px;
   bottom: -8px;
-  width: 12px;
+  width: 24px;
   cursor: col-resize;
+  touch-action: none;
   user-select: none;
   z-index: 200;
   background: transparent;
@@ -4965,8 +5024,8 @@ const silentRefresh = async () => {
 
 .resize-handle:hover {
   background: rgba(var(--v-theme-primary), 0.2);
-  width: 16px;
-  right: -6px;
+  width: 24px;
+  right: -12px;
 }
 
 .resize-handle:hover::before {

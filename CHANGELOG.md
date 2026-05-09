@@ -4,6 +4,21 @@
 
 ---
 
+## [v1.5.30] - 2026-05-09
+
+### 🐛 修复
+
+- **iPad / 触摸屏请求日志拖拽调整修复**:
+  - 请求日志主表格列宽、使用汇总表格列宽、活跃会话表格列宽与顶部面板分隔条改用 Pointer Events，支持鼠标、触摸、触控笔与 iPad 触控板输入。
+  - 调整拖拽热区并禁用触摸手势抢占，提升触摸屏上调整列宽和面板宽度的可用性。
+  - 新增前端指针拖拽工具测试，覆盖宽度边界、Pointer Events 事件名与 pointer capture 清理。
+
+### ✅ 测试
+
+- `cd frontend && bun test`
+- `cd frontend && bun run type-check`
+- `cd frontend && bun run build`
+
 ## [v1.5.29] - 2026-05-02
 
 ### 🐛 修复
