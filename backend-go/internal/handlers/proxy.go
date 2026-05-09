@@ -1572,7 +1572,8 @@ func tryMessagesChannelWithOAuth(
 	}
 
 	// Keep quota/status bookkeeping behavior consistent with existing responses OAuth path.
-	quota.GetManager().UpdateFromHeadersForChannel(upstream.Index, upstream.ID, upstream.Name, resp.Header)
+	quotaChannelIndex, quotaStableID, quotaChannelName := resolveOAuthQuotaUpdateContext(upstream, logChannelIndex, logChannelName)
+	quota.GetManager().UpdateFromHeadersForChannel(quotaChannelIndex, quotaStableID, quotaChannelName, resp.Header)
 
 	provider := &providers.ResponsesUpstreamProvider{}
 	isFastMode := isFastModeForMessagesBridge(claudeReq.Speed, upstream.ServiceType)

@@ -4,6 +4,20 @@
 
 ---
 
+## [v1.5.33] - 2026-05-09
+
+### 🐛 修复
+
+- **Codex OAuth 故障转移配额归属修复**:
+  - 修复第一个 Codex OAuth Responses 渠道配额耗尽并 failover 到第二个渠道后，第二个渠道成功响应中的 quota headers 没有稳定写入该渠道 quota bar 的问题。
+  - OAuth quota 更新现在使用调度器选中的渠道 index/name，同时保留目标渠道稳定 ID，避免 copied upstream 的运行时 index 过期时写到错误渠道。
+  - 同步修复 429 exceeded 状态与 Messages → Responses OAuth bridge 的 quota 更新归属。
+
+### ✅ 测试
+
+- `cd backend-go && go test ./internal/handlers -run TestResolveOAuthQuotaUpdateContext -count=1 -v`
+- `cd backend-go && go test ./internal/handlers ./internal/quota ./internal/requestlog -count=1`
+
 ## [v1.5.32] - 2026-05-09
 
 ### 🐛 修复

@@ -1469,7 +1469,8 @@ func tryResponsesChannelWithOAuth(
 		// 对于 429 错误，记录配额超限状态
 		if resp.StatusCode == 429 {
 			retryAfter := quota.ParseRetryAfter(resp.Header.Get("Retry-After"))
-			quota.GetManager().SetExceededForChannel(upstream.Index, upstream.ID, upstream.Name, "rate_limit_exceeded", retryAfter)
+			quotaChannelIndex, quotaStableID, quotaChannelName := resolveOAuthQuotaUpdateContext(upstream, logChannelIndex, logChannelName)
+			quota.GetManager().SetExceededForChannel(quotaChannelIndex, quotaStableID, quotaChannelName, "rate_limit_exceeded", retryAfter)
 		}
 
 		// 对于 401 错误，尝试强制刷新 token
@@ -1494,7 +1495,8 @@ func tryResponsesChannelWithOAuth(
 	}
 
 	// 更新配额信息从响应头
-	quota.GetManager().UpdateFromHeadersForChannel(upstream.Index, upstream.ID, upstream.Name, resp.Header)
+	quotaChannelIndex, quotaStableID, quotaChannelName := resolveOAuthQuotaUpdateContext(upstream, logChannelIndex, logChannelName)
+	quota.GetManager().UpdateFromHeadersForChannel(quotaChannelIndex, quotaStableID, quotaChannelName, resp.Header)
 
 	provider := &providers.ResponsesProvider{SessionManager: sessionManager}
 	handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, startTime, &responsesReq, effectiveBodyBytes, reqLogManager, requestLogID, usageManager, logChannelIndex, logChannelName, effectiveIsFastMode, serviceTierOverridden)
