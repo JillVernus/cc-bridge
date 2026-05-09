@@ -71,3 +71,44 @@ func TestSaveChannelQuota_StableIDUpsertsAcrossIndexChanges(t *testing.T) {
 		t.Fatalf("expected oauth-stable-b row to remain unchanged, got %+v", stableB)
 	}
 }
+
+func TestGetAllChannelQuotas_LoadsLegacyRowsWithNullTextFields(t *testing.T) {
+	manager, err := NewManager(filepath.Join(t.TempDir(), "request_logs.db"))
+	if err != nil {
+		t.Fatalf("NewManager failed: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := manager.Close(); err != nil {
+			t.Fatalf("Close failed: %v", err)
+		}
+	})
+
+	_, err = manager.db.Exec(`
+		INSERT INTO channel_quota (
+			channel_id, channel_stable_id, channel_name, plan_type,
+			primary_used_percent, credits_balance, exceeded_reason
+		) VALUES (?, NULL, ?, NULL, ?, NULL, NULL)
+	`, 9, "Plus:jj-vpn-2023", 64)
+	if err != nil {
+		t.Fatalf("insert legacy quota row failed: %v", err)
+	}
+
+	quotas, err := manager.GetAllChannelQuotas()
+	if err != nil {
+		t.Fatalf("GetAllChannelQuotas failed: %v", err)
+	}
+	if len(quotas) != 1 {
+		t.Fatalf("expected 1 quota row, got %d: %+v", len(quotas), quotas)
+	}
+
+	got := quotas[0]
+	if got.ChannelID != 9 || got.ChannelStableID != "" || got.ChannelName != "Plus:jj-vpn-2023" {
+		t.Fatalf("unexpected legacy quota identity: %+v", got)
+	}
+	if got.PlanType != "" || got.CreditsBalance != "" || got.ExceededReason != "" {
+		t.Fatalf("expected NULL text fields to load as empty strings, got %+v", got)
+	}
+	if got.PrimaryUsedPercent != 64 {
+		t.Fatalf("expected primary_used_percent=64, got %+v", got)
+	}
+}

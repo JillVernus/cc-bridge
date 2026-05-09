@@ -4,6 +4,19 @@
 
 ---
 
+## [v1.5.32] - 2026-05-09
+
+### 🐛 修复
+
+- **PostgreSQL 旧版 Codex OAuth 配额启动载入修复**:
+  - 修复 `channel_quota` 旧记录存在 `NULL channel_stable_id`、`NULL plan_type`、`NULL credits_balance` 或 `NULL exceeded_reason` 时，启动阶段载入配额快照失败的问题。
+  - 避免一个旧版 NULL 文本字段导致所有历史 Codex OAuth quota bar 在容器重启后消失，只剩新请求刷新过的渠道重新显示。
+  - 新增 requestlog 回归测试，覆盖旧版 NULL 文本字段的 `channel_quota` 记录载入。
+
+### ✅ 测试
+
+- `cd backend-go && go test ./internal/requestlog ./internal/quota -count=1`
+
 ## [v1.5.31] - 2026-05-09
 
 ### 🐛 修复

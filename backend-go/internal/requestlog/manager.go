@@ -3815,13 +3815,14 @@ func (m *Manager) GetChannelQuota(channelID int) (*ChannelQuota, error) {
 
 	var q ChannelQuota
 	var primaryResetAt, secondaryResetAt, exceededAt, recoverAt sql.NullTime
+	var channelStableID, planType, creditsBalance, exceededReason sql.NullString
 
 	err := m.db.QueryRow(m.convertQuery(query), channelID).Scan(
-		&q.ChannelID, &q.ChannelStableID, &q.ChannelName, &q.PlanType,
+		&q.ChannelID, &channelStableID, &q.ChannelName, &planType,
 		&q.PrimaryUsedPercent, &q.PrimaryWindowMinutes, &primaryResetAt,
 		&q.SecondaryUsedPercent, &q.SecondaryWindowMinutes, &secondaryResetAt,
-		&q.CreditsHasCredits, &q.CreditsUnlimited, &q.CreditsBalance,
-		&q.IsExceeded, &exceededAt, &recoverAt, &q.ExceededReason, &q.UpdatedAt,
+		&q.CreditsHasCredits, &q.CreditsUnlimited, &creditsBalance,
+		&q.IsExceeded, &exceededAt, &recoverAt, &exceededReason, &q.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -3830,6 +3831,7 @@ func (m *Manager) GetChannelQuota(channelID int) (*ChannelQuota, error) {
 		return nil, err
 	}
 
+	applyChannelQuotaNullableText(&q, channelStableID, planType, creditsBalance, exceededReason)
 	if primaryResetAt.Valid {
 		q.PrimaryResetAt = &primaryResetAt.Time
 	}
@@ -3870,18 +3872,20 @@ func (m *Manager) GetAllChannelQuotas() ([]*ChannelQuota, error) {
 	for rows.Next() {
 		var q ChannelQuota
 		var primaryResetAt, secondaryResetAt, exceededAt, recoverAt sql.NullTime
+		var channelStableID, planType, creditsBalance, exceededReason sql.NullString
 
 		err := rows.Scan(
-			&q.ChannelID, &q.ChannelStableID, &q.ChannelName, &q.PlanType,
+			&q.ChannelID, &channelStableID, &q.ChannelName, &planType,
 			&q.PrimaryUsedPercent, &q.PrimaryWindowMinutes, &primaryResetAt,
 			&q.SecondaryUsedPercent, &q.SecondaryWindowMinutes, &secondaryResetAt,
-			&q.CreditsHasCredits, &q.CreditsUnlimited, &q.CreditsBalance,
-			&q.IsExceeded, &exceededAt, &recoverAt, &q.ExceededReason, &q.UpdatedAt,
+			&q.CreditsHasCredits, &q.CreditsUnlimited, &creditsBalance,
+			&q.IsExceeded, &exceededAt, &recoverAt, &exceededReason, &q.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err
 		}
 
+		applyChannelQuotaNullableText(&q, channelStableID, planType, creditsBalance, exceededReason)
 		if primaryResetAt.Valid {
 			q.PrimaryResetAt = &primaryResetAt.Time
 		}
@@ -3899,6 +3903,24 @@ func (m *Manager) GetAllChannelQuotas() ([]*ChannelQuota, error) {
 	}
 
 	return quotas, rows.Err()
+}
+
+func applyChannelQuotaNullableText(q *ChannelQuota, channelStableID, planType, creditsBalance, exceededReason sql.NullString) {
+	if q == nil {
+		return
+	}
+	if channelStableID.Valid {
+		q.ChannelStableID = channelStableID.String
+	}
+	if planType.Valid {
+		q.PlanType = planType.String
+	}
+	if creditsBalance.Valid {
+		q.CreditsBalance = creditsBalance.String
+	}
+	if exceededReason.Valid {
+		q.ExceededReason = exceededReason.String
+	}
 }
 
 // ChannelSuspension represents a suspended channel record
