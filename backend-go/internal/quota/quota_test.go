@@ -359,6 +359,30 @@ func TestUpdateFromHeadersForChannel_StableIDUpdatesExistingEntryWithoutDestroyi
 	}
 }
 
+func TestUpdateFromHeadersForChannel_ParsesDecimalCodexUsedPercent(t *testing.T) {
+	m := &Manager{
+		quotas: make(map[int]*QuotaStatus),
+	}
+
+	headers := http.Header{}
+	headers.Set("X-Codex-Plan-Type", "plus")
+	headers.Set("X-Codex-Primary-Used-Percent", "36.5")
+	headers.Set("X-Codex-Secondary-Used-Percent", "27.4")
+
+	m.UpdateFromHeadersForChannel(5, "oauth-stable-a", "oauth-a", headers)
+
+	got := m.GetStatusForChannel(5, "oauth-stable-a", "oauth-a")
+	if got == nil || got.CodexQuota == nil {
+		t.Fatalf("expected codex quota payload, got %+v", got)
+	}
+	if got.CodexQuota.PrimaryUsedPercent != 37 {
+		t.Fatalf("primary used percent = %d, want 37", got.CodexQuota.PrimaryUsedPercent)
+	}
+	if got.CodexQuota.SecondaryUsedPercent != 27 {
+		t.Fatalf("secondary used percent = %d, want 27", got.CodexQuota.SecondaryUsedPercent)
+	}
+}
+
 func TestSetExceededForChannel_StableIDUpdatesExistingEntryWithoutDestroyingCurrentIndex(t *testing.T) {
 	m := &Manager{
 		quotas: make(map[int]*QuotaStatus),

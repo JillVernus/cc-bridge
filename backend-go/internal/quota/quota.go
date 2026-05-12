@@ -3,6 +3,7 @@ package quota
 
 import (
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -578,7 +579,7 @@ func parseCodexHeaders(headers http.Header) *CodexQuotaInfo {
 
 	// Parse primary window info
 	if v := primaryUsed; v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
+		if n, ok := parseCodexPercentHeader(v); ok {
 			info.PrimaryUsedPercent = n
 		}
 	}
@@ -595,7 +596,7 @@ func parseCodexHeaders(headers http.Header) *CodexQuotaInfo {
 
 	// Parse secondary window info
 	if v := secondaryUsed; v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
+		if n, ok := parseCodexPercentHeader(v); ok {
 			info.SecondaryUsedPercent = n
 		}
 	}
@@ -627,6 +628,14 @@ func parseCodexHeaders(headers http.Header) *CodexQuotaInfo {
 	info.CreditsBalance = headers.Get("X-Codex-Credits-Balance")
 
 	return info
+}
+
+func parseCodexPercentHeader(value string) (int, bool) {
+	percent, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil || math.IsNaN(percent) || math.IsInf(percent, 0) {
+		return 0, false
+	}
+	return int(math.Round(percent)), true
 }
 
 // parseRateLimitHeaders extracts rate limit info from standard OpenAI response headers
