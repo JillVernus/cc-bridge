@@ -1122,6 +1122,13 @@ class ApiService {
     })
   }
 
+  // 轮换 API Key
+  async rotateAPIKey(id: number): Promise<CreateAPIKeyResponse> {
+    return this.request(`/keys/${id}/rotate`, {
+      method: 'POST'
+    })
+  }
+
   // 启用 API Key
   async enableAPIKey(id: number): Promise<{ message: string }> {
     return this.request(`/keys/${id}/enable`, {

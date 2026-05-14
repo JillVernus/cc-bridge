@@ -533,6 +533,85 @@ func (m *Manager) Delete(id int64) error {
 	return nil
 }
 
+// Rotate replaces the secret for an existing API key while preserving its record and metadata.
+// The full new key is returned once, matching Create's one-time secret behavior.
+func (m *Manager) Rotate(id int64) (*CreateAPIKeyResponse, error) {
+	newKey, err := generateKey()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate key: %w", err)
+	}
+	newKeyHash := hashKey(newKey)
+	newKeyPrefix := getKeyPrefix(newKey)
+	now := time.Now()
+
+	rotated, err := m.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+	if rotated == nil {
+		return nil, fmt.Errorf("API key not found")
+	}
+
+	tx, err := m.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin rotate transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	var oldKeyHash, currentStatus string
+	err = tx.QueryRow(m.convertQuery("SELECT key_hash, status FROM api_keys WHERE id = ?"), id).Scan(&oldKeyHash, &currentStatus)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("API key not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get API key: %w", err)
+	}
+	if currentStatus == StatusRevoked {
+		return nil, fmt.Errorf("cannot rotate a revoked key")
+	}
+
+	result, err := tx.Exec(m.convertQuery(`
+		UPDATE api_keys SET key_hash = ?, key_prefix = ?, updated_at = ? WHERE id = ?
+	`), newKeyHash, newKeyPrefix, now, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to rotate API key: %w", err)
+	}
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return nil, fmt.Errorf("API key not found")
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit API key rotation: %w", err)
+	}
+
+	m.mu.Lock()
+	delete(m.cache, oldKeyHash)
+	if currentStatus == StatusActive {
+		m.cache[newKeyHash] = &ValidatedKey{
+			ID:                    rotated.ID,
+			Name:                  rotated.Name,
+			IsAdmin:               rotated.IsAdmin,
+			RateLimitRPM:          rotated.RateLimitRPM,
+			AllowedEndpoints:      rotated.AllowedEndpoints,
+			AllowedChannelsMsg:    rotated.AllowedChannelsMsg,
+			AllowedChannelsResp:   rotated.AllowedChannelsResp,
+			AllowedChannelsGemini: rotated.AllowedChannelsGemini,
+			AllowedChannelsChat:   rotated.AllowedChannelsChat,
+			AllowedModels:         rotated.AllowedModels,
+		}
+	}
+	m.mu.Unlock()
+
+	rotated.KeyPrefix = newKeyPrefix
+	rotated.UpdatedAt = now
+
+	return &CreateAPIKeyResponse{
+		APIKey: *rotated,
+		Key:    newKey,
+	}, nil
+}
+
 // SetStatus updates the status of an API key
 func (m *Manager) SetStatus(id int64, status string) error {
 	if status != StatusActive && status != StatusDisabled && status != StatusRevoked {

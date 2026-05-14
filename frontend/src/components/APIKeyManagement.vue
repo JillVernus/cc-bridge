@@ -75,6 +75,19 @@
               </template>
             </v-tooltip>
 
+            <v-tooltip v-if="item.status !== 'revoked'" :text="t('apiKeys.rotate')" location="top">
+              <template v-slot:activator="{ props }">
+                <v-btn
+                  v-bind="props"
+                  icon="mdi-sync"
+                  size="small"
+                  variant="text"
+                  color="primary"
+                  @click="confirmRotate(item)"
+                />
+              </template>
+            </v-tooltip>
+
             <v-tooltip v-if="item.status === 'disabled'" :text="t('apiKeys.enable')" location="top">
               <template v-slot:activator="{ props }">
                 <v-btn
@@ -290,7 +303,7 @@
       <v-card class="modal-card">
         <v-card-title class="d-flex align-center modal-header pa-4">
           <v-icon color="success" class="mr-2">mdi-check-circle</v-icon>
-          {{ t('apiKeys.keyCreated') }}
+          {{ t(newKeyDialogMode === 'rotated' ? 'apiKeys.keyRotated' : 'apiKeys.keyCreated') }}
           <v-spacer />
           <v-btn icon variant="flat" size="small" color="primary" @click="closeNewKeyDialog" class="modal-action-btn">
             <v-icon>mdi-check</v-icon>
@@ -315,6 +328,28 @@
               @click="copyKey"
             />
           </div>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
+
+    <!-- Confirm Rotate Dialog -->
+    <v-dialog v-model="rotateDialogOpen" max-width="400">
+      <v-card class="modal-card">
+        <v-card-title class="d-flex align-center modal-header pa-4">
+          {{ t('apiKeys.confirmRotate') }}
+          <v-spacer />
+          <v-btn icon variant="text" size="small" @click="rotateDialogOpen = false" class="modal-action-btn">
+            <v-icon>mdi-close</v-icon>
+          </v-btn>
+          <v-btn icon variant="flat" size="small" color="primary" :loading="rotating" @click="rotateKey" class="modal-action-btn">
+            <v-icon>mdi-check</v-icon>
+          </v-btn>
+        </v-card-title>
+        <v-card-text class="modal-content">
+          <v-alert type="warning" variant="tonal" class="mb-2">
+            {{ t('apiKeys.rotateWarning') }}
+          </v-alert>
+          <p>{{ t('apiKeys.rotateConfirmText', { name: keyToRotate?.name }) }}</p>
         </v-card-text>
       </v-card>
     </v-dialog>
@@ -378,6 +413,7 @@ const { t } = useI18n()
 const keys = ref<APIKey[]>([])
 const loading = ref(false)
 const saving = ref(false)
+const rotating = ref(false)
 const revoking = ref(false)
 const deleting = ref(false)
 
@@ -390,13 +426,16 @@ const chatChannels = ref<Channel[]>([])
 // Dialog state
 const dialogOpen = ref(false)
 const newKeyDialogOpen = ref(false)
+const rotateDialogOpen = ref(false)
 const revokeDialogOpen = ref(false)
 const deleteDialogOpen = ref(false)
 
 const editingKey = ref<APIKey | null>(null)
+const keyToRotate = ref<APIKey | null>(null)
 const keyToRevoke = ref<APIKey | null>(null)
 const keyToDelete = ref<APIKey | null>(null)
 const newKey = ref('')
+const newKeyDialogMode = ref<'created' | 'rotated'>('created')
 
 // Form state with permissions
 interface FormState extends CreateAPIKeyRequest {
@@ -548,6 +587,7 @@ const saveKey = async () => {
         allowedModels: allowedModels
       })
       newKey.value = response.key
+      newKeyDialogMode.value = 'created'
       newKeyDialogOpen.value = true
       showSnackbar(t('apiKeys.createSuccess'), 'success')
     }
@@ -577,6 +617,38 @@ const disableKey = async (key: APIKey) => {
     await loadKeys()
   } catch (error: any) {
     showSnackbar(error.message || t('apiKeys.disableError'), 'error')
+  }
+}
+
+const confirmRotate = (key: APIKey) => {
+  keyToRotate.value = key
+  rotateDialogOpen.value = true
+}
+
+const rotateKey = async () => {
+  if (!keyToRotate.value) return
+
+  rotating.value = true
+  try {
+    const currentAuthKey = api.getApiKey()
+    const rotatedKey = keyToRotate.value
+    const response = await api.rotateAPIKey(rotatedKey.id)
+
+    if (currentAuthKey && keyMatchesPrefix(currentAuthKey, rotatedKey.keyPrefix)) {
+      api.setApiKey(response.key)
+      sessionStorage.setItem('proxyAccessKey', response.key)
+    }
+
+    newKey.value = response.key
+    newKeyDialogMode.value = 'rotated'
+    newKeyDialogOpen.value = true
+    showSnackbar(t('apiKeys.rotateSuccess'), 'success')
+    rotateDialogOpen.value = false
+    await loadKeys()
+  } catch (error: any) {
+    showSnackbar(error.message || t('apiKeys.rotateError'), 'error')
+  } finally {
+    rotating.value = false
   }
 }
 
@@ -668,6 +740,11 @@ const formatDate = (dateStr: string) => {
 
 const showSnackbar = (text: string, color: string) => {
   snackbar.value = { show: true, text, color }
+}
+
+const keyMatchesPrefix = (fullKey: string, displayPrefix: string) => {
+  const rawPrefix = displayPrefix.replace(/\.\.\.$/, '')
+  return rawPrefix.length > 0 && fullKey.startsWith(rawPrefix)
 }
 
 // Lifecycle

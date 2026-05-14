@@ -159,6 +159,32 @@ func (h *APIKeyHandler) DeleteKey(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "API key deleted"})
 }
 
+// RotateKey replaces an API key secret on the same record
+// POST /api/keys/:id/rotate
+func (h *APIKeyHandler) RotateKey(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	key, err := h.manager.Rotate(id)
+	if err != nil {
+		if err.Error() == "API key not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		if err.Error() == "cannot rotate a revoked key" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, key)
+}
+
 // EnableKey enables a disabled API key
 // POST /api/keys/:id/enable
 func (h *APIKeyHandler) EnableKey(c *gin.Context) {

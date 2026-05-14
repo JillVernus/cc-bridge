@@ -743,6 +743,7 @@ func main() {
 			apiGroup.GET("/keys/:id", apiKeyHandler.GetKey)
 			apiGroup.PUT("/keys/:id", apiKeyHandler.UpdateKey)
 			apiGroup.DELETE("/keys/:id", apiKeyHandler.DeleteKey)
+			apiGroup.POST("/keys/:id/rotate", apiKeyHandler.RotateKey)
 			apiGroup.POST("/keys/:id/enable", apiKeyHandler.EnableKey)
 			apiGroup.POST("/keys/:id/disable", apiKeyHandler.DisableKey)
 			apiGroup.POST("/keys/:id/revoke", apiKeyHandler.RevokeKey)
