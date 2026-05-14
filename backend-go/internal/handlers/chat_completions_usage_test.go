@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/JillVernus/cc-bridge/internal/config"
 	"github.com/JillVernus/cc-bridge/internal/metrics"
+	"github.com/JillVernus/cc-bridge/internal/pricing"
 	"github.com/JillVernus/cc-bridge/internal/scheduler"
 	"github.com/JillVernus/cc-bridge/internal/session"
 	"github.com/gin-gonic/gin"
@@ -17,6 +21,7 @@ import (
 
 func TestChatCompletionsHandler_RecordsNonStreamOpenAIUsage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ensureChatTestPricingManager(t)
 
 	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
@@ -112,5 +117,56 @@ func TestChatCompletionsHandler_RecordsNonStreamOpenAIUsage(t *testing.T) {
 	}
 	if got.ResponseModel != "deepseek-v4-flash" {
 		t.Fatalf("expected response model deepseek-v4-flash, got %q", got.ResponseModel)
+	}
+	expectedInputCost := float64(8) * 1.0 / 1_000_000
+	expectedOutputCost := float64(1) * 2.0 / 1_000_000
+	expectedPrice := expectedInputCost + expectedOutputCost
+	if math.Abs(got.InputCost-expectedInputCost) > 1e-12 {
+		t.Fatalf("expected input cost %.12f, got %.12f", expectedInputCost, got.InputCost)
+	}
+	if math.Abs(got.OutputCost-expectedOutputCost) > 1e-12 {
+		t.Fatalf("expected output cost %.12f, got %.12f", expectedOutputCost, got.OutputCost)
+	}
+	if math.Abs(got.Price-expectedPrice) > 1e-12 {
+		t.Fatalf("expected price %.12f, got %.12f", expectedPrice, got.Price)
+	}
+}
+
+func ensureChatTestPricingManager(t *testing.T) {
+	t.Helper()
+
+	cfg := pricing.PricingConfig{
+		Currency: "USD",
+		Models: map[string]pricing.ModelPricing{
+			"claude-opus-4-6": {
+				InputPrice:  15,
+				OutputPrice: 75,
+			},
+			"deepseek-v4-flash": {
+				InputPrice:  1,
+				OutputPrice: 2,
+			},
+		},
+	}
+
+	if pm := pricing.GetManager(); pm != nil {
+		pm.UpdateConfigFromDB(cfg)
+		return
+	}
+
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("failed to marshal pricing config: %v", err)
+	}
+	tmpDir, err := os.MkdirTemp("", "chat-pricing-*")
+	if err != nil {
+		t.Fatalf("failed to create temp pricing dir: %v", err)
+	}
+	path := filepath.Join(tmpDir, "pricing.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("failed to write pricing config: %v", err)
+	}
+	if _, err := pricing.InitManager(path); err != nil {
+		t.Fatalf("failed to init pricing manager: %v", err)
 	}
 }

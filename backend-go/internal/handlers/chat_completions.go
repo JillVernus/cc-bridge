@@ -17,6 +17,7 @@ import (
 	"github.com/JillVernus/cc-bridge/internal/config"
 	"github.com/JillVernus/cc-bridge/internal/converters"
 	"github.com/JillVernus/cc-bridge/internal/middleware"
+	"github.com/JillVernus/cc-bridge/internal/pricing"
 	"github.com/JillVernus/cc-bridge/internal/quota"
 	"github.com/JillVernus/cc-bridge/internal/requestlog"
 	"github.com/JillVernus/cc-bridge/internal/scheduler"
@@ -701,6 +702,7 @@ func finalizeChatSuccessLog(reqLogManager *requestlog.Manager, requestLogID stri
 		record.CacheCreationInputTokens = usage.CacheCreationInputTokens
 		record.CacheReadInputTokens = usage.CacheReadInputTokens
 		record.ResponseModel = usage.ResponseModel
+		applyChatPricing(record, requestModel, upstream, usage)
 	}
 	if upstream != nil {
 		record.Type = upstream.ServiceType
@@ -709,6 +711,50 @@ func finalizeChatSuccessLog(reqLogManager *requestlog.Manager, requestLogID stri
 		record.ChannelName = upstream.Name
 	}
 	_ = reqLogManager.Update(requestLogID, record)
+}
+
+func applyChatPricing(record *requestlog.RequestLog, requestModel string, upstream *config.UpstreamConfig, usage *chatUsageMetrics) {
+	if record == nil || usage == nil {
+		return
+	}
+	pm := pricing.GetManager()
+	if pm == nil {
+		return
+	}
+
+	pricingModel := usage.ResponseModel
+	if pricingModel == "" {
+		pricingModel = requestModel
+	} else if !pm.HasPricing(pricingModel) && requestModel != "" {
+		pricingModel = requestModel
+	}
+
+	var multipliers *pricing.PriceMultipliers
+	if upstream != nil {
+		if channelMult := upstream.GetPriceMultipliers(pricingModel); channelMult != nil {
+			multipliers = &pricing.PriceMultipliers{
+				InputMultiplier:         channelMult.GetEffectiveMultiplier("input"),
+				OutputMultiplier:        channelMult.GetEffectiveMultiplier("output"),
+				CacheCreationMultiplier: channelMult.GetEffectiveMultiplier("cacheCreation"),
+				CacheReadMultiplier:     channelMult.GetEffectiveMultiplier("cacheRead"),
+			}
+		}
+	}
+
+	breakdown := pm.CalculateCostWithBreakdown(
+		pricingModel,
+		usage.InputTokens,
+		usage.OutputTokens,
+		usage.CacheCreationInputTokens,
+		usage.CacheReadInputTokens,
+		multipliers,
+	)
+	record.Price = breakdown.TotalCost
+	record.InputCost = breakdown.InputCost
+	record.OutputCost = breakdown.OutputCost
+	record.CacheCreationCost = breakdown.CacheCreationCost
+	record.CacheReadCost = breakdown.CacheReadCost
+	record.PricedByTargetModel = pricingModel == usage.ResponseModel && usage.ResponseModel != "" && usage.ResponseModel != requestModel
 }
 
 func extractChatUsageFromJSON(body []byte) *chatUsageMetrics {
