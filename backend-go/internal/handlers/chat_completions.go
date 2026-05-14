@@ -32,6 +32,15 @@ type chatExecuteError struct {
 	Err            error
 }
 
+type chatUsageMetrics struct {
+	InputTokens              int
+	OutputTokens             int
+	CacheCreationInputTokens int
+	CacheReadInputTokens     int
+	TotalTokens              int
+	ResponseModel            string
+}
+
 func (e *chatExecuteError) Error() string {
 	if e == nil {
 		return ""
@@ -230,7 +239,7 @@ func handleChatSingleChannel(
 		}
 	}
 
-	statusCode, firstTokenTime, err := executeChatRequest(c, envCfg, cfgManager, upstream, req, requestLogID, reqLogManager)
+	statusCode, firstTokenTime, usage, err := executeChatRequest(c, envCfg, cfgManager, upstream, req, requestLogID, reqLogManager)
 	if err != nil {
 		channelScheduler.RecordChatFailureWithStatusDetail(upstream.Index, extractChatStatus(err), req.Model, upstream.Name)
 		finalizeChatErrorLog(reqLogManager, requestLogID, startTime, req.Model, upstream, extractChatStatus(err), err.Error(), firstTokenTime)
@@ -239,7 +248,7 @@ func handleChatSingleChannel(
 	}
 
 	channelScheduler.RecordChatSuccessWithStatusDetail(upstream.Index, statusCode, req.Model, upstream.Name)
-	finalizeChatSuccessLog(reqLogManager, requestLogID, startTime, req.Model, upstream, statusCode, firstTokenTime)
+	finalizeChatSuccessLog(reqLogManager, requestLogID, startTime, req.Model, upstream, statusCode, firstTokenTime, usage)
 	trackMessagesUsage(usageManager, upstream, req.Model, 0)
 }
 
@@ -288,7 +297,7 @@ func handleChatMultiChannel(
 			}
 		}
 
-		statusCode, firstTokenTime, err := executeChatRequest(c, envCfg, cfgManager, upstream, req, requestLogID, reqLogManager)
+		statusCode, firstTokenTime, usage, err := executeChatRequest(c, envCfg, cfgManager, upstream, req, requestLogID, reqLogManager)
 		if err != nil {
 			channelScheduler.RecordChatFailureWithStatusDetail(channelIndex, extractChatStatus(err), req.Model, upstream.Name)
 			failedChannels[channelIndex] = true
@@ -305,7 +314,7 @@ func handleChatMultiChannel(
 		}
 
 		channelScheduler.RecordChatSuccessWithStatusDetail(channelIndex, statusCode, req.Model, upstream.Name)
-		finalizeChatSuccessLog(reqLogManager, requestLogID, startTime, req.Model, upstream, statusCode, firstTokenTime)
+		finalizeChatSuccessLog(reqLogManager, requestLogID, startTime, req.Model, upstream, statusCode, firstTokenTime, usage)
 		trackMessagesUsage(usageManager, upstream, req.Model, 0)
 		return
 	}
@@ -334,12 +343,12 @@ func executeChatRequest(
 	req *types.ChatCompletionsRequest,
 	requestLogID string,
 	reqLogManager *requestlog.Manager,
-) (int, *time.Time, error) {
+) (int, *time.Time, *chatUsageMetrics, error) {
 	if upstream == nil {
-		return 0, nil, &chatExecuteError{StatusCode: http.StatusServiceUnavailable, Err: fmt.Errorf("chat upstream is nil")}
+		return 0, nil, nil, &chatExecuteError{StatusCode: http.StatusServiceUnavailable, Err: fmt.Errorf("chat upstream is nil")}
 	}
 	if len(upstream.APIKeys) == 0 {
-		return 0, nil, &chatExecuteError{StatusCode: http.StatusServiceUnavailable, Err: fmt.Errorf("chat upstream has no API keys")}
+		return 0, nil, nil, &chatExecuteError{StatusCode: http.StatusServiceUnavailable, Err: fmt.Errorf("chat upstream has no API keys")}
 	}
 
 	failedKeys := make(map[string]bool)
@@ -348,7 +357,7 @@ func executeChatRequest(
 	for keyAttempt := 0; keyAttempt < maxKeyAttempts; keyAttempt++ {
 		apiKey, err := cfgManager.GetNextChatAPIKey(upstream, failedKeys)
 		if err != nil {
-			return 0, nil, &chatExecuteError{StatusCode: http.StatusServiceUnavailable, Err: err}
+			return 0, nil, nil, &chatExecuteError{StatusCode: http.StatusServiceUnavailable, Err: err}
 		}
 
 		var providerReq *http.Request
@@ -373,14 +382,14 @@ func executeChatRequest(
 		resp, err := sendRequest(providerReq, upstream, envCfg, req.Stream)
 		if err != nil {
 			if c.Request.Context().Err() != nil {
-				return 0, nil, &chatExecuteError{StatusCode: 499, Err: c.Request.Context().Err()}
+				return 0, nil, nil, &chatExecuteError{StatusCode: 499, Err: c.Request.Context().Err()}
 			}
 			failedKeys[apiKey] = true
 			cfgManager.MarkKeyAsFailed(apiKey)
 			continue
 		}
 
-		statusCode, firstTokenTime, execErr := handleChatUpstreamResponse(c, cfgManager, upstream, req, resp, requestLogID, reqLogManager)
+		statusCode, firstTokenTime, usage, execErr := handleChatUpstreamResponse(c, cfgManager, upstream, req, resp, requestLogID, reqLogManager)
 		if execErr != nil {
 			var ce *chatExecuteError
 			if errors.As(execErr, &ce) {
@@ -388,7 +397,7 @@ func executeChatRequest(
 					ce.FirstTokenTime = firstTokenTime
 				}
 				if ce.StatusCode >= 400 && ce.StatusCode < 500 && ce.StatusCode != http.StatusTooManyRequests {
-					return 0, ce.FirstTokenTime, ce
+					return 0, ce.FirstTokenTime, nil, ce
 				}
 			}
 			failedKeys[apiKey] = true
@@ -396,15 +405,15 @@ func executeChatRequest(
 				cfgManager.MarkKeyAsFailed(apiKey)
 			}
 			if keyAttempt == maxKeyAttempts-1 {
-				return 0, firstTokenTime, execErr
+				return 0, firstTokenTime, nil, execErr
 			}
 			continue
 		}
 
-		return statusCode, firstTokenTime, nil
+		return statusCode, firstTokenTime, usage, nil
 	}
 
-	return 0, nil, &chatExecuteError{StatusCode: http.StatusServiceUnavailable, Err: fmt.Errorf("all chat keys exhausted")}
+	return 0, nil, nil, &chatExecuteError{StatusCode: http.StatusServiceUnavailable, Err: fmt.Errorf("all chat keys exhausted")}
 }
 
 func handleChatUpstreamResponse(
@@ -415,14 +424,14 @@ func handleChatUpstreamResponse(
 	resp *http.Response,
 	requestLogID string,
 	reqLogManager *requestlog.Manager,
-) (int, *time.Time, error) {
+) (int, *time.Time, *chatUsageMetrics, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		bodyBytes = utils.DecompressGzipIfNeeded(resp, bodyBytes)
 		SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, bodyBytes)
-		return resp.StatusCode, nil, &chatExecuteError{StatusCode: resp.StatusCode, Body: bodyBytes, Err: fmt.Errorf("upstream returned status %d", resp.StatusCode)}
+		return resp.StatusCode, nil, nil, &chatExecuteError{StatusCode: resp.StatusCode, Body: bodyBytes, Err: fmt.Errorf("upstream returned status %d", resp.StatusCode)}
 	}
 
 	svcType := strings.ToLower(strings.TrimSpace(upstream.ServiceType))
@@ -450,14 +459,14 @@ func handleChatUpstreamResponse(
 		}
 		SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, capture.Bytes())
 		if err != nil {
-			return resp.StatusCode, firstTokenTime, &chatExecuteError{StatusCode: http.StatusInternalServerError, FirstTokenTime: firstTokenTime, Err: err}
+			return resp.StatusCode, firstTokenTime, nil, &chatExecuteError{StatusCode: http.StatusInternalServerError, FirstTokenTime: firstTokenTime, Err: err}
 		}
-		return resp.StatusCode, firstTokenTime, nil
+		return resp.StatusCode, firstTokenTime, extractChatUsageFromSSE(capture.Bytes()), nil
 	}
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return http.StatusInternalServerError, nil, &chatExecuteError{StatusCode: http.StatusInternalServerError, Err: err}
+		return http.StatusInternalServerError, nil, nil, &chatExecuteError{StatusCode: http.StatusInternalServerError, Err: err}
 	}
 	bodyBytes = utils.DecompressGzipIfNeeded(resp, bodyBytes)
 
@@ -468,16 +477,16 @@ func handleChatUpstreamResponse(
 	case "claude":
 		outBytes, err = converters.ConvertClaudeJSONToChatJSON(bodyBytes, req.Model)
 		if err != nil {
-			return http.StatusInternalServerError, nil, &chatExecuteError{StatusCode: http.StatusInternalServerError, Err: err}
+			return http.StatusInternalServerError, nil, nil, &chatExecuteError{StatusCode: http.StatusInternalServerError, Err: err}
 		}
 	case "gemini":
 		chatResp, convErr := converters.ConvertGeminiToChatResponse(bodyBytes, req.Model)
 		if convErr != nil {
-			return http.StatusInternalServerError, nil, &chatExecuteError{StatusCode: http.StatusInternalServerError, Err: convErr}
+			return http.StatusInternalServerError, nil, nil, &chatExecuteError{StatusCode: http.StatusInternalServerError, Err: convErr}
 		}
 		outBytes, err = json.Marshal(chatResp)
 		if err != nil {
-			return http.StatusInternalServerError, nil, &chatExecuteError{StatusCode: http.StatusInternalServerError, Err: err}
+			return http.StatusInternalServerError, nil, nil, &chatExecuteError{StatusCode: http.StatusInternalServerError, Err: err}
 		}
 	case "openai", "openai_chat", "openaiold":
 		outBytes = bodyBytes
@@ -495,7 +504,7 @@ func handleChatUpstreamResponse(
 	c.Data(resp.StatusCode, contentType, outBytes)
 	SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, outBytes)
 
-	return resp.StatusCode, nil, nil
+	return resp.StatusCode, nil, extractChatUsageFromJSON(outBytes), nil
 }
 
 func buildClaudeRequestForChat(c *gin.Context, upstream *config.UpstreamConfig, apiKey string, req *types.ChatCompletionsRequest) (*http.Request, error) {
@@ -672,7 +681,7 @@ func streamChunkChannelToClient(c *gin.Context, outCh <-chan string, errCh <-cha
 	}
 }
 
-func finalizeChatSuccessLog(reqLogManager *requestlog.Manager, requestLogID string, startTime time.Time, requestModel string, upstream *config.UpstreamConfig, statusCode int, firstTokenTime *time.Time) {
+func finalizeChatSuccessLog(reqLogManager *requestlog.Manager, requestLogID string, startTime time.Time, requestModel string, upstream *config.UpstreamConfig, statusCode int, firstTokenTime *time.Time, usage *chatUsageMetrics) {
 	if reqLogManager == nil || requestLogID == "" {
 		return
 	}
@@ -686,6 +695,13 @@ func finalizeChatSuccessLog(reqLogManager *requestlog.Manager, requestLogID stri
 		Endpoint:             "/v1/chat/completions",
 		HTTPStatus:           statusCode,
 	}
+	if usage != nil {
+		record.InputTokens = usage.InputTokens
+		record.OutputTokens = usage.OutputTokens
+		record.CacheCreationInputTokens = usage.CacheCreationInputTokens
+		record.CacheReadInputTokens = usage.CacheReadInputTokens
+		record.ResponseModel = usage.ResponseModel
+	}
 	if upstream != nil {
 		record.Type = upstream.ServiceType
 		record.ProviderName = upstream.Name
@@ -693,6 +709,61 @@ func finalizeChatSuccessLog(reqLogManager *requestlog.Manager, requestLogID stri
 		record.ChannelName = upstream.Name
 	}
 	_ = reqLogManager.Update(requestLogID, record)
+}
+
+func extractChatUsageFromJSON(body []byte) *chatUsageMetrics {
+	var resp struct {
+		Model string `json:"model"`
+		Usage *struct {
+			PromptTokens        int `json:"prompt_tokens"`
+			CompletionTokens    int `json:"completion_tokens"`
+			TotalTokens         int `json:"total_tokens"`
+			PromptTokensDetails struct {
+				CachedTokens int `json:"cached_tokens"`
+			} `json:"prompt_tokens_details"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil || resp.Usage == nil {
+		return nil
+	}
+
+	inputTokens := resp.Usage.PromptTokens
+	cacheReadTokens := resp.Usage.PromptTokensDetails.CachedTokens
+	if cacheReadTokens > 0 {
+		inputTokens -= cacheReadTokens
+		if inputTokens < 0 {
+			inputTokens = 0
+		}
+	}
+
+	return &chatUsageMetrics{
+		InputTokens:          inputTokens,
+		OutputTokens:         resp.Usage.CompletionTokens,
+		CacheReadInputTokens: cacheReadTokens,
+		TotalTokens:          resp.Usage.TotalTokens,
+		ResponseModel:        resp.Model,
+	}
+}
+
+func extractChatUsageFromSSE(body []byte) *chatUsageMetrics {
+	scanner := bufio.NewScanner(bytes.NewReader(body))
+	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+
+	var usage *chatUsageMetrics
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "" || data == "[DONE]" {
+			continue
+		}
+		if parsed := extractChatUsageFromJSON([]byte(data)); parsed != nil {
+			usage = parsed
+		}
+	}
+	return usage
 }
 
 func finalizeChatErrorLog(reqLogManager *requestlog.Manager, requestLogID string, startTime time.Time, requestModel string, upstream *config.UpstreamConfig, statusCode int, errMsg string, firstTokenTime *time.Time) {

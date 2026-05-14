@@ -4,6 +4,19 @@
 
 ---
 
+## [v1.5.35] - 2026-05-14
+
+### 🐛 修复
+
+- **Chat 渠道 token 统计记录修复**:
+  - 修复 Chat Completions 渠道成功响应中已包含 `usage.prompt_tokens` / `usage.completion_tokens` 时，请求日志 token 指标仍记录为 `0` 的问题。
+  - Chat 响应日志现在会从非流式 JSON 与流式 SSE final usage chunk 中提取输入、输出、总 token，并记录响应模型。
+  - 新增 Chat Completions 回归测试，覆盖 OpenAI 兼容响应的 token usage 入库。
+
+### ✅ 测试
+
+- `cd backend-go && go test ./...`
+
 ## [v1.5.34] - 2026-05-12
 
 ### 🐛 修复

@@ -566,7 +566,7 @@ func TestChatStreamAndFinalize_PropagatesFirstTokenToRequestLog(t *testing.T) {
 		Name:        "chat-4",
 		ServiceType: "openai_chat",
 	}
-	finalizeChatSuccessLog(reqLogManager, requestLogID, startTime, "gpt-5", upstream, http.StatusOK, firstTokenTime)
+	finalizeChatSuccessLog(reqLogManager, requestLogID, startTime, "gpt-5", upstream, http.StatusOK, firstTokenTime, nil)
 
 	got, err := reqLogManager.GetByID(requestLogID)
 	if err != nil {
@@ -614,7 +614,7 @@ func TestChatStreamAndFinalize_FallsBackToFirstPayloadToRequestLog(t *testing.T)
 		Name:        "chat-4",
 		ServiceType: "openai_chat",
 	}
-	finalizeChatSuccessLog(reqLogManager, requestLogID, startTime, "gpt-5", upstream, http.StatusOK, firstTokenTime)
+	finalizeChatSuccessLog(reqLogManager, requestLogID, startTime, "gpt-5", upstream, http.StatusOK, firstTokenTime, nil)
 
 	got, err := reqLogManager.GetByID(requestLogID)
 	if err != nil {
