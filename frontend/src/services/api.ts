@@ -651,6 +651,18 @@ class ApiService {
     return this.request(`/responses/channels/by-id/${encodeURIComponent(channelId)}/oauth/status`)
   }
 
+  async refreshResponsesChannelOAuthQuota(channelId: number): Promise<OAuthStatusResponse> {
+    return this.request(`/responses/channels/${channelId}/oauth/quota/refresh`, {
+      method: 'POST'
+    })
+  }
+
+  async refreshResponsesChannelOAuthQuotaByStableId(channelId: string): Promise<OAuthStatusResponse> {
+    return this.request(`/responses/channels/by-id/${encodeURIComponent(channelId)}/oauth/quota/refresh`, {
+      method: 'POST'
+    })
+  }
+
   // ============== 促销期管理 API ==============
 
   // 设置 Messages 渠道促销期

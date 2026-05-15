@@ -4,6 +4,27 @@
 
 ---
 
+## [v1.5.38] - 2026-05-15
+
+### ✨ 新功能
+
+- **Codex OAuth 配额手动刷新**:
+  - Responses OAuth 渠道配额条旁新增刷新按钮，可不发送真实模型请求，直接查询 Codex usage endpoint 更新 5h / 7d quota bar。
+  - 后端新增 OAuth 配额刷新接口，优先请求 `/backend-api/codex/usage`，失败时回退到 `/backend-api/wham/usage`，并复用现有 quota manager 与状态响应结构。
+  - 保留原有从响应 headers 被动更新配额的逻辑，手动刷新仅作为用户主动查询入口。
+
+### 🐛 修复
+
+- **OAuth 配额栏布局修复**:
+  - 调整 Responses 渠道配额列宽，避免新增刷新按钮与 API key 数量图标重叠。
+
+### ✅ 测试
+
+- `cd backend-go && go test ./internal/quota ./internal/handlers -count=1`
+- `cd backend-go && go test ./...`
+- `cd frontend && bun run type-check`
+- `cd frontend && bun run build`
+
 ## [v1.5.37] - 2026-05-14
 
 ### ✨ 新功能

@@ -284,68 +284,90 @@
                 </template>
                 <!-- OAuth quota for openai-oauth channels in responses tab -->
                 <template v-else-if="element.serviceType === 'openai-oauth' && channelType === 'responses'">
-                  <v-tooltip location="top" :open-delay="200">
-                    <template #activator="{ props: tooltipProps }">
-                      <div v-bind="tooltipProps" class="oauth-quota-dual-bar" @click="openOAuthStatus(element)">
+                  <div class="oauth-quota-control">
+                    <v-tooltip location="top" :open-delay="200">
+                      <template #activator="{ props: tooltipProps }">
+                        <div v-bind="tooltipProps" class="oauth-quota-dual-bar" @click="openOAuthStatus(element)">
+                          <template v-if="getChannelQuota(element)?.codex_quota">
+                            <!-- 5h quota bar -->
+                            <div class="oauth-quota-row">
+                              <span class="oauth-quota-label">5h</span>
+                              <div class="quota-bar-wrapper">
+                                <div
+                                  class="quota-bar"
+                                  :style="{
+                                    width: `${getOAuthWindowRemainingPercent(element, 'primary')}%`,
+                                    backgroundColor: getQuotaBarColor(getOAuthWindowUsedPercent(element, 'primary'))
+                                  }"
+                                />
+                              </div>
+                              <span class="quota-text">{{ getOAuthWindowRemainingPercent(element, 'primary') }}%</span>
+                            </div>
+                            <!-- 7d quota bar -->
+                            <div class="oauth-quota-row">
+                              <span class="oauth-quota-label">7d</span>
+                              <div class="quota-bar-wrapper">
+                                <div
+                                  class="quota-bar"
+                                  :style="{
+                                    width: `${getOAuthWindowRemainingPercent(element, 'secondary')}%`,
+                                    backgroundColor: getQuotaBarColor(getOAuthWindowUsedPercent(element, 'secondary'))
+                                  }"
+                                />
+                              </div>
+                              <span class="quota-text"
+                                >{{ getOAuthWindowRemainingPercent(element, 'secondary') }}%</span
+                              >
+                            </div>
+                          </template>
+                          <span v-else class="text-caption text-medium-emphasis">--</span>
+                        </div>
+                      </template>
+                      <div class="quota-tooltip">
                         <template v-if="getChannelQuota(element)?.codex_quota">
-                          <!-- 5h quota bar -->
-                          <div class="oauth-quota-row">
-                            <span class="oauth-quota-label">5h</span>
-                            <div class="quota-bar-wrapper">
-                              <div
-                                class="quota-bar"
-                                :style="{
-                                  width: `${getOAuthWindowRemainingPercent(element, 'primary')}%`,
-                                  backgroundColor: getQuotaBarColor(getOAuthWindowUsedPercent(element, 'primary'))
-                                }"
-                              />
-                            </div>
-                            <span class="quota-text">{{ getOAuthWindowRemainingPercent(element, 'primary') }}%</span>
+                          <div class="text-caption font-weight-bold mb-1">{{ t('oauth.usageQuota') }}</div>
+                          <div class="quota-tooltip-row">
+                            <span>{{ t('oauth.primaryWindow') }}:</span>
+                            <span
+                              >{{ getOAuthWindowRemainingPercent(element, 'primary') }}%
+                              {{ t('orchestration.quotaRemaining') }}</span
+                            >
                           </div>
-                          <!-- 7d quota bar -->
-                          <div class="oauth-quota-row">
-                            <span class="oauth-quota-label">7d</span>
-                            <div class="quota-bar-wrapper">
-                              <div
-                                class="quota-bar"
-                                :style="{
-                                  width: `${getOAuthWindowRemainingPercent(element, 'secondary')}%`,
-                                  backgroundColor: getQuotaBarColor(getOAuthWindowUsedPercent(element, 'secondary'))
-                                }"
-                              />
-                            </div>
-                            <span class="quota-text">{{ getOAuthWindowRemainingPercent(element, 'secondary') }}%</span>
+                          <div class="quota-tooltip-row">
+                            <span>{{ t('oauth.secondaryWindow') }}:</span>
+                            <span
+                              >{{ getOAuthWindowRemainingPercent(element, 'secondary') }}%
+                              {{ t('orchestration.quotaRemaining') }}</span
+                            >
+                          </div>
+                          <div class="text-caption text-medium-emphasis mt-1">
+                            {{ t('orchestration.clickForDetails') }}
                           </div>
                         </template>
-                        <span v-else class="text-caption text-medium-emphasis">--</span>
+                        <template v-else>
+                          <div class="text-caption">{{ t('oauth.noQuotaData') }}</div>
+                        </template>
                       </div>
-                    </template>
-                    <div class="quota-tooltip">
-                      <template v-if="getChannelQuota(element)?.codex_quota">
-                        <div class="text-caption font-weight-bold mb-1">{{ t('oauth.usageQuota') }}</div>
-                        <div class="quota-tooltip-row">
-                          <span>{{ t('oauth.primaryWindow') }}:</span>
-                          <span
-                            >{{ getOAuthWindowRemainingPercent(element, 'primary') }}%
-                            {{ t('orchestration.quotaRemaining') }}</span
-                          >
-                        </div>
-                        <div class="quota-tooltip-row">
-                          <span>{{ t('oauth.secondaryWindow') }}:</span>
-                          <span
-                            >{{ getOAuthWindowRemainingPercent(element, 'secondary') }}%
-                            {{ t('orchestration.quotaRemaining') }}</span
-                          >
-                        </div>
-                        <div class="text-caption text-medium-emphasis mt-1">
-                          {{ t('orchestration.clickForDetails') }}
-                        </div>
+                    </v-tooltip>
+                    <v-tooltip location="top" :open-delay="200">
+                      <template #activator="{ props: refreshTooltipProps }">
+                        <v-btn
+                          v-bind="refreshTooltipProps"
+                          icon
+                          size="x-small"
+                          variant="text"
+                          color="primary"
+                          class="oauth-quota-refresh-btn"
+                          :loading="isOAuthQuotaRefreshing(element)"
+                          :disabled="isOAuthQuotaRefreshing(element)"
+                          @click.stop="refreshOAuthQuota(element)"
+                        >
+                          <v-icon size="14">mdi-refresh</v-icon>
+                        </v-btn>
                       </template>
-                      <template v-else>
-                        <div class="text-caption">{{ t('oauth.noQuotaData') }}</div>
-                      </template>
-                    </div>
-                  </v-tooltip>
+                      <span>{{ t('oauth.refreshQuota') }}</span>
+                    </v-tooltip>
+                  </div>
                 </template>
                 <!-- No quota configured -->
                 <span v-else class="text-caption text-medium-emphasis">--</span>
@@ -732,6 +754,7 @@ const oauthStatusChannelIndex = ref<number | null>(null)
 
 // Quota data for OAuth channels (keyed by stable channel id when available)
 const channelQuotas = ref<Record<string, QuotaInfo>>({})
+const refreshingOAuthQuotaKeys = ref<Record<string, boolean>>({})
 const oauthQuotaClock = ref(Date.now())
 let oauthQuotaResetTimer: ReturnType<typeof setTimeout> | null = null
 let oauthQuotaRequestSequence = 0
@@ -826,6 +849,48 @@ const getChannelItemKey = (channel: Channel): string => {
 // Get quota for a channel
 const getChannelQuota = (channel: Channel): QuotaInfo | undefined => {
   return channelQuotas.value[getQuotaKey(channel)]
+}
+
+const isOAuthQuotaRefreshing = (channel: Channel): boolean => {
+  return refreshingOAuthQuotaKeys.value[getQuotaKey(channel)] === true
+}
+
+const setOAuthQuotaRefreshing = (channel: Channel, refreshing: boolean) => {
+  const key = getQuotaKey(channel)
+  if (refreshing) {
+    refreshingOAuthQuotaKeys.value = { ...refreshingOAuthQuotaKeys.value, [key]: true }
+    return
+  }
+  const next = { ...refreshingOAuthQuotaKeys.value }
+  delete next[key]
+  refreshingOAuthQuotaKeys.value = next
+}
+
+const refreshOAuthQuota = async (channel: Channel) => {
+  if (isOAuthQuotaRefreshing(channel)) return
+
+  setOAuthQuotaRefreshing(channel, true)
+  try {
+    const status = channel.id
+      ? await api.refreshResponsesChannelOAuthQuotaByStableId(channel.id)
+      : await api.refreshResponsesChannelOAuthQuota(channel.index)
+
+    if (status.quota) {
+      channelQuotas.value = {
+        ...channelQuotas.value,
+        [getQuotaKey(channel)]: status.quota
+      }
+      oauthQuotaClock.value = Date.now()
+      scheduleOAuthQuotaAutoReset()
+    }
+    emit('success', t('oauth.quotaRefreshSuccess'))
+  } catch (error) {
+    console.error('Failed to refresh OAuth quota:', error)
+    const errorMessage = error instanceof Error ? error.message : t('common.unknown')
+    emit('error', t('oauth.quotaRefreshFailed', { error: errorMessage }))
+  } finally {
+    setOAuthQuotaRefreshing(channel, false)
+  }
 }
 
 // Fetch quota for OAuth channels
@@ -1361,7 +1426,7 @@ defineExpose({
 
 /* Responses tab has an extra quota column */
 .channel-row.has-quota-column {
-  grid-template-columns: 36px 36px 110px 1fr 230px 100px 90px 140px;
+  grid-template-columns: 36px 36px 110px 1fr 230px 132px 90px 140px;
 }
 
 .channel-row:hover {
@@ -1517,7 +1582,7 @@ defineExpose({
 .channel-quota {
   display: flex;
   align-items: center;
-  min-width: 70px;
+  min-width: 128px;
 }
 
 .quota-bar-container {
@@ -1535,6 +1600,13 @@ defineExpose({
 }
 
 /* OAuth dual quota bars (5h and 7d) */
+.oauth-quota-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 128px;
+}
+
 .oauth-quota-dual-bar {
   display: flex;
   flex-direction: column;
@@ -1547,6 +1619,12 @@ defineExpose({
 
 .oauth-quota-dual-bar:hover {
   background: rgba(var(--v-theme-primary), 0.1);
+}
+
+.oauth-quota-refresh-btn {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
 }
 
 .oauth-quota-row {

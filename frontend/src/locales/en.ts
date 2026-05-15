@@ -834,6 +834,9 @@ export default {
     quotaExceeded: 'Quota Exceeded',
     recoversAt: 'Recovers at {time}',
     noQuotaData: 'No quota data available. Make a request to see usage.',
+    refreshQuota: 'Refresh quota',
+    quotaRefreshSuccess: 'OAuth quota refreshed',
+    quotaRefreshFailed: 'Failed to refresh OAuth quota: {error}',
     accountDetails: 'Account Details',
     // Credits
     creditsUnlimited: 'Unlimited credits',

@@ -2,6 +2,8 @@
 package quota
 
 import (
+	"encoding/json"
+	"fmt"
 	"log"
 	"math"
 	"net/http"
@@ -302,6 +304,35 @@ func (m *Manager) UpdateFromHeadersForChannel(channelID int, channelStableID str
 	}
 
 	// No quota headers found - this is normal for non-OAuth channels
+}
+
+// UpdateCodexQuotaForChannel stores Codex quota data obtained from a direct
+// usage endpoint refresh.
+func (m *Manager) UpdateCodexQuotaForChannel(channelID int, channelStableID string, channelName string, codexInfo *CodexQuotaInfo) {
+	if m == nil || codexInfo == nil {
+		return
+	}
+	if codexInfo.UpdatedAt.IsZero() {
+		codexInfo.UpdatedAt = time.Now()
+	}
+
+	log.Printf("📊 [Quota] Refreshed Codex quota for channel %d (%s): primary=%d%%, secondary=%d%%, plan=%s",
+		channelID, channelName,
+		codexInfo.PrimaryUsedPercent, codexInfo.SecondaryUsedPercent, codexInfo.PlanType)
+
+	m.mu.Lock()
+	status := m.getOrCreateStatusForChannel(channelID, channelStableID, channelName)
+	status.CodexQuota = codexInfo
+	status.ChannelStableID = strings.TrimSpace(channelStableID)
+	status.ChannelName = channelName
+
+	if status.IsExceeded && time.Now().After(status.RecoverAt) {
+		status.IsExceeded = false
+		status.ExceededReason = ""
+	}
+
+	m.persist(status)
+	m.mu.Unlock()
 }
 
 // getOrCreateStatus returns existing status or creates a new one (must be called with lock held)
@@ -636,6 +667,181 @@ func parseCodexPercentHeader(value string) (int, bool) {
 		return 0, false
 	}
 	return int(math.Round(percent)), true
+}
+
+// ParseCodexUsagePayload converts ChatGPT Codex usage endpoint JSON into the
+// same quota structure used by response-header tracking.
+func ParseCodexUsagePayload(payload []byte) (*CodexQuotaInfo, error) {
+	var root map[string]any
+	if err := json.Unmarshal(payload, &root); err != nil {
+		return nil, fmt.Errorf("parse codex usage payload: %w", err)
+	}
+
+	info := &CodexQuotaInfo{
+		PlanType:  strings.TrimSpace(stringFromAny(firstCodexUsageValue(root, "plan_type", "planType"))),
+		UpdatedAt: time.Now(),
+	}
+
+	rateLimit, _ := firstCodexUsageValue(root, "rate_limit", "rateLimit").(map[string]any)
+	if rateLimit == nil {
+		return nil, fmt.Errorf("codex usage payload missing rate_limit")
+	}
+
+	primary, secondary := findCodexUsageWindows(rateLimit)
+	if primary == nil && secondary == nil {
+		return nil, fmt.Errorf("codex usage payload missing quota windows")
+	}
+
+	applyCodexUsageWindow(primary, &info.PrimaryUsedPercent, &info.PrimaryWindowMinutes, &info.PrimaryResetAt)
+	applyCodexUsageWindow(secondary, &info.SecondaryUsedPercent, &info.SecondaryWindowMinutes, &info.SecondaryResetAt)
+	applyCodexUsageCredits(firstCodexUsageValue(root, "credits"), info)
+
+	return info, nil
+}
+
+func findCodexUsageWindows(rateLimit map[string]any) (map[string]any, map[string]any) {
+	primary, _ := firstCodexUsageValue(rateLimit, "primary_window", "primaryWindow").(map[string]any)
+	secondary, _ := firstCodexUsageValue(rateLimit, "secondary_window", "secondaryWindow").(map[string]any)
+
+	var fiveHour map[string]any
+	var weekly map[string]any
+	for _, candidate := range []map[string]any{primary, secondary} {
+		if candidate == nil {
+			continue
+		}
+		seconds, ok := numericCodexUsageValue(firstCodexUsageValue(candidate, "limit_window_seconds", "limitWindowSeconds"))
+		if !ok {
+			continue
+		}
+		switch int(math.Round(seconds)) {
+		case 5 * 60 * 60:
+			fiveHour = candidate
+		case 7 * 24 * 60 * 60:
+			weekly = candidate
+		}
+	}
+	if fiveHour == nil {
+		fiveHour = primary
+	}
+	if weekly == nil {
+		weekly = secondary
+	}
+	return fiveHour, weekly
+}
+
+func applyCodexUsageWindow(window map[string]any, usedPercent *int, windowMinutes *int, resetAt *time.Time) {
+	if window == nil {
+		return
+	}
+
+	if used, ok := numericCodexUsageValue(firstCodexUsageValue(window, "used_percent", "usedPercent")); ok {
+		*usedPercent = int(math.Round(clampCodexUsagePercent(used)))
+	}
+
+	if seconds, ok := numericCodexUsageValue(firstCodexUsageValue(window, "limit_window_seconds", "limitWindowSeconds")); ok && seconds > 0 {
+		*windowMinutes = int(math.Round(seconds / 60))
+	}
+
+	if unixSeconds, ok := numericCodexUsageValue(firstCodexUsageValue(window, "reset_at", "resetAt")); ok && unixSeconds > 0 {
+		*resetAt = time.Unix(int64(unixSeconds), 0)
+		return
+	}
+
+	if resetAfterSeconds, ok := numericCodexUsageValue(firstCodexUsageValue(window, "reset_after_seconds", "resetAfterSeconds")); ok && resetAfterSeconds > 0 {
+		*resetAt = time.Now().Add(time.Duration(resetAfterSeconds) * time.Second)
+	}
+}
+
+func applyCodexUsageCredits(credits any, info *CodexQuotaInfo) {
+	values, _ := credits.(map[string]any)
+	if values == nil || info == nil {
+		return
+	}
+	if hasCredits, ok := boolCodexUsageValue(firstCodexUsageValue(values, "has_credits", "hasCredits")); ok {
+		info.CreditsHasCredits = hasCredits
+	}
+	if unlimited, ok := boolCodexUsageValue(firstCodexUsageValue(values, "unlimited")); ok {
+		info.CreditsUnlimited = unlimited
+	}
+	if balance := strings.TrimSpace(stringFromAny(firstCodexUsageValue(values, "balance"))); balance != "" {
+		info.CreditsBalance = balance
+	}
+}
+
+func firstCodexUsageValue(values map[string]any, keys ...string) any {
+	for _, key := range keys {
+		if value, ok := values[key]; ok {
+			return value
+		}
+	}
+	return nil
+}
+
+func numericCodexUsageValue(value any) (float64, bool) {
+	switch v := value.(type) {
+	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return 0, false
+		}
+		return v, true
+	case float32:
+		f := float64(v)
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			return 0, false
+		}
+		return f, true
+	case int:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case json.Number:
+		f, err := v.Float64()
+		return f, err == nil
+	case string:
+		f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
+			return 0, false
+		}
+		return f, true
+	default:
+		return 0, false
+	}
+}
+
+func boolCodexUsageValue(value any) (bool, bool) {
+	switch v := value.(type) {
+	case bool:
+		return v, true
+	case string:
+		normalized := strings.TrimSpace(strings.ToLower(v))
+		switch normalized {
+		case "true":
+			return true, true
+		case "false":
+			return false, true
+		default:
+			return false, false
+		}
+	default:
+		return false, false
+	}
+}
+
+func stringFromAny(value any) string {
+	if v, ok := value.(string); ok {
+		return v
+	}
+	return ""
+}
+
+func clampCodexUsagePercent(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	if value > 100 {
+		return 100
+	}
+	return value
 }
 
 // parseRateLimitHeaders extracts rate limit info from standard OpenAI response headers

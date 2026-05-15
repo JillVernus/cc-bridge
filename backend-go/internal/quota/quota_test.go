@@ -383,6 +383,87 @@ func TestUpdateFromHeadersForChannel_ParsesDecimalCodexUsedPercent(t *testing.T)
 	}
 }
 
+func TestParseCodexUsagePayload_MapsUsageWindowsToQuotaInfo(t *testing.T) {
+	payload := []byte(`{
+		"plan_type": "plus",
+		"rate_limit": {
+			"primary_window": {
+				"used_percent": 36.5,
+				"limit_window_seconds": 18000,
+				"reset_at": 1893456000
+			},
+			"secondary_window": {
+				"used_percent": 27.4,
+				"limit_window_seconds": 604800,
+				"reset_at": 1894060800
+			}
+		}
+	}`)
+
+	got, err := ParseCodexUsagePayload(payload)
+	if err != nil {
+		t.Fatalf("ParseCodexUsagePayload returned error: %v", err)
+	}
+	if got.PlanType != "plus" {
+		t.Fatalf("PlanType = %q, want plus", got.PlanType)
+	}
+	if got.PrimaryUsedPercent != 37 {
+		t.Fatalf("PrimaryUsedPercent = %d, want 37", got.PrimaryUsedPercent)
+	}
+	if got.PrimaryWindowMinutes != 300 {
+		t.Fatalf("PrimaryWindowMinutes = %d, want 300", got.PrimaryWindowMinutes)
+	}
+	if got.PrimaryResetAt.Unix() != 1893456000 {
+		t.Fatalf("PrimaryResetAt = %d, want 1893456000", got.PrimaryResetAt.Unix())
+	}
+	if got.SecondaryUsedPercent != 27 {
+		t.Fatalf("SecondaryUsedPercent = %d, want 27", got.SecondaryUsedPercent)
+	}
+	if got.SecondaryWindowMinutes != 10080 {
+		t.Fatalf("SecondaryWindowMinutes = %d, want 10080", got.SecondaryWindowMinutes)
+	}
+	if got.SecondaryResetAt.Unix() != 1894060800 {
+		t.Fatalf("SecondaryResetAt = %d, want 1894060800", got.SecondaryResetAt.Unix())
+	}
+	if got.UpdatedAt.IsZero() {
+		t.Fatalf("UpdatedAt should be set")
+	}
+}
+
+func TestParseCodexUsagePayload_IdentifiesWindowsByDuration(t *testing.T) {
+	payload := []byte(`{
+		"rate_limit": {
+			"primary_window": {
+				"used_percent": 72,
+				"limit_window_seconds": 604800
+			},
+			"secondary_window": {
+				"used_percent": 19,
+				"limit_window_seconds": 18000
+			}
+		},
+		"credits": {
+			"has_credits": true,
+			"unlimited": false,
+			"balance": "12.34"
+		}
+	}`)
+
+	got, err := ParseCodexUsagePayload(payload)
+	if err != nil {
+		t.Fatalf("ParseCodexUsagePayload returned error: %v", err)
+	}
+	if got.PrimaryUsedPercent != 19 {
+		t.Fatalf("PrimaryUsedPercent = %d, want 19", got.PrimaryUsedPercent)
+	}
+	if got.SecondaryUsedPercent != 72 {
+		t.Fatalf("SecondaryUsedPercent = %d, want 72", got.SecondaryUsedPercent)
+	}
+	if !got.CreditsHasCredits || got.CreditsUnlimited || got.CreditsBalance != "12.34" {
+		t.Fatalf("unexpected credits: %+v", got)
+	}
+}
+
 func TestSetExceededForChannel_StableIDUpdatesExistingEntryWithoutDestroyingCurrentIndex(t *testing.T) {
 	m := &Manager{
 		quotas: make(map[int]*QuotaStatus),

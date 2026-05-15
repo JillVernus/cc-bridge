@@ -824,6 +824,9 @@ export default {
     quotaExceeded: '配额已超限',
     recoversAt: '恢复时间: {time}',
     noQuotaData: '暂无配额数据。发送请求后可查看使用情况。',
+    refreshQuota: '刷新配额',
+    quotaRefreshSuccess: 'OAuth 配额已刷新',
+    quotaRefreshFailed: '刷新 OAuth 配额失败: {error}',
     accountDetails: '账户详情',
     // 积分
     creditsUnlimited: '无限积分',
