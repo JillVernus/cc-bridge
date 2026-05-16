@@ -125,12 +125,12 @@ func TestRefreshResponsesChannelOAuthQuotaByChannelID_QueriesUsageAndUpdatesStor
 			"plan_type": "pro",
 			"rate_limit": {
 				"primary_window": {
-					"used_percent": 15,
+					"used_percent": 0.64,
 					"limit_window_seconds": 18000,
 					"reset_at": 1893456000
 				},
 				"secondary_window": {
-					"used_percent": 48,
+					"used_percent": 48.25,
 					"limit_window_seconds": 604800,
 					"reset_at": 1894060800
 				}
@@ -197,18 +197,18 @@ func TestRefreshResponsesChannelOAuthQuotaByChannelID_QueriesUsageAndUpdatesStor
 	if !ok {
 		t.Fatalf("expected codex_quota payload, got %#v", quotaPayload["codex_quota"])
 	}
-	if got := codexQuota["primary_used_percent"]; got != float64(15) {
-		t.Fatalf("primary_used_percent = %#v, want 15", got)
+	if got := codexQuota["primary_used_percent"]; got != 0.64 {
+		t.Fatalf("primary_used_percent = %#v, want 0.64", got)
 	}
-	if got := codexQuota["secondary_used_percent"]; got != float64(48) {
-		t.Fatalf("secondary_used_percent = %#v, want 48", got)
+	if got := codexQuota["secondary_used_percent"]; got != 48.25 {
+		t.Fatalf("secondary_used_percent = %#v, want 48.25", got)
 	}
 
 	stored := quota.GetManager().GetStatusForChannel(0, "oauth-refresh-stable-a", "OAuth Refresh A")
 	if stored == nil || stored.CodexQuota == nil {
 		t.Fatalf("expected stored quota, got %+v", stored)
 	}
-	if stored.CodexQuota.PlanType != "pro" || stored.CodexQuota.PrimaryUsedPercent != 15 {
+	if stored.CodexQuota.PlanType != "pro" || stored.CodexQuota.PrimaryUsedPercentValue() != 0.64 {
 		t.Fatalf("unexpected stored quota: %+v", stored.CodexQuota)
 	}
 }

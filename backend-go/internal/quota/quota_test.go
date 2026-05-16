@@ -375,11 +375,11 @@ func TestUpdateFromHeadersForChannel_ParsesDecimalCodexUsedPercent(t *testing.T)
 	if got == nil || got.CodexQuota == nil {
 		t.Fatalf("expected codex quota payload, got %+v", got)
 	}
-	if got.CodexQuota.PrimaryUsedPercent != 37 {
-		t.Fatalf("primary used percent = %d, want 37", got.CodexQuota.PrimaryUsedPercent)
+	if got.CodexQuota.PrimaryUsedPercentValue() != 36.5 {
+		t.Fatalf("primary used percent = %v, want 36.5", got.CodexQuota.PrimaryUsedPercentValue())
 	}
-	if got.CodexQuota.SecondaryUsedPercent != 27 {
-		t.Fatalf("secondary used percent = %d, want 27", got.CodexQuota.SecondaryUsedPercent)
+	if got.CodexQuota.SecondaryUsedPercentValue() != 27.4 {
+		t.Fatalf("secondary used percent = %v, want 27.4", got.CodexQuota.SecondaryUsedPercentValue())
 	}
 }
 
@@ -407,8 +407,8 @@ func TestParseCodexUsagePayload_MapsUsageWindowsToQuotaInfo(t *testing.T) {
 	if got.PlanType != "plus" {
 		t.Fatalf("PlanType = %q, want plus", got.PlanType)
 	}
-	if got.PrimaryUsedPercent != 37 {
-		t.Fatalf("PrimaryUsedPercent = %d, want 37", got.PrimaryUsedPercent)
+	if got.PrimaryUsedPercentValue() != 36.5 {
+		t.Fatalf("PrimaryUsedPercentValue = %v, want 36.5", got.PrimaryUsedPercentValue())
 	}
 	if got.PrimaryWindowMinutes != 300 {
 		t.Fatalf("PrimaryWindowMinutes = %d, want 300", got.PrimaryWindowMinutes)
@@ -416,8 +416,8 @@ func TestParseCodexUsagePayload_MapsUsageWindowsToQuotaInfo(t *testing.T) {
 	if got.PrimaryResetAt.Unix() != 1893456000 {
 		t.Fatalf("PrimaryResetAt = %d, want 1893456000", got.PrimaryResetAt.Unix())
 	}
-	if got.SecondaryUsedPercent != 27 {
-		t.Fatalf("SecondaryUsedPercent = %d, want 27", got.SecondaryUsedPercent)
+	if got.SecondaryUsedPercentValue() != 27.4 {
+		t.Fatalf("SecondaryUsedPercentValue = %v, want 27.4", got.SecondaryUsedPercentValue())
 	}
 	if got.SecondaryWindowMinutes != 10080 {
 		t.Fatalf("SecondaryWindowMinutes = %d, want 10080", got.SecondaryWindowMinutes)

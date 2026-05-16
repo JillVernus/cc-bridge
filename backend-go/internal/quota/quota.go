@@ -47,14 +47,16 @@ type CodexQuotaInfo struct {
 	PlanType string `json:"plan_type,omitempty"`
 
 	// Primary window (short-term, e.g., 5 hours)
-	PrimaryUsedPercent   int       `json:"primary_used_percent"`
-	PrimaryWindowMinutes int       `json:"primary_window_minutes,omitempty"`
-	PrimaryResetAt       time.Time `json:"primary_reset_at,omitempty"`
+	PrimaryUsedPercent      int       `json:"primary_used_percent"`
+	PrimaryUsedPercentExact *float64  `json:"-"`
+	PrimaryWindowMinutes    int       `json:"primary_window_minutes,omitempty"`
+	PrimaryResetAt          time.Time `json:"primary_reset_at,omitempty"`
 
 	// Secondary window (long-term, e.g., 7 days)
-	SecondaryUsedPercent   int       `json:"secondary_used_percent"`
-	SecondaryWindowMinutes int       `json:"secondary_window_minutes,omitempty"`
-	SecondaryResetAt       time.Time `json:"secondary_reset_at,omitempty"`
+	SecondaryUsedPercent      int       `json:"secondary_used_percent"`
+	SecondaryUsedPercentExact *float64  `json:"-"`
+	SecondaryWindowMinutes    int       `json:"secondary_window_minutes,omitempty"`
+	SecondaryResetAt          time.Time `json:"secondary_reset_at,omitempty"`
 
 	// Over limit indicator
 	PrimaryOverSecondaryLimitPercent int `json:"primary_over_secondary_limit_percent,omitempty"`
@@ -66,6 +68,26 @@ type CodexQuotaInfo struct {
 
 	// Last updated timestamp
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (c *CodexQuotaInfo) PrimaryUsedPercentValue() float64 {
+	if c == nil {
+		return 0
+	}
+	if c.PrimaryUsedPercentExact != nil {
+		return *c.PrimaryUsedPercentExact
+	}
+	return float64(c.PrimaryUsedPercent)
+}
+
+func (c *CodexQuotaInfo) SecondaryUsedPercentValue() float64 {
+	if c == nil {
+		return 0
+	}
+	if c.SecondaryUsedPercentExact != nil {
+		return *c.SecondaryUsedPercentExact
+	}
+	return float64(c.SecondaryUsedPercent)
 }
 
 // RateLimitInfo contains rate limit information from OpenAI response headers (standard API)
@@ -258,9 +280,9 @@ func (m *Manager) UpdateFromHeadersForChannel(channelID int, channelStableID str
 	// Try Codex headers first
 	codexInfo := parseCodexHeaders(headers)
 	if codexInfo != nil {
-		log.Printf("📊 [Quota] Updated Codex quota for channel %d (%s): primary=%d%%, secondary=%d%%, plan=%s",
+		log.Printf("📊 [Quota] Updated Codex quota for channel %d (%s): primary=%.2f%%, secondary=%.2f%%, plan=%s",
 			channelID, channelName,
-			codexInfo.PrimaryUsedPercent, codexInfo.SecondaryUsedPercent, codexInfo.PlanType)
+			codexInfo.PrimaryUsedPercentValue(), codexInfo.SecondaryUsedPercentValue(), codexInfo.PlanType)
 
 		m.mu.Lock()
 		status := m.getOrCreateStatusForChannel(channelID, channelStableID, channelName)
@@ -316,9 +338,9 @@ func (m *Manager) UpdateCodexQuotaForChannel(channelID int, channelStableID stri
 		codexInfo.UpdatedAt = time.Now()
 	}
 
-	log.Printf("📊 [Quota] Refreshed Codex quota for channel %d (%s): primary=%d%%, secondary=%d%%, plan=%s",
+	log.Printf("📊 [Quota] Refreshed Codex quota for channel %d (%s): primary=%.2f%%, secondary=%.2f%%, plan=%s",
 		channelID, channelName,
-		codexInfo.PrimaryUsedPercent, codexInfo.SecondaryUsedPercent, codexInfo.PlanType)
+		codexInfo.PrimaryUsedPercentValue(), codexInfo.SecondaryUsedPercentValue(), codexInfo.PlanType)
 
 	m.mu.Lock()
 	status := m.getOrCreateStatusForChannel(channelID, channelStableID, channelName)
@@ -568,6 +590,14 @@ func cloneStatus(status *QuotaStatus) *QuotaStatus {
 	}
 	if status.CodexQuota != nil {
 		cqCopy := *status.CodexQuota
+		if status.CodexQuota.PrimaryUsedPercentExact != nil {
+			primaryExact := *status.CodexQuota.PrimaryUsedPercentExact
+			cqCopy.PrimaryUsedPercentExact = &primaryExact
+		}
+		if status.CodexQuota.SecondaryUsedPercentExact != nil {
+			secondaryExact := *status.CodexQuota.SecondaryUsedPercentExact
+			cqCopy.SecondaryUsedPercentExact = &secondaryExact
+		}
 		copy.CodexQuota = &cqCopy
 	}
 	return &copy
@@ -610,8 +640,8 @@ func parseCodexHeaders(headers http.Header) *CodexQuotaInfo {
 
 	// Parse primary window info
 	if v := primaryUsed; v != "" {
-		if n, ok := parseCodexPercentHeader(v); ok {
-			info.PrimaryUsedPercent = n
+		if percent, ok := parseCodexPercentValue(v); ok {
+			setCodexUsagePercent(&info.PrimaryUsedPercent, &info.PrimaryUsedPercentExact, percent)
 		}
 	}
 	if v := headers.Get("X-Codex-Primary-Window-Minutes"); v != "" {
@@ -627,8 +657,8 @@ func parseCodexHeaders(headers http.Header) *CodexQuotaInfo {
 
 	// Parse secondary window info
 	if v := secondaryUsed; v != "" {
-		if n, ok := parseCodexPercentHeader(v); ok {
-			info.SecondaryUsedPercent = n
+		if percent, ok := parseCodexPercentValue(v); ok {
+			setCodexUsagePercent(&info.SecondaryUsedPercent, &info.SecondaryUsedPercentExact, percent)
 		}
 	}
 	if v := headers.Get("X-Codex-Secondary-Window-Minutes"); v != "" {
@@ -662,11 +692,19 @@ func parseCodexHeaders(headers http.Header) *CodexQuotaInfo {
 }
 
 func parseCodexPercentHeader(value string) (int, bool) {
+	percent, ok := parseCodexPercentValue(value)
+	if !ok {
+		return 0, false
+	}
+	return int(math.Round(percent)), true
+}
+
+func parseCodexPercentValue(value string) (float64, bool) {
 	percent, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
 	if err != nil || math.IsNaN(percent) || math.IsInf(percent, 0) {
 		return 0, false
 	}
-	return int(math.Round(percent)), true
+	return clampCodexUsagePercent(percent), true
 }
 
 // ParseCodexUsagePayload converts ChatGPT Codex usage endpoint JSON into the
@@ -692,8 +730,8 @@ func ParseCodexUsagePayload(payload []byte) (*CodexQuotaInfo, error) {
 		return nil, fmt.Errorf("codex usage payload missing quota windows")
 	}
 
-	applyCodexUsageWindow(primary, &info.PrimaryUsedPercent, &info.PrimaryWindowMinutes, &info.PrimaryResetAt)
-	applyCodexUsageWindow(secondary, &info.SecondaryUsedPercent, &info.SecondaryWindowMinutes, &info.SecondaryResetAt)
+	applyCodexUsageWindow(primary, &info.PrimaryUsedPercent, &info.PrimaryUsedPercentExact, &info.PrimaryWindowMinutes, &info.PrimaryResetAt)
+	applyCodexUsageWindow(secondary, &info.SecondaryUsedPercent, &info.SecondaryUsedPercentExact, &info.SecondaryWindowMinutes, &info.SecondaryResetAt)
 	applyCodexUsageCredits(firstCodexUsageValue(root, "credits"), info)
 
 	return info, nil
@@ -729,13 +767,13 @@ func findCodexUsageWindows(rateLimit map[string]any) (map[string]any, map[string
 	return fiveHour, weekly
 }
 
-func applyCodexUsageWindow(window map[string]any, usedPercent *int, windowMinutes *int, resetAt *time.Time) {
+func applyCodexUsageWindow(window map[string]any, usedPercent *int, usedPercentExact **float64, windowMinutes *int, resetAt *time.Time) {
 	if window == nil {
 		return
 	}
 
 	if used, ok := numericCodexUsageValue(firstCodexUsageValue(window, "used_percent", "usedPercent")); ok {
-		*usedPercent = int(math.Round(clampCodexUsagePercent(used)))
+		setCodexUsagePercent(usedPercent, usedPercentExact, used)
 	}
 
 	if seconds, ok := numericCodexUsageValue(firstCodexUsageValue(window, "limit_window_seconds", "limitWindowSeconds")); ok && seconds > 0 {
@@ -750,6 +788,12 @@ func applyCodexUsageWindow(window map[string]any, usedPercent *int, windowMinute
 	if resetAfterSeconds, ok := numericCodexUsageValue(firstCodexUsageValue(window, "reset_after_seconds", "resetAfterSeconds")); ok && resetAfterSeconds > 0 {
 		*resetAt = time.Now().Add(time.Duration(resetAfterSeconds) * time.Second)
 	}
+}
+
+func setCodexUsagePercent(target *int, exactTarget **float64, value float64) {
+	percent := clampCodexUsagePercent(value)
+	*target = int(math.Round(percent))
+	*exactTarget = &percent
 }
 
 func applyCodexUsageCredits(credits any, info *CodexQuotaInfo) {

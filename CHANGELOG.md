@@ -4,6 +4,21 @@
 
 ---
 
+## [v1.5.39] - 2026-05-16
+
+### 🐛 修复
+
+- **Codex OAuth 配额小数精度修复**:
+  - 手动刷新和响应 headers 获取到的小数形式 Codex quota 使用率现在会保留精度，不再只向前端返回四舍五入后的整数。
+  - OAuth 配额条和详情弹窗统一显示两位小数，例如 `99.36%` / `74.00%`，便于区分真实上游整数值与小数值。
+  - 调整 Responses OAuth 配额列宽，避免 `100.00%` 与刷新按钮、API key 数量图标重叠。
+
+### ✅ 测试
+
+- `cd backend-go && go test ./...`
+- `cd frontend && bun run type-check`
+- `cd frontend && bun run build`
+
 ## [v1.5.38] - 2026-05-15
 
 ### ✨ 新功能

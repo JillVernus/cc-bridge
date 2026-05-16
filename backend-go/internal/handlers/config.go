@@ -1343,8 +1343,8 @@ func writeResponsesChannelOAuthStatus(c *gin.Context, channelIndex int, upstream
 			cq := quotaStatus.CodexQuota
 			codexQuotaInfo := gin.H{
 				"plan_type":              cq.PlanType,
-				"primary_used_percent":   cq.PrimaryUsedPercent,
-				"secondary_used_percent": cq.SecondaryUsedPercent,
+				"primary_used_percent":   cq.PrimaryUsedPercentValue(),
+				"secondary_used_percent": cq.SecondaryUsedPercentValue(),
 				"updated_at":             cq.UpdatedAt,
 			}
 			if cq.PrimaryWindowMinutes > 0 {

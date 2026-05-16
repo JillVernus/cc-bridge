@@ -90,7 +90,7 @@
                     formatWindowDuration(oauthStatus.quota.codex_quota.primary_window_minutes)
                   }})</span
                 >
-                <span>{{ t('oauth.availablePercent', { percent: primaryRemainingPercent }) }}</span>
+                <span>{{ t('oauth.availablePercent', { percent: formatPercentValue(primaryRemainingPercent) }) }}</span>
               </div>
               <v-progress-linear
                 :model-value="primaryRemainingPercent"
@@ -111,7 +111,9 @@
                     formatWindowDuration(oauthStatus.quota.codex_quota.secondary_window_minutes)
                   }})</span
                 >
-                <span>{{ t('oauth.availablePercent', { percent: secondaryRemainingPercent }) }}</span>
+                <span>{{
+                  t('oauth.availablePercent', { percent: formatPercentValue(secondaryRemainingPercent) })
+                }}</span>
               </div>
               <v-progress-linear
                 :model-value="secondaryRemainingPercent"
@@ -343,6 +345,11 @@ const parseResetTimestamp = (resetAt?: string): number | null => {
 
 const clampPercent = (percent: number): number => {
   return Math.min(100, Math.max(0, percent))
+}
+
+const formatPercentValue = (percent: number): string => {
+  const clamped = clampPercent(percent)
+  return clamped.toFixed(2)
 }
 
 const getEffectiveUsedPercent = (usedPercent: number, resetAt?: string): number => {

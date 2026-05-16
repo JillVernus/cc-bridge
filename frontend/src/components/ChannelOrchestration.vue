@@ -301,7 +301,9 @@
                                   }"
                                 />
                               </div>
-                              <span class="quota-text">{{ getOAuthWindowRemainingPercent(element, 'primary') }}%</span>
+                              <span class="quota-text">{{
+                                formatPercent(getOAuthWindowRemainingPercent(element, 'primary'))
+                              }}</span>
                             </div>
                             <!-- 7d quota bar -->
                             <div class="oauth-quota-row">
@@ -315,9 +317,9 @@
                                   }"
                                 />
                               </div>
-                              <span class="quota-text"
-                                >{{ getOAuthWindowRemainingPercent(element, 'secondary') }}%</span
-                              >
+                              <span class="quota-text">{{
+                                formatPercent(getOAuthWindowRemainingPercent(element, 'secondary'))
+                              }}</span>
                             </div>
                           </template>
                           <span v-else class="text-caption text-medium-emphasis">--</span>
@@ -329,14 +331,14 @@
                           <div class="quota-tooltip-row">
                             <span>{{ t('oauth.primaryWindow') }}:</span>
                             <span
-                              >{{ getOAuthWindowRemainingPercent(element, 'primary') }}%
+                              >{{ formatPercent(getOAuthWindowRemainingPercent(element, 'primary')) }}
                               {{ t('orchestration.quotaRemaining') }}</span
                             >
                           </div>
                           <div class="quota-tooltip-row">
                             <span>{{ t('oauth.secondaryWindow') }}:</span>
                             <span
-                              >{{ getOAuthWindowRemainingPercent(element, 'secondary') }}%
+                              >{{ formatPercent(getOAuthWindowRemainingPercent(element, 'secondary')) }}
                               {{ t('orchestration.quotaRemaining') }}</span
                             >
                           </div>
@@ -775,6 +777,11 @@ const parseResetTimestamp = (resetAt?: string): number | null => {
 
 const clampPercent = (percent: number): number => {
   return Math.min(100, Math.max(0, percent))
+}
+
+const formatPercent = (percent: number): string => {
+  const clamped = clampPercent(percent)
+  return `${clamped.toFixed(2)}%`
 }
 
 const getEffectiveUsedPercent = (usedPercent: number, resetAt?: string): number => {
@@ -1426,7 +1433,7 @@ defineExpose({
 
 /* Responses tab has an extra quota column */
 .channel-row.has-quota-column {
-  grid-template-columns: 36px 36px 110px 1fr 230px 132px 90px 140px;
+  grid-template-columns: 36px 36px 110px 1fr 230px 156px 90px 140px;
 }
 
 .channel-row:hover {
@@ -1582,7 +1589,7 @@ defineExpose({
 .channel-quota {
   display: flex;
   align-items: center;
-  min-width: 128px;
+  min-width: 152px;
 }
 
 .quota-bar-container {
@@ -1604,7 +1611,7 @@ defineExpose({
   display: flex;
   align-items: center;
   gap: 4px;
-  width: 128px;
+  width: 152px;
 }
 
 .oauth-quota-dual-bar {
@@ -1659,7 +1666,7 @@ defineExpose({
 .quota-text {
   font-size: 11px;
   font-weight: 600;
-  min-width: 28px;
+  min-width: 50px;
   text-align: right;
 }
 
