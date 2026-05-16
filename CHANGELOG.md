@@ -4,6 +4,21 @@
 
 ---
 
+## [v1.5.40] - 2026-05-16
+
+### 🐛 修复
+
+- **导航默认页与登录防护修复**:
+  - 将 Logs 调整为首个默认 Tab，Codex 调整为第二个 Tab，Claude 调整为第三个 Tab，其余 Tab 顺序保持不变。
+  - 修复 Logs 作为默认页时，登录前请求日志组件提前挂载并触发受保护接口请求，导致正确密码也可能被认证失败限制误封的问题。
+  - 新增前端导航回归测试，覆盖 Tab 顺序、默认 Tab 与登录前不挂载受保护主内容。
+
+### ✅ 测试
+
+- `cd frontend && bun test src/App.navigation.test.ts`
+- `cd frontend && bun run type-check`
+- `cd frontend && bun test`
+
 ## [v1.5.39] - 2026-05-16
 
 ### 🐛 修复

@@ -133,13 +133,17 @@
       <!-- 自定义标题容器 - 替代 v-app-bar-title -->
       <div class="header-title">
         <v-btn-toggle v-model="activeTab" mandatory class="nav-toggle">
-          <v-btn value="messages" class="nav-btn" :size="$vuetify.display.mobile ? 'small' : 'default'">
-            <v-icon start :size="$vuetify.display.mobile ? 16 : 20" icon="custom:claude" />
-            <span>Claude</span>
+          <v-btn value="logs" class="nav-btn" :size="$vuetify.display.mobile ? 'small' : 'default'">
+            <v-icon start :size="$vuetify.display.mobile ? 16 : 20">mdi-format-list-bulleted</v-icon>
+            <span>Logs</span>
           </v-btn>
           <v-btn value="responses" class="nav-btn" :size="$vuetify.display.mobile ? 'small' : 'default'">
             <v-icon start :size="$vuetify.display.mobile ? 16 : 20" icon="custom:codex" />
             <span>Codex</span>
+          </v-btn>
+          <v-btn value="messages" class="nav-btn" :size="$vuetify.display.mobile ? 'small' : 'default'">
+            <v-icon start :size="$vuetify.display.mobile ? 16 : 20" icon="custom:claude" />
+            <span>Claude</span>
           </v-btn>
           <v-btn value="gemini" class="nav-btn" :size="$vuetify.display.mobile ? 'small' : 'default'">
             <v-icon start :size="$vuetify.display.mobile ? 16 : 20" icon="custom:gemini" />
@@ -152,10 +156,6 @@
           <v-btn value="apikeys" class="nav-btn" :size="$vuetify.display.mobile ? 'small' : 'default'">
             <v-icon start :size="$vuetify.display.mobile ? 16 : 20">mdi-key-variant</v-icon>
             <span>{{ t('apiKeys.tabTitle') }}</span>
-          </v-btn>
-          <v-btn value="logs" class="nav-btn" :size="$vuetify.display.mobile ? 'small' : 'default'">
-            <v-icon start :size="$vuetify.display.mobile ? 16 : 20">mdi-format-list-bulleted</v-icon>
-            <span>Logs</span>
           </v-btn>
           <v-btn value="report" class="nav-btn" :size="$vuetify.display.mobile ? 'small' : 'default'">
             <v-icon start :size="$vuetify.display.mobile ? 16 : 20">mdi-chart-box-outline</v-icon>
@@ -238,7 +238,7 @@
 
     <!-- 主要内容 -->
     <v-main>
-      <v-container fluid class="pa-4 pa-md-6">
+      <v-container v-if="isAuthenticated" fluid class="pa-4 pa-md-6">
         <!-- Logs 视图 -->
         <template v-if="activeTab === 'logs'">
           <!-- 全局统计图表 - 可折叠 -->
@@ -741,7 +741,7 @@ let metricsRefreshInFlight = false
 // 响应式数据
 const activeTab = ref<
   'messages' | 'responses' | 'gemini' | 'chat' | 'logs' | 'apikeys' | 'report' | 'forward-proxy-discovery'
->('messages') // Tab 切换状态
+>('logs') // Tab 切换状态
 const channelsData = ref<ChannelsResponse>({ channels: [], current: -1, loadBalance: 'round-robin' })
 const responsesChannelsData = ref<ChannelsResponse>({ channels: [], current: -1, loadBalance: 'round-robin' }) // Responses渠道数据
 const geminiChannelsData = ref<ChannelsResponse>({ channels: [], current: -1, loadBalance: 'round-robin' }) // Gemini渠道数据
