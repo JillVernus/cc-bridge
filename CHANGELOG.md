@@ -4,6 +4,19 @@
 
 ---
 
+## [v1.5.41] - 2026-05-16
+
+### 🐛 修复
+
+- **Codex OAuth 配额显示间距修复**:
+  - OAuth quota bar 对整数剩余值恢复显示为 `41%`，仅在真实小数值时显示 `41.25%`。
+  - 恢复 Responses OAuth 配额列与百分比文本的紧凑间距，减少 quota bar 与百分比之间的空白。
+
+### ✅ 测试
+
+- `cd frontend && bun run type-check`
+- `cd frontend && bun run build`
+
 ## [v1.5.40] - 2026-05-16
 
 ### 🐛 修复

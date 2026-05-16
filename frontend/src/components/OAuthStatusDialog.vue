@@ -349,6 +349,9 @@ const clampPercent = (percent: number): number => {
 
 const formatPercentValue = (percent: number): string => {
   const clamped = clampPercent(percent)
+  if (Number.isInteger(clamped)) {
+    return `${clamped}`
+  }
   return clamped.toFixed(2)
 }
 
