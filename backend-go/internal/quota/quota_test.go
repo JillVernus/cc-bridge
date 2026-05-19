@@ -520,6 +520,137 @@ func TestParseCodexUsagePayload_IdentifiesWindowsByDuration(t *testing.T) {
 	}
 }
 
+func TestParseCodexUsagePayload_ExtractsAdditionalRateLimits(t *testing.T) {
+	payload := []byte(`{
+		"plan_type": "pro",
+		"rate_limit": {
+			"primary_window": {"used_percent": 35, "limit_window_seconds": 18000, "reset_at": 1779203908},
+			"secondary_window": {"used_percent": 11, "limit_window_seconds": 604800, "reset_at": 1779688894}
+		},
+		"additional_rate_limits": [
+			{
+				"limit_name": "GPT-5.3-Codex-Spark",
+				"metered_feature": "codex_bengalfox",
+				"rate_limit": {
+					"allowed": true,
+					"limit_reached": false,
+					"primary_window": {
+						"used_percent": 32,
+						"limit_window_seconds": 18000,
+						"reset_after_seconds": 8766,
+						"reset_at": 1779203908
+					},
+					"secondary_window": {
+						"used_percent": 11,
+						"limit_window_seconds": 604800,
+						"reset_after_seconds": 493753,
+						"reset_at": 1779688895
+					}
+				}
+			}
+		]
+	}`)
+
+	got, err := ParseCodexUsagePayload(payload)
+	if err != nil {
+		t.Fatalf("ParseCodexUsagePayload returned error: %v", err)
+	}
+	if len(got.DetailedLimits) != 1 {
+		t.Fatalf("DetailedLimits length = %d, want 1: %+v", len(got.DetailedLimits), got.DetailedLimits)
+	}
+	limit := got.DetailedLimits[0]
+	if limit.LimitID != "codex_bengalfox" {
+		t.Fatalf("LimitID = %q, want codex_bengalfox", limit.LimitID)
+	}
+	if limit.LimitName != "GPT-5.3-Codex-Spark" {
+		t.Fatalf("LimitName = %q, want GPT-5.3-Codex-Spark", limit.LimitName)
+	}
+	if limit.PrimaryUsedPercent != 32 || limit.PrimaryWindowMinutes != 300 || limit.PrimaryResetAt.Unix() != 1779203908 || limit.PrimaryResetAfterSeconds != 8766 {
+		t.Fatalf("unexpected primary detailed limit: %+v", limit)
+	}
+	if limit.SecondaryUsedPercent != 11 || limit.SecondaryWindowMinutes != 10080 || limit.SecondaryResetAt.Unix() != 1779688895 || limit.SecondaryResetAfterSeconds != 493753 {
+		t.Fatalf("unexpected secondary detailed limit: %+v", limit)
+	}
+}
+
+func TestUpdateCodexQuotaForChannel_PreservesDetailedLimitsAndActiveLimitWhenRefreshLacksThem(t *testing.T) {
+	m := &Manager{quotas: make(map[int]*QuotaStatus)}
+
+	exact32 := 32.0
+	m.quotas[5] = &QuotaStatus{
+		ChannelID:       5,
+		ChannelStableID: "oauth-stable-a",
+		ChannelName:     "oauth-a",
+		CodexQuota: &CodexQuotaInfo{
+			PlanType:           "pro",
+			ActiveLimit:        "premium",
+			PrimaryUsedPercent: 35,
+			DetailedLimits: []CodexQuotaLimitInfo{
+				{
+					LimitID:                 "codex_bengalfox",
+					LimitName:               "GPT-5.3-Codex-Spark",
+					PrimaryUsedPercent:      32,
+					PrimaryUsedPercentExact: &exact32,
+				},
+			},
+			UpdatedAt: time.Now().Add(-time.Minute),
+		},
+	}
+
+	refreshed := &CodexQuotaInfo{
+		PlanType:           "pro",
+		PrimaryUsedPercent: 40,
+	}
+
+	m.UpdateCodexQuotaForChannel(5, "oauth-stable-a", "oauth-a", refreshed)
+
+	got := m.GetStatusForChannel(5, "oauth-stable-a", "oauth-a")
+	if got == nil || got.CodexQuota == nil {
+		t.Fatalf("expected codex quota payload, got %+v", got)
+	}
+	if got.CodexQuota.PrimaryUsedPercent != 40 {
+		t.Fatalf("PrimaryUsedPercent = %d, want refreshed 40", got.CodexQuota.PrimaryUsedPercent)
+	}
+	if got.CodexQuota.ActiveLimit != "premium" {
+		t.Fatalf("ActiveLimit = %q, want preserved premium", got.CodexQuota.ActiveLimit)
+	}
+	if len(got.CodexQuota.DetailedLimits) != 1 || got.CodexQuota.DetailedLimits[0].LimitID != "codex_bengalfox" {
+		t.Fatalf("DetailedLimits = %+v, want preserved bengalfox", got.CodexQuota.DetailedLimits)
+	}
+}
+
+func TestUpdateCodexQuotaForChannel_RefreshDetailedLimitsOverrideExisting(t *testing.T) {
+	m := &Manager{quotas: make(map[int]*QuotaStatus)}
+
+	m.quotas[5] = &QuotaStatus{
+		ChannelID:       5,
+		ChannelStableID: "oauth-stable-a",
+		ChannelName:     "oauth-a",
+		CodexQuota: &CodexQuotaInfo{
+			DetailedLimits: []CodexQuotaLimitInfo{
+				{LimitID: "codex_bengalfox", PrimaryUsedPercent: 32},
+			},
+			UpdatedAt: time.Now().Add(-time.Minute),
+		},
+	}
+
+	refreshed := &CodexQuotaInfo{
+		DetailedLimits: []CodexQuotaLimitInfo{
+			{LimitID: "codex_bengalfox", PrimaryUsedPercent: 55},
+		},
+	}
+
+	m.UpdateCodexQuotaForChannel(5, "oauth-stable-a", "oauth-a", refreshed)
+
+	got := m.GetStatusForChannel(5, "oauth-stable-a", "oauth-a")
+	if got == nil || got.CodexQuota == nil || len(got.CodexQuota.DetailedLimits) != 1 {
+		t.Fatalf("unexpected status: %+v", got)
+	}
+	if got.CodexQuota.DetailedLimits[0].PrimaryUsedPercent != 55 {
+		t.Fatalf("DetailedLimits[0].PrimaryUsedPercent = %d, want refreshed 55", got.CodexQuota.DetailedLimits[0].PrimaryUsedPercent)
+	}
+}
+
 func TestSetExceededForChannel_StableIDUpdatesExistingEntryWithoutDestroyingCurrentIndex(t *testing.T) {
 	m := &Manager{
 		quotas: make(map[int]*QuotaStatus),

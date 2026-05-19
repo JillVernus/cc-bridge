@@ -381,7 +381,7 @@ func (m *Manager) UpdateCodexQuotaForChannel(channelID int, channelStableID stri
 
 	m.mu.Lock()
 	status := m.getOrCreateStatusForChannel(channelID, channelStableID, channelName)
-	status.CodexQuota = codexInfo
+	mergeCodexQuotaRefresh(status, codexInfo)
 	status.ChannelStableID = strings.TrimSpace(channelStableID)
 	status.ChannelName = channelName
 
@@ -392,6 +392,31 @@ func (m *Manager) UpdateCodexQuotaForChannel(channelID int, channelStableID stri
 
 	m.persist(status)
 	m.mu.Unlock()
+}
+
+// mergeCodexQuotaRefresh assigns refreshed Codex quota into status while
+// preserving values that the refresh source cannot supply (notably ActiveLimit
+// and DetailedLimits, which only arrive via response headers). Without this
+// merge, every OAuth quota refresh would wipe header-derived state, causing
+// UI flicker each time real traffic re-populates the detail.
+func mergeCodexQuotaRefresh(status *QuotaStatus, refreshed *CodexQuotaInfo) {
+	if status == nil || refreshed == nil {
+		return
+	}
+
+	existing := status.CodexQuota
+	status.CodexQuota = refreshed
+
+	if existing == nil {
+		return
+	}
+
+	if refreshed.ActiveLimit == "" && existing.ActiveLimit != "" {
+		refreshed.ActiveLimit = existing.ActiveLimit
+	}
+	if len(refreshed.DetailedLimits) == 0 && len(existing.DetailedLimits) > 0 {
+		refreshed.DetailedLimits = existing.DetailedLimits
+	}
 }
 
 // getOrCreateStatus returns existing status or creates a new one (must be called with lock held)
@@ -918,8 +943,82 @@ func ParseCodexUsagePayload(payload []byte) (*CodexQuotaInfo, error) {
 	applyCodexUsageWindow(primary, &info.PrimaryUsedPercent, &info.PrimaryUsedPercentExact, &info.PrimaryWindowMinutes, &info.PrimaryResetAt)
 	applyCodexUsageWindow(secondary, &info.SecondaryUsedPercent, &info.SecondaryUsedPercentExact, &info.SecondaryWindowMinutes, &info.SecondaryResetAt)
 	applyCodexUsageCredits(firstCodexUsageValue(root, "credits"), info)
+	info.DetailedLimits = parseCodexUsageAdditionalLimits(firstCodexUsageValue(root, "additional_rate_limits", "additionalRateLimits"))
 
 	return info, nil
+}
+
+// parseCodexUsageAdditionalLimits converts the `additional_rate_limits` array
+// from the Codex usage endpoint into CodexQuotaLimitInfo entries. The
+// `metered_feature` field maps to LimitID using the same `codex_<feature>`
+// shape produced by the header parser so refresh and header data stay aligned.
+func parseCodexUsageAdditionalLimits(value any) []CodexQuotaLimitInfo {
+	entries, _ := value.([]any)
+	if len(entries) == 0 {
+		return nil
+	}
+
+	limits := make([]CodexQuotaLimitInfo, 0, len(entries))
+	for _, entry := range entries {
+		obj, _ := entry.(map[string]any)
+		if obj == nil {
+			continue
+		}
+
+		limit := CodexQuotaLimitInfo{
+			LimitName: strings.TrimSpace(stringFromAny(firstCodexUsageValue(obj, "limit_name", "limitName"))),
+			LimitID:   codexUsageLimitID(obj),
+		}
+
+		rateLimit, _ := firstCodexUsageValue(obj, "rate_limit", "rateLimit").(map[string]any)
+		primary, secondary := findCodexUsageWindows(rateLimit)
+
+		applyCodexUsageDetailedWindow(primary,
+			&limit.PrimaryUsedPercent, &limit.PrimaryUsedPercentExact,
+			&limit.PrimaryWindowMinutes, &limit.PrimaryResetAt, &limit.PrimaryResetAfterSeconds)
+		applyCodexUsageDetailedWindow(secondary,
+			&limit.SecondaryUsedPercent, &limit.SecondaryUsedPercentExact,
+			&limit.SecondaryWindowMinutes, &limit.SecondaryResetAt, &limit.SecondaryResetAfterSeconds)
+
+		if limit.LimitID == "" && limit.LimitName == "" && primary == nil && secondary == nil {
+			continue
+		}
+		limits = append(limits, limit)
+	}
+
+	if len(limits) == 0 {
+		return nil
+	}
+	return limits
+}
+
+func codexUsageLimitID(obj map[string]any) string {
+	feature := strings.TrimSpace(stringFromAny(firstCodexUsageValue(obj, "metered_feature", "meteredFeature")))
+	if feature != "" {
+		return feature
+	}
+	name := strings.TrimSpace(stringFromAny(firstCodexUsageValue(obj, "limit_name", "limitName")))
+	if name == "" {
+		return ""
+	}
+	slug := strings.ReplaceAll(strings.ToLower(name), " ", "_")
+	slug = strings.ReplaceAll(slug, "-", "_")
+	if strings.HasPrefix(slug, "codex_") {
+		return slug
+	}
+	return "codex_" + slug
+}
+
+func applyCodexUsageDetailedWindow(window map[string]any, usedPercent *int, usedPercentExact **float64, windowMinutes *int, resetAt *time.Time, resetAfterSeconds *int) {
+	if window == nil {
+		return
+	}
+
+	applyCodexUsageWindow(window, usedPercent, usedPercentExact, windowMinutes, resetAt)
+
+	if seconds, ok := numericCodexUsageValue(firstCodexUsageValue(window, "reset_after_seconds", "resetAfterSeconds")); ok && seconds > 0 {
+		*resetAfterSeconds = int(math.Round(seconds))
+	}
 }
 
 func findCodexUsageWindows(rateLimit map[string]any) (map[string]any, map[string]any) {
