@@ -43,8 +43,19 @@ func TestGetResponsesChannelOAuthStatusByChannelID_ReturnsMatchingOAuthChannel(t
 
 	headers := http.Header{}
 	headers.Set("X-Codex-Plan-Type", "plus")
+	headers.Set("X-Codex-Active-Limit", "premium")
 	headers.Set("X-Codex-Primary-Used-Percent", "12")
 	headers.Set("X-Codex-Secondary-Used-Percent", "44")
+	headers.Set("X-Codex-Bengalfox-Limit-Name", "GPT-5.3-Codex-Spark")
+	headers.Set("X-Codex-Bengalfox-Primary-Used-Percent", "1.5")
+	headers.Set("X-Codex-Bengalfox-Primary-Window-Minutes", "300")
+	headers.Set("X-Codex-Bengalfox-Primary-Reset-After-Seconds", "18000")
+	headers.Set("X-Codex-Bengalfox-Secondary-Used-Percent", "82.25")
+	headers.Set("X-Codex-Bengalfox-Secondary-Window-Minutes", "10080")
+	headers.Set("X-Codex-Bengalfox-Secondary-Reset-After-Seconds", "604800")
+	headers.Set("X-Ratelimit-Limit", "200")
+	headers.Set("X-Ratelimit-Remaining", "199")
+	headers.Set("X-Ratelimit-Reset", "1779172356")
 	quota.GetManager().UpdateFromHeadersForChannel(1, "oauth-stable-a", "OAuth Stable A", headers)
 
 	router := gin.New()
@@ -80,6 +91,42 @@ func TestGetResponsesChannelOAuthStatusByChannelID_ReturnsMatchingOAuthChannel(t
 	}
 	if got := codexQuota["primary_used_percent"]; got != float64(12) {
 		t.Fatalf("primary_used_percent = %#v, want 12", got)
+	}
+	if got := codexQuota["active_limit"]; got != "premium" {
+		t.Fatalf("active_limit = %#v, want premium", got)
+	}
+	detailedLimits, ok := codexQuota["detailed_limits"].([]any)
+	if !ok || len(detailedLimits) != 1 {
+		t.Fatalf("expected one detailed_limits entry, got %#v", codexQuota["detailed_limits"])
+	}
+	bengalfox, ok := detailedLimits[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected detailed limit object, got %#v", detailedLimits[0])
+	}
+	if got := bengalfox["limit_id"]; got != "codex_bengalfox" {
+		t.Fatalf("limit_id = %#v, want codex_bengalfox", got)
+	}
+	if got := bengalfox["limit_name"]; got != "GPT-5.3-Codex-Spark" {
+		t.Fatalf("limit_name = %#v, want GPT-5.3-Codex-Spark", got)
+	}
+	if got := bengalfox["primary_used_percent"]; got != 1.5 {
+		t.Fatalf("primary_used_percent = %#v, want 1.5", got)
+	}
+	if got := bengalfox["secondary_used_percent"]; got != 82.25 {
+		t.Fatalf("secondary_used_percent = %#v, want 82.25", got)
+	}
+	if got := bengalfox["primary_reset_after_seconds"]; got != float64(18000) {
+		t.Fatalf("primary_reset_after_seconds = %#v, want 18000", got)
+	}
+	rateLimit, ok := quotaPayload["rate_limit"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected rate_limit payload, got %#v", quotaPayload["rate_limit"])
+	}
+	if got := rateLimit["limit_requests"]; got != float64(200) {
+		t.Fatalf("limit_requests = %#v, want 200", got)
+	}
+	if got := rateLimit["remaining_requests"]; got != float64(199) {
+		t.Fatalf("remaining_requests = %#v, want 199", got)
 	}
 }
 

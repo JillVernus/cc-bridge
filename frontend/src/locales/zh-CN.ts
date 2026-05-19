@@ -813,6 +813,8 @@ export default {
     notOAuthChannel: '非 OAuth 渠道',
     // 配额相关
     usageQuota: '使用配额',
+    activeLimit: '当前: {limit}',
+    detailedLimits: '详细限制',
     primaryWindow: '短期',
     secondaryWindow: '长期',
     availablePercent: '剩余 {percent}%',

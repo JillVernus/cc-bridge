@@ -1347,6 +1347,9 @@ func writeResponsesChannelOAuthStatus(c *gin.Context, channelIndex int, upstream
 				"secondary_used_percent": cq.SecondaryUsedPercentValue(),
 				"updated_at":             cq.UpdatedAt,
 			}
+			if cq.ActiveLimit != "" {
+				codexQuotaInfo["active_limit"] = cq.ActiveLimit
+			}
 			if cq.PrimaryWindowMinutes > 0 {
 				codexQuotaInfo["primary_window_minutes"] = cq.PrimaryWindowMinutes
 			}
@@ -1366,6 +1369,42 @@ func writeResponsesChannelOAuthStatus(c *gin.Context, channelIndex int, upstream
 			codexQuotaInfo["credits_unlimited"] = cq.CreditsUnlimited
 			if cq.CreditsBalance != "" {
 				codexQuotaInfo["credits_balance"] = cq.CreditsBalance
+			}
+			if len(cq.DetailedLimits) > 0 {
+				detailedLimits := make([]gin.H, 0, len(cq.DetailedLimits))
+				for _, limit := range cq.DetailedLimits {
+					limitInfo := gin.H{
+						"limit_id":               limit.LimitID,
+						"primary_used_percent":   limit.PrimaryUsedPercentValue(),
+						"secondary_used_percent": limit.SecondaryUsedPercentValue(),
+					}
+					if limit.LimitName != "" {
+						limitInfo["limit_name"] = limit.LimitName
+					}
+					if limit.PrimaryWindowMinutes > 0 {
+						limitInfo["primary_window_minutes"] = limit.PrimaryWindowMinutes
+					}
+					if !limit.PrimaryResetAt.IsZero() {
+						limitInfo["primary_reset_at"] = limit.PrimaryResetAt
+					}
+					if limit.PrimaryResetAfterSeconds > 0 {
+						limitInfo["primary_reset_after_seconds"] = limit.PrimaryResetAfterSeconds
+					}
+					if limit.SecondaryWindowMinutes > 0 {
+						limitInfo["secondary_window_minutes"] = limit.SecondaryWindowMinutes
+					}
+					if !limit.SecondaryResetAt.IsZero() {
+						limitInfo["secondary_reset_at"] = limit.SecondaryResetAt
+					}
+					if limit.SecondaryResetAfterSeconds > 0 {
+						limitInfo["secondary_reset_after_seconds"] = limit.SecondaryResetAfterSeconds
+					}
+					if limit.PrimaryOverSecondaryLimitPercent > 0 {
+						limitInfo["primary_over_secondary_limit_percent"] = limit.PrimaryOverSecondaryLimitPercent
+					}
+					detailedLimits = append(detailedLimits, limitInfo)
+				}
+				codexQuotaInfo["detailed_limits"] = detailedLimits
 			}
 			quotaInfo["codex_quota"] = codexQuotaInfo
 		}

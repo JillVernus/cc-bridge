@@ -823,6 +823,8 @@ export default {
     notOAuthChannel: 'Not an OAuth channel',
     // Quota related
     usageQuota: 'Usage Quota',
+    activeLimit: 'Active: {limit}',
+    detailedLimits: 'Detailed limits',
     primaryWindow: 'Short-term',
     secondaryWindow: 'Long-term',
     availablePercent: '{percent}% available',

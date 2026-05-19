@@ -383,6 +383,62 @@ func TestUpdateFromHeadersForChannel_ParsesDecimalCodexUsedPercent(t *testing.T)
 	}
 }
 
+func TestUpdateFromHeadersForChannel_ParsesDetailedCodexQuotaFamilies(t *testing.T) {
+	m := &Manager{
+		quotas: make(map[int]*QuotaStatus),
+	}
+
+	headers := http.Header{}
+	headers.Set("X-Codex-Active-Limit", "premium")
+	headers.Set("X-Codex-Plan-Type", "pro")
+	headers.Set("X-Codex-Primary-Used-Percent", "58")
+	headers.Set("X-Codex-Secondary-Used-Percent", "93")
+	headers.Set("X-Codex-Bengalfox-Limit-Name", "GPT-5.3-Codex-Spark")
+	headers.Set("X-Codex-Bengalfox-Primary-Used-Percent", "0")
+	headers.Set("X-Codex-Bengalfox-Primary-Window-Minutes", "300")
+	headers.Set("X-Codex-Bengalfox-Primary-Reset-At", "1779190352")
+	headers.Set("X-Codex-Bengalfox-Primary-Reset-After-Seconds", "18000")
+	headers.Set("X-Codex-Bengalfox-Secondary-Used-Percent", "1")
+	headers.Set("X-Codex-Bengalfox-Secondary-Window-Minutes", "10080")
+	headers.Set("X-Codex-Bengalfox-Secondary-Reset-At", "1779688894")
+	headers.Set("X-Codex-Bengalfox-Secondary-Reset-After-Seconds", "516543")
+	headers.Set("X-Ratelimit-Limit", "200")
+	headers.Set("X-Ratelimit-Remaining", "199")
+	headers.Set("X-Ratelimit-Reset", "1779172356")
+
+	m.UpdateFromHeadersForChannel(5, "oauth-stable-a", "oauth-a", headers)
+
+	got := m.GetStatusForChannel(5, "oauth-stable-a", "oauth-a")
+	if got == nil || got.CodexQuota == nil {
+		t.Fatalf("expected codex quota payload, got %+v", got)
+	}
+	if got.CodexQuota.ActiveLimit != "premium" {
+		t.Fatalf("ActiveLimit = %q, want premium", got.CodexQuota.ActiveLimit)
+	}
+	if len(got.CodexQuota.DetailedLimits) != 1 {
+		t.Fatalf("DetailedLimits length = %d, want 1: %+v", len(got.CodexQuota.DetailedLimits), got.CodexQuota.DetailedLimits)
+	}
+	limit := got.CodexQuota.DetailedLimits[0]
+	if limit.LimitID != "codex_bengalfox" {
+		t.Fatalf("LimitID = %q, want codex_bengalfox", limit.LimitID)
+	}
+	if limit.LimitName != "GPT-5.3-Codex-Spark" {
+		t.Fatalf("LimitName = %q, want GPT-5.3-Codex-Spark", limit.LimitName)
+	}
+	if limit.PrimaryUsedPercent != 0 || limit.PrimaryWindowMinutes != 300 || limit.PrimaryResetAt.Unix() != 1779190352 || limit.PrimaryResetAfterSeconds != 18000 {
+		t.Fatalf("unexpected primary detailed limit: %+v", limit)
+	}
+	if limit.SecondaryUsedPercent != 1 || limit.SecondaryWindowMinutes != 10080 || limit.SecondaryResetAt.Unix() != 1779688894 || limit.SecondaryResetAfterSeconds != 516543 {
+		t.Fatalf("unexpected secondary detailed limit: %+v", limit)
+	}
+	if got.RateLimit == nil {
+		t.Fatalf("expected generic rate limit payload")
+	}
+	if got.RateLimit.LimitRequests != 200 || got.RateLimit.RemainingRequests != 199 || got.RateLimit.ResetRequests.Unix() != 1779172356 {
+		t.Fatalf("unexpected generic rate limit: %+v", got.RateLimit)
+	}
+}
+
 func TestParseCodexUsagePayload_MapsUsageWindowsToQuotaInfo(t *testing.T) {
 	payload := []byte(`{
 		"plan_type": "plus",

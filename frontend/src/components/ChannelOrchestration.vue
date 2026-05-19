@@ -342,6 +342,30 @@
                               {{ t('orchestration.quotaRemaining') }}</span
                             >
                           </div>
+                          <template v-if="getDetailedOAuthLimits(element).length > 0">
+                            <v-divider class="my-1" />
+                            <div
+                              v-for="limit in getDetailedOAuthLimits(element)"
+                              :key="limit.limit_id"
+                              class="oauth-detailed-tooltip"
+                            >
+                              <div class="text-caption font-weight-medium">{{ getOAuthLimitDisplayName(limit) }}</div>
+                              <div class="quota-tooltip-row">
+                                <span>{{ t('oauth.primaryWindow') }}:</span>
+                                <span
+                                  >{{ formatPercent(getOAuthLimitRemainingPercent(limit, 'primary')) }}
+                                  {{ t('orchestration.quotaRemaining') }}</span
+                                >
+                              </div>
+                              <div class="quota-tooltip-row">
+                                <span>{{ t('oauth.secondaryWindow') }}:</span>
+                                <span
+                                  >{{ formatPercent(getOAuthLimitRemainingPercent(limit, 'secondary')) }}
+                                  {{ t('orchestration.quotaRemaining') }}</span
+                                >
+                              </div>
+                            </div>
+                          </template>
                           <div class="text-caption text-medium-emphasis mt-1">
                             {{ t('orchestration.clickForDetails') }}
                           </div>
@@ -710,7 +734,8 @@ import {
   type RecentCallStat,
   type QuotaInfo,
   type ChannelUsageStatus,
-  type CodexQuotaInfo
+  type CodexQuotaInfo,
+  type CodexQuotaLimitInfo
 } from '../services/api'
 import ChannelStatusBadge from './ChannelStatusBadge.vue'
 import ChannelStatsChart from './ChannelStatsChart.vue'
@@ -809,13 +834,36 @@ const getOAuthWindowRemainingPercent = (channel: Channel, window: 'primary' | 's
   return 100 - getOAuthWindowUsedPercent(channel, window)
 }
 
+const getDetailedOAuthLimits = (channel: Channel): CodexQuotaLimitInfo[] => {
+  return getChannelQuota(channel)?.codex_quota?.detailed_limits ?? []
+}
+
+const getOAuthLimitDisplayName = (limit: CodexQuotaLimitInfo): string => {
+  return limit.limit_name || limit.limit_id
+}
+
+const getOAuthLimitUsedPercent = (limit: CodexQuotaLimitInfo, window: 'primary' | 'secondary'): number => {
+  if (window === 'primary') {
+    return getEffectiveUsedPercent(limit.primary_used_percent, limit.primary_reset_at)
+  }
+  return getEffectiveUsedPercent(limit.secondary_used_percent, limit.secondary_reset_at)
+}
+
+const getOAuthLimitRemainingPercent = (limit: CodexQuotaLimitInfo, window: 'primary' | 'secondary'): number => {
+  return 100 - getOAuthLimitUsedPercent(limit, window)
+}
+
 const getNextOAuthResetTimestamp = (codexQuota?: CodexQuotaInfo): number | null => {
   if (!codexQuota) return null
 
   const now = Date.now()
   const candidates = [
     parseResetTimestamp(codexQuota.primary_reset_at),
-    parseResetTimestamp(codexQuota.secondary_reset_at)
+    parseResetTimestamp(codexQuota.secondary_reset_at),
+    ...(codexQuota.detailed_limits ?? []).flatMap(limit => [
+      parseResetTimestamp(limit.primary_reset_at),
+      parseResetTimestamp(limit.secondary_reset_at)
+    ])
   ].filter((timestamp): timestamp is number => timestamp !== null && timestamp > now)
 
   if (candidates.length === 0) return null

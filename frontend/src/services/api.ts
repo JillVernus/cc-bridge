@@ -96,9 +96,25 @@ export interface CodexOAuthStatus {
   last_refresh?: string
 }
 
+// Named Codex limit family from response headers such as X-Codex-Bengalfox-*
+export interface CodexQuotaLimitInfo {
+  limit_id: string
+  limit_name?: string
+  primary_used_percent: number
+  primary_window_minutes?: number
+  primary_reset_at?: string
+  primary_reset_after_seconds?: number
+  secondary_used_percent: number
+  secondary_window_minutes?: number
+  secondary_reset_at?: string
+  secondary_reset_after_seconds?: number
+  primary_over_secondary_limit_percent?: number
+}
+
 // Codex-specific quota information from response headers
 export interface CodexQuotaInfo {
   plan_type?: string
+  active_limit?: string
   // Primary window (short-term, e.g., 5 hours)
   primary_used_percent: number
   primary_window_minutes?: number
@@ -113,6 +129,7 @@ export interface CodexQuotaInfo {
   credits_has_credits?: boolean
   credits_unlimited?: boolean
   credits_balance?: string
+  detailed_limits?: CodexQuotaLimitInfo[]
   updated_at?: string
 }
 

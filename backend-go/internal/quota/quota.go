@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,6 +47,8 @@ type PersistedQuota struct {
 type CodexQuotaInfo struct {
 	PlanType string `json:"plan_type,omitempty"`
 
+	ActiveLimit string `json:"active_limit,omitempty"`
+
 	// Primary window (short-term, e.g., 5 hours)
 	PrimaryUsedPercent      int       `json:"primary_used_percent"`
 	PrimaryUsedPercentExact *float64  `json:"-"`
@@ -66,8 +69,50 @@ type CodexQuotaInfo struct {
 	CreditsUnlimited  bool   `json:"credits_unlimited"`
 	CreditsBalance    string `json:"credits_balance,omitempty"`
 
+	DetailedLimits []CodexQuotaLimitInfo `json:"detailed_limits,omitempty"`
+
 	// Last updated timestamp
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// CodexQuotaLimitInfo contains one named Codex metered limit family, such as
+// x-codex-bengalfox-*.
+type CodexQuotaLimitInfo struct {
+	LimitID   string `json:"limit_id"`
+	LimitName string `json:"limit_name,omitempty"`
+
+	PrimaryUsedPercent         int       `json:"primary_used_percent"`
+	PrimaryUsedPercentExact    *float64  `json:"-"`
+	PrimaryWindowMinutes       int       `json:"primary_window_minutes,omitempty"`
+	PrimaryResetAt             time.Time `json:"primary_reset_at,omitempty"`
+	PrimaryResetAfterSeconds   int       `json:"primary_reset_after_seconds,omitempty"`
+	SecondaryUsedPercent       int       `json:"secondary_used_percent"`
+	SecondaryUsedPercentExact  *float64  `json:"-"`
+	SecondaryWindowMinutes     int       `json:"secondary_window_minutes,omitempty"`
+	SecondaryResetAt           time.Time `json:"secondary_reset_at,omitempty"`
+	SecondaryResetAfterSeconds int       `json:"secondary_reset_after_seconds,omitempty"`
+
+	PrimaryOverSecondaryLimitPercent int `json:"primary_over_secondary_limit_percent,omitempty"`
+}
+
+func (c *CodexQuotaLimitInfo) PrimaryUsedPercentValue() float64 {
+	if c == nil {
+		return 0
+	}
+	if c.PrimaryUsedPercentExact != nil {
+		return *c.PrimaryUsedPercentExact
+	}
+	return float64(c.PrimaryUsedPercent)
+}
+
+func (c *CodexQuotaLimitInfo) SecondaryUsedPercentValue() float64 {
+	if c == nil {
+		return 0
+	}
+	if c.SecondaryUsedPercentExact != nil {
+		return *c.SecondaryUsedPercentExact
+	}
+	return float64(c.SecondaryUsedPercent)
 }
 
 func (c *CodexQuotaInfo) PrimaryUsedPercentValue() float64 {
@@ -277,55 +322,47 @@ func (m *Manager) UpdateFromHeadersForChannel(channelID int, channelStableID str
 		return
 	}
 
-	// Try Codex headers first
 	codexInfo := parseCodexHeaders(headers)
+	rateLimitInfo := parseRateLimitHeaders(headers)
+	if codexInfo == nil && rateLimitInfo == nil {
+		// No quota headers found - this is normal for non-OAuth channels.
+		return
+	}
+
 	if codexInfo != nil {
 		log.Printf("📊 [Quota] Updated Codex quota for channel %d (%s): primary=%.2f%%, secondary=%.2f%%, plan=%s",
 			channelID, channelName,
 			codexInfo.PrimaryUsedPercentValue(), codexInfo.SecondaryUsedPercentValue(), codexInfo.PlanType)
-
-		m.mu.Lock()
-		status := m.getOrCreateStatusForChannel(channelID, channelStableID, channelName)
-		status.CodexQuota = codexInfo
-		status.ChannelStableID = strings.TrimSpace(channelStableID)
-		status.ChannelName = channelName
-
-		// Clear exceeded state if we got a successful response
-		if status.IsExceeded && time.Now().After(status.RecoverAt) {
-			status.IsExceeded = false
-			status.ExceededReason = ""
-		}
-
-		// Persist the update
-		m.persist(status)
-		m.mu.Unlock()
-		return
 	}
 
-	// Try standard OpenAI rate limit headers
-	info := parseRateLimitHeaders(headers)
-	if info != nil {
+	if rateLimitInfo != nil {
 		log.Printf("📊 [Quota] Updated rate limits for channel %d (%s): requests=%d/%d, tokens=%d/%d",
 			channelID, channelName,
-			info.RemainingRequests, info.LimitRequests,
-			info.RemainingTokens, info.LimitTokens)
-
-		m.mu.Lock()
-		status := m.getOrCreateStatusForChannel(channelID, channelStableID, channelName)
-		status.RateLimit = info
-		status.ChannelStableID = strings.TrimSpace(channelStableID)
-		status.ChannelName = channelName
-
-		// Clear exceeded state if we got a successful response
-		if status.IsExceeded && time.Now().After(status.RecoverAt) {
-			status.IsExceeded = false
-			status.ExceededReason = ""
-		}
-		m.mu.Unlock()
-		return
+			rateLimitInfo.RemainingRequests, rateLimitInfo.LimitRequests,
+			rateLimitInfo.RemainingTokens, rateLimitInfo.LimitTokens)
 	}
 
-	// No quota headers found - this is normal for non-OAuth channels
+	m.mu.Lock()
+	status := m.getOrCreateStatusForChannel(channelID, channelStableID, channelName)
+	if codexInfo != nil {
+		status.CodexQuota = codexInfo
+	}
+	if rateLimitInfo != nil {
+		status.RateLimit = rateLimitInfo
+	}
+	status.ChannelStableID = strings.TrimSpace(channelStableID)
+	status.ChannelName = channelName
+
+	// Clear exceeded state if we got a successful response.
+	if status.IsExceeded && time.Now().After(status.RecoverAt) {
+		status.IsExceeded = false
+		status.ExceededReason = ""
+	}
+
+	if codexInfo != nil {
+		m.persist(status)
+	}
+	m.mu.Unlock()
 }
 
 // UpdateCodexQuotaForChannel stores Codex quota data obtained from a direct
@@ -583,10 +620,10 @@ func cloneStatus(status *QuotaStatus) *QuotaStatus {
 	if status == nil {
 		return nil
 	}
-	copy := *status
+	cloned := *status
 	if status.RateLimit != nil {
 		rlCopy := *status.RateLimit
-		copy.RateLimit = &rlCopy
+		cloned.RateLimit = &rlCopy
 	}
 	if status.CodexQuota != nil {
 		cqCopy := *status.CodexQuota
@@ -598,9 +635,23 @@ func cloneStatus(status *QuotaStatus) *QuotaStatus {
 			secondaryExact := *status.CodexQuota.SecondaryUsedPercentExact
 			cqCopy.SecondaryUsedPercentExact = &secondaryExact
 		}
-		copy.CodexQuota = &cqCopy
+		if status.CodexQuota.DetailedLimits != nil {
+			cqCopy.DetailedLimits = make([]CodexQuotaLimitInfo, len(status.CodexQuota.DetailedLimits))
+			copy(cqCopy.DetailedLimits, status.CodexQuota.DetailedLimits)
+			for i := range cqCopy.DetailedLimits {
+				if status.CodexQuota.DetailedLimits[i].PrimaryUsedPercentExact != nil {
+					primaryExact := *status.CodexQuota.DetailedLimits[i].PrimaryUsedPercentExact
+					cqCopy.DetailedLimits[i].PrimaryUsedPercentExact = &primaryExact
+				}
+				if status.CodexQuota.DetailedLimits[i].SecondaryUsedPercentExact != nil {
+					secondaryExact := *status.CodexQuota.DetailedLimits[i].SecondaryUsedPercentExact
+					cqCopy.DetailedLimits[i].SecondaryUsedPercentExact = &secondaryExact
+				}
+			}
+		}
+		cloned.CodexQuota = &cqCopy
 	}
-	return &copy
+	return &cloned
 }
 
 func statusUpdatedAt(status *QuotaStatus) time.Time {
@@ -627,15 +678,19 @@ func parseCodexHeaders(headers http.Header) *CodexQuotaInfo {
 	planType := headers.Get("X-Codex-Plan-Type")
 	primaryUsed := headers.Get("X-Codex-Primary-Used-Percent")
 	secondaryUsed := headers.Get("X-Codex-Secondary-Used-Percent")
+	activeLimit := strings.TrimSpace(headers.Get("X-Codex-Active-Limit"))
+	detailedLimits := parseCodexDetailedLimits(headers)
 
 	// Need at least one Codex header to proceed
-	if planType == "" && primaryUsed == "" && secondaryUsed == "" {
+	if planType == "" && primaryUsed == "" && secondaryUsed == "" && activeLimit == "" && len(detailedLimits) == 0 {
 		return nil
 	}
 
 	info := &CodexQuotaInfo{
-		PlanType:  planType,
-		UpdatedAt: time.Now(),
+		PlanType:       planType,
+		ActiveLimit:    activeLimit,
+		DetailedLimits: detailedLimits,
+		UpdatedAt:      time.Now(),
 	}
 
 	// Parse primary window info
@@ -689,6 +744,136 @@ func parseCodexHeaders(headers http.Header) *CodexQuotaInfo {
 	info.CreditsBalance = headers.Get("X-Codex-Credits-Balance")
 
 	return info
+}
+
+func parseCodexDetailedLimits(headers http.Header) []CodexQuotaLimitInfo {
+	if headers == nil {
+		return nil
+	}
+
+	limitParts := map[string]struct{}{}
+	for key := range headers {
+		if limitPart := codexDetailedLimitPartFromHeader(key); limitPart != "" {
+			limitParts[limitPart] = struct{}{}
+		}
+	}
+	if len(limitParts) == 0 {
+		return nil
+	}
+
+	parts := make([]string, 0, len(limitParts))
+	for part := range limitParts {
+		parts = append(parts, part)
+	}
+	sort.Strings(parts)
+
+	limits := make([]CodexQuotaLimitInfo, 0, len(parts))
+	for _, part := range parts {
+		prefix := "X-Codex-" + part
+		limit := CodexQuotaLimitInfo{
+			LimitID:   "codex_" + strings.ReplaceAll(strings.ToLower(part), "-", "_"),
+			LimitName: strings.TrimSpace(headers.Get(prefix + "-Limit-Name")),
+		}
+
+		hasData := limit.LimitName != ""
+		if v := headers.Get(prefix + "-Primary-Used-Percent"); v != "" {
+			if percent, ok := parseCodexPercentValue(v); ok {
+				setCodexUsagePercent(&limit.PrimaryUsedPercent, &limit.PrimaryUsedPercentExact, percent)
+				hasData = true
+			}
+		}
+		if v := headers.Get(prefix + "-Primary-Window-Minutes"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				limit.PrimaryWindowMinutes = n
+				hasData = true
+			}
+		}
+		if v := headers.Get(prefix + "-Primary-Reset-At"); v != "" {
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+				limit.PrimaryResetAt = time.Unix(n, 0)
+				hasData = true
+			}
+		}
+		if v := headers.Get(prefix + "-Primary-Reset-After-Seconds"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				limit.PrimaryResetAfterSeconds = n
+				hasData = true
+			}
+		}
+		if v := headers.Get(prefix + "-Secondary-Used-Percent"); v != "" {
+			if percent, ok := parseCodexPercentValue(v); ok {
+				setCodexUsagePercent(&limit.SecondaryUsedPercent, &limit.SecondaryUsedPercentExact, percent)
+				hasData = true
+			}
+		}
+		if v := headers.Get(prefix + "-Secondary-Window-Minutes"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				limit.SecondaryWindowMinutes = n
+				hasData = true
+			}
+		}
+		if v := headers.Get(prefix + "-Secondary-Reset-At"); v != "" {
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+				limit.SecondaryResetAt = time.Unix(n, 0)
+				hasData = true
+			}
+		}
+		if v := headers.Get(prefix + "-Secondary-Reset-After-Seconds"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				limit.SecondaryResetAfterSeconds = n
+				hasData = true
+			}
+		}
+		if v := headers.Get(prefix + "-Primary-Over-Secondary-Limit-Percent"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				limit.PrimaryOverSecondaryLimitPercent = n
+				hasData = true
+			}
+		}
+
+		if hasData {
+			limits = append(limits, limit)
+		}
+	}
+
+	return limits
+}
+
+func codexDetailedLimitPartFromHeader(headerName string) string {
+	normalized := strings.ToLower(strings.TrimSpace(headerName))
+	if !strings.HasPrefix(normalized, "x-codex-") {
+		return ""
+	}
+
+	suffixes := []string{
+		"-primary-used-percent",
+		"-primary-window-minutes",
+		"-primary-reset-at",
+		"-primary-reset-after-seconds",
+		"-primary-over-secondary-limit-percent",
+		"-secondary-used-percent",
+		"-secondary-window-minutes",
+		"-secondary-reset-at",
+		"-secondary-reset-after-seconds",
+		"-limit-name",
+	}
+	for _, suffix := range suffixes {
+		prefix := strings.TrimSuffix(normalized, suffix)
+		if prefix == normalized {
+			continue
+		}
+		limitPart := strings.TrimPrefix(prefix, "x-codex-")
+		if limitPart == prefix || limitPart == "" {
+			continue
+		}
+		switch limitPart {
+		case "primary", "secondary", "credits", "plan", "active":
+			continue
+		}
+		return limitPart
+	}
+
+	return ""
 }
 
 func parseCodexPercentHeader(value string) (int, bool) {
@@ -901,19 +1086,19 @@ func parseRateLimitHeaders(headers http.Header) *RateLimitInfo {
 	hasData := false
 
 	// Parse request limits
-	if v := headers.Get("x-ratelimit-limit-requests"); v != "" {
+	if v := firstHeaderValue(headers, "x-ratelimit-limit-requests", "x-ratelimit-limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			info.LimitRequests = n
 			hasData = true
 		}
 	}
-	if v := headers.Get("x-ratelimit-remaining-requests"); v != "" {
+	if v := firstHeaderValue(headers, "x-ratelimit-remaining-requests", "x-ratelimit-remaining"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			info.RemainingRequests = n
 			hasData = true
 		}
 	}
-	if v := headers.Get("x-ratelimit-reset-requests"); v != "" {
+	if v := firstHeaderValue(headers, "x-ratelimit-reset-requests", "x-ratelimit-reset"); v != "" {
 		if t := parseResetTime(v); !t.IsZero() {
 			info.ResetRequests = t
 			hasData = true
@@ -945,6 +1130,15 @@ func parseRateLimitHeaders(headers http.Header) *RateLimitInfo {
 	}
 
 	return info
+}
+
+func firstHeaderValue(headers http.Header, names ...string) string {
+	for _, name := range names {
+		if value := headers.Get(name); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // parseResetTime parses the reset time from header value

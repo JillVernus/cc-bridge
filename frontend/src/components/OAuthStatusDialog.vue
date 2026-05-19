@@ -80,6 +80,15 @@
               >
                 {{ oauthStatus.quota.codex_quota.plan_type }}
               </v-chip>
+              <v-chip
+                v-if="oauthStatus.quota.codex_quota.active_limit"
+                size="x-small"
+                color="secondary"
+                variant="tonal"
+                class="ml-2"
+              >
+                {{ t('oauth.activeLimit', { limit: oauthStatus.quota.codex_quota.active_limit }) }}
+              </v-chip>
             </div>
 
             <!-- Primary Window (Short-term) -->
@@ -129,6 +138,60 @@
               </div>
             </div>
 
+            <!-- Named metered limits -->
+            <div v-if="detailedQuotaLimits.length > 0" class="mb-3">
+              <div class="text-caption font-weight-medium mb-2">{{ t('oauth.detailedLimits') }}</div>
+              <div v-for="limit in detailedQuotaLimits" :key="limit.limit_id" class="detailed-limit mb-3">
+                <div class="d-flex align-center justify-space-between text-caption mb-1">
+                  <span class="font-weight-medium">{{ getLimitDisplayName(limit) }}</span>
+                </div>
+                <div class="mb-2">
+                  <div class="d-flex justify-space-between text-caption mb-1">
+                    <span
+                      >{{ t('oauth.primaryWindow') }} ({{ formatWindowDuration(limit.primary_window_minutes) }})</span
+                    >
+                    <span>{{
+                      t('oauth.availablePercent', {
+                        percent: formatPercentValue(getLimitRemainingPercent(limit, 'primary'))
+                      })
+                    }}</span>
+                  </div>
+                  <v-progress-linear
+                    :model-value="getLimitRemainingPercent(limit, 'primary')"
+                    :color="getRemainingColor(getLimitUsedPercent(limit, 'primary'))"
+                    height="6"
+                    rounded
+                  />
+                  <div v-if="limit.primary_reset_at" class="text-caption text-medium-emphasis mt-1">
+                    {{ t('oauth.resetsAt', { time: formatDate(limit.primary_reset_at) }) }}
+                  </div>
+                </div>
+                <div>
+                  <div class="d-flex justify-space-between text-caption mb-1">
+                    <span
+                      >{{ t('oauth.secondaryWindow') }} ({{
+                        formatWindowDuration(limit.secondary_window_minutes)
+                      }})</span
+                    >
+                    <span>{{
+                      t('oauth.availablePercent', {
+                        percent: formatPercentValue(getLimitRemainingPercent(limit, 'secondary'))
+                      })
+                    }}</span>
+                  </div>
+                  <v-progress-linear
+                    :model-value="getLimitRemainingPercent(limit, 'secondary')"
+                    :color="getRemainingColor(getLimitUsedPercent(limit, 'secondary'))"
+                    height="6"
+                    rounded
+                  />
+                  <div v-if="limit.secondary_reset_at" class="text-caption text-medium-emphasis mt-1">
+                    {{ t('oauth.resetsAt', { time: formatDate(limit.secondary_reset_at) }) }}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <!-- Credits info -->
             <div
               v-if="
@@ -150,8 +213,8 @@
             </div>
           </div>
 
-          <!-- Standard Rate Limit Progress Bars (fallback for non-Codex) -->
-          <div v-else-if="oauthStatus.quota?.rate_limit" class="mb-4">
+          <!-- Standard Rate Limit Progress Bars -->
+          <div v-if="oauthStatus.quota?.rate_limit" class="mb-4">
             <div class="text-subtitle-2 mb-2 d-flex align-center">
               <v-icon size="small" class="mr-1">mdi-speedometer</v-icon>
               {{ t('oauth.rateLimits') }}
@@ -204,7 +267,13 @@
           </div>
 
           <!-- No quota data message -->
-          <v-alert v-else type="info" variant="tonal" class="mb-4" density="compact">
+          <v-alert
+            v-if="!oauthStatus.quota?.codex_quota && !oauthStatus.quota?.rate_limit"
+            type="info"
+            variant="tonal"
+            class="mb-4"
+            density="compact"
+          >
             <div class="d-flex align-center">
               <v-icon class="mr-2">mdi-information</v-icon>
               {{ t('oauth.noQuotaData') }}
@@ -303,7 +372,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import api, { type OAuthStatusResponse, type CodexQuotaInfo } from '../services/api'
+import api, { type OAuthStatusResponse, type CodexQuotaInfo, type CodexQuotaLimitInfo } from '../services/api'
 
 const { t } = useI18n()
 
@@ -365,6 +434,8 @@ const getEffectiveUsedPercent = (usedPercent: number, resetAt?: string): number 
 
 const codexQuota = computed(() => oauthStatus.value?.quota?.codex_quota)
 
+const detailedQuotaLimits = computed(() => codexQuota.value?.detailed_limits ?? [])
+
 const primaryUsedPercent = computed(() => {
   const quota = codexQuota.value
   if (!quota) return 0
@@ -385,13 +456,32 @@ const secondaryRemainingPercent = computed(() => {
   return 100 - secondaryUsedPercent.value
 })
 
+const getLimitDisplayName = (limit: CodexQuotaLimitInfo): string => {
+  return limit.limit_name || limit.limit_id
+}
+
+const getLimitUsedPercent = (limit: CodexQuotaLimitInfo, window: 'primary' | 'secondary'): number => {
+  if (window === 'primary') {
+    return getEffectiveUsedPercent(limit.primary_used_percent, limit.primary_reset_at)
+  }
+  return getEffectiveUsedPercent(limit.secondary_used_percent, limit.secondary_reset_at)
+}
+
+const getLimitRemainingPercent = (limit: CodexQuotaLimitInfo, window: 'primary' | 'secondary'): number => {
+  return 100 - getLimitUsedPercent(limit, window)
+}
+
 const getNextQuotaResetTimestamp = (quota?: CodexQuotaInfo): number | null => {
   if (!quota) return null
 
   const now = Date.now()
   const candidates = [
     parseResetTimestamp(quota.primary_reset_at),
-    parseResetTimestamp(quota.secondary_reset_at)
+    parseResetTimestamp(quota.secondary_reset_at),
+    ...(quota.detailed_limits ?? []).flatMap(limit => [
+      parseResetTimestamp(limit.primary_reset_at),
+      parseResetTimestamp(limit.secondary_reset_at)
+    ])
   ].filter((timestamp): timestamp is number => timestamp !== null && timestamp > now)
 
   if (candidates.length === 0) return null
