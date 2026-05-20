@@ -329,6 +329,9 @@ export default {
     oauthMissingAccountId: 'JSON 中缺少 account_id',
     oauthMissingRefreshToken: 'JSON 中缺少 refresh_token',
     oauthInvalidJson: 'JSON 格式无效',
+    oauthExportNoEligibleAccount: '导出文件中未找到符合条件的 openai oauth 账号',
+    oauthExportNoRefreshTokenWarning:
+      '此导出不包含 refresh_token。当 access_token 过期后（{expiresAt}），渠道将停止工作。请在此之前重新导入新的导出文件。',
     oauthFixedUrl: '固定 API 端点',
     // Composite channel
     compositeMappings: '模型映射',

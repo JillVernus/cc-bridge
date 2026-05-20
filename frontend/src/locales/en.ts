@@ -331,6 +331,9 @@ export default {
     oauthMissingAccountId: 'Missing account_id in JSON',
     oauthMissingRefreshToken: 'Missing refresh_token in JSON',
     oauthInvalidJson: 'Invalid JSON format',
+    oauthExportNoEligibleAccount: 'No eligible openai oauth account found in export',
+    oauthExportNoRefreshTokenWarning:
+      'This export has no refresh_token. The channel will stop working when the access token expires ({expiresAt}). Re-import a fresh export before then.',
     oauthFixedUrl: 'Fixed API endpoint',
     // Composite channel
     compositeMappings: 'Model Mappings',

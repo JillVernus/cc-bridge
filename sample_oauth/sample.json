@@ -1,0 +1,27 @@
+{
+  "exported_at": "2026-05-20T05:17:10.192Z",
+  "proxies": [],
+  "accounts": [
+    {
+      "name": "user@example.com",
+      "platform": "openai",
+      "type": "oauth",
+      "credentials": {
+        "access_token": "xxxxxx",
+        "chatgpt_account_id": "00000000-0000-4000-8000-000000000000",
+        "chatgpt_user_id": "user-example",
+        "email": "user@example.com",
+        "expires_at": "2026-05-30T03:47:46+00:00",
+        "expires_in": 863994,
+        "plan_type": "plus"
+      },
+      "extra": {
+        "email": "user@example.com",
+        "source": "register_session",
+        "last_refresh": "2026-05-20T03:47:51.308489+00:00"
+      },
+      "concurrency": 10,
+      "priority": 1
+    }
+  ]
+}

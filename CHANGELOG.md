@@ -4,6 +4,20 @@
 
 ---
 
+## [v1.5.42] - 2026-05-20
+
+### ✨ 新功能
+
+- **Codex OAuth 导出格式导入支持**:
+  - 新增对外部 Codex OAuth 导出 wrapper 格式的解析，支持从 `accounts[]` 中导入首个 `openai` / `oauth` 账号。
+  - 支持将 `credentials.chatgpt_account_id` 映射为渠道所需的 `account_id`，并保留 `extra.last_refresh`。
+  - 当导出文件不包含 `refresh_token` 时允许导入，并在前端展示 access token 过期提醒。
+
+### ✅ 测试
+
+- `cd backend-go && make test`
+- `cd frontend && bun run type-check`
+
 ## [v1.5.41] - 2026-05-16
 
 ### 🐛 修复

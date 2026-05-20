@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +24,29 @@ type CodexAuthJSON struct {
 		IDToken      string `json:"id_token"`
 		RefreshToken string `json:"refresh_token"`
 	} `json:"tokens"`
+}
+
+// CodexOAuthExport represents an external export wrapper that bundles one or
+// more OAuth accounts. Only the fields we consume are modeled.
+type CodexOAuthExport struct {
+	Accounts []CodexOAuthExportAccount `json:"accounts"`
+}
+
+type CodexOAuthExportAccount struct {
+	Name        string `json:"name"`
+	Platform    string `json:"platform"`
+	Type        string `json:"type"`
+	Credentials struct {
+		AccessToken      string `json:"access_token"`
+		ChatGPTAccountID string `json:"chatgpt_account_id"`
+		Email            string `json:"email"`
+		ExpiresAt        string `json:"expires_at"`
+		RefreshToken     string `json:"refresh_token"`
+		IDToken          string `json:"id_token"`
+	} `json:"credentials"`
+	Extra struct {
+		LastRefresh string `json:"last_refresh"`
+	} `json:"extra"`
 }
 
 // TokenManager handles OAuth token validation and refresh for Codex channels.
@@ -43,7 +67,22 @@ func NewTokenManager() *TokenManager {
 
 // ParseAuthJSON parses the content of a Codex auth.json file and extracts the OAuth tokens.
 // This is used when users paste their auth.json content into the cc-bridge UI.
+//
+// It supports three shapes:
+//  1. Codex CLI auth.json: {OPENAI_API_KEY, last_refresh, tokens: {...}}
+//  2. Flat OAuth payload:  {access_token, account_id, refresh_token, ...}
+//  3. External export wrapper: {accounts: [{platform, type, credentials, extra}, ...]}
+//
+// For (3), the first entry with platform == "openai" and type == "oauth" is used.
+// The wrapper format may omit refresh_token; such tokens are accepted and will
+// stop working once the access token expires.
 func ParseAuthJSON(content string) (*config.OAuthTokens, error) {
+	// First, try the export wrapper. We detect it by the presence of accounts[].
+	var export CodexOAuthExport
+	if err := json.Unmarshal([]byte(content), &export); err == nil && len(export.Accounts) > 0 {
+		return parseExportWrapper(&export)
+	}
+
 	var authJSON CodexAuthJSON
 	if err := json.Unmarshal([]byte(content), &authJSON); err != nil {
 		return nil, fmt.Errorf("failed to parse auth.json: %w", err)
@@ -69,12 +108,47 @@ func ParseAuthJSON(content string) (*config.OAuthTokens, error) {
 	}, nil
 }
 
+// parseExportWrapper extracts the first eligible OpenAI OAuth account from an
+// external export. refresh_token is optional in this format.
+func parseExportWrapper(export *CodexOAuthExport) (*config.OAuthTokens, error) {
+	for i := range export.Accounts {
+		acct := &export.Accounts[i]
+		if !strings.EqualFold(acct.Platform, "openai") {
+			continue
+		}
+		if !strings.EqualFold(acct.Type, "oauth") {
+			continue
+		}
+		if acct.Credentials.AccessToken == "" {
+			return nil, fmt.Errorf("missing access_token in auth.json")
+		}
+		if acct.Credentials.ChatGPTAccountID == "" {
+			return nil, fmt.Errorf("missing account_id in auth.json")
+		}
+		return &config.OAuthTokens{
+			AccessToken:  acct.Credentials.AccessToken,
+			AccountID:    acct.Credentials.ChatGPTAccountID,
+			IDToken:      acct.Credentials.IDToken,
+			RefreshToken: acct.Credentials.RefreshToken,
+			LastRefresh:  acct.Extra.LastRefresh,
+		}, nil
+	}
+	return nil, fmt.Errorf("no eligible openai oauth account in export")
+}
+
 // GetValidToken returns a valid access token and account ID.
 // If the token is expired or near expiry, it will attempt to refresh it.
+// When the tokens have no refresh_token (e.g. imported from an external export
+// wrapper), the access token is returned as-is and no refresh is attempted;
+// upstream will surface a 401 when the token eventually expires.
 // Returns: accessToken, accountID, updatedTokens (if refreshed), error
 func (tm *TokenManager) GetValidToken(tokens *config.OAuthTokens) (string, string, *config.OAuthTokens, error) {
 	if tokens == nil {
 		return "", "", nil, fmt.Errorf("OAuth tokens not configured")
+	}
+
+	if tokens.RefreshToken == "" {
+		return tokens.AccessToken, tokens.AccountID, nil, nil
 	}
 
 	tm.mu.RLock()
@@ -130,10 +204,12 @@ func (tm *TokenManager) isTokenExpired(tokens *config.OAuthTokens) bool {
 	return time.Until(expiry) < 5*time.Minute
 }
 
-// IsTokenValid checks if the OAuth tokens are properly configured
+// IsTokenValid checks if the OAuth tokens are properly configured.
+// RefreshToken is optional: imports from external export wrappers may lack one,
+// in which case the channel runs until the access token expires.
 func IsTokenValid(tokens *config.OAuthTokens) bool {
 	if tokens == nil {
 		return false
 	}
-	return tokens.AccessToken != "" && tokens.AccountID != "" && tokens.RefreshToken != ""
+	return tokens.AccessToken != "" && tokens.AccountID != ""
 }

@@ -1064,6 +1064,11 @@
                     </div>
                   </v-alert>
 
+                  <!-- 缺少 refresh_token 的警告（导出格式） -->
+                  <v-alert v-if="oauthWarning" type="warning" variant="tonal" class="mb-4" rounded="lg">
+                    {{ oauthWarning }}
+                  </v-alert>
+
                   <!-- auth.json 输入区域 -->
                   <v-textarea
                     v-model="oauthJsonInput"
@@ -1804,11 +1809,13 @@ const removeContentFilterRule = (index: number) => {
 // OAuth 相关状态
 const oauthJsonInput = ref('')
 const oauthParseError = ref('')
+const oauthWarning = ref('')
 const parsedOAuthInfo = ref<{ email?: string; accountId?: string } | null>(null)
 
 // 解析 OAuth auth.json 内容
 const parseOAuthJson = () => {
   oauthParseError.value = ''
+  oauthWarning.value = ''
 
   // 如果输入为空，保留已有的 OAuth tokens（编辑模式下不清除）
   if (!oauthJsonInput.value.trim()) {
@@ -1823,11 +1830,46 @@ const parseOAuthJson = () => {
   try {
     const parsed = JSON.parse(oauthJsonInput.value.trim())
 
-    // Normalize: support both nested format (tokens: {...}) and flat format (tokens at root level)
-    // Flat format: {"id_token":"...","access_token":"...","refresh_token":"...","account_id":"...","last_refresh":"...","email":"...","type":"codex","expired":"..."}
-    const isFlat = !parsed.tokens && parsed.access_token
-    const tokens = isFlat ? parsed : parsed.tokens
-    const lastRefresh = parsed.last_refresh
+    // Detect format:
+    // - Export wrapper: {accounts: [{platform, type, credentials, extra}, ...]}
+    // - Nested (Codex CLI auth.json): {tokens: {...}, last_refresh}
+    // - Flat: tokens at root level
+    const isExport = Array.isArray(parsed.accounts)
+    let tokens: any
+    let lastRefresh: string | undefined
+    let email: string | undefined
+    let refreshTokenOptional = false
+    let expiresAt: string | undefined
+
+    if (isExport) {
+      const account = parsed.accounts.find(
+        (a: any) =>
+          typeof a?.platform === 'string' &&
+          a.platform.toLowerCase() === 'openai' &&
+          typeof a?.type === 'string' &&
+          a.type.toLowerCase() === 'oauth'
+      )
+      if (!account) {
+        oauthParseError.value = t('addChannel.oauthExportNoEligibleAccount')
+        return
+      }
+      const creds = account.credentials || {}
+      tokens = {
+        access_token: creds.access_token,
+        account_id: creds.chatgpt_account_id,
+        id_token: creds.id_token,
+        refresh_token: creds.refresh_token
+      }
+      lastRefresh = account.extra?.last_refresh
+      email = creds.email
+      refreshTokenOptional = true
+      expiresAt = creds.expires_at
+    } else {
+      const isFlat = !parsed.tokens && parsed.access_token
+      tokens = isFlat ? parsed : parsed.tokens
+      lastRefresh = parsed.last_refresh
+      email = isFlat ? parsed.email : undefined
+    }
 
     // 验证必需字段
     if (!tokens?.access_token) {
@@ -1838,13 +1880,12 @@ const parseOAuthJson = () => {
       oauthParseError.value = t('addChannel.oauthMissingAccountId')
       return
     }
-    if (!tokens?.refresh_token) {
+    if (!tokens?.refresh_token && !refreshTokenOptional) {
       oauthParseError.value = t('addChannel.oauthMissingRefreshToken')
       return
     }
 
-    // 尝试从 JWT 中提取 email，或使用 flat format 中的 email 字段
-    let email: string | undefined = isFlat ? parsed.email : undefined
+    // 尝试从 JWT 中提取 email（如果尚未设置）
     try {
       const idToken = tokens.id_token
       if (idToken && !email) {
@@ -1870,6 +1911,13 @@ const parseOAuthJson = () => {
     parsedOAuthInfo.value = {
       email,
       accountId: tokens.account_id.substring(0, 12) + '...'
+    }
+
+    // 当导出格式不含 refresh_token 时，警告用户
+    if (refreshTokenOptional && !tokens.refresh_token) {
+      oauthWarning.value = t('addChannel.oauthExportNoRefreshTokenWarning', {
+        expiresAt: expiresAt || 'unknown'
+      })
     }
   } catch {
     oauthParseError.value = t('addChannel.oauthInvalidJson')
@@ -2424,6 +2472,7 @@ const resetForm = () => {
   // 重置 OAuth 状态
   oauthJsonInput.value = ''
   oauthParseError.value = ''
+  oauthWarning.value = ''
   parsedOAuthInfo.value = null
 
   // Reset composite mapping input
@@ -2559,6 +2608,7 @@ const loadChannelData = (channel: Channel) => {
   }
   oauthJsonInput.value = ''
   oauthParseError.value = ''
+  oauthWarning.value = ''
 }
 
 const addApiKey = () => {
