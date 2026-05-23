@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -23,6 +24,11 @@ type DBConfigStorage struct {
 	cm           *ConfigManager
 }
 
+const (
+	configRevisionKey      = "config_revision"
+	configRevisionCategory = "config_meta"
+)
+
 // NewDBConfigStorage creates a new database config storage adapter
 func NewDBConfigStorage(db database.DB, pollInterval time.Duration) *DBConfigStorage {
 	return &DBConfigStorage{
@@ -35,6 +41,95 @@ func NewDBConfigStorage(db database.DB, pollInterval time.Duration) *DBConfigSto
 // SetConfigManager sets the ConfigManager to sync with
 func (s *DBConfigStorage) SetConfigManager(cm *ConfigManager) {
 	s.cm = cm
+}
+
+func (s *DBConfigStorage) getConfigRevision() (int64, error) {
+	var value string
+	query := "SELECT value FROM settings WHERE key = ? AND category = ?"
+	if s.db.Dialect() == database.DialectPostgreSQL {
+		query = "SELECT value FROM settings WHERE key = $1 AND category = $2"
+	}
+	err := s.db.QueryRow(query, configRevisionKey, configRevisionCategory).Scan(&value)
+	if err == sql.ErrNoRows {
+		if err := s.ensureConfigRevisionRow(); err != nil {
+			return 0, err
+		}
+		return 1, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("failed to load config revision: %w", err)
+	}
+
+	revision, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid config revision %q: %w", value, err)
+	}
+	return revision, nil
+}
+
+func (s *DBConfigStorage) ensureConfigRevisionRow() error {
+	query := `
+		INSERT INTO settings (key, value, category)
+		VALUES (?, '1', ?)
+		ON CONFLICT(key) DO NOTHING
+	`
+	if s.db.Dialect() == database.DialectPostgreSQL {
+		query = `
+			INSERT INTO settings (key, value, category)
+			VALUES ($1, '1', $2)
+			ON CONFLICT(key) DO NOTHING
+		`
+	}
+	if _, err := s.db.Exec(query, configRevisionKey, configRevisionCategory); err != nil {
+		return fmt.Errorf("failed to initialize config revision: %w", err)
+	}
+	return nil
+}
+
+func (s *DBConfigStorage) incrementConfigRevisionTx(tx *database.Tx) (int64, error) {
+	insertQuery := `
+		INSERT INTO settings (key, value, category)
+		VALUES (?, '1', ?)
+		ON CONFLICT(key) DO NOTHING
+	`
+	updateQuery := `
+		UPDATE settings
+		SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT),
+			updated_at = CURRENT_TIMESTAMP
+		WHERE key = ? AND category = ?
+	`
+	selectQuery := "SELECT value FROM settings WHERE key = ? AND category = ?"
+	if s.db.Dialect() == database.DialectPostgreSQL {
+		insertQuery = `
+			INSERT INTO settings (key, value, category)
+			VALUES ($1, '1', $2)
+			ON CONFLICT(key) DO NOTHING
+		`
+		updateQuery = `
+			UPDATE settings
+			SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT),
+				updated_at = CURRENT_TIMESTAMP
+			WHERE key = $1 AND category = $2
+		`
+		selectQuery = "SELECT value FROM settings WHERE key = $1 AND category = $2"
+	}
+
+	if _, err := tx.Exec(insertQuery, configRevisionKey, configRevisionCategory); err != nil {
+		return 0, fmt.Errorf("failed to initialize config revision: %w", err)
+	}
+	if _, err := tx.Exec(updateQuery, configRevisionKey, configRevisionCategory); err != nil {
+		return 0, fmt.Errorf("failed to increment config revision: %w", err)
+	}
+
+	var value string
+	if err := tx.QueryRow(selectQuery, configRevisionKey, configRevisionCategory).Scan(&value); err != nil {
+		return 0, fmt.Errorf("failed to read config revision: %w", err)
+	}
+	revision, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid config revision %q: %w", value, err)
+	}
+	return revision, nil
 }
 
 // MigrateFromJSONIfNeeded checks if JSON config exists and DB is empty, then migrates
@@ -242,7 +337,17 @@ func (s *DBConfigStorage) insertChannelTx(tx *database.Tx, channelType string, i
 
 // LoadConfigFromDB loads the full configuration from the database
 func (s *DBConfigStorage) LoadConfigFromDB() (*Config, error) {
+	config, _, err := s.LoadConfigFromDBWithRevision()
+	return config, err
+}
+
+// LoadConfigFromDBWithRevision loads the full configuration and its authoritative revision.
+func (s *DBConfigStorage) LoadConfigFromDBWithRevision() (*Config, int64, error) {
 	config := &Config{}
+	revision, err := s.getConfigRevision()
+	if err != nil {
+		return nil, 0, err
+	}
 
 	// Load settings
 	query := "SELECT key, value FROM settings WHERE category = ?"
@@ -251,7 +356,7 @@ func (s *DBConfigStorage) LoadConfigFromDB() (*Config, error) {
 	}
 	rows, err := s.db.Query(query, "config")
 	if err != nil {
-		return nil, fmt.Errorf("failed to query settings: %w", err)
+		return nil, 0, fmt.Errorf("failed to query settings: %w", err)
 	}
 	defer rows.Close()
 
@@ -283,25 +388,25 @@ func (s *DBConfigStorage) LoadConfigFromDB() (*Config, error) {
 	// Load Messages channels
 	config.Upstream, err = s.loadChannels("messages")
 	if err != nil {
-		return nil, fmt.Errorf("failed to load messages channels: %w", err)
+		return nil, 0, fmt.Errorf("failed to load messages channels: %w", err)
 	}
 
 	// Load Responses channels
 	config.ResponsesUpstream, err = s.loadChannels("responses")
 	if err != nil {
-		return nil, fmt.Errorf("failed to load responses channels: %w", err)
+		return nil, 0, fmt.Errorf("failed to load responses channels: %w", err)
 	}
 
 	// Load Gemini channels
 	config.GeminiUpstream, err = s.loadChannels("gemini")
 	if err != nil {
-		return nil, fmt.Errorf("failed to load gemini channels: %w", err)
+		return nil, 0, fmt.Errorf("failed to load gemini channels: %w", err)
 	}
 
 	// Load Chat channels
 	config.ChatUpstream, err = s.loadChannels("chat")
 	if err != nil {
-		return nil, fmt.Errorf("failed to load chat channels: %w", err)
+		return nil, 0, fmt.Errorf("failed to load chat channels: %w", err)
 	}
 
 	// Ensure defaults are present for missing/legacy records.
@@ -309,7 +414,7 @@ func (s *DBConfigStorage) LoadConfigFromDB() (*Config, error) {
 	normalizeOutboundHeaderPolicyConfig(&config.OutboundHeaderPolicy)
 	normalizeConfigCodexServiceTierOverrides(config)
 
-	return config, nil
+	return config, revision, nil
 }
 
 // loadChannels loads channels of a specific type from the database
@@ -459,35 +564,41 @@ func (s *DBConfigStorage) loadChannels(channelType string) ([]UpstreamConfig, er
 	return channels, nil
 }
 
-// SaveConfigToDB saves the current configuration to the database
-// Uses smart UPDATE/INSERT/DELETE to only modify changed channels
+// SaveConfigToDB saves the current configuration to the database.
+// Uses smart UPDATE/INSERT/DELETE to only modify changed channels.
 func (s *DBConfigStorage) SaveConfigToDB(config *Config) error {
+	_, err := s.SaveConfigToDBWithRevision(config)
+	return err
+}
+
+// SaveConfigToDBWithRevision saves the configuration and returns the new revision.
+func (s *DBConfigStorage) SaveConfigToDBWithRevision(config *Config) (int64, error) {
 	normalizeConfigCodexServiceTierOverrides(config)
 
 	tx, err := s.db.Begin()
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
+		return 0, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
 
 	// Sync Messages channels
 	if err := s.syncChannelsTx(tx, "messages", config.Upstream); err != nil {
-		return fmt.Errorf("failed to sync messages channels: %w", err)
+		return 0, fmt.Errorf("failed to sync messages channels: %w", err)
 	}
 
 	// Sync Responses channels
 	if err := s.syncChannelsTx(tx, "responses", config.ResponsesUpstream); err != nil {
-		return fmt.Errorf("failed to sync responses channels: %w", err)
+		return 0, fmt.Errorf("failed to sync responses channels: %w", err)
 	}
 
 	// Sync Gemini channels
 	if err := s.syncChannelsTx(tx, "gemini", config.GeminiUpstream); err != nil {
-		return fmt.Errorf("failed to sync gemini channels: %w", err)
+		return 0, fmt.Errorf("failed to sync gemini channels: %w", err)
 	}
 
 	// Sync Chat channels
 	if err := s.syncChannelsTx(tx, "chat", config.ChatUpstream); err != nil {
-		return fmt.Errorf("failed to sync chat channels: %w", err)
+		return 0, fmt.Errorf("failed to sync chat channels: %w", err)
 	}
 
 	// Update settings
@@ -527,11 +638,19 @@ func (s *DBConfigStorage) SaveConfigToDB(config *Config) error {
 		}
 		_, err := tx.Exec(query, key, value)
 		if err != nil {
-			return fmt.Errorf("failed to upsert setting %s: %w", key, err)
+			return 0, fmt.Errorf("failed to upsert setting %s: %w", key, err)
 		}
 	}
 
-	return tx.Commit()
+	revision, err := s.incrementConfigRevisionTx(tx)
+	if err != nil {
+		return 0, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return revision, nil
 }
 
 // syncChannelsTx synchronizes channels of a specific type using smart UPDATE/INSERT/DELETE
@@ -730,30 +849,7 @@ func (s *DBConfigStorage) pollLoop() {
 
 // checkForChanges checks if the configuration has changed in the database
 func (s *DBConfigStorage) checkForChanges() {
-	// Get the max updated_at timestamp from channels and settings
-	// Use dialect-appropriate timestamp extraction
-	var query string
-	if s.db.Dialect() == database.DialectPostgreSQL {
-		query = `
-			SELECT COALESCE(MAX(ts), 0) FROM (
-				SELECT MAX(EXTRACT(EPOCH FROM updated_at))::bigint as ts FROM channels
-				UNION ALL
-				SELECT MAX(EXTRACT(EPOCH FROM updated_at))::bigint as ts FROM settings WHERE category = 'config'
-			) sub
-		`
-	} else {
-		query = `
-			SELECT COALESCE(MAX(ts), 0) FROM (
-				SELECT MAX(strftime('%s', updated_at)) as ts FROM channels
-				UNION ALL
-				SELECT MAX(strftime('%s', updated_at)) as ts FROM settings WHERE category = 'config'
-			)
-		`
-	}
-
-	var version int64
-	err := s.db.QueryRow(query).Scan(&version)
-
+	version, err := s.getConfigRevision()
 	if err != nil {
 		log.Printf("⚠️ Failed to check config version: %v", err)
 		return
@@ -761,11 +857,10 @@ func (s *DBConfigStorage) checkForChanges() {
 
 	if version > s.lastVersion {
 		log.Printf("🔄 Configuration change detected (version: %d -> %d), reloading...", s.lastVersion, version)
-		s.lastVersion = version
 
 		if s.cm != nil {
 			// Reload config from DB and update ConfigManager
-			config, err := s.LoadConfigFromDB()
+			config, loadedRevision, err := s.LoadConfigFromDBWithRevision()
 			if err != nil {
 				log.Printf("⚠️ Failed to reload config from DB: %v", err)
 				return
@@ -773,6 +868,7 @@ func (s *DBConfigStorage) checkForChanges() {
 
 			s.cm.mu.Lock()
 			s.cm.config = *config
+			s.cm.revision = loadedRevision
 			// Re-index channels
 			for i := range s.cm.config.Upstream {
 				s.cm.config.Upstream[i].Index = i
@@ -788,7 +884,10 @@ func (s *DBConfigStorage) checkForChanges() {
 			}
 			s.cm.mu.Unlock()
 
+			s.lastVersion = loadedRevision
 			log.Printf("✅ Configuration reloaded from database")
+		} else {
+			s.lastVersion = version
 		}
 	}
 }

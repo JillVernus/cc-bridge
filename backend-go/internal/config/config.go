@@ -601,6 +601,7 @@ type ConfigManager struct {
 	maxFailureCount       int
 	dbStorage             *DBConfigStorage // Database storage adapter (nil if using JSON-only mode)
 	disableFileWatcher    bool             // Disable file watcher when using database polling
+	revision              int64            // Monotonic local revision for config responses and polling
 }
 
 func (cm *ConfigManager) ensureUniqueChannelNameLocked(name string, channelType string, excludeIndex int) error {
@@ -1051,13 +1052,15 @@ func (cm *ConfigManager) saveConfigLocked(config Config) error {
 		// Write to database synchronously to guarantee ordering and
 		// return persistence errors to callers.
 		start := time.Now()
-		if err := cm.dbStorage.SaveConfigToDB(&config); err != nil {
+		revision, err := cm.dbStorage.SaveConfigToDBWithRevision(&config)
+		if err != nil {
 			return err
 		}
 		elapsed := time.Since(start)
 		if elapsed > 100*time.Millisecond {
 			log.Printf("⏱️ Database sync took %v", elapsed)
 		}
+		cm.revision = revision
 		return nil
 	}
 
@@ -1073,10 +1076,13 @@ func (cm *ConfigManager) saveConfigLocked(config Config) error {
 		return err
 	}
 
-	cm.config = config
-
 	// Write to JSON file
-	return os.WriteFile(cm.configFile, data, 0644)
+	if err := os.WriteFile(cm.configFile, data, 0644); err != nil {
+		return err
+	}
+	cm.config = config
+	cm.revision++
+	return nil
 }
 
 // SaveConfig 保存配置
@@ -1207,6 +1213,13 @@ func (cm *ConfigManager) GetConfig() Config {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 	return cm.config
+}
+
+// GetConfigWithRevision returns the current config with the local monotonic revision.
+func (cm *ConfigManager) GetConfigWithRevision() (Config, int64) {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	return cm.config, cm.revision
 }
 
 // GetCurrentUpstream 获取当前上游配置

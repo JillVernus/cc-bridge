@@ -10,6 +10,10 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 CREATE INDEX IF NOT EXISTS idx_settings_category ON settings(category);
 
+INSERT INTO settings (key, value, category)
+VALUES ('config_revision', '1', 'config_meta')
+ON CONFLICT(key) DO NOTHING;
+
 -- Channels table (unified for Messages and Responses API)
 CREATE TABLE IF NOT EXISTS channels (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
