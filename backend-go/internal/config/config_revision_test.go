@@ -128,7 +128,7 @@ func TestDBConfigStorage_CheckForChangesUsesRevisionInsteadOfSecondResolutionTim
 		t.Fatalf("after initial reload upstream name = %q, want %q", got, "Remote Initial")
 	}
 
-	firstPolledVersion := dbStorage.lastVersion
+	firstPolledVersion := dbStorage.loadLastVersion()
 	rapid := revisionTestConfig("Remote Same Second")
 	if err := dbStorage.SaveConfigToDB(&rapid); err != nil {
 		t.Fatalf("rapid SaveConfigToDB() failed: %v", err)
@@ -138,8 +138,8 @@ func TestDBConfigStorage_CheckForChangesUsesRevisionInsteadOfSecondResolutionTim
 	if got := cm.GetConfig().Upstream[0].Name; got != "Remote Same Second" {
 		t.Fatalf("after same-second reload upstream name = %q, want %q", got, "Remote Same Second")
 	}
-	if dbStorage.lastVersion <= firstPolledVersion {
-		t.Fatalf("lastVersion = %d, want greater than %d", dbStorage.lastVersion, firstPolledVersion)
+	if lastVersion := dbStorage.loadLastVersion(); lastVersion <= firstPolledVersion {
+		t.Fatalf("lastVersion = %d, want greater than %d", lastVersion, firstPolledVersion)
 	}
 }
 
@@ -175,8 +175,8 @@ func TestDBConfigStorage_RapidSameSecondSavesAreNotMissedByPolling(t *testing.T)
 	if got := cm.GetConfig().Upstream[0].Name; got != "Rapid 3" {
 		t.Fatalf("final upstream name = %q, want %q", got, "Rapid 3")
 	}
-	if dbStorage.lastVersion != 4 {
-		t.Fatalf("lastVersion = %d, want 4 after seed plus three saves", dbStorage.lastVersion)
+	if lastVersion := dbStorage.loadLastVersion(); lastVersion != 4 {
+		t.Fatalf("lastVersion = %d, want 4 after seed plus three saves", lastVersion)
 	}
 }
 

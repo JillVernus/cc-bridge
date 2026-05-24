@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/JillVernus/cc-bridge/internal/database"
@@ -22,7 +23,7 @@ type DBConfigStorage struct {
 	pollInterval time.Duration
 	stopPoll     chan struct{}
 	pollWg       sync.WaitGroup
-	lastVersion  int64
+	lastVersion  atomic.Int64
 	cm           *ConfigManager
 }
 
@@ -35,6 +36,14 @@ var ErrStaleConfigWrite = errors.New("stale config write")
 
 func IsStaleConfigWrite(err error) bool {
 	return errors.Is(err, ErrStaleConfigWrite)
+}
+
+func (s *DBConfigStorage) loadLastVersion() int64 {
+	return s.lastVersion.Load()
+}
+
+func (s *DBConfigStorage) storeLastVersion(version int64) {
+	s.lastVersion.Store(version)
 }
 
 // NewDBConfigStorage creates a new database config storage adapter
@@ -743,7 +752,7 @@ func (s *DBConfigStorage) saveConfigToDBWithRevision(config *Config, expectedRev
 		return 0, err
 	}
 	if expectedRevision != nil {
-		s.lastVersion = revision
+		s.storeLastVersion(revision)
 	}
 	return revision, nil
 }
@@ -950,8 +959,9 @@ func (s *DBConfigStorage) checkForChanges() {
 		return
 	}
 
-	if version > s.lastVersion {
-		log.Printf("🔄 Configuration change detected (version: %d -> %d), reloading...", s.lastVersion, version)
+	lastVersion := s.loadLastVersion()
+	if version > lastVersion {
+		log.Printf("🔄 Configuration change detected (version: %d -> %d), reloading...", lastVersion, version)
 
 		if s.cm != nil {
 			// Reload config from DB and update ConfigManager
@@ -979,10 +989,10 @@ func (s *DBConfigStorage) checkForChanges() {
 			}
 			s.cm.mu.Unlock()
 
-			s.lastVersion = loadedRevision
+			s.storeLastVersion(loadedRevision)
 			log.Printf("✅ Configuration reloaded from database")
 		} else {
-			s.lastVersion = version
+			s.storeLastVersion(version)
 		}
 	}
 }

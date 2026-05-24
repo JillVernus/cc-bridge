@@ -1085,7 +1085,7 @@ func (cm *ConfigManager) saveConfigLocked(config Config) error {
 				if durableConfig, durableRevision, loadErr := cm.dbStorage.LoadConfigFromDBWithRevision(); loadErr == nil {
 					cm.config = *durableConfig
 					cm.revision = durableRevision
-					cm.dbStorage.lastVersion = durableRevision
+					cm.dbStorage.storeLastVersion(durableRevision)
 				} else {
 					log.Printf("⚠️ Failed to reload durable config after stale write: %v", loadErr)
 				}
@@ -1137,7 +1137,7 @@ func (cm *ConfigManager) SetDBStorage(dbStorage *DBConfigStorage) {
 	if config, revision, err := dbStorage.LoadConfigFromDBWithRevision(); err == nil {
 		cm.config = *config
 		cm.revision = revision
-		dbStorage.lastVersion = revision
+		dbStorage.storeLastVersion(revision)
 	} else {
 		log.Printf("⚠️ Failed to initialize config from database: %v", err)
 	}
