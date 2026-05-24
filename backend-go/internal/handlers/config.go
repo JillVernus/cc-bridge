@@ -182,9 +182,60 @@ func resolveChannelIndexFromConfig(c *gin.Context, cfg config.Config, pool chann
 	return index, true
 }
 
-func resolveChannelIndex(c *gin.Context, cfgManager *config.ConfigManager, pool channelPool) (int, bool) {
+func resolveChannelIndexInConfig(cfg config.Config, pool channelPool, channelID string) (int, bool) {
+	return findChannelIndexByStableID(upstreamsForPool(cfg, pool), channelID)
+}
+
+func maybeRefreshForExpectedRevision(cfgManager *config.ConfigManager, expectedRevision *int64) {
+	if expectedRevision == nil {
+		return
+	}
+	if _, err := cfgManager.RefreshFromDBIfRevisionAhead(*expectedRevision); err != nil {
+		fmt.Printf("⚠️ Failed to refresh config for If-Match revision %d: %v\n", *expectedRevision, err)
+	}
+}
+
+func resolveChannelIndexFromManagerConfig(c *gin.Context, cfgManager *config.ConfigManager, pool channelPool) (config.Config, int, bool) {
+	channelID := explicitStableChannelID(c)
+	if channelID == "" {
+		cfg := cfgManager.GetConfig()
+		index, ok := resolveChannelIndexFromConfig(c, cfg, pool)
+		return cfg, index, ok
+	}
+
 	cfg := cfgManager.GetConfig()
-	return resolveChannelIndexFromConfig(c, cfg, pool)
+	if index, ok := resolveChannelIndexInConfig(cfg, pool, channelID); ok {
+		return cfg, index, true
+	}
+
+	if _, err := cfgManager.RefreshFromDBIfNewer(); err != nil {
+		fmt.Printf("⚠️ Failed to refresh config for stable channel lookup: %v\n", err)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Channel not found"})
+		return cfg, -1, false
+	}
+
+	cfg = cfgManager.GetConfig()
+	index, ok := resolveChannelIndexInConfig(cfg, pool, channelID)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Channel not found"})
+		return cfg, -1, false
+	}
+	return cfg, index, true
+}
+
+func resolveChannelIndexWithExpectedRevision(c *gin.Context, cfgManager *config.ConfigManager, pool channelPool, expectedRevision *int64) (int, bool) {
+	maybeRefreshForExpectedRevision(cfgManager, expectedRevision)
+	return resolveChannelIndex(c, cfgManager, pool)
+}
+
+func resolveChannelIndexFromManagerConfigWithExpectedRevision(c *gin.Context, cfgManager *config.ConfigManager, pool channelPool, expectedRevision *int64) (config.Config, int, bool) {
+	maybeRefreshForExpectedRevision(cfgManager, expectedRevision)
+	return resolveChannelIndexFromManagerConfig(c, cfgManager, pool)
+}
+
+func resolveChannelIndex(c *gin.Context, cfgManager *config.ConfigManager, pool channelPool) (int, bool) {
+	_, index, ok := resolveChannelIndexFromManagerConfig(c, cfgManager, pool)
+	return index, ok
 }
 
 func channelIdentity(upstreams []config.UpstreamConfig, index int) gin.H {
@@ -444,7 +495,7 @@ func UpdateUpstream(cfgManager *config.ConfigManager, sch *scheduler.ChannelSche
 		if !ok {
 			return
 		}
-		id, ok := resolveChannelIndex(c, cfgManager, channelPoolMessages)
+		id, ok := resolveChannelIndexWithExpectedRevision(c, cfgManager, channelPoolMessages, expectedRevision)
 		if !ok {
 			return
 		}
@@ -505,7 +556,7 @@ func DeleteUpstream(cfgManager *config.ConfigManager, channelRateLimiter *middle
 		if !ok {
 			return
 		}
-		id, ok := resolveChannelIndex(c, cfgManager, channelPoolMessages)
+		id, ok := resolveChannelIndexWithExpectedRevision(c, cfgManager, channelPoolMessages, expectedRevision)
 		if !ok {
 			return
 		}
@@ -1192,7 +1243,7 @@ func UpdateResponsesUpstream(cfgManager *config.ConfigManager, sch *scheduler.Ch
 		if !ok {
 			return
 		}
-		id, ok := resolveChannelIndex(c, cfgManager, channelPoolResponses)
+		id, ok := resolveChannelIndexWithExpectedRevision(c, cfgManager, channelPoolResponses, expectedRevision)
 		if !ok {
 			return
 		}
@@ -1243,7 +1294,7 @@ func DeleteResponsesUpstream(cfgManager *config.ConfigManager, channelRateLimite
 		if !ok {
 			return
 		}
-		id, ok := resolveChannelIndex(c, cfgManager, channelPoolResponses)
+		id, ok := resolveChannelIndexWithExpectedRevision(c, cfgManager, channelPoolResponses, expectedRevision)
 		if !ok {
 			return
 		}

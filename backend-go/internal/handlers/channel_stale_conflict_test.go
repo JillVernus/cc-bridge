@@ -3,9 +3,11 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -320,5 +322,95 @@ func TestChatStaleChannelMutationHandlersReturnConflict(t *testing.T) {
 				t.Fatalf("status = %d, want 409 Conflict, body=%s", w.Code, w.Body.String())
 			}
 		})
+	}
+}
+
+func TestStableChannelReadThroughRefreshesStaleManagerForModelFetch(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"fresh-model","object":"model","owned_by":"test"}]}`)
+	}))
+	t.Cleanup(upstreamServer.Close)
+
+	managerA, managerB, db := newStaleConflictManagers(t, staleConflictSeedConfig())
+	defer db.Close()
+
+	if err := managerA.AddUpstream(config.UpstreamConfig{
+		ID:          "fresh-stable-id",
+		Name:        "fresh-stable",
+		BaseURL:     upstreamServer.URL,
+		ServiceType: "openai",
+		APIKeys:     []string{"fresh-key"},
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("remote add failed: %v", err)
+	}
+
+	router := gin.New()
+	router.GET("/api/channels/:id/models", FetchUpstreamModels(managerB))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/channels/0/models?channelId=fresh-stable-id", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 OK, body=%s", w.Code, w.Body.String())
+	}
+
+	var payload UpstreamModelsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !payload.Success {
+		t.Fatalf("success = false, want true, error=%s", payload.Error)
+	}
+	if len(payload.Models) != 1 || payload.Models[0].ID != "fresh-model" {
+		t.Fatalf("models = %#v, want fresh-model", payload.Models)
+	}
+}
+
+func TestStableChannelMutationRefreshesWhenIfMatchAheadOfLocalRevision(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	managerA, managerB, db := newStaleConflictManagers(t, staleConflictSeedConfig())
+	defer db.Close()
+
+	if err := managerA.AddUpstream(config.UpstreamConfig{
+		ID:          "fresh-edit-id",
+		Name:        "fresh-edit",
+		BaseURL:     "https://fresh-edit.example.com",
+		ServiceType: "openai",
+		APIKeys:     []string{"fresh-edit-key"},
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("remote add failed: %v", err)
+	}
+	_, remoteRevision := managerA.GetConfigWithRevision()
+
+	router := gin.New()
+	router.PUT("/api/channels/:id", UpdateUpstream(managerB, nil))
+
+	req := httptest.NewRequest(http.MethodPut, "/api/channels/0?channelId=fresh-edit-id", bytes.NewReader([]byte(`{"name":"fresh-edit-updated"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("If-Match", strconv.Quote(strconv.FormatInt(remoteRevision, 10)))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 OK, body=%s", w.Code, w.Body.String())
+	}
+
+	cfg := managerB.GetConfig()
+	index, ok := findChannelIndexByStableID(cfg.Upstream, "fresh-edit-id")
+	if !ok {
+		t.Fatalf("managerB did not refresh fresh-edit-id")
+	}
+	if cfg.Upstream[index].Name != "fresh-edit-updated" {
+		t.Fatalf("channel name = %q, want fresh-edit-updated", cfg.Upstream[index].Name)
 	}
 }

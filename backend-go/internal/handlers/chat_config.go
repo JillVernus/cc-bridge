@@ -182,7 +182,7 @@ func UpdateChatUpstream(cfgManager *config.ConfigManager, channelScheduler *sche
 		if !ok {
 			return
 		}
-		index, ok := resolveChannelIndex(c, cfgManager, channelPoolChat)
+		index, ok := resolveChannelIndexWithExpectedRevision(c, cfgManager, channelPoolChat, expectedRevision)
 		if !ok {
 			return
 		}
@@ -233,7 +233,7 @@ func DeleteChatUpstream(cfgManager *config.ConfigManager, channelRateLimiter *mi
 		if !ok {
 			return
 		}
-		index, ok := resolveChannelIndex(c, cfgManager, channelPoolChat)
+		index, ok := resolveChannelIndexWithExpectedRevision(c, cfgManager, channelPoolChat, expectedRevision)
 		if !ok {
 			return
 		}

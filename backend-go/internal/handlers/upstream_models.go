@@ -50,8 +50,7 @@ type geminiModelListResponse struct {
 // GET /api/channels/:id/models
 func FetchUpstreamModels(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		cfg := cfgManager.GetConfig()
-		id, ok := resolveChannelIndexFromConfig(c, cfg, channelPoolMessages)
+		cfg, id, ok := resolveChannelIndexFromManagerConfig(c, cfgManager, channelPoolMessages)
 		if !ok {
 			return
 		}
@@ -77,8 +76,7 @@ func FetchUpstreamModels(cfgManager *config.ConfigManager) gin.HandlerFunc {
 // GET /api/responses/channels/:id/models
 func FetchResponsesUpstreamModels(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		cfg := cfgManager.GetConfig()
-		id, ok := resolveChannelIndexFromConfig(c, cfg, channelPoolResponses)
+		cfg, id, ok := resolveChannelIndexFromManagerConfig(c, cfgManager, channelPoolResponses)
 		if !ok {
 			return
 		}
@@ -104,8 +102,7 @@ func FetchResponsesUpstreamModels(cfgManager *config.ConfigManager) gin.HandlerF
 // GET /api/gemini/channels/:id/models
 func FetchGeminiUpstreamModels(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		cfg := cfgManager.GetConfig()
-		id, ok := resolveChannelIndexFromConfig(c, cfg, channelPoolGemini)
+		cfg, id, ok := resolveChannelIndexFromManagerConfig(c, cfgManager, channelPoolGemini)
 		if !ok {
 			return
 		}
@@ -131,8 +128,7 @@ func FetchGeminiUpstreamModels(cfgManager *config.ConfigManager) gin.HandlerFunc
 // GET /api/chat/channels/:id/models
 func FetchChatUpstreamModels(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		cfg := cfgManager.GetConfig()
-		id, ok := resolveChannelIndexFromConfig(c, cfg, channelPoolChat)
+		cfg, id, ok := resolveChannelIndexFromManagerConfig(c, cfgManager, channelPoolChat)
 		if !ok {
 			return
 		}

@@ -1163,6 +1163,41 @@ func (cm *ConfigManager) checkExpectedRevisionLocked(expectedRevision *int64) er
 	return nil
 }
 
+// RefreshFromDBIfNewer reloads the durable database config when it is newer than
+// this manager's local snapshot. It returns true when a reload occurred.
+func (cm *ConfigManager) RefreshFromDBIfNewer() (bool, error) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if cm.dbStorage == nil {
+		return false, nil
+	}
+
+	durableConfig, durableRevision, err := cm.dbStorage.LoadConfigFromDBWithRevision()
+	if err != nil {
+		return false, err
+	}
+	if durableRevision <= cm.revision {
+		return false, nil
+	}
+
+	reindexConfig(durableConfig)
+	cm.config = *durableConfig
+	cm.revision = durableRevision
+	cm.dbStorage.storeLastVersion(durableRevision)
+	return true, nil
+}
+
+// RefreshFromDBIfRevisionAhead refreshes the local snapshot when the caller has
+// observed a newer config revision than this manager has polled yet.
+func (cm *ConfigManager) RefreshFromDBIfRevisionAhead(expectedRevision int64) (bool, error) {
+	_, localRevision := cm.GetConfigWithRevision()
+	if expectedRevision <= localRevision {
+		return false, nil
+	}
+	return cm.RefreshFromDBIfNewer()
+}
+
 // SaveConfig 保存配置
 func (cm *ConfigManager) SaveConfig() error {
 	cm.mu.Lock()

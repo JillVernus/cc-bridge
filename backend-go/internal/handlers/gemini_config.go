@@ -177,7 +177,7 @@ func UpdateGeminiUpstream(cfgManager *config.ConfigManager, channelScheduler *sc
 		if !ok {
 			return
 		}
-		index, ok := resolveChannelIndex(c, cfgManager, channelPoolGemini)
+		index, ok := resolveChannelIndexWithExpectedRevision(c, cfgManager, channelPoolGemini, expectedRevision)
 		if !ok {
 			return
 		}
@@ -228,7 +228,7 @@ func DeleteGeminiUpstream(cfgManager *config.ConfigManager, channelRateLimiter *
 		if !ok {
 			return
 		}
-		index, ok := resolveChannelIndex(c, cfgManager, channelPoolGemini)
+		index, ok := resolveChannelIndexWithExpectedRevision(c, cfgManager, channelPoolGemini, expectedRevision)
 		if !ok {
 			return
 		}
