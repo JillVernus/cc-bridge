@@ -409,6 +409,23 @@ class ApiService {
     return ifMatch ? { ifMatch } : undefined
   }
 
+  private channelConfigEtagRevision(etag?: string): number | undefined {
+    if (!etag) return undefined
+
+    const revision = Number.parseInt(etag.trim().replace(/^W\//, '').replace(/"/g, ''), 10)
+    return Number.isFinite(revision) ? revision : undefined
+  }
+
+  private cacheChannelConfigEtag(pool: ChannelPool, etag: string) {
+    const nextRevision = this.channelConfigEtagRevision(etag)
+    if (nextRevision === undefined) return
+
+    const currentRevision = this.channelConfigEtagRevision(this.channelConfigEtags[pool])
+    if (currentRevision !== undefined && nextRevision <= currentRevision) return
+
+    this.channelConfigEtags[pool] = etag
+  }
+
   private channelMutationOptions(
     pool: ChannelPool,
     options?: ChannelMutationOptions
@@ -448,7 +465,7 @@ class ApiService {
 
     const etag = response.headers.get('ETag')
     if (channelPool && etag) {
-      this.channelConfigEtags[channelPool] = etag
+      this.cacheChannelConfigEtag(channelPool, etag)
     }
 
     return response.json()

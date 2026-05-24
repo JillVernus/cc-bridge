@@ -13,6 +13,7 @@ import (
 // GetGeminiUpstreams 获取 Gemini 渠道列表
 func GetGeminiUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		refreshConfigIfNewer(cfgManager)
 		cfg, revision := cfgManager.GetConfigWithRevision()
 		writeConfigRevisionETag(c, revision)
 

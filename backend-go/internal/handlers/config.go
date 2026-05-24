@@ -195,6 +195,12 @@ func maybeRefreshForExpectedRevision(cfgManager *config.ConfigManager, expectedR
 	}
 }
 
+func refreshConfigIfNewer(cfgManager *config.ConfigManager) {
+	if _, err := cfgManager.RefreshFromDBIfNewer(); err != nil {
+		fmt.Printf("⚠️ Failed to refresh config from database: %v\n", err)
+	}
+}
+
 func resolveChannelIndexFromManagerConfig(c *gin.Context, cfgManager *config.ConfigManager, pool channelPool) (config.Config, int, bool) {
 	channelID := explicitStableChannelID(c)
 	if channelID == "" {
@@ -381,6 +387,7 @@ func applyResponsesImportToMessagesUpdate(
 // GetUpstreams 获取上游列表 (兼容前端 channels 字段名)
 func GetUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		refreshConfigIfNewer(cfgManager)
 		cfg, revision := cfgManager.GetConfigWithRevision()
 		writeConfigRevisionETag(c, revision)
 
@@ -1139,6 +1146,7 @@ func TestCompositeMapping(cfgManager *config.ConfigManager) gin.HandlerFunc {
 // GetResponsesUpstreams 获取 Responses 上游列表
 func GetResponsesUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		refreshConfigIfNewer(cfgManager)
 		cfg, revision := cfgManager.GetConfigWithRevision()
 		writeConfigRevisionETag(c, revision)
 

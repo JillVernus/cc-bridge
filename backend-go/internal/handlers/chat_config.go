@@ -18,6 +18,7 @@ import (
 // GetChatUpstreams 获取 Chat 渠道列表
 func GetChatUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		refreshConfigIfNewer(cfgManager)
 		cfg, revision := cfgManager.GetConfigWithRevision()
 		writeConfigRevisionETag(c, revision)
 

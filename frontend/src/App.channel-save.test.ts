@@ -39,6 +39,8 @@ describe('channel save sequencing', () => {
     expect(apiSource).toContain('export class ApiError extends Error')
     expect(apiSource).toContain('this.status = status')
     expect(apiSource).toContain("response.headers.get('ETag')")
+    expect(apiSource).toContain('cacheChannelConfigEtag')
+    expect(apiSource).toContain('nextRevision <= currentRevision')
     expect(apiSource).toContain('getChannelMutationOptions')
     expect(apiSource).toContain("'If-Match': options.ifMatch")
 

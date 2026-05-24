@@ -414,3 +414,125 @@ func TestStableChannelMutationRefreshesWhenIfMatchAheadOfLocalRevision(t *testin
 		t.Fatalf("channel name = %q, want fresh-edit-updated", cfg.Upstream[index].Name)
 	}
 }
+
+func TestChannelListReadThroughRefreshesStaleManager(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name        string
+		remoteWrite func(*config.ConfigManager) error
+		register    func(*gin.Engine, *config.ConfigManager)
+		path        string
+		wantID      string
+	}{
+		{
+			name: "messages",
+			remoteWrite: func(cm *config.ConfigManager) error {
+				return cm.AddUpstream(config.UpstreamConfig{
+					ID:          "fresh-list-messages",
+					Name:        "fresh-list-messages",
+					BaseURL:     "https://fresh-list-messages.example.com",
+					ServiceType: "openai",
+					APIKeys:     []string{"fresh-list-key"},
+					Status:      "active",
+				})
+			},
+			register: func(router *gin.Engine, cm *config.ConfigManager) {
+				router.GET("/api/channels", GetUpstreams(cm))
+			},
+			path:   "/api/channels",
+			wantID: "fresh-list-messages",
+		},
+		{
+			name: "responses",
+			remoteWrite: func(cm *config.ConfigManager) error {
+				return cm.AddResponsesUpstream(config.UpstreamConfig{
+					ID:          "fresh-list-responses",
+					Name:        "fresh-list-responses",
+					BaseURL:     "https://fresh-list-responses.example.com",
+					ServiceType: "responses",
+					APIKeys:     []string{"fresh-list-key"},
+					Status:      "active",
+				})
+			},
+			register: func(router *gin.Engine, cm *config.ConfigManager) {
+				router.GET("/api/responses/channels", GetResponsesUpstreams(cm))
+			},
+			path:   "/api/responses/channels",
+			wantID: "fresh-list-responses",
+		},
+		{
+			name: "gemini",
+			remoteWrite: func(cm *config.ConfigManager) error {
+				return cm.AddGeminiUpstream(config.UpstreamConfig{
+					ID:          "fresh-list-gemini",
+					Name:        "fresh-list-gemini",
+					BaseURL:     "https://fresh-list-gemini.example.com",
+					ServiceType: "gemini",
+					APIKeys:     []string{"fresh-list-key"},
+					Status:      "active",
+				})
+			},
+			register: func(router *gin.Engine, cm *config.ConfigManager) {
+				router.GET("/api/gemini/channels", GetGeminiUpstreams(cm))
+			},
+			path:   "/api/gemini/channels",
+			wantID: "fresh-list-gemini",
+		},
+		{
+			name: "chat",
+			remoteWrite: func(cm *config.ConfigManager) error {
+				return cm.AddChatUpstream(config.UpstreamConfig{
+					ID:          "fresh-list-chat",
+					Name:        "fresh-list-chat",
+					BaseURL:     "https://fresh-list-chat.example.com",
+					ServiceType: "openai",
+					APIKeys:     []string{"fresh-list-key"},
+					Status:      "active",
+				})
+			},
+			register: func(router *gin.Engine, cm *config.ConfigManager) {
+				router.GET("/api/chat/channels", GetChatUpstreams(cm))
+			},
+			path:   "/api/chat/channels",
+			wantID: "fresh-list-chat",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			managerA, managerB, db := newStaleConflictManagers(t, staleConflictSeedConfig())
+			defer db.Close()
+
+			if err := tt.remoteWrite(managerA); err != nil {
+				t.Fatalf("remote write failed: %v", err)
+			}
+
+			router := gin.New()
+			tt.register(router, managerB)
+
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200 OK, body=%s", w.Code, w.Body.String())
+			}
+
+			var payload struct {
+				Channels []struct {
+					ID string `json:"id"`
+				} `json:"channels"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			for _, channel := range payload.Channels {
+				if channel.ID == tt.wantID {
+					return
+				}
+			}
+			t.Fatalf("channels = %#v, want id %q", payload.Channels, tt.wantID)
+		})
+	}
+}
