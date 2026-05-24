@@ -69,6 +69,7 @@ func GetChatUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 func AddChatUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
+			ID                        string            `json:"id"`
 			Name                      string            `json:"name"`
 			BaseURL                   string            `json:"baseUrl"`
 			ServiceType               string            `json:"serviceType"`
@@ -119,6 +120,7 @@ func AddChatUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		upstream := config.UpstreamConfig{
+			ID:                        req.ID,
 			Name:                      req.Name,
 			BaseURL:                   req.BaseURL,
 			ServiceType:               req.ServiceType,
@@ -150,6 +152,10 @@ func AddChatUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 		if err != nil {
 			if writeStaleConfigConflict(c, err) {
+				return
+			}
+			if isChannelIdentityBadRequest(err) {
+				c.JSON(400, gin.H{"error": err.Error()})
 				return
 			}
 			c.JSON(500, gin.H{"error": err.Error()})

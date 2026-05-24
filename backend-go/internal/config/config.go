@@ -291,6 +291,53 @@ func generateChannelID() string {
 	return hex.EncodeToString(b)
 }
 
+func channelIDExists(upstreams []UpstreamConfig, channelID string) bool {
+	channelID = strings.TrimSpace(channelID)
+	if channelID == "" {
+		return false
+	}
+	for i := range upstreams {
+		if upstreams[i].ID == channelID {
+			return true
+		}
+	}
+	return false
+}
+
+func generateUniqueChannelID(upstreams []UpstreamConfig) string {
+	for {
+		channelID := generateChannelID()
+		if !channelIDExists(upstreams, channelID) {
+			return channelID
+		}
+	}
+}
+
+func ensureNewChannelID(upstreams []UpstreamConfig, upstream *UpstreamConfig) error {
+	upstream.ID = strings.TrimSpace(upstream.ID)
+	if upstream.ID == "" {
+		upstream.ID = generateUniqueChannelID(upstreams)
+		return nil
+	}
+	if strings.HasPrefix(upstream.ID, "__invalid_") {
+		return fmt.Errorf("channel ID cannot start with reserved prefix '__invalid_'")
+	}
+	if channelIDExists(upstreams, upstream.ID) {
+		return fmt.Errorf("duplicate channel ID: %s", upstream.ID)
+	}
+	return nil
+}
+
+func ensureMissingChannelIDs(channels []UpstreamConfig) {
+	for i := range channels {
+		if strings.TrimSpace(channels[i].ID) != "" {
+			channels[i].ID = strings.TrimSpace(channels[i].ID)
+			continue
+		}
+		channels[i].ID = generateUniqueChannelID(channels)
+	}
+}
+
 // ShouldCountQuota checks if the given model should be counted for quota
 // Returns true if QuotaModels is empty (count all) or if model matches any pattern (substring match)
 func (u *UpstreamConfig) ShouldCountQuota(model string) bool {
@@ -1055,26 +1102,10 @@ func (cm *ConfigManager) saveConfigLocked(config Config) error {
 	if cm.dbStorage != nil {
 		// Ensure all channels have IDs before saving to prevent
 		// duplicate ID generation in concurrent writes
-		for i := range config.Upstream {
-			if config.Upstream[i].ID == "" {
-				config.Upstream[i].ID = generateChannelID()
-			}
-		}
-		for i := range config.ResponsesUpstream {
-			if config.ResponsesUpstream[i].ID == "" {
-				config.ResponsesUpstream[i].ID = generateChannelID()
-			}
-		}
-		for i := range config.GeminiUpstream {
-			if config.GeminiUpstream[i].ID == "" {
-				config.GeminiUpstream[i].ID = generateChannelID()
-			}
-		}
-		for i := range config.ChatUpstream {
-			if config.ChatUpstream[i].ID == "" {
-				config.ChatUpstream[i].ID = generateChannelID()
-			}
-		}
+		ensureMissingChannelIDs(config.Upstream)
+		ensureMissingChannelIDs(config.ResponsesUpstream)
+		ensureMissingChannelIDs(config.GeminiUpstream)
+		ensureMissingChannelIDs(config.ChatUpstream)
 
 		// Write to database synchronously to guarantee ordering and
 		// return persistence errors to callers.
@@ -1650,14 +1681,8 @@ func (cm *ConfigManager) addUpstream(upstream UpstreamConfig, expectedRevision *
 		return err
 	}
 
-	// Generate unique ID if not provided
-	if upstream.ID == "" {
-		upstream.ID = generateChannelID()
-	}
-
-	// Validate channel ID doesn't use reserved prefix
-	if strings.HasPrefix(upstream.ID, "__invalid_") {
-		return fmt.Errorf("channel ID cannot start with reserved prefix '__invalid_'")
+	if err := ensureNewChannelID(config.Upstream, &upstream); err != nil {
+		return err
 	}
 
 	// Validate composite channel before adding
@@ -2562,14 +2587,8 @@ func (cm *ConfigManager) addResponsesUpstream(upstream UpstreamConfig, expectedR
 		return err
 	}
 
-	// Generate unique ID if not provided
-	if upstream.ID == "" {
-		upstream.ID = generateChannelID()
-	}
-
-	// Validate channel ID doesn't use reserved prefix
-	if strings.HasPrefix(upstream.ID, "__invalid_") {
-		return fmt.Errorf("channel ID cannot start with reserved prefix '__invalid_'")
+	if err := ensureNewChannelID(cm.config.ResponsesUpstream, &upstream); err != nil {
+		return err
 	}
 
 	// 新建渠道默认设为 active
@@ -3574,14 +3593,8 @@ func (cm *ConfigManager) addGeminiUpstream(upstream UpstreamConfig, expectedRevi
 		return err
 	}
 
-	// Generate unique ID if not provided
-	if upstream.ID == "" {
-		upstream.ID = generateChannelID()
-	}
-
-	// Validate channel ID doesn't use reserved prefix
-	if strings.HasPrefix(upstream.ID, "__invalid_") {
-		return fmt.Errorf("channel ID cannot start with reserved prefix '__invalid_'")
+	if err := ensureNewChannelID(cm.config.GeminiUpstream, &upstream); err != nil {
+		return err
 	}
 
 	// 新建渠道默认设为 active
@@ -3968,14 +3981,8 @@ func (cm *ConfigManager) addChatUpstream(upstream UpstreamConfig, expectedRevisi
 		return err
 	}
 
-	// Generate unique ID if not provided
-	if upstream.ID == "" {
-		upstream.ID = generateChannelID()
-	}
-
-	// Validate channel ID doesn't use reserved prefix
-	if strings.HasPrefix(upstream.ID, "__invalid_") {
-		return fmt.Errorf("channel ID cannot start with reserved prefix '__invalid_'")
+	if err := ensureNewChannelID(cm.config.ChatUpstream, &upstream); err != nil {
+		return err
 	}
 
 	// 新建渠道默认设为 active

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/JillVernus/cc-bridge/internal/config"
@@ -85,6 +86,143 @@ func TestAddUpstreamIdentityReturnsStableIDAndCurrentIndex(t *testing.T) {
 	}
 	if cfg.Upstream[0].ID != id {
 		t.Fatalf("response id = %q, persisted id = %q", id, cfg.Upstream[0].ID)
+	}
+}
+
+func TestAddChannelRejectsDuplicateStableIDAndDoesNotReturnExistingIdentity(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name            string
+		path            string
+		seed            func(*config.ConfigManager)
+		register        func(*gin.Engine, *config.ConfigManager)
+		body            map[string]any
+		assertUnchanged func(*testing.T, config.Config)
+	}{
+		{
+			name: "messages",
+			path: "/api/channels",
+			seed: func(cfgManager *config.ConfigManager) {
+				if err := cfgManager.AddUpstream(config.UpstreamConfig{ID: "duplicate-id", Name: "Existing Messages", BaseURL: "https://existing.example.com", ServiceType: "openai", APIKeys: []string{"existing-key"}}); err != nil {
+					t.Fatalf("seed AddUpstream failed: %v", err)
+				}
+			},
+			register: func(router *gin.Engine, cfgManager *config.ConfigManager) {
+				router.POST("/api/channels", AddUpstream(cfgManager))
+			},
+			body: map[string]any{
+				"id":          "duplicate-id",
+				"name":        "New Messages",
+				"baseUrl":     "https://new.example.com",
+				"serviceType": "openai",
+				"apiKeys":     []string{"new-key"},
+			},
+			assertUnchanged: func(t *testing.T, cfg config.Config) {
+				if len(cfg.Upstream) != 1 || cfg.Upstream[0].Name != "Existing Messages" {
+					t.Fatalf("messages pool changed unexpectedly: %#v", cfg.Upstream)
+				}
+			},
+		},
+		{
+			name: "responses",
+			path: "/api/responses/channels",
+			seed: func(cfgManager *config.ConfigManager) {
+				if err := cfgManager.AddResponsesUpstream(config.UpstreamConfig{ID: "duplicate-id", Name: "Existing Responses", BaseURL: "https://existing.example.com", ServiceType: "responses", APIKeys: []string{"existing-key"}}); err != nil {
+					t.Fatalf("seed AddResponsesUpstream failed: %v", err)
+				}
+			},
+			register: func(router *gin.Engine, cfgManager *config.ConfigManager) {
+				router.POST("/api/responses/channels", AddResponsesUpstream(cfgManager))
+			},
+			body: map[string]any{
+				"id":          "duplicate-id",
+				"name":        "New Responses",
+				"baseUrl":     "https://new.example.com",
+				"serviceType": "responses",
+				"apiKeys":     []string{"new-key"},
+			},
+			assertUnchanged: func(t *testing.T, cfg config.Config) {
+				if len(cfg.ResponsesUpstream) != 1 || cfg.ResponsesUpstream[0].Name != "Existing Responses" {
+					t.Fatalf("responses pool changed unexpectedly: %#v", cfg.ResponsesUpstream)
+				}
+			},
+		},
+		{
+			name: "gemini",
+			path: "/api/gemini/channels",
+			seed: func(cfgManager *config.ConfigManager) {
+				if err := cfgManager.AddGeminiUpstream(config.UpstreamConfig{ID: "duplicate-id", Name: "Existing Gemini", BaseURL: "https://existing.example.com", ServiceType: "gemini", APIKeys: []string{"existing-key"}}); err != nil {
+					t.Fatalf("seed AddGeminiUpstream failed: %v", err)
+				}
+			},
+			register: func(router *gin.Engine, cfgManager *config.ConfigManager) {
+				router.POST("/api/gemini/channels", AddGeminiUpstream(cfgManager))
+			},
+			body: map[string]any{
+				"id":          "duplicate-id",
+				"name":        "New Gemini",
+				"baseUrl":     "https://new.example.com",
+				"serviceType": "gemini",
+				"apiKeys":     []string{"new-key"},
+			},
+			assertUnchanged: func(t *testing.T, cfg config.Config) {
+				if len(cfg.GeminiUpstream) != 1 || cfg.GeminiUpstream[0].Name != "Existing Gemini" {
+					t.Fatalf("gemini pool changed unexpectedly: %#v", cfg.GeminiUpstream)
+				}
+			},
+		},
+		{
+			name: "chat",
+			path: "/api/chat/channels",
+			seed: func(cfgManager *config.ConfigManager) {
+				if err := cfgManager.AddChatUpstream(config.UpstreamConfig{ID: "duplicate-id", Name: "Existing Chat", BaseURL: "https://existing.example.com", ServiceType: "openai", APIKeys: []string{"existing-key"}}); err != nil {
+					t.Fatalf("seed AddChatUpstream failed: %v", err)
+				}
+			},
+			register: func(router *gin.Engine, cfgManager *config.ConfigManager) {
+				router.POST("/api/chat/channels", AddChatUpstream(cfgManager))
+			},
+			body: map[string]any{
+				"id":          "duplicate-id",
+				"name":        "New Chat",
+				"baseUrl":     "https://new.example.com",
+				"serviceType": "openai",
+				"apiKeys":     []string{"new-key"},
+			},
+			assertUnchanged: func(t *testing.T, cfg config.Config) {
+				if len(cfg.ChatUpstream) != 1 || cfg.ChatUpstream[0].Name != "Existing Chat" {
+					t.Fatalf("chat pool changed unexpectedly: %#v", cfg.ChatUpstream)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfgManager := newIdentityTestConfigManager(t)
+			tt.seed(cfgManager)
+
+			router := gin.New()
+			tt.register(router, cfgManager)
+
+			w := performIdentityJSONRequest(t, router, http.MethodPost, tt.path, tt.body, nil)
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400 Bad Request, body=%s", w.Code, w.Body.String())
+			}
+			payload := decodeIdentityResponse(t, w)
+			if _, ok := payload["id"]; ok {
+				t.Fatalf("duplicate-id response must not return existing id identity: %s", w.Body.String())
+			}
+			if _, ok := payload["index"]; ok {
+				t.Fatalf("duplicate-id response must not return existing index identity: %s", w.Body.String())
+			}
+			errText, _ := payload["error"].(string)
+			if !strings.Contains(strings.ToLower(errText), "duplicate channel id") {
+				t.Fatalf("error = %q, want duplicate channel ID error", errText)
+			}
+			tt.assertUnchanged(t, cfgManager.GetConfig())
+		})
 	}
 }
 

@@ -53,6 +53,15 @@ func writeStaleConfigConflict(c *gin.Context, err error) bool {
 	return true
 }
 
+func isChannelIdentityBadRequest(err error) bool {
+	if err == nil {
+		return false
+	}
+	errText := strings.ToLower(err.Error())
+	return strings.Contains(errText, "duplicate channel id") ||
+		strings.Contains(errText, "channel id cannot start with reserved prefix")
+}
+
 func configRevisionETag(revision int64) string {
 	return strconv.Quote(strconv.FormatInt(revision, 10))
 }
@@ -403,6 +412,10 @@ func AddUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 		if err != nil {
 			if writeStaleConfigConflict(c, err) {
+				return
+			}
+			if isChannelIdentityBadRequest(err) {
+				c.JSON(400, gin.H{"error": err.Error()})
 				return
 			}
 			c.JSON(500, gin.H{"error": "Failed to save config"})
@@ -1148,6 +1161,10 @@ func AddResponsesUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 		if err != nil {
 			if writeStaleConfigConflict(c, err) {
+				return
+			}
+			if isChannelIdentityBadRequest(err) {
+				c.JSON(400, gin.H{"error": err.Error()})
 				return
 			}
 			c.JSON(500, gin.H{"error": err.Error()})
