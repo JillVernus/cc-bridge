@@ -199,6 +199,9 @@ func SetChannelPromotion(cfgManager ConfigManager) gin.HandlerFunc {
 		// 调用配置管理器设置促销期
 		duration := time.Duration(req.Duration) * time.Second
 		if err := cfgManager.SetChannelPromotion(id, duration); err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(400, gin.H{"error": err.Error()})
 			return
 		}
@@ -238,6 +241,9 @@ func SetResponsesChannelPromotion(cfgManager ResponsesConfigManager) gin.Handler
 
 		duration := time.Duration(req.Duration) * time.Second
 		if err := cfgManager.SetResponsesChannelPromotion(id, duration); err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(400, gin.H{"error": err.Error()})
 			return
 		}

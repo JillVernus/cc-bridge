@@ -16,15 +16,35 @@ import (
 
 func staleConflictSeedConfig() config.Config {
 	return config.Config{
-		Upstream:             []config.UpstreamConfig{},
+		Upstream:             []config.UpstreamConfig{staleConflictMessagesUpstream("messages-initial")},
 		LoadBalance:          "failover",
-		ResponsesUpstream:    []config.UpstreamConfig{},
+		ResponsesUpstream:    []config.UpstreamConfig{staleConflictResponsesUpstream("responses-initial")},
 		ResponsesLoadBalance: "failover",
 		GeminiLoadBalance:    "failover",
 		ChatLoadBalance:      "failover",
 		UserAgent:            config.GetDefaultUserAgentConfig(),
 		GeminiUpstream:       []config.UpstreamConfig{staleConflictGeminiUpstream("gemini-initial")},
 		ChatUpstream:         []config.UpstreamConfig{staleConflictChatUpstream("chat-initial")},
+	}
+}
+
+func staleConflictMessagesUpstream(name string) config.UpstreamConfig {
+	return config.UpstreamConfig{
+		Name:        name,
+		BaseURL:     "https://messages.example.com",
+		ServiceType: "openai",
+		APIKeys:     []string{name + "-key"},
+		Status:      "active",
+	}
+}
+
+func staleConflictResponsesUpstream(name string) config.UpstreamConfig {
+	return config.UpstreamConfig{
+		Name:        name,
+		BaseURL:     "https://responses.example.com",
+		ServiceType: "responses",
+		APIKeys:     []string{name + "-key"},
+		Status:      "active",
 	}
 }
 
@@ -102,6 +122,57 @@ func performJSONRequest(t *testing.T, router *gin.Engine, method string, path st
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	return w
+}
+
+func TestStalePromotionHandlersReturnConflict(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name        string
+		remoteWrite func(*config.ConfigManager) error
+		register    func(*gin.Engine, *config.ConfigManager)
+		path        string
+	}{
+		{
+			name: "messages",
+			remoteWrite: func(cm *config.ConfigManager) error {
+				return cm.AddUpstream(staleConflictMessagesUpstream("messages-remote"))
+			},
+			register: func(router *gin.Engine, cm *config.ConfigManager) {
+				router.PUT("/api/channels/:id/promotion", SetChannelPromotion(cm))
+			},
+			path: "/api/channels/0/promotion",
+		},
+		{
+			name: "responses",
+			remoteWrite: func(cm *config.ConfigManager) error {
+				return cm.AddResponsesUpstream(staleConflictResponsesUpstream("responses-remote"))
+			},
+			register: func(router *gin.Engine, cm *config.ConfigManager) {
+				router.PUT("/api/responses/channels/:id/promotion", SetResponsesChannelPromotion(cm))
+			},
+			path: "/api/responses/channels/0/promotion",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			managerA, managerB, db := newStaleConflictManagers(t, staleConflictSeedConfig())
+			defer db.Close()
+
+			if err := tt.remoteWrite(managerA); err != nil {
+				t.Fatalf("remote write failed: %v", err)
+			}
+
+			router := gin.New()
+			tt.register(router, managerB)
+
+			w := performJSONRequest(t, router, http.MethodPut, tt.path, map[string]any{"duration": 60})
+			if w.Code != http.StatusConflict {
+				t.Fatalf("status = %d, want 409 Conflict, body=%s", w.Code, w.Body.String())
+			}
+		})
+	}
 }
 
 func TestGeminiStaleChannelMutationHandlersReturnConflict(t *testing.T) {
