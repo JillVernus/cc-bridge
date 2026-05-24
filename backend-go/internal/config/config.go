@@ -1017,6 +1017,35 @@ func (cm *ConfigManager) warnInsecureChannels() {
 	}
 }
 
+func cloneConfig(config Config) Config {
+	data, err := json.Marshal(config)
+	if err != nil {
+		return config
+	}
+
+	var cloned Config
+	if err := json.Unmarshal(data, &cloned); err != nil {
+		return config
+	}
+	reindexConfig(&cloned)
+	return cloned
+}
+
+func reindexConfig(config *Config) {
+	for i := range config.Upstream {
+		config.Upstream[i].Index = i
+	}
+	for i := range config.ResponsesUpstream {
+		config.ResponsesUpstream[i].Index = i
+	}
+	for i := range config.GeminiUpstream {
+		config.GeminiUpstream[i].Index = i
+	}
+	for i := range config.ChatUpstream {
+		config.ChatUpstream[i].Index = i
+	}
+}
+
 // saveConfigLocked 保存配置（已加锁）
 func (cm *ConfigManager) saveConfigLocked(config Config) error {
 	normalizeConfigCodexServiceTierOverrides(&config)
@@ -1047,19 +1076,27 @@ func (cm *ConfigManager) saveConfigLocked(config Config) error {
 			}
 		}
 
-		cm.config = config
-
 		// Write to database synchronously to guarantee ordering and
 		// return persistence errors to callers.
 		start := time.Now()
-		revision, err := cm.dbStorage.SaveConfigToDBWithRevision(&config)
+		revision, err := cm.dbStorage.SaveConfigToDBWithExpectedRevision(&config, cm.revision)
 		if err != nil {
+			if IsStaleConfigWrite(err) {
+				if durableConfig, durableRevision, loadErr := cm.dbStorage.LoadConfigFromDBWithRevision(); loadErr == nil {
+					cm.config = *durableConfig
+					cm.revision = durableRevision
+					cm.dbStorage.lastVersion = durableRevision
+				} else {
+					log.Printf("⚠️ Failed to reload durable config after stale write: %v", loadErr)
+				}
+			}
 			return err
 		}
 		elapsed := time.Since(start)
 		if elapsed > 100*time.Millisecond {
 			log.Printf("⏱️ Database sync took %v", elapsed)
 		}
+		cm.config = config
 		cm.revision = revision
 		return nil
 	}
@@ -1097,6 +1134,13 @@ func (cm *ConfigManager) SetDBStorage(dbStorage *DBConfigStorage) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 	cm.dbStorage = dbStorage
+	if config, revision, err := dbStorage.LoadConfigFromDBWithRevision(); err == nil {
+		cm.config = *config
+		cm.revision = revision
+		dbStorage.lastVersion = revision
+	} else {
+		log.Printf("⚠️ Failed to initialize config from database: %v", err)
+	}
 	// Disable file watcher when using database storage (polling handles sync)
 	cm.disableFileWatcher = true
 	// Close existing watcher if it's running
@@ -1574,6 +1618,8 @@ func (cm *ConfigManager) AddUpstream(upstream UpstreamConfig) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
+	config := cloneConfig(cm.config)
+
 	upstream.Name = strings.TrimSpace(upstream.Name)
 	if upstream.Name == "" {
 		return fmt.Errorf("channel name is required")
@@ -1605,11 +1651,11 @@ func (cm *ConfigManager) AddUpstream(upstream UpstreamConfig) error {
 	}
 
 	// Set the Index to the new position
-	upstream.Index = len(cm.config.Upstream)
+	upstream.Index = len(config.Upstream)
 
-	cm.config.Upstream = append(cm.config.Upstream, upstream)
+	config.Upstream = append(config.Upstream, upstream)
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
@@ -1627,7 +1673,8 @@ func (cm *ConfigManager) UpdateUpstream(index int, updates UpstreamUpdate) (shou
 		return false, fmt.Errorf("invalid upstream index: %d", index)
 	}
 
-	upstream := &cm.config.Upstream[index]
+	config := cloneConfig(cm.config)
+	upstream := &config.Upstream[index]
 
 	if updates.Name != nil {
 		name := strings.TrimSpace(*updates.Name)
@@ -1743,16 +1790,16 @@ func (cm *ConfigManager) UpdateUpstream(index int, updates UpstreamUpdate) (shou
 
 	// Validate composite channel after applying all updates
 	if IsCompositeChannel(upstream) {
-		if err := ValidateCompositeChannel(upstream, cm.config.Upstream, cm.config.ResponsesUpstream); err != nil {
+		if err := ValidateCompositeChannel(upstream, config.Upstream, config.ResponsesUpstream); err != nil {
 			return false, fmt.Errorf("invalid composite channel: %w", err)
 		}
 	}
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return false, err
 	}
 
-	log.Printf("已更新上游: [%d] %s", index, cm.config.Upstream[index].Name)
+	log.Printf("已更新上游: [%d] %s", index, config.Upstream[index].Name)
 	return shouldResetMetrics, nil
 }
 
@@ -1765,24 +1812,23 @@ func (cm *ConfigManager) RemoveUpstream(index int) (*UpstreamConfig, error) {
 		return nil, fmt.Errorf("invalid upstream index: %d", index)
 	}
 
-	removed := cm.config.Upstream[index]
+	config := cloneConfig(cm.config)
+	removed := config.Upstream[index]
 
 	// Update composite mappings that reference this channel
-	cm.updateCompositeMappingsOnDelete(removed.ID, index, CompositeTargetPoolMessages)
+	updateCompositeMappingsOnDeleteInConfig(&config, removed.ID, index, CompositeTargetPoolMessages)
 
-	cm.config.Upstream = append(cm.config.Upstream[:index], cm.config.Upstream[index+1:]...)
+	config.Upstream = append(config.Upstream[:index], config.Upstream[index+1:]...)
 
 	// Reindex remaining upstreams
-	for i := range cm.config.Upstream {
-		cm.config.Upstream[i].Index = i
+	reindexConfig(&config)
+
+	if err := cm.saveConfigLocked(config); err != nil {
+		return nil, err
 	}
 
 	// 清理被删除渠道的失败 key 冷却记录
 	cm.clearFailedKeysForUpstream(&removed)
-
-	if err := cm.saveConfigLocked(cm.config); err != nil {
-		return nil, err
-	}
 
 	log.Printf("已删除上游: %s (ID: %s)", removed.Name, removed.ID)
 	return &removed, nil
@@ -1790,9 +1836,13 @@ func (cm *ConfigManager) RemoveUpstream(index int) (*UpstreamConfig, error) {
 
 // updateCompositeMappingsOnDelete removes or updates messages composite mappings when a target channel is deleted.
 func (cm *ConfigManager) updateCompositeMappingsOnDelete(deletedID string, deletedIndex int, deletedPool string) {
+	updateCompositeMappingsOnDeleteInConfig(&cm.config, deletedID, deletedIndex, deletedPool)
+}
+
+func updateCompositeMappingsOnDeleteInConfig(config *Config, deletedID string, deletedIndex int, deletedPool string) {
 	normalizedDeletedPool := NormalizeCompositeTargetPool(deletedPool)
-	for i := range cm.config.Upstream {
-		upstream := &cm.config.Upstream[i]
+	for i := range config.Upstream {
+		upstream := &config.Upstream[i]
 		if !IsCompositeChannel(upstream) || len(upstream.CompositeMappings) == 0 {
 			continue
 		}

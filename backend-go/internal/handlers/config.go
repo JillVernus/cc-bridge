@@ -44,6 +44,15 @@ func buildMaskedKeys(keys []string) []MaskedKey {
 	return maskedKeys
 }
 
+func writeStaleConfigConflict(c *gin.Context, err error) bool {
+	if !config.IsStaleConfigWrite(err) {
+		return false
+	}
+
+	c.JSON(http.StatusConflict, gin.H{"error": "Configuration changed; reload and retry"})
+	return true
+}
+
 type addUpstreamRequest struct {
 	config.UpstreamConfig
 	ImportFromResponsesChannelID string `json:"importFromResponsesChannelId"`
@@ -233,6 +242,9 @@ func AddUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		if err := cfgManager.AddUpstream(upstream); err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(500, gin.H{"error": "Failed to save config"})
 			return
 		}
@@ -272,6 +284,8 @@ func UpdateUpstream(cfgManager *config.ConfigManager, sch *scheduler.ChannelSche
 		if err != nil {
 			if strings.Contains(err.Error(), "invalid upstream index") {
 				c.JSON(404, gin.H{"error": "Upstream not found"})
+			} else if writeStaleConfigConflict(c, err) {
+				return
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
 			}
@@ -305,6 +319,8 @@ func DeleteUpstream(cfgManager *config.ConfigManager, channelRateLimiter *middle
 		if err != nil {
 			if strings.Contains(err.Error(), "invalid upstream index") {
 				c.JSON(404, gin.H{"error": "Upstream not found"})
+			} else if writeStaleConfigConflict(c, err) {
+				return
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
 			}
@@ -348,6 +364,8 @@ func AddApiKey(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				c.JSON(404, gin.H{"error": "Upstream not found"})
 			} else if strings.Contains(err.Error(), "API key already exists") {
 				c.JSON(400, gin.H{"error": "API key already exists"})
+			} else if writeStaleConfigConflict(c, err) {
+				return
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
 			}
@@ -384,6 +402,8 @@ func DeleteApiKey(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				c.JSON(404, gin.H{"error": "Upstream not found"})
 			} else if strings.Contains(err.Error(), "API key not found") {
 				c.JSON(404, gin.H{"error": "API key not found"})
+			} else if writeStaleConfigConflict(c, err) {
+				return
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
 			}
@@ -416,6 +436,8 @@ func DeleteApiKeyByIndex(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				c.JSON(404, gin.H{"error": "Channel not found"})
 			} else if strings.Contains(err.Error(), "invalid key index") {
 				c.JSON(404, gin.H{"error": "Key index not found"})
+			} else if writeStaleConfigConflict(c, err) {
+				return
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
 			}
@@ -446,6 +468,8 @@ func MoveApiKeyToTopByIndex(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				c.JSON(404, gin.H{"error": "Channel not found"})
 			} else if strings.Contains(err.Error(), "invalid key index") {
 				c.JSON(404, gin.H{"error": "Key index not found"})
+			} else if writeStaleConfigConflict(c, err) {
+				return
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
 			}
@@ -476,6 +500,8 @@ func MoveApiKeyToBottomByIndex(cfgManager *config.ConfigManager) gin.HandlerFunc
 				c.JSON(404, gin.H{"error": "Channel not found"})
 			} else if strings.Contains(err.Error(), "invalid key index") {
 				c.JSON(404, gin.H{"error": "Key index not found"})
+			} else if writeStaleConfigConflict(c, err) {
+				return
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
 			}
@@ -506,6 +532,8 @@ func DeleteResponsesApiKeyByIndex(cfgManager *config.ConfigManager) gin.HandlerF
 				c.JSON(404, gin.H{"error": "Channel not found"})
 			} else if strings.Contains(err.Error(), "invalid key index") {
 				c.JSON(404, gin.H{"error": "Key index not found"})
+			} else if writeStaleConfigConflict(c, err) {
+				return
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
 			}
@@ -536,6 +564,8 @@ func MoveResponsesApiKeyToTopByIndex(cfgManager *config.ConfigManager) gin.Handl
 				c.JSON(404, gin.H{"error": "Channel not found"})
 			} else if strings.Contains(err.Error(), "invalid key index") {
 				c.JSON(404, gin.H{"error": "Key index not found"})
+			} else if writeStaleConfigConflict(c, err) {
+				return
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
 			}
@@ -566,6 +596,8 @@ func MoveResponsesApiKeyToBottomByIndex(cfgManager *config.ConfigManager) gin.Ha
 				c.JSON(404, gin.H{"error": "Channel not found"})
 			} else if strings.Contains(err.Error(), "invalid key index") {
 				c.JSON(404, gin.H{"error": "Key index not found"})
+			} else if writeStaleConfigConflict(c, err) {
+				return
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
 			}
@@ -913,6 +945,9 @@ func AddResponsesUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		if err := cfgManager.AddResponsesUpstream(upstream); err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
@@ -940,6 +975,9 @@ func UpdateResponsesUpstream(cfgManager *config.ConfigManager, sch *scheduler.Ch
 
 		shouldResetMetrics, err := cfgManager.UpdateResponsesUpstream(id, updates)
 		if err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
@@ -964,6 +1002,9 @@ func DeleteResponsesUpstream(cfgManager *config.ConfigManager, channelRateLimite
 		}
 
 		if _, err := cfgManager.RemoveResponsesUpstream(id); err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
@@ -1000,6 +1041,8 @@ func AddResponsesApiKey(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				c.JSON(404, gin.H{"error": "Upstream not found"})
 			} else if strings.Contains(err.Error(), "API key already exists") {
 				c.JSON(400, gin.H{"error": "API key already exists"})
+			} else if writeStaleConfigConflict(c, err) {
+				return
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
 			}
@@ -1034,6 +1077,8 @@ func DeleteResponsesApiKey(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				c.JSON(404, gin.H{"error": "Upstream not found"})
 			} else if strings.Contains(err.Error(), "API key not found") {
 				c.JSON(404, gin.H{"error": "API key not found"})
+			} else if writeStaleConfigConflict(c, err) {
+				return
 			} else {
 				c.JSON(500, gin.H{"error": "Failed to save config"})
 			}
@@ -1057,6 +1102,9 @@ func MoveApiKeyToTop(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		apiKey := c.Param("apiKey")
 
 		if err := cfgManager.MoveAPIKeyToTop(id, apiKey); err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(400, gin.H{"error": err.Error()})
 			return
 		}
@@ -1075,6 +1123,9 @@ func MoveApiKeyToBottom(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		apiKey := c.Param("apiKey")
 
 		if err := cfgManager.MoveAPIKeyToBottom(id, apiKey); err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(400, gin.H{"error": err.Error()})
 			return
 		}
@@ -1093,6 +1144,9 @@ func MoveResponsesApiKeyToTop(cfgManager *config.ConfigManager) gin.HandlerFunc 
 		apiKey := c.Param("apiKey")
 
 		if err := cfgManager.MoveResponsesAPIKeyToTop(id, apiKey); err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(400, gin.H{"error": err.Error()})
 			return
 		}
@@ -1111,6 +1165,9 @@ func MoveResponsesApiKeyToBottom(cfgManager *config.ConfigManager) gin.HandlerFu
 		apiKey := c.Param("apiKey")
 
 		if err := cfgManager.MoveResponsesAPIKeyToBottom(id, apiKey); err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(400, gin.H{"error": err.Error()})
 			return
 		}
@@ -1132,6 +1189,9 @@ func ReorderChannels(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		if err := cfgManager.ReorderUpstreams(req.Order); err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(400, gin.H{"error": err.Error()})
 			return
 		}
@@ -1155,6 +1215,9 @@ func ReorderResponsesChannels(cfgManager *config.ConfigManager) gin.HandlerFunc 
 		}
 
 		if err := cfgManager.ReorderResponsesUpstreams(req.Order); err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(400, gin.H{"error": err.Error()})
 			return
 		}
@@ -1187,6 +1250,8 @@ func SetChannelStatus(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		if err := cfgManager.SetChannelStatus(id, req.Status); err != nil {
 			if strings.Contains(err.Error(), "invalid upstream index") {
 				c.JSON(404, gin.H{"error": "Channel not found"})
+			} else if writeStaleConfigConflict(c, err) {
+				return
 			} else {
 				c.JSON(400, gin.H{"error": err.Error()})
 			}
@@ -1222,6 +1287,8 @@ func SetResponsesChannelStatus(cfgManager *config.ConfigManager) gin.HandlerFunc
 		if err := cfgManager.SetResponsesChannelStatus(id, req.Status); err != nil {
 			if strings.Contains(err.Error(), "invalid upstream index") {
 				c.JSON(404, gin.H{"error": "Channel not found"})
+			} else if writeStaleConfigConflict(c, err) {
+				return
 			} else {
 				c.JSON(400, gin.H{"error": err.Error()})
 			}
