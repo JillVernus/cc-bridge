@@ -260,6 +260,45 @@ export interface ChannelsResponse {
   loadBalance: string
 }
 
+export interface ChannelIdentity {
+  id?: string
+  index: number
+}
+
+export interface ChannelMutationResponse {
+  success?: boolean
+  message?: string
+  id?: string
+  index?: number
+}
+
+export interface ChannelMutationOptions {
+  ifMatch?: string
+}
+
+type ChannelRef = number | string | ChannelIdentity
+
+const channelRefPath = (channel: ChannelRef, suffix = ''): string => {
+  if (typeof channel === 'number') {
+    return `${channel}${suffix}`
+  }
+
+  if (typeof channel === 'string') {
+    const encodedId = encodeURIComponent(channel)
+    return `${encodedId}${suffix}?channelId=${encodedId}`
+  }
+
+  if (channel.id) {
+    const encodedId = encodeURIComponent(channel.id)
+    return `${channel.index}${suffix}?channelId=${encodedId}`
+  }
+
+  return `${channel.index}${suffix}`
+}
+
+const mutationHeaders = (options?: ChannelMutationOptions): HeadersInit | undefined =>
+  options?.ifMatch ? { 'If-Match': options.ifMatch } : undefined
+
 export interface PingResult {
   success: boolean
   latency: number
@@ -387,23 +426,33 @@ class ApiService {
     return this.request('/channels')
   }
 
-  async addChannel(channel: Omit<Channel, 'index' | 'latency' | 'status'>): Promise<void> {
-    await this.request('/channels', {
+  async addChannel(
+    channel: Omit<Channel, 'index' | 'latency' | 'status'>,
+    options?: ChannelMutationOptions
+  ): Promise<ChannelMutationResponse> {
+    return this.request('/channels', {
       method: 'POST',
+      headers: mutationHeaders(options),
       body: JSON.stringify(channel)
     })
   }
 
-  async updateChannel(id: number, channel: Partial<Channel>): Promise<void> {
-    await this.request(`/channels/${id}`, {
+  async updateChannel(
+    channelRef: ChannelRef,
+    channel: Partial<Channel>,
+    options?: ChannelMutationOptions
+  ): Promise<ChannelMutationResponse> {
+    return this.request(`/channels/${channelRefPath(channelRef)}`, {
       method: 'PUT',
+      headers: mutationHeaders(options),
       body: JSON.stringify(channel)
     })
   }
 
-  async deleteChannel(id: number): Promise<void> {
-    await this.request(`/channels/${id}`, {
-      method: 'DELETE'
+  async deleteChannel(channelRef: ChannelRef, options?: ChannelMutationOptions): Promise<ChannelMutationResponse> {
+    return this.request(`/channels/${channelRefPath(channelRef)}`, {
+      method: 'DELETE',
+      headers: mutationHeaders(options)
     })
   }
 
@@ -437,30 +486,30 @@ class ApiService {
 
   // Fetch models from upstream provider
   async fetchUpstreamModels(
-    channelId: number
+    channelId: ChannelRef
   ): Promise<{ success: boolean; models?: Array<{ id: string; object?: string; owned_by?: string }>; error?: string }> {
-    return this.request(`/channels/${channelId}/models`)
+    return this.request(`/channels/${channelRefPath(channelId, '/models')}`)
   }
 
   // Fetch models from Responses upstream provider
   async fetchResponsesUpstreamModels(
-    channelId: number
+    channelId: ChannelRef
   ): Promise<{ success: boolean; models?: Array<{ id: string; object?: string; owned_by?: string }>; error?: string }> {
-    return this.request(`/responses/channels/${channelId}/models`)
+    return this.request(`/responses/channels/${channelRefPath(channelId, '/models')}`)
   }
 
   // Fetch models from Gemini upstream provider
   async fetchGeminiUpstreamModels(
-    channelId: number
+    channelId: ChannelRef
   ): Promise<{ success: boolean; models?: Array<{ id: string; object?: string; owned_by?: string }>; error?: string }> {
-    return this.request(`/gemini/channels/${channelId}/models`)
+    return this.request(`/gemini/channels/${channelRefPath(channelId, '/models')}`)
   }
 
   // Fetch models from Chat upstream provider
   async fetchChatUpstreamModels(
-    channelId: number
+    channelId: ChannelRef
   ): Promise<{ success: boolean; models?: Array<{ id: string; object?: string; owned_by?: string }>; error?: string }> {
-    return this.request(`/chat/channels/${channelId}/models`)
+    return this.request(`/chat/channels/${channelRefPath(channelId, '/models')}`)
   }
 
   async updateLoadBalance(strategy: string): Promise<void> {
@@ -490,23 +539,36 @@ class ApiService {
     return this.request('/responses/channels')
   }
 
-  async addResponsesChannel(channel: Omit<Channel, 'index' | 'latency' | 'status'>): Promise<void> {
-    await this.request('/responses/channels', {
+  async addResponsesChannel(
+    channel: Omit<Channel, 'index' | 'latency' | 'status'>,
+    options?: ChannelMutationOptions
+  ): Promise<ChannelMutationResponse> {
+    return this.request('/responses/channels', {
       method: 'POST',
+      headers: mutationHeaders(options),
       body: JSON.stringify(channel)
     })
   }
 
-  async updateResponsesChannel(id: number, channel: Partial<Channel>): Promise<void> {
-    await this.request(`/responses/channels/${id}`, {
+  async updateResponsesChannel(
+    channelRef: ChannelRef,
+    channel: Partial<Channel>,
+    options?: ChannelMutationOptions
+  ): Promise<ChannelMutationResponse> {
+    return this.request(`/responses/channels/${channelRefPath(channelRef)}`, {
       method: 'PUT',
+      headers: mutationHeaders(options),
       body: JSON.stringify(channel)
     })
   }
 
-  async deleteResponsesChannel(id: number): Promise<void> {
-    await this.request(`/responses/channels/${id}`, {
-      method: 'DELETE'
+  async deleteResponsesChannel(
+    channelRef: ChannelRef,
+    options?: ChannelMutationOptions
+  ): Promise<ChannelMutationResponse> {
+    return this.request(`/responses/channels/${channelRefPath(channelRef)}`, {
+      method: 'DELETE',
+      headers: mutationHeaders(options)
     })
   }
 

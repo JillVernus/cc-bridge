@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -51,22 +50,9 @@ type geminiModelListResponse struct {
 // GET /api/channels/:id/models
 func FetchUpstreamModels(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		idStr := c.Param("id")
-		id, err := strconv.Atoi(idStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, UpstreamModelsResponse{
-				Success: false,
-				Error:   "Invalid channel ID",
-			})
-			return
-		}
-
 		cfg := cfgManager.GetConfig()
-		if id < 0 || id >= len(cfg.Upstream) {
-			c.JSON(http.StatusNotFound, UpstreamModelsResponse{
-				Success: false,
-				Error:   "Channel not found",
-			})
+		id, ok := resolveChannelIndexFromConfig(c, cfg, channelPoolMessages)
+		if !ok {
 			return
 		}
 
@@ -91,22 +77,9 @@ func FetchUpstreamModels(cfgManager *config.ConfigManager) gin.HandlerFunc {
 // GET /api/responses/channels/:id/models
 func FetchResponsesUpstreamModels(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		idStr := c.Param("id")
-		id, err := strconv.Atoi(idStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, UpstreamModelsResponse{
-				Success: false,
-				Error:   "Invalid channel ID",
-			})
-			return
-		}
-
 		cfg := cfgManager.GetConfig()
-		if id < 0 || id >= len(cfg.ResponsesUpstream) {
-			c.JSON(http.StatusNotFound, UpstreamModelsResponse{
-				Success: false,
-				Error:   "Channel not found",
-			})
+		id, ok := resolveChannelIndexFromConfig(c, cfg, channelPoolResponses)
+		if !ok {
 			return
 		}
 
@@ -131,22 +104,9 @@ func FetchResponsesUpstreamModels(cfgManager *config.ConfigManager) gin.HandlerF
 // GET /api/gemini/channels/:id/models
 func FetchGeminiUpstreamModels(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		idStr := c.Param("id")
-		id, err := strconv.Atoi(idStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, UpstreamModelsResponse{
-				Success: false,
-				Error:   "Invalid channel ID",
-			})
-			return
-		}
-
 		cfg := cfgManager.GetConfig()
-		if id < 0 || id >= len(cfg.GeminiUpstream) {
-			c.JSON(http.StatusNotFound, UpstreamModelsResponse{
-				Success: false,
-				Error:   "Channel not found",
-			})
+		id, ok := resolveChannelIndexFromConfig(c, cfg, channelPoolGemini)
+		if !ok {
 			return
 		}
 
@@ -171,22 +131,9 @@ func FetchGeminiUpstreamModels(cfgManager *config.ConfigManager) gin.HandlerFunc
 // GET /api/chat/channels/:id/models
 func FetchChatUpstreamModels(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		idStr := c.Param("id")
-		id, err := strconv.Atoi(idStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, UpstreamModelsResponse{
-				Success: false,
-				Error:   "Invalid channel ID",
-			})
-			return
-		}
-
 		cfg := cfgManager.GetConfig()
-		if id < 0 || id >= len(cfg.ChatUpstream) {
-			c.JSON(http.StatusNotFound, UpstreamModelsResponse{
-				Success: false,
-				Error:   "Channel not found",
-			})
+		id, ok := resolveChannelIndexFromConfig(c, cfg, channelPoolChat)
+		if !ok {
 			return
 		}
 

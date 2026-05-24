@@ -53,6 +53,146 @@ func writeStaleConfigConflict(c *gin.Context, err error) bool {
 	return true
 }
 
+func configRevisionETag(revision int64) string {
+	return strconv.Quote(strconv.FormatInt(revision, 10))
+}
+
+func writeConfigRevisionETag(c *gin.Context, revision int64) {
+	c.Header("ETag", configRevisionETag(revision))
+}
+
+func ifMatchRevisionMatches(ifMatch string, revision int64) bool {
+	expected := configRevisionETag(revision)
+	for _, candidate := range strings.Split(ifMatch, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "*" || candidate == expected {
+			return true
+		}
+		if strings.HasPrefix(candidate, "W/") {
+			candidate = strings.TrimSpace(strings.TrimPrefix(candidate, "W/"))
+		}
+		if candidate == expected || strings.Trim(candidate, `"`) == strconv.FormatInt(revision, 10) {
+			return true
+		}
+	}
+	return false
+}
+
+func requireMatchingIfMatch(c *gin.Context, cfgManager *config.ConfigManager) bool {
+	ifMatch := strings.TrimSpace(c.GetHeader("If-Match"))
+	if ifMatch == "" {
+		return true
+	}
+
+	_, revision := cfgManager.GetConfigWithRevision()
+	if ifMatchRevisionMatches(ifMatch, revision) {
+		return true
+	}
+
+	c.JSON(http.StatusConflict, gin.H{"error": "Configuration changed; reload and retry"})
+	return false
+}
+
+type channelPool string
+
+const (
+	channelPoolMessages  channelPool = "messages"
+	channelPoolResponses channelPool = "responses"
+	channelPoolGemini    channelPool = "gemini"
+	channelPoolChat      channelPool = "chat"
+)
+
+func upstreamsForPool(cfg config.Config, pool channelPool) []config.UpstreamConfig {
+	switch pool {
+	case channelPoolResponses:
+		return cfg.ResponsesUpstream
+	case channelPoolGemini:
+		return cfg.GeminiUpstream
+	case channelPoolChat:
+		return cfg.ChatUpstream
+	default:
+		return cfg.Upstream
+	}
+}
+
+func findChannelIndexByStableID(upstreams []config.UpstreamConfig, channelID string) (int, bool) {
+	channelID = strings.TrimSpace(channelID)
+	if channelID == "" {
+		return -1, false
+	}
+
+	for i := range upstreams {
+		if upstreams[i].ID == channelID {
+			return i, true
+		}
+	}
+	return -1, false
+}
+
+func explicitStableChannelID(c *gin.Context) string {
+	if channelID := strings.TrimSpace(c.Query("channelId")); channelID != "" {
+		return channelID
+	}
+	return strings.TrimSpace(c.Param("channelID"))
+}
+
+func resolveChannelIndexFromConfig(c *gin.Context, cfg config.Config, pool channelPool) (int, bool) {
+	upstreams := upstreamsForPool(cfg, pool)
+	if channelID := explicitStableChannelID(c); channelID != "" {
+		index, ok := findChannelIndexByStableID(upstreams, channelID)
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Channel not found"})
+			return -1, false
+		}
+		return index, true
+	}
+
+	idStr := strings.TrimSpace(c.Param("id"))
+	index, err := strconv.Atoi(idStr)
+	if err != nil {
+		if resolved, ok := findChannelIndexByStableID(upstreams, idStr); ok {
+			return resolved, true
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid channel ID"})
+		return -1, false
+	}
+
+	if index < 0 || index >= len(upstreams) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Channel not found"})
+		return -1, false
+	}
+	return index, true
+}
+
+func resolveChannelIndex(c *gin.Context, cfgManager *config.ConfigManager, pool channelPool) (int, bool) {
+	cfg := cfgManager.GetConfig()
+	return resolveChannelIndexFromConfig(c, cfg, pool)
+}
+
+func channelIdentity(upstreams []config.UpstreamConfig, index int) gin.H {
+	if index < 0 || index >= len(upstreams) {
+		return gin.H{"index": index}
+	}
+	return gin.H{
+		"id":    upstreams[index].ID,
+		"index": index,
+	}
+}
+
+func findChannelIdentityByIDOrName(upstreams []config.UpstreamConfig, stableID string, name string) gin.H {
+	if index, ok := findChannelIndexByStableID(upstreams, stableID); ok {
+		return channelIdentity(upstreams, index)
+	}
+
+	name = strings.TrimSpace(name)
+	for i := range upstreams {
+		if strings.TrimSpace(upstreams[i].Name) == name {
+			return channelIdentity(upstreams, i)
+		}
+	}
+	return gin.H{"index": -1}
+}
+
 type addUpstreamRequest struct {
 	config.UpstreamConfig
 	ImportFromResponsesChannelID string `json:"importFromResponsesChannelId"`
@@ -172,7 +312,8 @@ func applyResponsesImportToMessagesUpdate(
 // GetUpstreams 获取上游列表 (兼容前端 channels 字段名)
 func GetUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		cfg := cfgManager.GetConfig()
+		cfg, revision := cfgManager.GetConfigWithRevision()
+		writeConfigRevisionETag(c, revision)
 
 		// 为每个upstream添加index字段
 		upstreams := make([]gin.H, len(cfg.Upstream))
@@ -234,6 +375,9 @@ func AddUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			c.JSON(400, gin.H{"error": "Invalid request body"})
 			return
 		}
+		if !requireMatchingIfMatch(c, cfgManager) {
+			return
+		}
 
 		upstream := req.UpstreamConfig
 		if err := applyResponsesImportToMessagesCreate(cfgManager, &upstream, req.ImportFromResponsesChannelID); err != nil {
@@ -249,10 +393,16 @@ func AddUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			return
 		}
 
+		cfg, revision := cfgManager.GetConfigWithRevision()
+		writeConfigRevisionETag(c, revision)
+		identity := findChannelIdentityByIDOrName(cfg.Upstream, upstream.ID, upstream.Name)
+
 		// 🔒 安全修复: 不返回 upstream 数据，防止 API 密钥泄露
 		c.JSON(200, gin.H{
 			"success": true,
 			"message": "上游已添加",
+			"id":      identity["id"],
+			"index":   identity["index"],
 		})
 	}
 }
@@ -261,10 +411,11 @@ func AddUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 // sch 用于在单 key 更换时重置熔断状态
 func UpdateUpstream(cfgManager *config.ConfigManager, sch *scheduler.ChannelScheduler) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		idStr := c.Param("id")
-		id, err := strconv.Atoi(idStr)
-		if err != nil {
-			c.JSON(400, gin.H{"error": "Invalid upstream ID"})
+		if !requireMatchingIfMatch(c, cfgManager) {
+			return
+		}
+		id, ok := resolveChannelIndex(c, cfgManager, channelPoolMessages)
+		if !ok {
 			return
 		}
 
@@ -293,14 +444,20 @@ func UpdateUpstream(cfgManager *config.ConfigManager, sch *scheduler.ChannelSche
 		}
 
 		// 单 key 更换时重置熔断状态
-		if shouldResetMetrics {
+		if shouldResetMetrics && sch != nil {
 			sch.ResetChannelMetrics(id, false)
 		}
+
+		cfg, revision := cfgManager.GetConfigWithRevision()
+		writeConfigRevisionETag(c, revision)
+		identity := channelIdentity(cfg.Upstream, id)
 
 		// 🔒 安全修复: 不返回 upstream 数据，防止 API 密钥泄露
 		c.JSON(200, gin.H{
 			"success": true,
 			"message": "上游已更新",
+			"id":      identity["id"],
+			"index":   identity["index"],
 		})
 	}
 }
@@ -308,10 +465,11 @@ func UpdateUpstream(cfgManager *config.ConfigManager, sch *scheduler.ChannelSche
 // DeleteUpstream 删除上游
 func DeleteUpstream(cfgManager *config.ConfigManager, channelRateLimiter *middleware.ChannelRateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		idStr := c.Param("id")
-		id, err := strconv.Atoi(idStr)
-		if err != nil {
-			c.JSON(400, gin.H{"error": "Invalid upstream ID"})
+		if !requireMatchingIfMatch(c, cfgManager) {
+			return
+		}
+		id, ok := resolveChannelIndex(c, cfgManager, channelPoolMessages)
+		if !ok {
 			return
 		}
 
@@ -332,11 +490,14 @@ func DeleteUpstream(cfgManager *config.ConfigManager, channelRateLimiter *middle
 			channelRateLimiter.ClearChannel(id)
 		}
 
-		// 🔒 安全修复: 不返回 removed 数据，防止 API 密钥泄露
-		_ = removed // 忽略返回值，仅用于确认删除成功
+		// 🔒 安全修复: 只返回身份元数据，防止 API 密钥泄露
+		_, revision := cfgManager.GetConfigWithRevision()
+		writeConfigRevisionETag(c, revision)
 		c.JSON(200, gin.H{
 			"success": true,
 			"message": "上游已删除",
+			"id":      removed.ID,
+			"index":   id,
 		})
 	}
 }
@@ -884,7 +1045,8 @@ func TestCompositeMapping(cfgManager *config.ConfigManager) gin.HandlerFunc {
 // GetResponsesUpstreams 获取 Responses 上游列表
 func GetResponsesUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		cfg := cfgManager.GetConfig()
+		cfg, revision := cfgManager.GetConfigWithRevision()
+		writeConfigRevisionETag(c, revision)
 
 		upstreams := make([]gin.H, len(cfg.ResponsesUpstream))
 		for i, up := range cfg.ResponsesUpstream {
@@ -943,6 +1105,9 @@ func AddResponsesUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			c.JSON(400, gin.H{"error": err.Error()})
 			return
 		}
+		if !requireMatchingIfMatch(c, cfgManager) {
+			return
+		}
 
 		if err := cfgManager.AddResponsesUpstream(upstream); err != nil {
 			if writeStaleConfigConflict(c, err) {
@@ -952,7 +1117,16 @@ func AddResponsesUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(200, gin.H{"message": "Responses upstream added successfully"})
+		cfg, revision := cfgManager.GetConfigWithRevision()
+		writeConfigRevisionETag(c, revision)
+		identity := findChannelIdentityByIDOrName(cfg.ResponsesUpstream, upstream.ID, upstream.Name)
+
+		c.JSON(200, gin.H{
+			"success": true,
+			"message": "Responses upstream added successfully",
+			"id":      identity["id"],
+			"index":   identity["index"],
+		})
 	}
 }
 
@@ -960,10 +1134,11 @@ func AddResponsesUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 // sch 用于在单 key 更换时重置熔断状态
 func UpdateResponsesUpstream(cfgManager *config.ConfigManager, sch *scheduler.ChannelScheduler) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		idStr := c.Param("id")
-		id, err := strconv.Atoi(idStr)
-		if err != nil {
-			c.JSON(400, gin.H{"error": "Invalid upstream ID"})
+		if !requireMatchingIfMatch(c, cfgManager) {
+			return
+		}
+		id, ok := resolveChannelIndex(c, cfgManager, channelPoolResponses)
+		if !ok {
 			return
 		}
 
@@ -983,25 +1158,36 @@ func UpdateResponsesUpstream(cfgManager *config.ConfigManager, sch *scheduler.Ch
 		}
 
 		// 单 key 更换时重置熔断状态
-		if shouldResetMetrics {
+		if shouldResetMetrics && sch != nil {
 			sch.ResetChannelMetrics(id, true)
 		}
 
-		c.JSON(200, gin.H{"message": "Responses upstream updated successfully"})
+		cfg, revision := cfgManager.GetConfigWithRevision()
+		writeConfigRevisionETag(c, revision)
+		identity := channelIdentity(cfg.ResponsesUpstream, id)
+
+		c.JSON(200, gin.H{
+			"success": true,
+			"message": "Responses upstream updated successfully",
+			"id":      identity["id"],
+			"index":   identity["index"],
+		})
 	}
 }
 
 // DeleteResponsesUpstream 删除 Responses 上游
 func DeleteResponsesUpstream(cfgManager *config.ConfigManager, channelRateLimiter *middleware.ChannelRateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		idStr := c.Param("id")
-		id, err := strconv.Atoi(idStr)
-		if err != nil {
-			c.JSON(400, gin.H{"error": "Invalid upstream ID"})
+		if !requireMatchingIfMatch(c, cfgManager) {
+			return
+		}
+		id, ok := resolveChannelIndex(c, cfgManager, channelPoolResponses)
+		if !ok {
 			return
 		}
 
-		if _, err := cfgManager.RemoveResponsesUpstream(id); err != nil {
+		removed, err := cfgManager.RemoveResponsesUpstream(id)
+		if err != nil {
 			if writeStaleConfigConflict(c, err) {
 				return
 			}
@@ -1014,7 +1200,14 @@ func DeleteResponsesUpstream(cfgManager *config.ConfigManager, channelRateLimite
 			channelRateLimiter.ClearChannel(id)
 		}
 
-		c.JSON(200, gin.H{"message": "Responses upstream deleted successfully"})
+		_, revision := cfgManager.GetConfigWithRevision()
+		writeConfigRevisionETag(c, revision)
+		c.JSON(200, gin.H{
+			"success": true,
+			"message": "Responses upstream deleted successfully",
+			"id":      removed.ID,
+			"index":   id,
+		})
 	}
 }
 

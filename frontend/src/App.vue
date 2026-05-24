@@ -692,7 +692,7 @@
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useTheme } from 'vuetify'
 import { useI18n } from 'vue-i18n'
-import { api, type Channel, type ChannelsResponse } from './services/api'
+import { api, type Channel, type ChannelIdentity, type ChannelsResponse } from './services/api'
 import AddChannelModal from './components/AddChannelModal.vue'
 import ChannelOrchestration from './components/ChannelOrchestration.vue'
 import RequestLogTable from './components/RequestLogTable.vue'
@@ -898,6 +898,11 @@ const showSuccessToast = (message: string) => {
   showToast(message, 'info')
 }
 
+const channelIdentityRef = (channel: Channel): ChannelIdentity => ({
+  id: channel.id,
+  index: channel.index
+})
+
 // 主要功能函数
 const refreshChannels = async () => {
   try {
@@ -931,9 +936,9 @@ const saveChannel = async (
       } else if (isGemini) {
         await api.updateGeminiChannel(editingChannel.value.index, channelUpdate)
       } else if (isResponses) {
-        await api.updateResponsesChannel(editingChannel.value.index, channelUpdate)
+        await api.updateResponsesChannel(channelIdentityRef(editingChannel.value), channelUpdate)
       } else {
-        await api.updateChannel(editingChannel.value.index, channelUpdate)
+        await api.updateChannel(channelIdentityRef(editingChannel.value), channelUpdate)
       }
 
       const keysToAdd = (apiKeys || []).map(k => k.trim()).filter(Boolean)
