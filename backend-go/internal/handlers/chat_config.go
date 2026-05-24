@@ -18,7 +18,8 @@ import (
 // GetChatUpstreams 获取 Chat 渠道列表
 func GetChatUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		cfg := cfgManager.GetConfig()
+		cfg, revision := cfgManager.GetConfigWithRevision()
+		writeConfigRevisionETag(c, revision)
 
 		upstreams := make([]gin.H, len(cfg.ChatUpstream))
 		for i, up := range cfg.ChatUpstream {
@@ -97,6 +98,10 @@ func AddChatUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			c.JSON(400, gin.H{"error": "Invalid request body: " + err.Error()})
 			return
 		}
+		expectedRevision, ok := parseIfMatchExpectedRevision(c)
+		if !ok {
+			return
+		}
 
 		// Validate required fields
 		if req.Name == "" {
@@ -137,7 +142,13 @@ func AddChatUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			KeyLoadBalance:            req.KeyLoadBalance,
 		}
 
-		if err := cfgManager.AddChatUpstream(upstream); err != nil {
+		var err error
+		if expectedRevision != nil {
+			err = cfgManager.AddChatUpstreamWithExpectedRevision(upstream, *expectedRevision)
+		} else {
+			err = cfgManager.AddChatUpstream(upstream)
+		}
+		if err != nil {
 			if writeStaleConfigConflict(c, err) {
 				return
 			}
@@ -145,17 +156,28 @@ func AddChatUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(200, gin.H{"message": "Chat channel added successfully"})
+		cfg, revision := cfgManager.GetConfigWithRevision()
+		writeConfigRevisionETag(c, revision)
+		identity := findChannelIdentityByIDOrName(cfg.ChatUpstream, upstream.ID, upstream.Name)
+
+		c.JSON(200, gin.H{
+			"success": true,
+			"message": "Chat channel added successfully",
+			"id":      identity["id"],
+			"index":   identity["index"],
+		})
 	}
 }
 
 // UpdateChatUpstream 更新 Chat 渠道
 func UpdateChatUpstream(cfgManager *config.ConfigManager, channelScheduler *scheduler.ChannelScheduler) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		indexStr := c.Param("id")
-		index, err := strconv.Atoi(indexStr)
-		if err != nil {
-			c.JSON(400, gin.H{"error": "Invalid channel index"})
+		expectedRevision, ok := parseIfMatchExpectedRevision(c)
+		if !ok {
+			return
+		}
+		index, ok := resolveChannelIndex(c, cfgManager, channelPoolChat)
+		if !ok {
 			return
 		}
 
@@ -165,7 +187,13 @@ func UpdateChatUpstream(cfgManager *config.ConfigManager, channelScheduler *sche
 			return
 		}
 
-		shouldResetMetrics, err := cfgManager.UpdateChatUpstream(index, updates)
+		var shouldResetMetrics bool
+		var err error
+		if expectedRevision != nil {
+			shouldResetMetrics, err = cfgManager.UpdateChatUpstreamWithExpectedRevision(index, updates, *expectedRevision)
+		} else {
+			shouldResetMetrics, err = cfgManager.UpdateChatUpstream(index, updates)
+		}
 		if err != nil {
 			if writeStaleConfigConflict(c, err) {
 				return
@@ -179,21 +207,38 @@ func UpdateChatUpstream(cfgManager *config.ConfigManager, channelScheduler *sche
 			channelScheduler.ResetChatChannelMetrics(index)
 		}
 
-		c.JSON(200, gin.H{"message": "Chat channel updated successfully"})
+		cfg, revision := cfgManager.GetConfigWithRevision()
+		writeConfigRevisionETag(c, revision)
+		identity := channelIdentity(cfg.ChatUpstream, index)
+
+		c.JSON(200, gin.H{
+			"success": true,
+			"message": "Chat channel updated successfully",
+			"id":      identity["id"],
+			"index":   identity["index"],
+		})
 	}
 }
 
 // DeleteChatUpstream 删除 Chat 渠道
 func DeleteChatUpstream(cfgManager *config.ConfigManager, channelRateLimiter *middleware.ChannelRateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		indexStr := c.Param("id")
-		index, err := strconv.Atoi(indexStr)
-		if err != nil {
-			c.JSON(400, gin.H{"error": "Invalid channel index"})
+		expectedRevision, ok := parseIfMatchExpectedRevision(c)
+		if !ok {
+			return
+		}
+		index, ok := resolveChannelIndex(c, cfgManager, channelPoolChat)
+		if !ok {
 			return
 		}
 
-		removed, err := cfgManager.RemoveChatUpstream(index)
+		var removed *config.UpstreamConfig
+		var err error
+		if expectedRevision != nil {
+			removed, err = cfgManager.RemoveChatUpstreamWithExpectedRevision(index, *expectedRevision)
+		} else {
+			removed, err = cfgManager.RemoveChatUpstream(index)
+		}
 		if err != nil {
 			if writeStaleConfigConflict(c, err) {
 				return
@@ -207,7 +252,14 @@ func DeleteChatUpstream(cfgManager *config.ConfigManager, channelRateLimiter *mi
 			channelRateLimiter.ClearChannel(removed.Index)
 		}
 
-		c.JSON(200, gin.H{"message": "Chat channel deleted successfully"})
+		_, revision := cfgManager.GetConfigWithRevision()
+		writeConfigRevisionETag(c, revision)
+		c.JSON(200, gin.H{
+			"success": true,
+			"message": "Chat channel deleted successfully",
+			"id":      removed.ID,
+			"index":   index,
+		})
 	}
 }
 

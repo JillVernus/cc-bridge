@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -226,5 +227,397 @@ func TestStableChannelMutationIfMatchMismatchReturnsConflict(t *testing.T) {
 	}
 	if got := len(cfgManager.GetConfig().Upstream); got != 0 {
 		t.Fatalf("upstream count after stale If-Match = %d, want 0", got)
+	}
+}
+
+func TestGeminiAndChatChannelReadsReturnETag(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name     string
+		path     string
+		register func(*gin.Engine, *config.ConfigManager)
+	}{
+		{
+			name: "gemini",
+			path: "/api/gemini/channels",
+			register: func(router *gin.Engine, cfgManager *config.ConfigManager) {
+				router.GET("/api/gemini/channels", GetGeminiUpstreams(cfgManager))
+			},
+		},
+		{
+			name: "chat",
+			path: "/api/chat/channels",
+			register: func(router *gin.Engine, cfgManager *config.ConfigManager) {
+				router.GET("/api/chat/channels", GetChatUpstreams(cfgManager))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfgManager := newIdentityTestConfigManager(t)
+			router := gin.New()
+			tt.register(router, cfgManager)
+
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, tt.path, nil))
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200 OK, body=%s", w.Code, w.Body.String())
+			}
+			if etag := w.Header().Get("ETag"); etag == "" {
+				t.Fatalf("%s ETag is empty", tt.path)
+			}
+		})
+	}
+}
+
+func TestGeminiAndChatAddChannelIdentityReturnsStableIDAndCurrentIndex(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name      string
+		path      string
+		poolCount func(config.Config) int
+		poolID    func(config.Config) string
+		register  func(*gin.Engine, *config.ConfigManager)
+		body      map[string]any
+	}{
+		{
+			name: "gemini",
+			path: "/api/gemini/channels",
+			poolCount: func(cfg config.Config) int {
+				return len(cfg.GeminiUpstream)
+			},
+			poolID: func(cfg config.Config) string {
+				return cfg.GeminiUpstream[0].ID
+			},
+			register: func(router *gin.Engine, cfgManager *config.ConfigManager) {
+				router.POST("/api/gemini/channels", AddGeminiUpstream(cfgManager))
+			},
+			body: map[string]any{
+				"name":        "gemini-identity-created",
+				"baseUrl":     "https://gemini-identity-created.example.com",
+				"serviceType": "gemini",
+				"apiKeys":     []string{"gemini-created-key"},
+			},
+		},
+		{
+			name: "chat",
+			path: "/api/chat/channels",
+			poolCount: func(cfg config.Config) int {
+				return len(cfg.ChatUpstream)
+			},
+			poolID: func(cfg config.Config) string {
+				return cfg.ChatUpstream[0].ID
+			},
+			register: func(router *gin.Engine, cfgManager *config.ConfigManager) {
+				router.POST("/api/chat/channels", AddChatUpstream(cfgManager))
+			},
+			body: map[string]any{
+				"name":        "chat-identity-created",
+				"baseUrl":     "https://chat-identity-created.example.com",
+				"serviceType": "openai",
+				"apiKeys":     []string{"chat-created-key"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfgManager := newIdentityTestConfigManager(t)
+			router := gin.New()
+			tt.register(router, cfgManager)
+
+			w := performIdentityJSONRequest(t, router, http.MethodPost, tt.path, tt.body, nil)
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200 OK, body=%s", w.Code, w.Body.String())
+			}
+
+			payload := decodeIdentityResponse(t, w)
+			id, ok := payload["id"].(string)
+			if !ok || id == "" {
+				t.Fatalf("id = %#v, want non-empty stable channel id", payload["id"])
+			}
+			if got := int(payload["index"].(float64)); got != 0 {
+				t.Fatalf("index = %d, want 0", got)
+			}
+			cfg := cfgManager.GetConfig()
+			if got := tt.poolCount(cfg); got != 1 {
+				t.Fatalf("channel count = %d, want 1", got)
+			}
+			if got := tt.poolID(cfg); got != id {
+				t.Fatalf("response id = %q, persisted id = %q", id, got)
+			}
+		})
+	}
+}
+
+func TestGeminiAndChatUpdateStableIdentityWinsOverConflictingIndex(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name       string
+		path       string
+		seed       func(*config.ConfigManager)
+		register   func(*gin.Engine, *config.ConfigManager)
+		assertPool func(*testing.T, config.Config)
+	}{
+		{
+			name: "gemini",
+			path: "/api/gemini/channels/1?channelId=0",
+			seed: func(cfgManager *config.ConfigManager) {
+				if err := cfgManager.AddGeminiUpstream(config.UpstreamConfig{ID: "0", Name: "gemini-stable", BaseURL: "https://stable.example.com", ServiceType: "gemini", APIKeys: []string{"stable-key"}}); err != nil {
+					t.Fatalf("AddGeminiUpstream stable failed: %v", err)
+				}
+				if err := cfgManager.AddGeminiUpstream(config.UpstreamConfig{ID: "1", Name: "gemini-index", BaseURL: "https://index.example.com", ServiceType: "gemini", APIKeys: []string{"index-key"}}); err != nil {
+					t.Fatalf("AddGeminiUpstream index failed: %v", err)
+				}
+			},
+			register: func(router *gin.Engine, cfgManager *config.ConfigManager) {
+				router.PUT("/api/gemini/channels/:id", UpdateGeminiUpstream(cfgManager, nil))
+			},
+			assertPool: func(t *testing.T, cfg config.Config) {
+				if cfg.GeminiUpstream[0].Name != "updated-by-stable-id" {
+					t.Fatalf("stable gemini name = %q, want updated-by-stable-id", cfg.GeminiUpstream[0].Name)
+				}
+				if cfg.GeminiUpstream[1].Name != "gemini-index" {
+					t.Fatalf("conflicting gemini name = %q, want gemini-index", cfg.GeminiUpstream[1].Name)
+				}
+			},
+		},
+		{
+			name: "chat",
+			path: "/api/chat/channels/1?channelId=0",
+			seed: func(cfgManager *config.ConfigManager) {
+				if err := cfgManager.AddChatUpstream(config.UpstreamConfig{ID: "0", Name: "chat-stable", BaseURL: "https://stable.example.com", ServiceType: "openai", APIKeys: []string{"stable-key"}}); err != nil {
+					t.Fatalf("AddChatUpstream stable failed: %v", err)
+				}
+				if err := cfgManager.AddChatUpstream(config.UpstreamConfig{ID: "1", Name: "chat-index", BaseURL: "https://index.example.com", ServiceType: "openai", APIKeys: []string{"index-key"}}); err != nil {
+					t.Fatalf("AddChatUpstream index failed: %v", err)
+				}
+			},
+			register: func(router *gin.Engine, cfgManager *config.ConfigManager) {
+				router.PUT("/api/chat/channels/:id", UpdateChatUpstream(cfgManager, nil))
+			},
+			assertPool: func(t *testing.T, cfg config.Config) {
+				if cfg.ChatUpstream[0].Name != "updated-by-stable-id" {
+					t.Fatalf("stable chat name = %q, want updated-by-stable-id", cfg.ChatUpstream[0].Name)
+				}
+				if cfg.ChatUpstream[1].Name != "chat-index" {
+					t.Fatalf("conflicting chat name = %q, want chat-index", cfg.ChatUpstream[1].Name)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfgManager := newIdentityTestConfigManager(t)
+			tt.seed(cfgManager)
+			router := gin.New()
+			tt.register(router, cfgManager)
+
+			w := performIdentityJSONRequest(t, router, http.MethodPut, tt.path, map[string]any{
+				"name": "updated-by-stable-id",
+			}, nil)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200 OK, body=%s", w.Code, w.Body.String())
+			}
+			payload := decodeIdentityResponse(t, w)
+			if got := payload["id"]; got != "0" {
+				t.Fatalf("id = %#v, want stable id %q", got, "0")
+			}
+			if got := int(payload["index"].(float64)); got != 0 {
+				t.Fatalf("index = %d, want stable channel index 0", got)
+			}
+			tt.assertPool(t, cfgManager.GetConfig())
+		})
+	}
+}
+
+func TestGeminiAndChatFetchModelsStableIdentityWinsOverConflictingIndex(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			t.Fatalf("upstream path = %q, want /v1/models", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"object": "list",
+			"data": []map[string]any{
+				{"id": "stable-model", "object": "model", "owned_by": "test"},
+			},
+		})
+	}))
+	t.Cleanup(upstreamServer.Close)
+
+	tests := []struct {
+		name     string
+		path     string
+		seed     func(*config.ConfigManager)
+		register func(*gin.Engine, *config.ConfigManager)
+	}{
+		{
+			name: "gemini",
+			path: "/api/gemini/channels/1/models?channelId=0",
+			seed: func(cfgManager *config.ConfigManager) {
+				if err := cfgManager.AddGeminiUpstream(config.UpstreamConfig{ID: "0", Name: "gemini-stable-models", BaseURL: upstreamServer.URL, ServiceType: "openai", APIKeys: []string{"stable-key"}}); err != nil {
+					t.Fatalf("AddGeminiUpstream stable failed: %v", err)
+				}
+				if err := cfgManager.AddGeminiUpstream(config.UpstreamConfig{ID: "1", Name: "gemini-conflict-models", BaseURL: "https://unused.example.com", ServiceType: "unsupported", APIKeys: []string{"unused-key"}}); err != nil {
+					t.Fatalf("AddGeminiUpstream conflict failed: %v", err)
+				}
+			},
+			register: func(router *gin.Engine, cfgManager *config.ConfigManager) {
+				router.GET("/api/gemini/channels/:id/models", FetchGeminiUpstreamModels(cfgManager))
+			},
+		},
+		{
+			name: "chat",
+			path: "/api/chat/channels/1/models?channelId=0",
+			seed: func(cfgManager *config.ConfigManager) {
+				if err := cfgManager.AddChatUpstream(config.UpstreamConfig{ID: "0", Name: "chat-stable-models", BaseURL: upstreamServer.URL, ServiceType: "openai", APIKeys: []string{"stable-key"}}); err != nil {
+					t.Fatalf("AddChatUpstream stable failed: %v", err)
+				}
+				if err := cfgManager.AddChatUpstream(config.UpstreamConfig{ID: "1", Name: "chat-conflict-models", BaseURL: "https://unused.example.com", ServiceType: "unsupported", APIKeys: []string{"unused-key"}}); err != nil {
+					t.Fatalf("AddChatUpstream conflict failed: %v", err)
+				}
+			},
+			register: func(router *gin.Engine, cfgManager *config.ConfigManager) {
+				router.GET("/api/chat/channels/:id/models", FetchChatUpstreamModels(cfgManager))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfgManager := newIdentityTestConfigManager(t)
+			tt.seed(cfgManager)
+			router := gin.New()
+			tt.register(router, cfgManager)
+
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, tt.path, nil))
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200 OK, body=%s", w.Code, w.Body.String())
+			}
+			var payload UpstreamModelsResponse
+			if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+				t.Fatalf("decode response body %q: %v", w.Body.String(), err)
+			}
+			if !payload.Success {
+				t.Fatalf("success = false, want true, error=%s", payload.Error)
+			}
+			if len(payload.Models) != 1 || payload.Models[0].ID != "stable-model" {
+				t.Fatalf("models = %#v, want stable-model from stable channel", payload.Models)
+			}
+		})
+	}
+}
+
+func TestGeminiAndChatIfMatchMismatchReturnsConflict(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name      string
+		path      string
+		register  func(*gin.Engine, *config.ConfigManager)
+		poolCount func(config.Config) int
+		body      map[string]any
+	}{
+		{
+			name: "gemini",
+			path: "/api/gemini/channels",
+			register: func(router *gin.Engine, cfgManager *config.ConfigManager) {
+				router.POST("/api/gemini/channels", AddGeminiUpstream(cfgManager))
+			},
+			poolCount: func(cfg config.Config) int {
+				return len(cfg.GeminiUpstream)
+			},
+			body: map[string]any{
+				"name":        "gemini-stale-if-match",
+				"baseUrl":     "https://gemini-stale-if-match.example.com",
+				"serviceType": "gemini",
+				"apiKeys":     []string{"gemini-stale-key"},
+			},
+		},
+		{
+			name: "chat",
+			path: "/api/chat/channels",
+			register: func(router *gin.Engine, cfgManager *config.ConfigManager) {
+				router.POST("/api/chat/channels", AddChatUpstream(cfgManager))
+			},
+			poolCount: func(cfg config.Config) int {
+				return len(cfg.ChatUpstream)
+			},
+			body: map[string]any{
+				"name":        "chat-stale-if-match",
+				"baseUrl":     "https://chat-stale-if-match.example.com",
+				"serviceType": "openai",
+				"apiKeys":     []string{"chat-stale-key"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfgManager := newIdentityTestConfigManager(t)
+			router := gin.New()
+			tt.register(router, cfgManager)
+
+			w := performIdentityJSONRequest(t, router, http.MethodPost, tt.path, tt.body, map[string]string{"If-Match": `"999"`})
+			if w.Code != http.StatusConflict {
+				t.Fatalf("status = %d, want 409 Conflict, body=%s", w.Code, w.Body.String())
+			}
+			if got := tt.poolCount(cfgManager.GetConfig()); got != 0 {
+				t.Fatalf("channel count after stale If-Match = %d, want 0", got)
+			}
+		})
+	}
+}
+
+type addUpstreamWithExpectedRevision interface {
+	AddUpstreamWithExpectedRevision(config.UpstreamConfig, int64) error
+}
+
+func TestIfMatchExpectedRevisionIsEnforcedInsideConfigManagerMutation(t *testing.T) {
+	cfgManager := newIdentityTestConfigManager(t)
+	mutator, ok := any(cfgManager).(addUpstreamWithExpectedRevision)
+	if !ok {
+		t.Fatalf("ConfigManager does not expose expected-revision channel mutation API")
+	}
+
+	_, revision := cfgManager.GetConfigWithRevision()
+	if !ifMatchRevisionMatches(configRevisionETag(revision), revision) {
+		t.Fatalf("test setup expected ETag %s to match revision %d", configRevisionETag(revision), revision)
+	}
+
+	if err := cfgManager.AddUpstream(config.UpstreamConfig{
+		Name:        "intervening-write",
+		BaseURL:     "https://intervening-write.example.com",
+		ServiceType: "openai",
+		APIKeys:     []string{"intervening-key"},
+	}); err != nil {
+		t.Fatalf("intervening AddUpstream failed: %v", err)
+	}
+
+	err := mutator.AddUpstreamWithExpectedRevision(config.UpstreamConfig{
+		Name:        "stale-expected-revision",
+		BaseURL:     "https://stale-expected-revision.example.com",
+		ServiceType: "openai",
+		APIKeys:     []string{"stale-key"},
+	}, revision)
+	if !errors.Is(err, config.ErrStaleConfigWrite) {
+		t.Fatalf("err = %v, want ErrStaleConfigWrite", err)
+	}
+
+	cfg := cfgManager.GetConfig()
+	if len(cfg.Upstream) != 1 {
+		t.Fatalf("upstream count = %d, want only intervening write", len(cfg.Upstream))
+	}
+	if cfg.Upstream[0].Name != "intervening-write" {
+		t.Fatalf("remaining channel = %q, want intervening-write", cfg.Upstream[0].Name)
 	}
 }

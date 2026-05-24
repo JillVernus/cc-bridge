@@ -78,19 +78,28 @@ func ifMatchRevisionMatches(ifMatch string, revision int64) bool {
 	return false
 }
 
-func requireMatchingIfMatch(c *gin.Context, cfgManager *config.ConfigManager) bool {
+func parseIfMatchExpectedRevision(c *gin.Context) (*int64, bool) {
 	ifMatch := strings.TrimSpace(c.GetHeader("If-Match"))
 	if ifMatch == "" {
-		return true
+		return nil, true
 	}
 
-	_, revision := cfgManager.GetConfigWithRevision()
-	if ifMatchRevisionMatches(ifMatch, revision) {
-		return true
+	for _, candidate := range strings.Split(ifMatch, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "*" {
+			return nil, true
+		}
+		if strings.HasPrefix(candidate, "W/") {
+			candidate = strings.TrimSpace(strings.TrimPrefix(candidate, "W/"))
+		}
+		revision, err := strconv.ParseInt(strings.Trim(candidate, `"`), 10, 64)
+		if err == nil {
+			return &revision, true
+		}
 	}
 
 	c.JSON(http.StatusConflict, gin.H{"error": "Configuration changed; reload and retry"})
-	return false
+	return nil, false
 }
 
 type channelPool string
@@ -375,7 +384,8 @@ func AddUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			c.JSON(400, gin.H{"error": "Invalid request body"})
 			return
 		}
-		if !requireMatchingIfMatch(c, cfgManager) {
+		expectedRevision, ok := parseIfMatchExpectedRevision(c)
+		if !ok {
 			return
 		}
 
@@ -385,7 +395,13 @@ func AddUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			return
 		}
 
-		if err := cfgManager.AddUpstream(upstream); err != nil {
+		var err error
+		if expectedRevision != nil {
+			err = cfgManager.AddUpstreamWithExpectedRevision(upstream, *expectedRevision)
+		} else {
+			err = cfgManager.AddUpstream(upstream)
+		}
+		if err != nil {
 			if writeStaleConfigConflict(c, err) {
 				return
 			}
@@ -411,7 +427,8 @@ func AddUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 // sch 用于在单 key 更换时重置熔断状态
 func UpdateUpstream(cfgManager *config.ConfigManager, sch *scheduler.ChannelScheduler) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if !requireMatchingIfMatch(c, cfgManager) {
+		expectedRevision, ok := parseIfMatchExpectedRevision(c)
+		if !ok {
 			return
 		}
 		id, ok := resolveChannelIndex(c, cfgManager, channelPoolMessages)
@@ -431,7 +448,13 @@ func UpdateUpstream(cfgManager *config.ConfigManager, sch *scheduler.ChannelSche
 			return
 		}
 
-		shouldResetMetrics, err := cfgManager.UpdateUpstream(id, updates)
+		var shouldResetMetrics bool
+		var err error
+		if expectedRevision != nil {
+			shouldResetMetrics, err = cfgManager.UpdateUpstreamWithExpectedRevision(id, updates, *expectedRevision)
+		} else {
+			shouldResetMetrics, err = cfgManager.UpdateUpstream(id, updates)
+		}
 		if err != nil {
 			if strings.Contains(err.Error(), "invalid upstream index") {
 				c.JSON(404, gin.H{"error": "Upstream not found"})
@@ -465,7 +488,8 @@ func UpdateUpstream(cfgManager *config.ConfigManager, sch *scheduler.ChannelSche
 // DeleteUpstream 删除上游
 func DeleteUpstream(cfgManager *config.ConfigManager, channelRateLimiter *middleware.ChannelRateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if !requireMatchingIfMatch(c, cfgManager) {
+		expectedRevision, ok := parseIfMatchExpectedRevision(c)
+		if !ok {
 			return
 		}
 		id, ok := resolveChannelIndex(c, cfgManager, channelPoolMessages)
@@ -473,7 +497,13 @@ func DeleteUpstream(cfgManager *config.ConfigManager, channelRateLimiter *middle
 			return
 		}
 
-		removed, err := cfgManager.RemoveUpstream(id)
+		var removed *config.UpstreamConfig
+		var err error
+		if expectedRevision != nil {
+			removed, err = cfgManager.RemoveUpstreamWithExpectedRevision(id, *expectedRevision)
+		} else {
+			removed, err = cfgManager.RemoveUpstream(id)
+		}
 		if err != nil {
 			if strings.Contains(err.Error(), "invalid upstream index") {
 				c.JSON(404, gin.H{"error": "Upstream not found"})
@@ -1105,11 +1135,18 @@ func AddResponsesUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			c.JSON(400, gin.H{"error": err.Error()})
 			return
 		}
-		if !requireMatchingIfMatch(c, cfgManager) {
+		expectedRevision, ok := parseIfMatchExpectedRevision(c)
+		if !ok {
 			return
 		}
 
-		if err := cfgManager.AddResponsesUpstream(upstream); err != nil {
+		var err error
+		if expectedRevision != nil {
+			err = cfgManager.AddResponsesUpstreamWithExpectedRevision(upstream, *expectedRevision)
+		} else {
+			err = cfgManager.AddResponsesUpstream(upstream)
+		}
+		if err != nil {
 			if writeStaleConfigConflict(c, err) {
 				return
 			}
@@ -1134,7 +1171,8 @@ func AddResponsesUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 // sch 用于在单 key 更换时重置熔断状态
 func UpdateResponsesUpstream(cfgManager *config.ConfigManager, sch *scheduler.ChannelScheduler) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if !requireMatchingIfMatch(c, cfgManager) {
+		expectedRevision, ok := parseIfMatchExpectedRevision(c)
+		if !ok {
 			return
 		}
 		id, ok := resolveChannelIndex(c, cfgManager, channelPoolResponses)
@@ -1148,7 +1186,13 @@ func UpdateResponsesUpstream(cfgManager *config.ConfigManager, sch *scheduler.Ch
 			return
 		}
 
-		shouldResetMetrics, err := cfgManager.UpdateResponsesUpstream(id, updates)
+		var shouldResetMetrics bool
+		var err error
+		if expectedRevision != nil {
+			shouldResetMetrics, err = cfgManager.UpdateResponsesUpstreamWithExpectedRevision(id, updates, *expectedRevision)
+		} else {
+			shouldResetMetrics, err = cfgManager.UpdateResponsesUpstream(id, updates)
+		}
 		if err != nil {
 			if writeStaleConfigConflict(c, err) {
 				return
@@ -1178,7 +1222,8 @@ func UpdateResponsesUpstream(cfgManager *config.ConfigManager, sch *scheduler.Ch
 // DeleteResponsesUpstream 删除 Responses 上游
 func DeleteResponsesUpstream(cfgManager *config.ConfigManager, channelRateLimiter *middleware.ChannelRateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if !requireMatchingIfMatch(c, cfgManager) {
+		expectedRevision, ok := parseIfMatchExpectedRevision(c)
+		if !ok {
 			return
 		}
 		id, ok := resolveChannelIndex(c, cfgManager, channelPoolResponses)
@@ -1186,7 +1231,13 @@ func DeleteResponsesUpstream(cfgManager *config.ConfigManager, channelRateLimite
 			return
 		}
 
-		removed, err := cfgManager.RemoveResponsesUpstream(id)
+		var removed *config.UpstreamConfig
+		var err error
+		if expectedRevision != nil {
+			removed, err = cfgManager.RemoveResponsesUpstreamWithExpectedRevision(id, *expectedRevision)
+		} else {
+			removed, err = cfgManager.RemoveResponsesUpstream(id)
+		}
 		if err != nil {
 			if writeStaleConfigConflict(c, err) {
 				return

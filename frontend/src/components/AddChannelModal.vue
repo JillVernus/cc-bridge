@@ -1384,6 +1384,7 @@ import { useTheme } from 'vuetify'
 import { useI18n } from 'vue-i18n'
 import type {
   Channel,
+  ChannelIdentity,
   OAuthTokens,
   AliasesConfig,
   CompositeMapping,
@@ -2062,7 +2063,7 @@ const targetModelOptions = computed(() => {
 
 // Fetch upstream models from the channel
 const fetchUpstreamModels = async () => {
-  // Need channel index for API call - only works in edit mode
+  // Need saved channel identity for API call - only works in edit mode
   if (!props.channel || props.channel.index === undefined) {
     upstreamModelsError.value = t('addChannel.saveChannelFirst')
     return
@@ -2072,14 +2073,18 @@ const fetchUpstreamModels = async () => {
   upstreamModelsError.value = ''
 
   try {
+    const channelRef: ChannelIdentity = {
+      id: props.channel.id,
+      index: props.channel.index
+    }
     const result =
       props.channelType === 'responses'
-        ? await api.fetchResponsesUpstreamModels(props.channel.index)
+        ? await api.fetchResponsesUpstreamModels(channelRef)
         : props.channelType === 'gemini'
-          ? await api.fetchGeminiUpstreamModels(props.channel.index)
+          ? await api.fetchGeminiUpstreamModels(channelRef)
           : props.channelType === 'chat'
-            ? await api.fetchChatUpstreamModels(props.channel.index)
-            : await api.fetchUpstreamModels(props.channel.index)
+            ? await api.fetchChatUpstreamModels(channelRef)
+            : await api.fetchUpstreamModels(channelRef)
 
     if (result.success && result.models) {
       upstreamModels.value = result.models

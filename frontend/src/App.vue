@@ -932,9 +932,9 @@ const saveChannel = async (
       const { apiKeys, ...channelUpdate } = channel
 
       if (isChat) {
-        await api.updateChatChannel(editingChannel.value.index, channelUpdate)
+        await api.updateChatChannel(channelIdentityRef(editingChannel.value), channelUpdate)
       } else if (isGemini) {
-        await api.updateGeminiChannel(editingChannel.value.index, channelUpdate)
+        await api.updateGeminiChannel(channelIdentityRef(editingChannel.value), channelUpdate)
       } else if (isResponses) {
         await api.updateResponsesChannel(channelIdentityRef(editingChannel.value), channelUpdate)
       } else {

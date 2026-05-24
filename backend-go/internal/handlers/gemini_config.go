@@ -13,7 +13,8 @@ import (
 // GetGeminiUpstreams 获取 Gemini 渠道列表
 func GetGeminiUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		cfg := cfgManager.GetConfig()
+		cfg, revision := cfgManager.GetConfigWithRevision()
+		writeConfigRevisionETag(c, revision)
 
 		upstreams := make([]gin.H, len(cfg.GeminiUpstream))
 		for i, up := range cfg.GeminiUpstream {
@@ -92,6 +93,10 @@ func AddGeminiUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			c.JSON(400, gin.H{"error": "Invalid request body: " + err.Error()})
 			return
 		}
+		expectedRevision, ok := parseIfMatchExpectedRevision(c)
+		if !ok {
+			return
+		}
 
 		// Validate required fields
 		if req.Name == "" {
@@ -132,7 +137,13 @@ func AddGeminiUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			KeyLoadBalance:            req.KeyLoadBalance,
 		}
 
-		if err := cfgManager.AddGeminiUpstream(upstream); err != nil {
+		var err error
+		if expectedRevision != nil {
+			err = cfgManager.AddGeminiUpstreamWithExpectedRevision(upstream, *expectedRevision)
+		} else {
+			err = cfgManager.AddGeminiUpstream(upstream)
+		}
+		if err != nil {
 			if writeStaleConfigConflict(c, err) {
 				return
 			}
@@ -140,17 +151,28 @@ func AddGeminiUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(200, gin.H{"message": "Gemini channel added successfully"})
+		cfg, revision := cfgManager.GetConfigWithRevision()
+		writeConfigRevisionETag(c, revision)
+		identity := findChannelIdentityByIDOrName(cfg.GeminiUpstream, upstream.ID, upstream.Name)
+
+		c.JSON(200, gin.H{
+			"success": true,
+			"message": "Gemini channel added successfully",
+			"id":      identity["id"],
+			"index":   identity["index"],
+		})
 	}
 }
 
 // UpdateGeminiUpstream 更新 Gemini 渠道
 func UpdateGeminiUpstream(cfgManager *config.ConfigManager, channelScheduler *scheduler.ChannelScheduler) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		indexStr := c.Param("id")
-		index, err := strconv.Atoi(indexStr)
-		if err != nil {
-			c.JSON(400, gin.H{"error": "Invalid channel index"})
+		expectedRevision, ok := parseIfMatchExpectedRevision(c)
+		if !ok {
+			return
+		}
+		index, ok := resolveChannelIndex(c, cfgManager, channelPoolGemini)
+		if !ok {
 			return
 		}
 
@@ -160,7 +182,13 @@ func UpdateGeminiUpstream(cfgManager *config.ConfigManager, channelScheduler *sc
 			return
 		}
 
-		shouldResetMetrics, err := cfgManager.UpdateGeminiUpstream(index, updates)
+		var shouldResetMetrics bool
+		var err error
+		if expectedRevision != nil {
+			shouldResetMetrics, err = cfgManager.UpdateGeminiUpstreamWithExpectedRevision(index, updates, *expectedRevision)
+		} else {
+			shouldResetMetrics, err = cfgManager.UpdateGeminiUpstream(index, updates)
+		}
 		if err != nil {
 			if writeStaleConfigConflict(c, err) {
 				return
@@ -174,21 +202,38 @@ func UpdateGeminiUpstream(cfgManager *config.ConfigManager, channelScheduler *sc
 			channelScheduler.ResetGeminiChannelMetrics(index)
 		}
 
-		c.JSON(200, gin.H{"message": "Gemini channel updated successfully"})
+		cfg, revision := cfgManager.GetConfigWithRevision()
+		writeConfigRevisionETag(c, revision)
+		identity := channelIdentity(cfg.GeminiUpstream, index)
+
+		c.JSON(200, gin.H{
+			"success": true,
+			"message": "Gemini channel updated successfully",
+			"id":      identity["id"],
+			"index":   identity["index"],
+		})
 	}
 }
 
 // DeleteGeminiUpstream 删除 Gemini 渠道
 func DeleteGeminiUpstream(cfgManager *config.ConfigManager, channelRateLimiter *middleware.ChannelRateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		indexStr := c.Param("id")
-		index, err := strconv.Atoi(indexStr)
-		if err != nil {
-			c.JSON(400, gin.H{"error": "Invalid channel index"})
+		expectedRevision, ok := parseIfMatchExpectedRevision(c)
+		if !ok {
+			return
+		}
+		index, ok := resolveChannelIndex(c, cfgManager, channelPoolGemini)
+		if !ok {
 			return
 		}
 
-		removed, err := cfgManager.RemoveGeminiUpstream(index)
+		var removed *config.UpstreamConfig
+		var err error
+		if expectedRevision != nil {
+			removed, err = cfgManager.RemoveGeminiUpstreamWithExpectedRevision(index, *expectedRevision)
+		} else {
+			removed, err = cfgManager.RemoveGeminiUpstream(index)
+		}
 		if err != nil {
 			if writeStaleConfigConflict(c, err) {
 				return
@@ -202,7 +247,14 @@ func DeleteGeminiUpstream(cfgManager *config.ConfigManager, channelRateLimiter *
 			channelRateLimiter.ClearChannel(removed.Index)
 		}
 
-		c.JSON(200, gin.H{"message": "Gemini channel deleted successfully"})
+		_, revision := cfgManager.GetConfigWithRevision()
+		writeConfigRevisionETag(c, revision)
+		c.JSON(200, gin.H{
+			"success": true,
+			"message": "Gemini channel deleted successfully",
+			"id":      removed.ID,
+			"index":   index,
+		})
 	}
 }
 

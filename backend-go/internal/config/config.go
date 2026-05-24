@@ -1122,6 +1122,16 @@ func (cm *ConfigManager) saveConfigLocked(config Config) error {
 	return nil
 }
 
+func (cm *ConfigManager) checkExpectedRevisionLocked(expectedRevision *int64) error {
+	if expectedRevision == nil {
+		return nil
+	}
+	if cm.revision != *expectedRevision {
+		return fmt.Errorf("%w: expected revision %d, current revision %d", ErrStaleConfigWrite, *expectedRevision, cm.revision)
+	}
+	return nil
+}
+
 // SaveConfig 保存配置
 func (cm *ConfigManager) SaveConfig() error {
 	cm.mu.Lock()
@@ -1615,8 +1625,20 @@ func ValidateCompositeChannel(upstream *UpstreamConfig, messagesUpstreams []Upst
 }
 
 func (cm *ConfigManager) AddUpstream(upstream UpstreamConfig) error {
+	return cm.addUpstream(upstream, nil)
+}
+
+func (cm *ConfigManager) AddUpstreamWithExpectedRevision(upstream UpstreamConfig, expectedRevision int64) error {
+	return cm.addUpstream(upstream, &expectedRevision)
+}
+
+func (cm *ConfigManager) addUpstream(upstream UpstreamConfig, expectedRevision *int64) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
+
+	if err := cm.checkExpectedRevisionLocked(expectedRevision); err != nil {
+		return err
+	}
 
 	config := cloneConfig(cm.config)
 
@@ -1666,8 +1688,20 @@ func (cm *ConfigManager) AddUpstream(upstream UpstreamConfig) error {
 // UpdateUpstream 更新上游
 // 返回值：shouldResetMetrics 表示是否需要重置渠道指标（熔断状态）
 func (cm *ConfigManager) UpdateUpstream(index int, updates UpstreamUpdate) (shouldResetMetrics bool, err error) {
+	return cm.updateUpstream(index, updates, nil)
+}
+
+func (cm *ConfigManager) UpdateUpstreamWithExpectedRevision(index int, updates UpstreamUpdate, expectedRevision int64) (shouldResetMetrics bool, err error) {
+	return cm.updateUpstream(index, updates, &expectedRevision)
+}
+
+func (cm *ConfigManager) updateUpstream(index int, updates UpstreamUpdate, expectedRevision *int64) (shouldResetMetrics bool, err error) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
+
+	if err := cm.checkExpectedRevisionLocked(expectedRevision); err != nil {
+		return false, err
+	}
 
 	if index < 0 || index >= len(cm.config.Upstream) {
 		return false, fmt.Errorf("invalid upstream index: %d", index)
@@ -1805,8 +1839,20 @@ func (cm *ConfigManager) UpdateUpstream(index int, updates UpstreamUpdate) (shou
 
 // RemoveUpstream 删除上游
 func (cm *ConfigManager) RemoveUpstream(index int) (*UpstreamConfig, error) {
+	return cm.removeUpstream(index, nil)
+}
+
+func (cm *ConfigManager) RemoveUpstreamWithExpectedRevision(index int, expectedRevision int64) (*UpstreamConfig, error) {
+	return cm.removeUpstream(index, &expectedRevision)
+}
+
+func (cm *ConfigManager) removeUpstream(index int, expectedRevision *int64) (*UpstreamConfig, error) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
+
+	if err := cm.checkExpectedRevisionLocked(expectedRevision); err != nil {
+		return nil, err
+	}
 
 	if index < 0 || index >= len(cm.config.Upstream) {
 		return nil, fmt.Errorf("invalid upstream index: %d", index)
@@ -2493,8 +2539,20 @@ func (cm *ConfigManager) GetCurrentResponsesUpstream() (*UpstreamConfig, error) 
 
 // AddResponsesUpstream 添加 Responses 上游
 func (cm *ConfigManager) AddResponsesUpstream(upstream UpstreamConfig) error {
+	return cm.addResponsesUpstream(upstream, nil)
+}
+
+func (cm *ConfigManager) AddResponsesUpstreamWithExpectedRevision(upstream UpstreamConfig, expectedRevision int64) error {
+	return cm.addResponsesUpstream(upstream, &expectedRevision)
+}
+
+func (cm *ConfigManager) addResponsesUpstream(upstream UpstreamConfig, expectedRevision *int64) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
+
+	if err := cm.checkExpectedRevisionLocked(expectedRevision); err != nil {
+		return err
+	}
 
 	upstream.Name = strings.TrimSpace(upstream.Name)
 	if upstream.Name == "" {
@@ -2537,8 +2595,20 @@ func (cm *ConfigManager) AddResponsesUpstream(upstream UpstreamConfig) error {
 // UpdateResponsesUpstream 更新 Responses 上游
 // 返回值：shouldResetMetrics 表示是否需要重置渠道指标（熔断状态）
 func (cm *ConfigManager) UpdateResponsesUpstream(index int, updates UpstreamUpdate) (shouldResetMetrics bool, err error) {
+	return cm.updateResponsesUpstream(index, updates, nil)
+}
+
+func (cm *ConfigManager) UpdateResponsesUpstreamWithExpectedRevision(index int, updates UpstreamUpdate, expectedRevision int64) (shouldResetMetrics bool, err error) {
+	return cm.updateResponsesUpstream(index, updates, &expectedRevision)
+}
+
+func (cm *ConfigManager) updateResponsesUpstream(index int, updates UpstreamUpdate, expectedRevision *int64) (shouldResetMetrics bool, err error) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
+
+	if err := cm.checkExpectedRevisionLocked(expectedRevision); err != nil {
+		return false, err
+	}
 
 	if index < 0 || index >= len(cm.config.ResponsesUpstream) {
 		return false, fmt.Errorf("invalid Responses upstream index: %d", index)
@@ -2719,8 +2789,20 @@ func (cm *ConfigManager) UpdateGeminiChannelQuotaResetAt(index int, newTime time
 
 // RemoveResponsesUpstream 删除 Responses 上游
 func (cm *ConfigManager) RemoveResponsesUpstream(index int) (*UpstreamConfig, error) {
+	return cm.removeResponsesUpstream(index, nil)
+}
+
+func (cm *ConfigManager) RemoveResponsesUpstreamWithExpectedRevision(index int, expectedRevision int64) (*UpstreamConfig, error) {
+	return cm.removeResponsesUpstream(index, &expectedRevision)
+}
+
+func (cm *ConfigManager) removeResponsesUpstream(index int, expectedRevision *int64) (*UpstreamConfig, error) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
+
+	if err := cm.checkExpectedRevisionLocked(expectedRevision); err != nil {
+		return nil, err
+	}
 
 	if index < 0 || index >= len(cm.config.ResponsesUpstream) {
 		return nil, fmt.Errorf("invalid Responses upstream index: %d", index)
@@ -3469,8 +3551,20 @@ func (cm *ConfigManager) GetGeminiUpstreams() []UpstreamConfig {
 
 // AddGeminiUpstream 添加 Gemini 上游
 func (cm *ConfigManager) AddGeminiUpstream(upstream UpstreamConfig) error {
+	return cm.addGeminiUpstream(upstream, nil)
+}
+
+func (cm *ConfigManager) AddGeminiUpstreamWithExpectedRevision(upstream UpstreamConfig, expectedRevision int64) error {
+	return cm.addGeminiUpstream(upstream, &expectedRevision)
+}
+
+func (cm *ConfigManager) addGeminiUpstream(upstream UpstreamConfig, expectedRevision *int64) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
+
+	if err := cm.checkExpectedRevisionLocked(expectedRevision); err != nil {
+		return err
+	}
 
 	upstream.Name = strings.TrimSpace(upstream.Name)
 	if upstream.Name == "" {
@@ -3513,8 +3607,20 @@ func (cm *ConfigManager) AddGeminiUpstream(upstream UpstreamConfig) error {
 // UpdateGeminiUpstream 更新 Gemini 上游
 // 返回值：shouldResetMetrics 表示是否需要重置渠道指标（熔断状态）
 func (cm *ConfigManager) UpdateGeminiUpstream(index int, updates UpstreamUpdate) (shouldResetMetrics bool, err error) {
+	return cm.updateGeminiUpstream(index, updates, nil)
+}
+
+func (cm *ConfigManager) UpdateGeminiUpstreamWithExpectedRevision(index int, updates UpstreamUpdate, expectedRevision int64) (shouldResetMetrics bool, err error) {
+	return cm.updateGeminiUpstream(index, updates, &expectedRevision)
+}
+
+func (cm *ConfigManager) updateGeminiUpstream(index int, updates UpstreamUpdate, expectedRevision *int64) (shouldResetMetrics bool, err error) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
+
+	if err := cm.checkExpectedRevisionLocked(expectedRevision); err != nil {
+		return false, err
+	}
 
 	if index < 0 || index >= len(cm.config.GeminiUpstream) {
 		return false, fmt.Errorf("invalid Gemini upstream index: %d", index)
@@ -3637,8 +3743,20 @@ func (cm *ConfigManager) UpdateGeminiUpstream(index int, updates UpstreamUpdate)
 
 // RemoveGeminiUpstream 删除 Gemini 上游
 func (cm *ConfigManager) RemoveGeminiUpstream(index int) (*UpstreamConfig, error) {
+	return cm.removeGeminiUpstream(index, nil)
+}
+
+func (cm *ConfigManager) RemoveGeminiUpstreamWithExpectedRevision(index int, expectedRevision int64) (*UpstreamConfig, error) {
+	return cm.removeGeminiUpstream(index, &expectedRevision)
+}
+
+func (cm *ConfigManager) removeGeminiUpstream(index int, expectedRevision *int64) (*UpstreamConfig, error) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
+
+	if err := cm.checkExpectedRevisionLocked(expectedRevision); err != nil {
+		return nil, err
+	}
 
 	if index < 0 || index >= len(cm.config.GeminiUpstream) {
 		return nil, fmt.Errorf("invalid Gemini upstream index: %d", index)
@@ -3827,8 +3945,20 @@ func (cm *ConfigManager) GetChatUpstreams() []UpstreamConfig {
 
 // AddChatUpstream 添加 Chat 上游
 func (cm *ConfigManager) AddChatUpstream(upstream UpstreamConfig) error {
+	return cm.addChatUpstream(upstream, nil)
+}
+
+func (cm *ConfigManager) AddChatUpstreamWithExpectedRevision(upstream UpstreamConfig, expectedRevision int64) error {
+	return cm.addChatUpstream(upstream, &expectedRevision)
+}
+
+func (cm *ConfigManager) addChatUpstream(upstream UpstreamConfig, expectedRevision *int64) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
+
+	if err := cm.checkExpectedRevisionLocked(expectedRevision); err != nil {
+		return err
+	}
 
 	upstream.Name = strings.TrimSpace(upstream.Name)
 	if upstream.Name == "" {
@@ -3871,8 +4001,20 @@ func (cm *ConfigManager) AddChatUpstream(upstream UpstreamConfig) error {
 // UpdateChatUpstream 更新 Chat 上游
 // 返回值：shouldResetMetrics 表示是否需要重置渠道指标（熔断状态）
 func (cm *ConfigManager) UpdateChatUpstream(index int, updates UpstreamUpdate) (shouldResetMetrics bool, err error) {
+	return cm.updateChatUpstream(index, updates, nil)
+}
+
+func (cm *ConfigManager) UpdateChatUpstreamWithExpectedRevision(index int, updates UpstreamUpdate, expectedRevision int64) (shouldResetMetrics bool, err error) {
+	return cm.updateChatUpstream(index, updates, &expectedRevision)
+}
+
+func (cm *ConfigManager) updateChatUpstream(index int, updates UpstreamUpdate, expectedRevision *int64) (shouldResetMetrics bool, err error) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
+
+	if err := cm.checkExpectedRevisionLocked(expectedRevision); err != nil {
+		return false, err
+	}
 
 	if index < 0 || index >= len(cm.config.ChatUpstream) {
 		return false, fmt.Errorf("invalid Chat upstream index: %d", index)
@@ -3995,8 +4137,20 @@ func (cm *ConfigManager) UpdateChatUpstream(index int, updates UpstreamUpdate) (
 
 // RemoveChatUpstream 删除 Chat 上游
 func (cm *ConfigManager) RemoveChatUpstream(index int) (*UpstreamConfig, error) {
+	return cm.removeChatUpstream(index, nil)
+}
+
+func (cm *ConfigManager) RemoveChatUpstreamWithExpectedRevision(index int, expectedRevision int64) (*UpstreamConfig, error) {
+	return cm.removeChatUpstream(index, &expectedRevision)
+}
+
+func (cm *ConfigManager) removeChatUpstream(index int, expectedRevision *int64) (*UpstreamConfig, error) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
+
+	if err := cm.checkExpectedRevisionLocked(expectedRevision); err != nil {
+		return nil, err
+	}
 
 	if index < 0 || index >= len(cm.config.ChatUpstream) {
 		return nil, fmt.Errorf("invalid Chat upstream index: %d", index)

@@ -766,23 +766,33 @@ class ApiService {
     return this.request('/gemini/channels')
   }
 
-  async addGeminiChannel(channel: Omit<Channel, 'index' | 'latency' | 'status'>): Promise<void> {
-    await this.request('/gemini/channels', {
+  async addGeminiChannel(
+    channel: Omit<Channel, 'index' | 'latency' | 'status'>,
+    options?: ChannelMutationOptions
+  ): Promise<ChannelMutationResponse> {
+    return this.request('/gemini/channels', {
       method: 'POST',
+      headers: mutationHeaders(options),
       body: JSON.stringify(channel)
     })
   }
 
-  async updateGeminiChannel(id: number, channel: Partial<Channel>): Promise<void> {
-    await this.request(`/gemini/channels/${id}`, {
+  async updateGeminiChannel(
+    channelRef: ChannelRef,
+    channel: Partial<Channel>,
+    options?: ChannelMutationOptions
+  ): Promise<ChannelMutationResponse> {
+    return this.request(`/gemini/channels/${channelRefPath(channelRef)}`, {
       method: 'PUT',
+      headers: mutationHeaders(options),
       body: JSON.stringify(channel)
     })
   }
 
-  async deleteGeminiChannel(id: number): Promise<void> {
-    await this.request(`/gemini/channels/${id}`, {
-      method: 'DELETE'
+  async deleteGeminiChannel(channelRef: ChannelRef, options?: ChannelMutationOptions): Promise<ChannelMutationResponse> {
+    return this.request(`/gemini/channels/${channelRefPath(channelRef)}`, {
+      method: 'DELETE',
+      headers: mutationHeaders(options)
     })
   }
 
@@ -826,23 +836,33 @@ class ApiService {
     return this.request('/chat/channels')
   }
 
-  async addChatChannel(channel: Omit<Channel, 'index' | 'latency' | 'status'>): Promise<void> {
-    await this.request('/chat/channels', {
+  async addChatChannel(
+    channel: Omit<Channel, 'index' | 'latency' | 'status'>,
+    options?: ChannelMutationOptions
+  ): Promise<ChannelMutationResponse> {
+    return this.request('/chat/channels', {
       method: 'POST',
+      headers: mutationHeaders(options),
       body: JSON.stringify(channel)
     })
   }
 
-  async updateChatChannel(id: number, channel: Partial<Channel>): Promise<void> {
-    await this.request(`/chat/channels/${id}`, {
+  async updateChatChannel(
+    channelRef: ChannelRef,
+    channel: Partial<Channel>,
+    options?: ChannelMutationOptions
+  ): Promise<ChannelMutationResponse> {
+    return this.request(`/chat/channels/${channelRefPath(channelRef)}`, {
       method: 'PUT',
+      headers: mutationHeaders(options),
       body: JSON.stringify(channel)
     })
   }
 
-  async deleteChatChannel(id: number): Promise<void> {
-    await this.request(`/chat/channels/${id}`, {
-      method: 'DELETE'
+  async deleteChatChannel(channelRef: ChannelRef, options?: ChannelMutationOptions): Promise<ChannelMutationResponse> {
+    return this.request(`/chat/channels/${channelRefPath(channelRef)}`, {
+      method: 'DELETE',
+      headers: mutationHeaders(options)
     })
   }
 
