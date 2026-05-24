@@ -199,6 +199,7 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
 # Custom
+.agent-relaypad/
 .claude/*
 !.claude/skills/
 .claude/skills/*
