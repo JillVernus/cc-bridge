@@ -9,8 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/JillVernus/cc-bridge/internal/config"
+	"github.com/JillVernus/cc-bridge/internal/database"
 	"github.com/gin-gonic/gin"
 )
 
@@ -22,6 +24,27 @@ func newIdentityTestConfigManager(t *testing.T) *config.ConfigManager {
 		t.Fatalf("NewConfigManager() failed: %v", err)
 	}
 	t.Cleanup(func() { _ = cfgManager.Close() })
+
+	db, err := database.New(database.Config{
+		Type: database.DialectSQLite,
+		URL:  filepath.Join(t.TempDir(), "config.db"),
+	})
+	if err != nil {
+		t.Fatalf("failed to create identity test database: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := database.RunMigrations(db); err != nil {
+		t.Fatalf("failed to run identity test migrations: %v", err)
+	}
+
+	storage := config.NewDBConfigStorage(db, time.Second)
+	storage.SetConfigManager(cfgManager)
+	cfg := cfgManager.GetConfig()
+	if err := storage.SaveConfigToDB(&cfg); err != nil {
+		t.Fatalf("seed identity config database: %v", err)
+	}
+	cfgManager.SetDBStorage(storage)
+
 	return cfgManager
 }
 
