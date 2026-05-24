@@ -21,6 +21,18 @@ const getApiBase = () => {
 
 const API_BASE = getApiBase()
 
+export class ApiError extends Error {
+  status: number
+  payload: unknown
+
+  constructor(message: string, status: number, payload: unknown) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.payload = payload
+  }
+}
+
 // 打印当前API配置（仅开发环境）
 if (import.meta.env.DEV) {
   console.log('🔗 API Configuration:', {
@@ -276,6 +288,8 @@ export interface ChannelMutationOptions {
   ifMatch?: string
 }
 
+export type ChannelPool = 'messages' | 'responses' | 'gemini' | 'chat'
+
 type ChannelRef = number | string | ChannelIdentity
 
 const channelRefPath = (channel: ChannelRef, suffix = ''): string => {
@@ -351,6 +365,7 @@ const normalizeChannelMetricsResponse = (payload: unknown): ChannelMetrics[] => 
 
 class ApiService {
   private apiKey: string | null = null
+  private channelConfigEtags: Partial<Record<ChannelPool, string>> = {}
 
   // 设置API密钥
   setApiKey(key: string | null) {
@@ -389,7 +404,19 @@ class ApiService {
     localStorage.removeItem('proxyAccessKey')
   }
 
-  private async request(url: string, options: RequestInit = {}): Promise<any> {
+  getChannelMutationOptions(pool: ChannelPool): ChannelMutationOptions | undefined {
+    const ifMatch = this.channelConfigEtags[pool]
+    return ifMatch ? { ifMatch } : undefined
+  }
+
+  private channelMutationOptions(
+    pool: ChannelPool,
+    options?: ChannelMutationOptions
+  ): ChannelMutationOptions | undefined {
+    return options ?? this.getChannelMutationOptions(pool)
+  }
+
+  private async request(url: string, options: RequestInit = {}, channelPool?: ChannelPool): Promise<any> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...(options.headers as Record<string, string>)
@@ -416,25 +443,34 @@ class ApiService {
         throw new Error('认证失败，请重新输入访问密钥')
       }
 
-      throw new Error(error.error || error.message || 'Request failed')
+      throw new ApiError(error.error || error.message || 'Request failed', response.status, error)
+    }
+
+    const etag = response.headers.get('ETag')
+    if (channelPool && etag) {
+      this.channelConfigEtags[channelPool] = etag
     }
 
     return response.json()
   }
 
   async getChannels(): Promise<ChannelsResponse> {
-    return this.request('/channels')
+    return this.request('/channels', {}, 'messages')
   }
 
   async addChannel(
     channel: Omit<Channel, 'index' | 'latency' | 'status'>,
     options?: ChannelMutationOptions
   ): Promise<ChannelMutationResponse> {
-    return this.request('/channels', {
-      method: 'POST',
-      headers: mutationHeaders(options),
-      body: JSON.stringify(channel)
-    })
+    return this.request(
+      '/channels',
+      {
+        method: 'POST',
+        headers: mutationHeaders(this.channelMutationOptions('messages', options)),
+        body: JSON.stringify(channel)
+      },
+      'messages'
+    )
   }
 
   async updateChannel(
@@ -442,18 +478,26 @@ class ApiService {
     channel: Partial<Channel>,
     options?: ChannelMutationOptions
   ): Promise<ChannelMutationResponse> {
-    return this.request(`/channels/${channelRefPath(channelRef)}`, {
-      method: 'PUT',
-      headers: mutationHeaders(options),
-      body: JSON.stringify(channel)
-    })
+    return this.request(
+      `/channels/${channelRefPath(channelRef)}`,
+      {
+        method: 'PUT',
+        headers: mutationHeaders(this.channelMutationOptions('messages', options)),
+        body: JSON.stringify(channel)
+      },
+      'messages'
+    )
   }
 
   async deleteChannel(channelRef: ChannelRef, options?: ChannelMutationOptions): Promise<ChannelMutationResponse> {
-    return this.request(`/channels/${channelRefPath(channelRef)}`, {
-      method: 'DELETE',
-      headers: mutationHeaders(options)
-    })
+    return this.request(
+      `/channels/${channelRefPath(channelRef)}`,
+      {
+        method: 'DELETE',
+        headers: mutationHeaders(this.channelMutationOptions('messages', options))
+      },
+      'messages'
+    )
   }
 
   async addApiKey(channelId: number, apiKey: string): Promise<void> {
@@ -536,18 +580,22 @@ class ApiService {
   // ============== Responses 渠道管理 API ==============
 
   async getResponsesChannels(): Promise<ChannelsResponse> {
-    return this.request('/responses/channels')
+    return this.request('/responses/channels', {}, 'responses')
   }
 
   async addResponsesChannel(
     channel: Omit<Channel, 'index' | 'latency' | 'status'>,
     options?: ChannelMutationOptions
   ): Promise<ChannelMutationResponse> {
-    return this.request('/responses/channels', {
-      method: 'POST',
-      headers: mutationHeaders(options),
-      body: JSON.stringify(channel)
-    })
+    return this.request(
+      '/responses/channels',
+      {
+        method: 'POST',
+        headers: mutationHeaders(this.channelMutationOptions('responses', options)),
+        body: JSON.stringify(channel)
+      },
+      'responses'
+    )
   }
 
   async updateResponsesChannel(
@@ -555,21 +603,29 @@ class ApiService {
     channel: Partial<Channel>,
     options?: ChannelMutationOptions
   ): Promise<ChannelMutationResponse> {
-    return this.request(`/responses/channels/${channelRefPath(channelRef)}`, {
-      method: 'PUT',
-      headers: mutationHeaders(options),
-      body: JSON.stringify(channel)
-    })
+    return this.request(
+      `/responses/channels/${channelRefPath(channelRef)}`,
+      {
+        method: 'PUT',
+        headers: mutationHeaders(this.channelMutationOptions('responses', options)),
+        body: JSON.stringify(channel)
+      },
+      'responses'
+    )
   }
 
   async deleteResponsesChannel(
     channelRef: ChannelRef,
     options?: ChannelMutationOptions
   ): Promise<ChannelMutationResponse> {
-    return this.request(`/responses/channels/${channelRefPath(channelRef)}`, {
-      method: 'DELETE',
-      headers: mutationHeaders(options)
-    })
+    return this.request(
+      `/responses/channels/${channelRefPath(channelRef)}`,
+      {
+        method: 'DELETE',
+        headers: mutationHeaders(this.channelMutationOptions('responses', options))
+      },
+      'responses'
+    )
   }
 
   async addResponsesApiKey(channelId: number, apiKey: string): Promise<void> {
@@ -648,10 +704,15 @@ class ApiService {
 
   // 重新排序渠道优先级
   async reorderChannels(order: number[]): Promise<void> {
-    await this.request('/channels/reorder', {
-      method: 'POST',
-      body: JSON.stringify({ order })
-    })
+    await this.request(
+      '/channels/reorder',
+      {
+        method: 'POST',
+        headers: mutationHeaders(this.channelMutationOptions('messages')),
+        body: JSON.stringify({ order })
+      },
+      'messages'
+    )
   }
 
   // 设置渠道状态
@@ -694,10 +755,15 @@ class ApiService {
 
   // 重新排序 Responses 渠道优先级
   async reorderResponsesChannels(order: number[]): Promise<void> {
-    await this.request('/responses/channels/reorder', {
-      method: 'POST',
-      body: JSON.stringify({ order })
-    })
+    await this.request(
+      '/responses/channels/reorder',
+      {
+        method: 'POST',
+        headers: mutationHeaders(this.channelMutationOptions('responses')),
+        body: JSON.stringify({ order })
+      },
+      'responses'
+    )
   }
 
   // 设置 Responses 渠道状态
@@ -746,35 +812,49 @@ class ApiService {
 
   // 设置 Messages 渠道促销期
   async setChannelPromotion(channelId: number, durationSeconds: number): Promise<void> {
-    await this.request(`/channels/${channelId}/promotion`, {
-      method: 'POST',
-      body: JSON.stringify({ duration: durationSeconds })
-    })
+    await this.request(
+      `/channels/${channelId}/promotion`,
+      {
+        method: 'POST',
+        headers: mutationHeaders(this.channelMutationOptions('messages')),
+        body: JSON.stringify({ duration: durationSeconds })
+      },
+      'messages'
+    )
   }
 
   // 设置 Responses 渠道促销期
   async setResponsesChannelPromotion(channelId: number, durationSeconds: number): Promise<void> {
-    await this.request(`/responses/channels/${channelId}/promotion`, {
-      method: 'POST',
-      body: JSON.stringify({ duration: durationSeconds })
-    })
+    await this.request(
+      `/responses/channels/${channelId}/promotion`,
+      {
+        method: 'POST',
+        headers: mutationHeaders(this.channelMutationOptions('responses')),
+        body: JSON.stringify({ duration: durationSeconds })
+      },
+      'responses'
+    )
   }
 
   // ============== Gemini 渠道管理 API ==============
 
   async getGeminiChannels(): Promise<ChannelsResponse> {
-    return this.request('/gemini/channels')
+    return this.request('/gemini/channels', {}, 'gemini')
   }
 
   async addGeminiChannel(
     channel: Omit<Channel, 'index' | 'latency' | 'status'>,
     options?: ChannelMutationOptions
   ): Promise<ChannelMutationResponse> {
-    return this.request('/gemini/channels', {
-      method: 'POST',
-      headers: mutationHeaders(options),
-      body: JSON.stringify(channel)
-    })
+    return this.request(
+      '/gemini/channels',
+      {
+        method: 'POST',
+        headers: mutationHeaders(this.channelMutationOptions('gemini', options)),
+        body: JSON.stringify(channel)
+      },
+      'gemini'
+    )
   }
 
   async updateGeminiChannel(
@@ -782,18 +862,29 @@ class ApiService {
     channel: Partial<Channel>,
     options?: ChannelMutationOptions
   ): Promise<ChannelMutationResponse> {
-    return this.request(`/gemini/channels/${channelRefPath(channelRef)}`, {
-      method: 'PUT',
-      headers: mutationHeaders(options),
-      body: JSON.stringify(channel)
-    })
+    return this.request(
+      `/gemini/channels/${channelRefPath(channelRef)}`,
+      {
+        method: 'PUT',
+        headers: mutationHeaders(this.channelMutationOptions('gemini', options)),
+        body: JSON.stringify(channel)
+      },
+      'gemini'
+    )
   }
 
-  async deleteGeminiChannel(channelRef: ChannelRef, options?: ChannelMutationOptions): Promise<ChannelMutationResponse> {
-    return this.request(`/gemini/channels/${channelRefPath(channelRef)}`, {
-      method: 'DELETE',
-      headers: mutationHeaders(options)
-    })
+  async deleteGeminiChannel(
+    channelRef: ChannelRef,
+    options?: ChannelMutationOptions
+  ): Promise<ChannelMutationResponse> {
+    return this.request(
+      `/gemini/channels/${channelRefPath(channelRef)}`,
+      {
+        method: 'DELETE',
+        headers: mutationHeaders(this.channelMutationOptions('gemini', options))
+      },
+      'gemini'
+    )
   }
 
   async addGeminiApiKey(channelId: number, apiKey: string): Promise<void> {
@@ -811,10 +902,15 @@ class ApiService {
 
   // 重新排序 Gemini 渠道优先级
   async reorderGeminiChannels(order: number[]): Promise<void> {
-    await this.request('/gemini/channels/reorder', {
-      method: 'POST',
-      body: JSON.stringify({ order })
-    })
+    await this.request(
+      '/gemini/channels/reorder',
+      {
+        method: 'POST',
+        headers: mutationHeaders(this.channelMutationOptions('gemini')),
+        body: JSON.stringify({ order })
+      },
+      'gemini'
+    )
   }
 
   // 设置 Gemini 渠道状态
@@ -833,18 +929,22 @@ class ApiService {
   // ============== Chat (OpenAI Chat Completions) 渠道管理 API ==============
 
   async getChatChannels(): Promise<ChannelsResponse> {
-    return this.request('/chat/channels')
+    return this.request('/chat/channels', {}, 'chat')
   }
 
   async addChatChannel(
     channel: Omit<Channel, 'index' | 'latency' | 'status'>,
     options?: ChannelMutationOptions
   ): Promise<ChannelMutationResponse> {
-    return this.request('/chat/channels', {
-      method: 'POST',
-      headers: mutationHeaders(options),
-      body: JSON.stringify(channel)
-    })
+    return this.request(
+      '/chat/channels',
+      {
+        method: 'POST',
+        headers: mutationHeaders(this.channelMutationOptions('chat', options)),
+        body: JSON.stringify(channel)
+      },
+      'chat'
+    )
   }
 
   async updateChatChannel(
@@ -852,18 +952,26 @@ class ApiService {
     channel: Partial<Channel>,
     options?: ChannelMutationOptions
   ): Promise<ChannelMutationResponse> {
-    return this.request(`/chat/channels/${channelRefPath(channelRef)}`, {
-      method: 'PUT',
-      headers: mutationHeaders(options),
-      body: JSON.stringify(channel)
-    })
+    return this.request(
+      `/chat/channels/${channelRefPath(channelRef)}`,
+      {
+        method: 'PUT',
+        headers: mutationHeaders(this.channelMutationOptions('chat', options)),
+        body: JSON.stringify(channel)
+      },
+      'chat'
+    )
   }
 
   async deleteChatChannel(channelRef: ChannelRef, options?: ChannelMutationOptions): Promise<ChannelMutationResponse> {
-    return this.request(`/chat/channels/${channelRefPath(channelRef)}`, {
-      method: 'DELETE',
-      headers: mutationHeaders(options)
-    })
+    return this.request(
+      `/chat/channels/${channelRefPath(channelRef)}`,
+      {
+        method: 'DELETE',
+        headers: mutationHeaders(this.channelMutationOptions('chat', options))
+      },
+      'chat'
+    )
   }
 
   async addChatApiKey(channelId: number, apiKey: string): Promise<void> {
@@ -881,10 +989,15 @@ class ApiService {
 
   // 重新排序 Chat 渠道优先级
   async reorderChatChannels(order: number[]): Promise<void> {
-    await this.request('/chat/channels/reorder', {
-      method: 'POST',
-      body: JSON.stringify({ order })
-    })
+    await this.request(
+      '/chat/channels/reorder',
+      {
+        method: 'POST',
+        headers: mutationHeaders(this.channelMutationOptions('chat')),
+        body: JSON.stringify({ order })
+      },
+      'chat'
+    )
   }
 
   // 设置 Chat 渠道状态

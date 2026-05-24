@@ -34,7 +34,8 @@
           size="small"
           color="primary"
           @click="isQuickMode && !isEditing ? handleQuickSubmit() : handleSubmit()"
-          :disabled="isQuickMode && !isEditing ? !isQuickFormValid : !isFormValid"
+          :loading="saving"
+          :disabled="saving || (isQuickMode && !isEditing ? !isQuickFormValid : !isFormValid)"
           class="modal-action-btn"
         >
           <v-icon>mdi-check</v-icon>
@@ -1404,12 +1405,14 @@ interface Props {
   channelType?: 'messages' | 'responses' | 'gemini' | 'chat'
   allChannels?: Channel[]
   responsesChannels?: Channel[]
+  saving?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   channelType: 'messages',
   allChannels: () => [],
-  responsesChannels: () => []
+  responsesChannels: () => [],
+  saving: false
 })
 
 const emit = defineEmits<{
@@ -1592,6 +1595,7 @@ const generatedChannelName = computed(() => {
 
 // 处理快速添加提交
 const handleQuickSubmit = () => {
+  if (props.saving) return
   if (!isQuickFormValid.value) return
 
   const channelData = {
@@ -2903,6 +2907,7 @@ const removeCompositeMapping = (index: number) => {
 }
 
 const handleSubmit = async () => {
+  if (props.saving) return
   if (!formRef.value) return
 
   const { valid } = await formRef.value.validate()

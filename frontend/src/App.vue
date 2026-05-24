@@ -466,6 +466,7 @@
       :channel-type="channelTypeForComponents"
       :all-channels="channels"
       :responses-channels="responsesChannelsData.channels"
+      :saving="isSavingChannel"
       @save="saveChannel"
     />
 
@@ -692,7 +693,15 @@
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useTheme } from 'vuetify'
 import { useI18n } from 'vue-i18n'
-import { api, type Channel, type ChannelIdentity, type ChannelsResponse } from './services/api'
+import {
+  api,
+  ApiError,
+  type Channel,
+  type ChannelIdentity,
+  type ChannelMutationResponse,
+  type ChannelPool,
+  type ChannelsResponse
+} from './services/api'
 import AddChannelModal from './components/AddChannelModal.vue'
 import ChannelOrchestration from './components/ChannelOrchestration.vue'
 import RequestLogTable from './components/RequestLogTable.vue'
@@ -749,6 +758,7 @@ const chatChannelsData = ref<ChannelsResponse>({ channels: [], current: -1, load
 const showAddChannelModal = ref(false)
 const showAddKeyModalRef = ref(false)
 const editingChannel = ref<Channel | null>(null)
+const isSavingChannel = ref(false)
 const selectedChannelForKey = ref<number>(-1)
 const newApiKey = ref('')
 const appVersion = ref('') // 应用版本号
@@ -888,6 +898,8 @@ const handleError = (error: unknown, defaultMessage: string) => {
   console.error(error)
 }
 
+const isConflictError = (error: unknown) => error instanceof ApiError && error.status === 409
+
 // 直接显示错误消息（供子组件事件使用）
 const showErrorToast = (message: string) => {
   showToast(message, 'error')
@@ -902,6 +914,64 @@ const channelIdentityRef = (channel: Channel): ChannelIdentity => ({
   id: channel.id,
   index: channel.index
 })
+
+const currentChannelPool = (): ChannelPool => {
+  if (activeTab.value === 'responses') return 'responses'
+  if (activeTab.value === 'gemini') return 'gemini'
+  if (activeTab.value === 'chat') return 'chat'
+  return 'messages'
+}
+
+const currentChannelsDataRef = () => {
+  if (activeTab.value === 'responses') return responsesChannelsData
+  if (activeTab.value === 'gemini') return geminiChannelsData
+  if (activeTab.value === 'chat') return chatChannelsData
+  return channelsData
+}
+
+const buildCreatedChannel = (
+  channel: Omit<Channel, 'index' | 'latency' | 'status'>,
+  mutationResponse: ChannelMutationResponse
+): Channel => {
+  if (typeof mutationResponse.index !== 'number') {
+    throw new Error('Create channel response did not include a channel index')
+  }
+
+  return {
+    ...channel,
+    id: mutationResponse.id || channel.id,
+    index: mutationResponse.index,
+    status: 'active'
+  }
+}
+
+const mergeSavedChannel = (savedChannel: Channel) => {
+  const dataRef = currentChannelsDataRef()
+  const channels = dataRef.value.channels || []
+  const existingIndex = channels.findIndex(ch =>
+    savedChannel.id && ch.id ? ch.id === savedChannel.id : ch.index === savedChannel.index
+  )
+
+  const mergedChannels =
+    existingIndex >= 0
+      ? channels.map((ch, index) => (index === existingIndex ? { ...ch, ...savedChannel } : ch))
+      : [...channels, savedChannel]
+
+  dataRef.value = {
+    ...dataRef.value,
+    channels: mergedChannels
+  }
+}
+
+const createChannel = async (
+  channel: Omit<Channel, 'index' | 'latency' | 'status'>
+): Promise<ChannelMutationResponse> => {
+  const pool = currentChannelPool()
+  if (pool === 'chat') return api.addChatChannel(channel)
+  if (pool === 'gemini') return api.addGeminiChannel(channel)
+  if (pool === 'responses') return api.addResponsesChannel(channel)
+  return api.addChannel(channel)
+}
 
 // 主要功能函数
 const refreshChannels = async () => {
@@ -924,6 +994,9 @@ const saveChannel = async (
   channel: Omit<Channel, 'index' | 'latency' | 'status'>,
   options?: { isQuickAdd?: boolean }
 ) => {
+  if (isSavingChannel.value) return
+  isSavingChannel.value = true
+
   try {
     const isResponses = activeTab.value === 'responses'
     const isGemini = activeTab.value === 'gemini'
@@ -970,20 +1043,14 @@ const saveChannel = async (
       // Refresh channels to get updated data from server
       await refreshChannels()
     } else {
-      if (isChat) {
-        await api.addChatChannel(channel)
-      } else if (isGemini) {
-        await api.addGeminiChannel(channel)
-      } else if (isResponses) {
-        await api.addResponsesChannel(channel)
-      } else {
-        await api.addChannel(channel)
-      }
+      const mutationResponse = await createChannel(channel)
+      const createdChannel = buildCreatedChannel(channel, mutationResponse)
+      mergeSavedChannel(createdChannel)
       showToast(t('channel.addSuccess'), 'success')
 
       // 快速添加模式：将新渠道设为第一优先级并设置5分钟促销期
       if (options?.isQuickAdd) {
-        await refreshChannels() // 先刷新获取新渠道的 index
+        const quickAddChannel = createdChannel
         const data = isChat
           ? chatChannelsData.value
           : isGemini
@@ -995,16 +1062,13 @@ const saveChannel = async (
         // 找到新添加的渠道（应该是列表中 index 最大的 active 状态渠道）
         const activeChannels = data.channels?.filter(ch => ch.status !== 'disabled') || []
         if (activeChannels.length > 0) {
-          // 新添加的渠道会分配到最大的 index
-          const newChannel = activeChannels.reduce((max, ch) => (ch.index > max.index ? ch : max), activeChannels[0])
-
           try {
             // 1. 重新排序：将新渠道放到第一位
             const otherIndexes = activeChannels
-              .filter(ch => ch.index !== newChannel.index)
+              .filter(ch => ch.index !== quickAddChannel.index)
               .sort((a, b) => (a.priority ?? a.index) - (b.priority ?? b.index))
               .map(ch => ch.index)
-            const newOrder = [newChannel.index, ...otherIndexes]
+            const newOrder = [quickAddChannel.index, ...otherIndexes]
 
             if (isChat) {
               await api.reorderChatChannels(newOrder)
@@ -1019,14 +1083,17 @@ const saveChannel = async (
             // 2. 设置5分钟促销期（300秒）- Gemini/Chat不支持促销期
             if (!isGemini && !isChat) {
               if (isResponses) {
-                await api.setResponsesChannelPromotion(newChannel.index, 300)
+                await api.setResponsesChannelPromotion(quickAddChannel.index, 300)
               } else {
-                await api.setChannelPromotion(newChannel.index, 300)
+                await api.setChannelPromotion(quickAddChannel.index, 300)
               }
             }
 
             showToast(t('channel.prioritySet', { name: channel.name }), 'info')
           } catch (err) {
+            if (isConflictError(err)) {
+              throw err
+            }
             console.warn('设置快速添加优先级失败:', err)
             // 不影响主流程，只是提示
           }
@@ -1037,7 +1104,14 @@ const saveChannel = async (
     editingChannel.value = null
     await refreshChannels()
   } catch (error) {
+    if (isConflictError(error)) {
+      showToast('Channel configuration changed. Refreshed latest channel state; please retry.', 'warning')
+      await refreshChannels()
+      return
+    }
     handleAuthError(error)
+  } finally {
+    isSavingChannel.value = false
   }
 }
 
