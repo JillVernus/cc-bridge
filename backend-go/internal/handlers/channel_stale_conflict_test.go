@@ -374,6 +374,56 @@ func TestStableChannelReadThroughRefreshesStaleManagerForModelFetch(t *testing.T
 	}
 }
 
+func TestStableChannelModelFetchRefreshesKnownStaleChannel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	staleServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"stale-model","object":"model","owned_by":"test"}]}`)
+	}))
+	t.Cleanup(staleServer.Close)
+
+	freshServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"fresh-model","object":"model","owned_by":"test"}]}`)
+	}))
+	t.Cleanup(freshServer.Close)
+
+	seed := staleConflictSeedConfig()
+	seed.Upstream[0].ID = "known-stale-id"
+	seed.Upstream[0].BaseURL = staleServer.URL
+	seed.Upstream[0].ServiceType = "openai"
+	managerA, managerB, db := newStaleConflictManagers(t, seed)
+	defer db.Close()
+
+	if _, err := managerA.UpdateUpstream(0, config.UpstreamUpdate{
+		BaseURL: &freshServer.URL,
+		APIKeys: []string{"fresh-key"},
+	}); err != nil {
+		t.Fatalf("remote update failed: %v", err)
+	}
+
+	router := gin.New()
+	router.GET("/api/channels/:id/models", FetchUpstreamModels(managerB))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/channels/0/models?channelId=known-stale-id", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 OK, body=%s", w.Code, w.Body.String())
+	}
+
+	var payload UpstreamModelsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !payload.Success {
+		t.Fatalf("success = false, want true, error=%s", payload.Error)
+	}
+	if len(payload.Models) != 1 || payload.Models[0].ID != "fresh-model" {
+		t.Fatalf("models = %#v, want fresh-model from refreshed channel", payload.Models)
+	}
+}
+
 func TestStableChannelMutationRefreshesWhenIfMatchAheadOfLocalRevision(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

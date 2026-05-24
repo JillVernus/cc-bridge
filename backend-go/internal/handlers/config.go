@@ -209,24 +209,19 @@ func resolveChannelIndexFromManagerConfig(c *gin.Context, cfgManager *config.Con
 		return cfg, index, ok
 	}
 
+	if _, err := cfgManager.RefreshFromDBIfNewer(); err != nil {
+		fmt.Printf("⚠️ Failed to refresh config for stable channel lookup: %v\n", err)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Channel not found"})
+		cfg := cfgManager.GetConfig()
+		return cfg, -1, false
+	}
+
 	cfg := cfgManager.GetConfig()
 	if index, ok := resolveChannelIndexInConfig(cfg, pool, channelID); ok {
 		return cfg, index, true
 	}
-
-	if _, err := cfgManager.RefreshFromDBIfNewer(); err != nil {
-		fmt.Printf("⚠️ Failed to refresh config for stable channel lookup: %v\n", err)
-		c.JSON(http.StatusNotFound, gin.H{"error": "Channel not found"})
-		return cfg, -1, false
-	}
-
-	cfg = cfgManager.GetConfig()
-	index, ok := resolveChannelIndexInConfig(cfg, pool, channelID)
-	if !ok {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Channel not found"})
-		return cfg, -1, false
-	}
-	return cfg, index, true
+	c.JSON(http.StatusNotFound, gin.H{"error": "Channel not found"})
+	return cfg, -1, false
 }
 
 func resolveChannelIndexWithExpectedRevision(c *gin.Context, cfgManager *config.ConfigManager, pool channelPool, expectedRevision *int64) (int, bool) {

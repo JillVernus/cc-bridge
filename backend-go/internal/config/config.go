@@ -304,37 +304,65 @@ func channelIDExists(upstreams []UpstreamConfig, channelID string) bool {
 	return false
 }
 
-func generateUniqueChannelID(upstreams []UpstreamConfig) string {
+func channelIDExistsInConfig(cfg Config, channelID string) bool {
+	return channelIDExists(cfg.Upstream, channelID) ||
+		channelIDExists(cfg.ResponsesUpstream, channelID) ||
+		channelIDExists(cfg.GeminiUpstream, channelID) ||
+		channelIDExists(cfg.ChatUpstream, channelID)
+}
+
+func generateUniqueChannelID(existingIDs map[string]bool) string {
 	for {
 		channelID := generateChannelID()
-		if !channelIDExists(upstreams, channelID) {
+		if !existingIDs[channelID] {
 			return channelID
 		}
 	}
 }
 
-func ensureNewChannelID(upstreams []UpstreamConfig, upstream *UpstreamConfig) error {
+func ensureNewChannelID(cfg Config, upstream *UpstreamConfig) error {
 	upstream.ID = strings.TrimSpace(upstream.ID)
 	if upstream.ID == "" {
-		upstream.ID = generateUniqueChannelID(upstreams)
+		upstream.ID = generateUniqueChannelID(collectChannelIDs(cfg))
 		return nil
 	}
 	if strings.HasPrefix(upstream.ID, "__invalid_") {
 		return fmt.Errorf("channel ID cannot start with reserved prefix '__invalid_'")
 	}
-	if channelIDExists(upstreams, upstream.ID) {
+	if channelIDExistsInConfig(cfg, upstream.ID) {
 		return fmt.Errorf("duplicate channel ID: %s", upstream.ID)
 	}
 	return nil
 }
 
-func ensureMissingChannelIDs(channels []UpstreamConfig) {
-	for i := range channels {
-		if strings.TrimSpace(channels[i].ID) != "" {
-			channels[i].ID = strings.TrimSpace(channels[i].ID)
-			continue
+func collectChannelIDs(cfg Config) map[string]bool {
+	existingIDs := make(map[string]bool)
+	for _, pool := range [][]UpstreamConfig{cfg.Upstream, cfg.ResponsesUpstream, cfg.GeminiUpstream, cfg.ChatUpstream} {
+		for i := range pool {
+			channelID := strings.TrimSpace(pool[i].ID)
+			if channelID != "" {
+				existingIDs[channelID] = true
+			}
 		}
-		channels[i].ID = generateUniqueChannelID(channels)
+	}
+	return existingIDs
+}
+
+func ensureMissingChannelIDs(cfg *Config) {
+	existingIDs := collectChannelIDs(*cfg)
+	ensureMissingPoolChannelIDs(cfg.Upstream, existingIDs)
+	ensureMissingPoolChannelIDs(cfg.ResponsesUpstream, existingIDs)
+	ensureMissingPoolChannelIDs(cfg.GeminiUpstream, existingIDs)
+	ensureMissingPoolChannelIDs(cfg.ChatUpstream, existingIDs)
+}
+
+func ensureMissingPoolChannelIDs(channels []UpstreamConfig, existingIDs map[string]bool) {
+	for i := range channels {
+		channels[i].ID = strings.TrimSpace(channels[i].ID)
+		if channels[i].ID == "" {
+			channels[i].ID = generateUniqueChannelID(existingIDs)
+		}
+		existingIDs[channels[i].ID] = true
 	}
 }
 
@@ -1102,10 +1130,7 @@ func (cm *ConfigManager) saveConfigLocked(config Config) error {
 	if cm.dbStorage != nil {
 		// Ensure all channels have IDs before saving to prevent
 		// duplicate ID generation in concurrent writes
-		ensureMissingChannelIDs(config.Upstream)
-		ensureMissingChannelIDs(config.ResponsesUpstream)
-		ensureMissingChannelIDs(config.GeminiUpstream)
-		ensureMissingChannelIDs(config.ChatUpstream)
+		ensureMissingChannelIDs(&config)
 
 		// Write to database synchronously to guarantee ordering and
 		// return persistence errors to callers.
@@ -1716,7 +1741,7 @@ func (cm *ConfigManager) addUpstream(upstream UpstreamConfig, expectedRevision *
 		return err
 	}
 
-	if err := ensureNewChannelID(config.Upstream, &upstream); err != nil {
+	if err := ensureNewChannelID(config, &upstream); err != nil {
 		return err
 	}
 
@@ -2622,7 +2647,7 @@ func (cm *ConfigManager) addResponsesUpstream(upstream UpstreamConfig, expectedR
 		return err
 	}
 
-	if err := ensureNewChannelID(cm.config.ResponsesUpstream, &upstream); err != nil {
+	if err := ensureNewChannelID(cm.config, &upstream); err != nil {
 		return err
 	}
 
@@ -3628,7 +3653,7 @@ func (cm *ConfigManager) addGeminiUpstream(upstream UpstreamConfig, expectedRevi
 		return err
 	}
 
-	if err := ensureNewChannelID(cm.config.GeminiUpstream, &upstream); err != nil {
+	if err := ensureNewChannelID(cm.config, &upstream); err != nil {
 		return err
 	}
 
@@ -4016,7 +4041,7 @@ func (cm *ConfigManager) addChatUpstream(upstream UpstreamConfig, expectedRevisi
 		return err
 	}
 
-	if err := ensureNewChannelID(cm.config.ChatUpstream, &upstream); err != nil {
+	if err := ensureNewChannelID(cm.config, &upstream); err != nil {
 		return err
 	}
 

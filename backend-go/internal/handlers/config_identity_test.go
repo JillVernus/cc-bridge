@@ -226,6 +226,123 @@ func TestAddChannelRejectsDuplicateStableIDAndDoesNotReturnExistingIdentity(t *t
 	}
 }
 
+func TestAddChannelRejectsCrossPoolDuplicateStableID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name        string
+		path        string
+		seed        func(*config.ConfigManager)
+		register    func(*gin.Engine, *config.ConfigManager)
+		body        map[string]any
+		wantPoolLen func(config.Config) int
+	}{
+		{
+			name: "messages rejects responses id",
+			path: "/api/channels",
+			seed: func(cfgManager *config.ConfigManager) {
+				if err := cfgManager.AddResponsesUpstream(config.UpstreamConfig{ID: "shared-cross-pool", Name: "Existing Responses", BaseURL: "https://existing-responses.example.com", ServiceType: "responses", APIKeys: []string{"existing-key"}}); err != nil {
+					t.Fatalf("seed AddResponsesUpstream failed: %v", err)
+				}
+			},
+			register: func(router *gin.Engine, cfgManager *config.ConfigManager) {
+				router.POST("/api/channels", AddUpstream(cfgManager))
+			},
+			body: map[string]any{
+				"id":          "shared-cross-pool",
+				"name":        "New Messages",
+				"baseUrl":     "https://new-messages.example.com",
+				"serviceType": "openai",
+				"apiKeys":     []string{"new-key"},
+			},
+			wantPoolLen: func(cfg config.Config) int { return len(cfg.Upstream) },
+		},
+		{
+			name: "responses rejects messages id",
+			path: "/api/responses/channels",
+			seed: func(cfgManager *config.ConfigManager) {
+				if err := cfgManager.AddUpstream(config.UpstreamConfig{ID: "shared-cross-pool", Name: "Existing Messages", BaseURL: "https://existing-messages.example.com", ServiceType: "openai", APIKeys: []string{"existing-key"}}); err != nil {
+					t.Fatalf("seed AddUpstream failed: %v", err)
+				}
+			},
+			register: func(router *gin.Engine, cfgManager *config.ConfigManager) {
+				router.POST("/api/responses/channels", AddResponsesUpstream(cfgManager))
+			},
+			body: map[string]any{
+				"id":          "shared-cross-pool",
+				"name":        "New Responses",
+				"baseUrl":     "https://new-responses.example.com",
+				"serviceType": "responses",
+				"apiKeys":     []string{"new-key"},
+			},
+			wantPoolLen: func(cfg config.Config) int { return len(cfg.ResponsesUpstream) },
+		},
+		{
+			name: "gemini rejects chat id",
+			path: "/api/gemini/channels",
+			seed: func(cfgManager *config.ConfigManager) {
+				if err := cfgManager.AddChatUpstream(config.UpstreamConfig{ID: "shared-cross-pool", Name: "Existing Chat", BaseURL: "https://existing-chat.example.com", ServiceType: "openai", APIKeys: []string{"existing-key"}}); err != nil {
+					t.Fatalf("seed AddChatUpstream failed: %v", err)
+				}
+			},
+			register: func(router *gin.Engine, cfgManager *config.ConfigManager) {
+				router.POST("/api/gemini/channels", AddGeminiUpstream(cfgManager))
+			},
+			body: map[string]any{
+				"id":          "shared-cross-pool",
+				"name":        "New Gemini",
+				"baseUrl":     "https://new-gemini.example.com",
+				"serviceType": "gemini",
+				"apiKeys":     []string{"new-key"},
+			},
+			wantPoolLen: func(cfg config.Config) int { return len(cfg.GeminiUpstream) },
+		},
+		{
+			name: "chat rejects gemini id",
+			path: "/api/chat/channels",
+			seed: func(cfgManager *config.ConfigManager) {
+				if err := cfgManager.AddGeminiUpstream(config.UpstreamConfig{ID: "shared-cross-pool", Name: "Existing Gemini", BaseURL: "https://existing-gemini.example.com", ServiceType: "gemini", APIKeys: []string{"existing-key"}}); err != nil {
+					t.Fatalf("seed AddGeminiUpstream failed: %v", err)
+				}
+			},
+			register: func(router *gin.Engine, cfgManager *config.ConfigManager) {
+				router.POST("/api/chat/channels", AddChatUpstream(cfgManager))
+			},
+			body: map[string]any{
+				"id":          "shared-cross-pool",
+				"name":        "New Chat",
+				"baseUrl":     "https://new-chat.example.com",
+				"serviceType": "openai",
+				"apiKeys":     []string{"new-key"},
+			},
+			wantPoolLen: func(cfg config.Config) int { return len(cfg.ChatUpstream) },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfgManager := newIdentityTestConfigManager(t)
+			tt.seed(cfgManager)
+
+			router := gin.New()
+			tt.register(router, cfgManager)
+
+			w := performIdentityJSONRequest(t, router, http.MethodPost, tt.path, tt.body, nil)
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400 Bad Request, body=%s", w.Code, w.Body.String())
+			}
+			payload := decodeIdentityResponse(t, w)
+			errText, _ := payload["error"].(string)
+			if !strings.Contains(strings.ToLower(errText), "duplicate channel id") {
+				t.Fatalf("error = %q, want duplicate channel ID error", errText)
+			}
+			if got := tt.wantPoolLen(cfgManager.GetConfig()); got != 0 {
+				t.Fatalf("target pool count = %d, want 0", got)
+			}
+		})
+	}
+}
+
 func TestUpdateUpstreamStableIdentityWinsOverConflictingIndex(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
