@@ -135,3 +135,124 @@ func TestConfigManager_FailedStaleSaveKeepsLocalConfigUnchangedOrReloadedToDurab
 		t.Fatalf("managerB upstream count after failed stale save = %d, want unchanged or durable state", len(afterConfig.Upstream))
 	}
 }
+
+func newFailedPersistenceDirtyTestManager(t *testing.T) (*ConfigManager, database.DB) {
+	t.Helper()
+
+	dbStorage, db := newConfigTestDBStorage(t)
+	cfg := Config{
+		Upstream: []UpstreamConfig{{
+			ID:          "msg-dirty",
+			Name:        "Messages Dirty",
+			BaseURL:     "https://messages.example.com",
+			ServiceType: "openai",
+			APIKeys:     []string{"msg-key-1"},
+			Status:      "active",
+		}},
+		LoadBalance: "failover",
+		ResponsesUpstream: []UpstreamConfig{{
+			ID:          "resp-dirty",
+			Name:        "Responses Dirty",
+			BaseURL:     "https://responses.example.com",
+			ServiceType: "responses",
+			APIKeys:     []string{"resp-key-1"},
+			Status:      "active",
+		}},
+		ResponsesLoadBalance: "failover",
+		GeminiUpstream: []UpstreamConfig{{
+			ID:          "gem-dirty",
+			Name:        "Gemini Dirty",
+			BaseURL:     "https://gemini.example.com",
+			ServiceType: "gemini",
+			APIKeys:     []string{"gem-key-1"},
+			Status:      "active",
+		}},
+		GeminiLoadBalance: "failover",
+		ChatUpstream: []UpstreamConfig{{
+			ID:          "chat-dirty",
+			Name:        "Chat Dirty",
+			BaseURL:     "https://chat.example.com",
+			ServiceType: "openai",
+			APIKeys:     []string{"chat-key-1"},
+			Status:      "active",
+		}},
+		ChatLoadBalance: "failover",
+		UserAgent:       GetDefaultUserAgentConfig(),
+	}
+
+	return &ConfigManager{
+		configFile:      filepath.Join(t.TempDir(), "config.json"),
+		failedKeysCache: make(map[string]*FailedKey),
+		config:          cfg,
+		dbStorage:       dbStorage,
+		revision:        1,
+	}, db
+}
+
+func TestConfigManager_FailedPersistenceDoesNotDirtyAPIKeyMutation(t *testing.T) {
+	cm, db := newFailedPersistenceDirtyTestManager(t)
+	if err := db.Close(); err != nil {
+		t.Fatalf("failed to close test database: %v", err)
+	}
+
+	err := cm.AddAPIKey(0, "msg-key-unsaved")
+	if err == nil {
+		t.Fatalf("AddAPIKey() succeeded with closed DB, want persistence failure")
+	}
+
+	cfg := cm.GetConfig()
+	if got := cfg.Upstream[0].APIKeys; len(got) != 1 || got[0] != "msg-key-1" {
+		t.Fatalf("messages API keys after failed save = %#v, want original key only", got)
+	}
+}
+
+func TestConfigManager_FailedPersistenceDoesNotDirtyResponsesMutation(t *testing.T) {
+	cm, db := newFailedPersistenceDirtyTestManager(t)
+	if err := db.Close(); err != nil {
+		t.Fatalf("failed to close test database: %v", err)
+	}
+
+	name := "Responses Unsaved"
+	if _, err := cm.UpdateResponsesUpstream(0, UpstreamUpdate{Name: &name}); err == nil {
+		t.Fatalf("UpdateResponsesUpstream() succeeded with closed DB, want persistence failure")
+	}
+
+	cfg := cm.GetConfig()
+	if got := cfg.ResponsesUpstream[0].Name; got != "Responses Dirty" {
+		t.Fatalf("responses name after failed save = %q, want original", got)
+	}
+}
+
+func TestConfigManager_FailedPersistenceDoesNotDirtyGeminiMutation(t *testing.T) {
+	cm, db := newFailedPersistenceDirtyTestManager(t)
+	if err := db.Close(); err != nil {
+		t.Fatalf("failed to close test database: %v", err)
+	}
+
+	name := "Gemini Unsaved"
+	if _, err := cm.UpdateGeminiUpstream(0, UpstreamUpdate{Name: &name}); err == nil {
+		t.Fatalf("UpdateGeminiUpstream() succeeded with closed DB, want persistence failure")
+	}
+
+	cfg := cm.GetConfig()
+	if got := cfg.GeminiUpstream[0].Name; got != "Gemini Dirty" {
+		t.Fatalf("gemini name after failed save = %q, want original", got)
+	}
+}
+
+func TestConfigManager_FailedPersistenceDoesNotDirtyChatMutation(t *testing.T) {
+	cm, db := newFailedPersistenceDirtyTestManager(t)
+	if err := db.Close(); err != nil {
+		t.Fatalf("failed to close test database: %v", err)
+	}
+
+	name := "Chat Unsaved"
+	if _, err := cm.UpdateChatUpstream(0, UpstreamUpdate{Name: &name}); err == nil {
+		t.Fatalf("UpdateChatUpstream() succeeded with closed DB, want persistence failure")
+	}
+
+	cfg := cm.GetConfig()
+	if got := cfg.ChatUpstream[0].Name; got != "Chat Dirty" {
+		t.Fatalf("chat name after failed save = %q, want original", got)
+	}
+}

@@ -1926,13 +1926,14 @@ func (cm *ConfigManager) AddAPIKey(index int, apiKey string) error {
 		}
 	}
 
-	cm.config.Upstream[index].APIKeys = append(cm.config.Upstream[index].APIKeys, apiKey)
+	config := cloneConfig(cm.config)
+	config.Upstream[index].APIKeys = append(config.Upstream[index].APIKeys, apiKey)
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
-	log.Printf("已添加API密钥到上游 [%d] %s", index, cm.config.Upstream[index].Name)
+	log.Printf("已添加API密钥到上游 [%d] %s", index, config.Upstream[index].Name)
 	return nil
 }
 
@@ -1945,12 +1946,14 @@ func (cm *ConfigManager) RemoveAPIKey(index int, apiKey string) error {
 		return fmt.Errorf("invalid upstream index: %d", index)
 	}
 
+	config := cloneConfig(cm.config)
+
 	// 查找并删除密钥
-	keys := cm.config.Upstream[index].APIKeys
+	keys := config.Upstream[index].APIKeys
 	found := false
 	for i, key := range keys {
 		if key == apiKey {
-			cm.config.Upstream[index].APIKeys = append(keys[:i], keys[i+1:]...)
+			config.Upstream[index].APIKeys = append(keys[:i], keys[i+1:]...)
 			found = true
 			break
 		}
@@ -1960,11 +1963,11 @@ func (cm *ConfigManager) RemoveAPIKey(index int, apiKey string) error {
 		return fmt.Errorf("API key not found")
 	}
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
-	log.Printf("已从上游 [%d] %s 删除API密钥", index, cm.config.Upstream[index].Name)
+	log.Printf("已从上游 [%d] %s 删除API密钥", index, config.Upstream[index].Name)
 	return nil
 }
 
@@ -1977,9 +1980,10 @@ func (cm *ConfigManager) SetLoadBalance(strategy string) error {
 		return err
 	}
 
-	cm.config.LoadBalance = strategy
+	config := cloneConfig(cm.config)
+	config.LoadBalance = strategy
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
@@ -1996,9 +2000,10 @@ func (cm *ConfigManager) SetResponsesLoadBalance(strategy string) error {
 		return err
 	}
 
-	cm.config.ResponsesLoadBalance = strategy
+	config := cloneConfig(cm.config)
+	config.ResponsesLoadBalance = strategy
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
@@ -2015,9 +2020,10 @@ func (cm *ConfigManager) SetGeminiLoadBalance(strategy string) error {
 		return err
 	}
 
-	cm.config.GeminiLoadBalance = strategy
+	config := cloneConfig(cm.config)
+	config.GeminiLoadBalance = strategy
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
@@ -2037,9 +2043,11 @@ func (cm *ConfigManager) DeprioritizeAPIKey(apiKey string) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
+	config := cloneConfig(cm.config)
+
 	// 遍历所有渠道查找该 API 密钥
-	for upstreamIdx := range cm.config.Upstream {
-		upstream := &cm.config.Upstream[upstreamIdx]
+	for upstreamIdx := range config.Upstream {
+		upstream := &config.Upstream[upstreamIdx]
 		index := -1
 		for i, key := range upstream.APIKeys {
 			if key == apiKey {
@@ -2052,14 +2060,17 @@ func (cm *ConfigManager) DeprioritizeAPIKey(apiKey string) error {
 			// 移动到末尾
 			upstream.APIKeys = append(upstream.APIKeys[:index], upstream.APIKeys[index+1:]...)
 			upstream.APIKeys = append(upstream.APIKeys, apiKey)
+			if err := cm.saveConfigLocked(config); err != nil {
+				return err
+			}
 			log.Printf("已将API密钥移动到末尾以降低优先级: %s (渠道: %s)", maskAPIKey(apiKey), upstream.Name)
-			return cm.saveConfigLocked(cm.config)
+			return nil
 		}
 	}
 
 	// 同样遍历 Responses 渠道
-	for upstreamIdx := range cm.config.ResponsesUpstream {
-		upstream := &cm.config.ResponsesUpstream[upstreamIdx]
+	for upstreamIdx := range config.ResponsesUpstream {
+		upstream := &config.ResponsesUpstream[upstreamIdx]
 		index := -1
 		for i, key := range upstream.APIKeys {
 			if key == apiKey {
@@ -2072,8 +2083,11 @@ func (cm *ConfigManager) DeprioritizeAPIKey(apiKey string) error {
 			// 移动到末尾
 			upstream.APIKeys = append(upstream.APIKeys[:index], upstream.APIKeys[index+1:]...)
 			upstream.APIKeys = append(upstream.APIKeys, apiKey)
+			if err := cm.saveConfigLocked(config); err != nil {
+				return err
+			}
 			log.Printf("已将API密钥移动到末尾以降低优先级: %s (Responses渠道: %s)", maskAPIKey(apiKey), upstream.Name)
-			return cm.saveConfigLocked(cm.config)
+			return nil
 		}
 	}
 
@@ -2102,9 +2116,12 @@ func (cm *ConfigManager) MoveAPIKeyToTop(upstreamIndex int, apiKey string) error
 		return nil // 已经在最前面或未找到
 	}
 
+	config := cloneConfig(cm.config)
+	upstream = &config.Upstream[upstreamIndex]
+
 	// 移动到开头
 	upstream.APIKeys = append([]string{apiKey}, append(upstream.APIKeys[:index], upstream.APIKeys[index+1:]...)...)
-	return cm.saveConfigLocked(cm.config)
+	return cm.saveConfigLocked(config)
 }
 
 // MoveAPIKeyToBottom 将指定渠道的 API 密钥移到最后面
@@ -2129,10 +2146,13 @@ func (cm *ConfigManager) MoveAPIKeyToBottom(upstreamIndex int, apiKey string) er
 		return nil // 已经在最后面或未找到
 	}
 
+	config := cloneConfig(cm.config)
+	upstream = &config.Upstream[upstreamIndex]
+
 	// 移动到末尾
 	upstream.APIKeys = append(upstream.APIKeys[:index], upstream.APIKeys[index+1:]...)
 	upstream.APIKeys = append(upstream.APIKeys, apiKey)
-	return cm.saveConfigLocked(cm.config)
+	return cm.saveConfigLocked(config)
 }
 
 // MoveResponsesAPIKeyToTop 将指定 Responses 渠道的 API 密钥移到最前面
@@ -2157,8 +2177,11 @@ func (cm *ConfigManager) MoveResponsesAPIKeyToTop(upstreamIndex int, apiKey stri
 		return nil
 	}
 
+	config := cloneConfig(cm.config)
+	upstream = &config.ResponsesUpstream[upstreamIndex]
+
 	upstream.APIKeys = append([]string{apiKey}, append(upstream.APIKeys[:index], upstream.APIKeys[index+1:]...)...)
-	return cm.saveConfigLocked(cm.config)
+	return cm.saveConfigLocked(config)
 }
 
 // MoveResponsesAPIKeyToBottom 将指定 Responses 渠道的 API 密钥移到最后面
@@ -2183,9 +2206,12 @@ func (cm *ConfigManager) MoveResponsesAPIKeyToBottom(upstreamIndex int, apiKey s
 		return nil
 	}
 
+	config := cloneConfig(cm.config)
+	upstream = &config.ResponsesUpstream[upstreamIndex]
+
 	upstream.APIKeys = append(upstream.APIKeys[:index], upstream.APIKeys[index+1:]...)
 	upstream.APIKeys = append(upstream.APIKeys, apiKey)
-	return cm.saveConfigLocked(cm.config)
+	return cm.saveConfigLocked(config)
 }
 
 // RemoveAPIKeyByIndex 通过索引删除API密钥（安全：不在URL中暴露密钥）
@@ -2202,13 +2228,14 @@ func (cm *ConfigManager) RemoveAPIKeyByIndex(upstreamIndex int, keyIndex int) er
 		return fmt.Errorf("invalid key index: %d", keyIndex)
 	}
 
-	cm.config.Upstream[upstreamIndex].APIKeys = append(keys[:keyIndex], keys[keyIndex+1:]...)
+	config := cloneConfig(cm.config)
+	config.Upstream[upstreamIndex].APIKeys = append(config.Upstream[upstreamIndex].APIKeys[:keyIndex], config.Upstream[upstreamIndex].APIKeys[keyIndex+1:]...)
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
-	log.Printf("已从上游 [%d] %s 删除索引为 %d 的API密钥", upstreamIndex, cm.config.Upstream[upstreamIndex].Name, keyIndex)
+	log.Printf("已从上游 [%d] %s 删除索引为 %d 的API密钥", upstreamIndex, config.Upstream[upstreamIndex].Name, keyIndex)
 	return nil
 }
 
@@ -2221,8 +2248,7 @@ func (cm *ConfigManager) MoveAPIKeyToTopByIndex(upstreamIndex int, keyIndex int)
 		return fmt.Errorf("invalid upstream index: %d", upstreamIndex)
 	}
 
-	upstream := &cm.config.Upstream[upstreamIndex]
-	if keyIndex < 0 || keyIndex >= len(upstream.APIKeys) {
+	if keyIndex < 0 || keyIndex >= len(cm.config.Upstream[upstreamIndex].APIKeys) {
 		return fmt.Errorf("invalid key index: %d", keyIndex)
 	}
 
@@ -2230,9 +2256,11 @@ func (cm *ConfigManager) MoveAPIKeyToTopByIndex(upstreamIndex int, keyIndex int)
 		return nil // 已经在最前面
 	}
 
+	config := cloneConfig(cm.config)
+	upstream := &config.Upstream[upstreamIndex]
 	key := upstream.APIKeys[keyIndex]
 	upstream.APIKeys = append([]string{key}, append(upstream.APIKeys[:keyIndex], upstream.APIKeys[keyIndex+1:]...)...)
-	return cm.saveConfigLocked(cm.config)
+	return cm.saveConfigLocked(config)
 }
 
 // MoveAPIKeyToBottomByIndex 通过索引将API密钥移到最后面
@@ -2244,19 +2272,20 @@ func (cm *ConfigManager) MoveAPIKeyToBottomByIndex(upstreamIndex int, keyIndex i
 		return fmt.Errorf("invalid upstream index: %d", upstreamIndex)
 	}
 
-	upstream := &cm.config.Upstream[upstreamIndex]
-	if keyIndex < 0 || keyIndex >= len(upstream.APIKeys) {
+	if keyIndex < 0 || keyIndex >= len(cm.config.Upstream[upstreamIndex].APIKeys) {
 		return fmt.Errorf("invalid key index: %d", keyIndex)
 	}
 
-	if keyIndex == len(upstream.APIKeys)-1 {
+	if keyIndex == len(cm.config.Upstream[upstreamIndex].APIKeys)-1 {
 		return nil // 已经在最后面
 	}
 
+	config := cloneConfig(cm.config)
+	upstream := &config.Upstream[upstreamIndex]
 	key := upstream.APIKeys[keyIndex]
 	upstream.APIKeys = append(upstream.APIKeys[:keyIndex], upstream.APIKeys[keyIndex+1:]...)
 	upstream.APIKeys = append(upstream.APIKeys, key)
-	return cm.saveConfigLocked(cm.config)
+	return cm.saveConfigLocked(config)
 }
 
 // RemoveResponsesAPIKeyByIndex 通过索引删除Responses渠道API密钥
@@ -2273,13 +2302,14 @@ func (cm *ConfigManager) RemoveResponsesAPIKeyByIndex(upstreamIndex int, keyInde
 		return fmt.Errorf("invalid key index: %d", keyIndex)
 	}
 
-	cm.config.ResponsesUpstream[upstreamIndex].APIKeys = append(keys[:keyIndex], keys[keyIndex+1:]...)
+	config := cloneConfig(cm.config)
+	config.ResponsesUpstream[upstreamIndex].APIKeys = append(config.ResponsesUpstream[upstreamIndex].APIKeys[:keyIndex], config.ResponsesUpstream[upstreamIndex].APIKeys[keyIndex+1:]...)
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
-	log.Printf("已从Responses上游 [%d] %s 删除索引为 %d 的API密钥", upstreamIndex, cm.config.ResponsesUpstream[upstreamIndex].Name, keyIndex)
+	log.Printf("已从Responses上游 [%d] %s 删除索引为 %d 的API密钥", upstreamIndex, config.ResponsesUpstream[upstreamIndex].Name, keyIndex)
 	return nil
 }
 
@@ -2292,8 +2322,7 @@ func (cm *ConfigManager) MoveResponsesAPIKeyToTopByIndex(upstreamIndex int, keyI
 		return fmt.Errorf("invalid upstream index: %d", upstreamIndex)
 	}
 
-	upstream := &cm.config.ResponsesUpstream[upstreamIndex]
-	if keyIndex < 0 || keyIndex >= len(upstream.APIKeys) {
+	if keyIndex < 0 || keyIndex >= len(cm.config.ResponsesUpstream[upstreamIndex].APIKeys) {
 		return fmt.Errorf("invalid key index: %d", keyIndex)
 	}
 
@@ -2301,9 +2330,11 @@ func (cm *ConfigManager) MoveResponsesAPIKeyToTopByIndex(upstreamIndex int, keyI
 		return nil
 	}
 
+	config := cloneConfig(cm.config)
+	upstream := &config.ResponsesUpstream[upstreamIndex]
 	key := upstream.APIKeys[keyIndex]
 	upstream.APIKeys = append([]string{key}, append(upstream.APIKeys[:keyIndex], upstream.APIKeys[keyIndex+1:]...)...)
-	return cm.saveConfigLocked(cm.config)
+	return cm.saveConfigLocked(config)
 }
 
 // MoveResponsesAPIKeyToBottomByIndex 通过索引将Responses渠道API密钥移到最后面
@@ -2315,19 +2346,20 @@ func (cm *ConfigManager) MoveResponsesAPIKeyToBottomByIndex(upstreamIndex int, k
 		return fmt.Errorf("invalid upstream index: %d", upstreamIndex)
 	}
 
-	upstream := &cm.config.ResponsesUpstream[upstreamIndex]
-	if keyIndex < 0 || keyIndex >= len(upstream.APIKeys) {
+	if keyIndex < 0 || keyIndex >= len(cm.config.ResponsesUpstream[upstreamIndex].APIKeys) {
 		return fmt.Errorf("invalid key index: %d", keyIndex)
 	}
 
-	if keyIndex == len(upstream.APIKeys)-1 {
+	if keyIndex == len(cm.config.ResponsesUpstream[upstreamIndex].APIKeys)-1 {
 		return nil
 	}
 
+	config := cloneConfig(cm.config)
+	upstream := &config.ResponsesUpstream[upstreamIndex]
 	key := upstream.APIKeys[keyIndex]
 	upstream.APIKeys = append(upstream.APIKeys[:keyIndex], upstream.APIKeys[keyIndex+1:]...)
 	upstream.APIKeys = append(upstream.APIKeys, key)
-	return cm.saveConfigLocked(cm.config)
+	return cm.saveConfigLocked(config)
 }
 
 // RedirectModel 模型重定向
@@ -2487,12 +2519,14 @@ func (cm *ConfigManager) AddResponsesUpstream(upstream UpstreamConfig) error {
 		upstream.Status = "active"
 	}
 
+	config := cloneConfig(cm.config)
+
 	// Set the Index to the new position
-	upstream.Index = len(cm.config.ResponsesUpstream)
+	upstream.Index = len(config.ResponsesUpstream)
 
-	cm.config.ResponsesUpstream = append(cm.config.ResponsesUpstream, upstream)
+	config.ResponsesUpstream = append(config.ResponsesUpstream, upstream)
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
@@ -2510,7 +2544,8 @@ func (cm *ConfigManager) UpdateResponsesUpstream(index int, updates UpstreamUpda
 		return false, fmt.Errorf("invalid Responses upstream index: %d", index)
 	}
 
-	upstream := &cm.config.ResponsesUpstream[index]
+	config := cloneConfig(cm.config)
+	upstream := &config.ResponsesUpstream[index]
 
 	if updates.Name != nil {
 		name := strings.TrimSpace(*updates.Name)
@@ -2625,11 +2660,11 @@ func (cm *ConfigManager) UpdateResponsesUpstream(index int, updates UpstreamUpda
 		upstream.KeyLoadBalance = *updates.KeyLoadBalance
 	}
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return false, err
 	}
 
-	log.Printf("已更新 Responses 上游: [%d] %s", index, cm.config.ResponsesUpstream[index].Name)
+	log.Printf("已更新 Responses 上游: [%d] %s", index, config.ResponsesUpstream[index].Name)
 	return shouldResetMetrics, nil
 }
 
@@ -2642,17 +2677,25 @@ func (cm *ConfigManager) UpdateChannelQuotaResetAt(index int, isResponses bool, 
 		if index < 0 || index >= len(cm.config.ResponsesUpstream) {
 			return fmt.Errorf("invalid responses channel index: %d", index)
 		}
-		cm.config.ResponsesUpstream[index].QuotaResetAt = &newTime
+		config := cloneConfig(cm.config)
+		config.ResponsesUpstream[index].QuotaResetAt = &newTime
+		if err := cm.saveConfigLocked(config); err != nil {
+			return err
+		}
 		log.Printf("🔄 Rolling mode: Updated quotaResetAt for Responses channel [%d] to %s", index, newTime.Format(time.RFC3339))
+		return nil
 	} else {
 		if index < 0 || index >= len(cm.config.Upstream) {
 			return fmt.Errorf("invalid channel index: %d", index)
 		}
-		cm.config.Upstream[index].QuotaResetAt = &newTime
+		config := cloneConfig(cm.config)
+		config.Upstream[index].QuotaResetAt = &newTime
+		if err := cm.saveConfigLocked(config); err != nil {
+			return err
+		}
 		log.Printf("🔄 Rolling mode: Updated quotaResetAt for Messages channel [%d] to %s", index, newTime.Format(time.RFC3339))
+		return nil
 	}
-
-	return cm.saveConfigLocked(cm.config)
 }
 
 // UpdateGeminiChannelQuotaResetAt updates the quotaResetAt for a Gemini channel (internal use for rolling mode)
@@ -2663,10 +2706,15 @@ func (cm *ConfigManager) UpdateGeminiChannelQuotaResetAt(index int, newTime time
 	if index < 0 || index >= len(cm.config.GeminiUpstream) {
 		return fmt.Errorf("invalid gemini channel index: %d", index)
 	}
-	cm.config.GeminiUpstream[index].QuotaResetAt = &newTime
-	log.Printf("🔄 Rolling mode: Updated quotaResetAt for Gemini channel [%d] to %s", index, newTime.Format(time.RFC3339))
+	config := cloneConfig(cm.config)
+	config.GeminiUpstream[index].QuotaResetAt = &newTime
 
-	return cm.saveConfigLocked(cm.config)
+	if err := cm.saveConfigLocked(config); err != nil {
+		return err
+	}
+
+	log.Printf("🔄 Rolling mode: Updated quotaResetAt for Gemini channel [%d] to %s", index, newTime.Format(time.RFC3339))
+	return nil
 }
 
 // RemoveResponsesUpstream 删除 Responses 上游
@@ -2678,24 +2726,23 @@ func (cm *ConfigManager) RemoveResponsesUpstream(index int) (*UpstreamConfig, er
 		return nil, fmt.Errorf("invalid Responses upstream index: %d", index)
 	}
 
-	removed := cm.config.ResponsesUpstream[index]
+	config := cloneConfig(cm.config)
+	removed := config.ResponsesUpstream[index]
 
 	// Update messages composite mappings that reference this responses channel
-	cm.updateCompositeMappingsOnDelete(removed.ID, index, CompositeTargetPoolResponses)
+	updateCompositeMappingsOnDeleteInConfig(&config, removed.ID, index, CompositeTargetPoolResponses)
 
-	cm.config.ResponsesUpstream = append(cm.config.ResponsesUpstream[:index], cm.config.ResponsesUpstream[index+1:]...)
+	config.ResponsesUpstream = append(config.ResponsesUpstream[:index], config.ResponsesUpstream[index+1:]...)
 
 	// Reindex remaining upstreams
-	for i := range cm.config.ResponsesUpstream {
-		cm.config.ResponsesUpstream[i].Index = i
+	reindexConfig(&config)
+
+	if err := cm.saveConfigLocked(config); err != nil {
+		return nil, err
 	}
 
 	// 清理被删除渠道的失败 key 冷却记录
 	cm.clearFailedKeysForUpstream(&removed)
-
-	if err := cm.saveConfigLocked(cm.config); err != nil {
-		return nil, err
-	}
 
 	log.Printf("已删除 Responses 上游: %s", removed.Name)
 	return &removed, nil
@@ -2717,13 +2764,14 @@ func (cm *ConfigManager) AddResponsesAPIKey(index int, apiKey string) error {
 		}
 	}
 
-	cm.config.ResponsesUpstream[index].APIKeys = append(cm.config.ResponsesUpstream[index].APIKeys, apiKey)
+	config := cloneConfig(cm.config)
+	config.ResponsesUpstream[index].APIKeys = append(config.ResponsesUpstream[index].APIKeys, apiKey)
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
-	log.Printf("已添加API密钥到 Responses 上游 [%d] %s", index, cm.config.ResponsesUpstream[index].Name)
+	log.Printf("已添加API密钥到 Responses 上游 [%d] %s", index, config.ResponsesUpstream[index].Name)
 	return nil
 }
 
@@ -2737,11 +2785,12 @@ func (cm *ConfigManager) RemoveResponsesAPIKey(index int, apiKey string) error {
 	}
 
 	// 查找并删除密钥
-	keys := cm.config.ResponsesUpstream[index].APIKeys
+	config := cloneConfig(cm.config)
+	keys := config.ResponsesUpstream[index].APIKeys
 	found := false
 	for i, key := range keys {
 		if key == apiKey {
-			cm.config.ResponsesUpstream[index].APIKeys = append(keys[:i], keys[i+1:]...)
+			config.ResponsesUpstream[index].APIKeys = append(keys[:i], keys[i+1:]...)
 			found = true
 			break
 		}
@@ -2751,11 +2800,11 @@ func (cm *ConfigManager) RemoveResponsesAPIKey(index int, apiKey string) error {
 		return fmt.Errorf("API key not found")
 	}
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
-	log.Printf("已从 Responses 上游 [%d] %s 删除API密钥", index, cm.config.ResponsesUpstream[index].Name)
+	log.Printf("已从 Responses 上游 [%d] %s 删除API密钥", index, config.ResponsesUpstream[index].Name)
 	return nil
 }
 
@@ -2769,10 +2818,11 @@ func (cm *ConfigManager) UpdateResponsesOAuthTokens(index int, tokens *OAuthToke
 		return fmt.Errorf("invalid Responses upstream index: %d", index)
 	}
 
-	upstream := &cm.config.ResponsesUpstream[index]
+	config := cloneConfig(cm.config)
+	upstream := &config.ResponsesUpstream[index]
 	upstream.OAuthTokens = tokens
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
@@ -2788,9 +2838,10 @@ func (cm *ConfigManager) UpdateResponsesOAuthTokensByName(name string, tokens *O
 
 	for i, upstream := range cm.config.ResponsesUpstream {
 		if upstream.Name == name {
-			cm.config.ResponsesUpstream[i].OAuthTokens = tokens
+			config := cloneConfig(cm.config)
+			config.ResponsesUpstream[i].OAuthTokens = tokens
 
-			if err := cm.saveConfigLocked(cm.config); err != nil {
+			if err := cm.saveConfigLocked(config); err != nil {
 				return err
 			}
 
@@ -2828,11 +2879,12 @@ func (cm *ConfigManager) ReorderUpstreams(order []int) error {
 
 	// 更新传入渠道的优先级（未传入的渠道保持原优先级不变）
 	// 注意：priority 从 1 开始，避免 omitempty 吞掉 0 值
+	config := cloneConfig(cm.config)
 	for i, idx := range order {
-		cm.config.Upstream[idx].Priority = i + 1
+		config.Upstream[idx].Priority = i + 1
 	}
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
@@ -2863,11 +2915,12 @@ func (cm *ConfigManager) ReorderResponsesUpstreams(order []int) error {
 
 	// 更新传入渠道的优先级（未传入的渠道保持原优先级不变）
 	// 注意：priority 从 1 开始，避免 omitempty 吞掉 0 值
+	config := cloneConfig(cm.config)
 	for i, idx := range order {
-		cm.config.ResponsesUpstream[idx].Priority = i + 1
+		config.ResponsesUpstream[idx].Priority = i + 1
 	}
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
@@ -2890,13 +2943,14 @@ func (cm *ConfigManager) SetChannelStatus(index int, status string) error {
 		return fmt.Errorf("invalid status: %s (allowed: active, suspended, disabled)", status)
 	}
 
-	cm.config.Upstream[index].Status = status
+	config := cloneConfig(cm.config)
+	config.Upstream[index].Status = status
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
-	log.Printf("已设置渠道 [%d] %s 状态为: %s", index, cm.config.Upstream[index].Name, status)
+	log.Printf("已设置渠道 [%d] %s 状态为: %s", index, config.Upstream[index].Name, status)
 	return nil
 }
 
@@ -2915,13 +2969,14 @@ func (cm *ConfigManager) SetResponsesChannelStatus(index int, status string) err
 		return fmt.Errorf("invalid status: %s (allowed: active, suspended, disabled)", status)
 	}
 
-	cm.config.ResponsesUpstream[index].Status = status
+	config := cloneConfig(cm.config)
+	config.ResponsesUpstream[index].Status = status
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
-	log.Printf("已设置 Responses 渠道 [%d] %s 状态为: %s", index, cm.config.ResponsesUpstream[index].Name, status)
+	log.Printf("已设置 Responses 渠道 [%d] %s 状态为: %s", index, config.ResponsesUpstream[index].Name, status)
 	return nil
 }
 
@@ -2951,22 +3006,30 @@ func (cm *ConfigManager) SetChannelPromotion(index int, duration time.Duration) 
 		return fmt.Errorf("invalid upstream index: %d", index)
 	}
 
+	config := cloneConfig(cm.config)
+
 	if duration <= 0 {
-		cm.config.Upstream[index].PromotionUntil = nil
-		log.Printf("已清除渠道 [%d] %s 的促销期", index, cm.config.Upstream[index].Name)
+		config.Upstream[index].PromotionUntil = nil
+		if err := cm.saveConfigLocked(config); err != nil {
+			return err
+		}
+		log.Printf("已清除渠道 [%d] %s 的促销期", index, config.Upstream[index].Name)
 	} else {
 		// 清除其他渠道的促销期（同一时间只允许一个促销渠道）
-		for i := range cm.config.Upstream {
-			if i != index && cm.config.Upstream[i].PromotionUntil != nil {
-				cm.config.Upstream[i].PromotionUntil = nil
+		for i := range config.Upstream {
+			if i != index && config.Upstream[i].PromotionUntil != nil {
+				config.Upstream[i].PromotionUntil = nil
 			}
 		}
 		promotionEnd := time.Now().Add(duration)
-		cm.config.Upstream[index].PromotionUntil = &promotionEnd
-		log.Printf("🎉 已设置渠道 [%d] %s 进入促销期，截止: %s", index, cm.config.Upstream[index].Name, promotionEnd.Format(time.RFC3339))
+		config.Upstream[index].PromotionUntil = &promotionEnd
+		if err := cm.saveConfigLocked(config); err != nil {
+			return err
+		}
+		log.Printf("🎉 已设置渠道 [%d] %s 进入促销期，截止: %s", index, config.Upstream[index].Name, promotionEnd.Format(time.RFC3339))
 	}
 
-	return cm.saveConfigLocked(cm.config)
+	return nil
 }
 
 // SetResponsesChannelPromotion 设置 Responses 渠道促销期
@@ -2978,22 +3041,30 @@ func (cm *ConfigManager) SetResponsesChannelPromotion(index int, duration time.D
 		return fmt.Errorf("invalid Responses upstream index: %d", index)
 	}
 
+	config := cloneConfig(cm.config)
+
 	if duration <= 0 {
-		cm.config.ResponsesUpstream[index].PromotionUntil = nil
-		log.Printf("已清除 Responses 渠道 [%d] %s 的促销期", index, cm.config.ResponsesUpstream[index].Name)
+		config.ResponsesUpstream[index].PromotionUntil = nil
+		if err := cm.saveConfigLocked(config); err != nil {
+			return err
+		}
+		log.Printf("已清除 Responses 渠道 [%d] %s 的促销期", index, config.ResponsesUpstream[index].Name)
 	} else {
 		// 清除其他渠道的促销期（同一时间只允许一个促销渠道）
-		for i := range cm.config.ResponsesUpstream {
-			if i != index && cm.config.ResponsesUpstream[i].PromotionUntil != nil {
-				cm.config.ResponsesUpstream[i].PromotionUntil = nil
+		for i := range config.ResponsesUpstream {
+			if i != index && config.ResponsesUpstream[i].PromotionUntil != nil {
+				config.ResponsesUpstream[i].PromotionUntil = nil
 			}
 		}
 		promotionEnd := time.Now().Add(duration)
-		cm.config.ResponsesUpstream[index].PromotionUntil = &promotionEnd
-		log.Printf("🎉 已设置 Responses 渠道 [%d] %s 进入促销期，截止: %s", index, cm.config.ResponsesUpstream[index].Name, promotionEnd.Format(time.RFC3339))
+		config.ResponsesUpstream[index].PromotionUntil = &promotionEnd
+		if err := cm.saveConfigLocked(config); err != nil {
+			return err
+		}
+		log.Printf("🎉 已设置 Responses 渠道 [%d] %s 进入促销期，截止: %s", index, config.ResponsesUpstream[index].Name, promotionEnd.Format(time.RFC3339))
 	}
 
-	return cm.saveConfigLocked(cm.config)
+	return nil
 }
 
 // IsChannelInPromotion 检查渠道是否处于促销期
@@ -3424,12 +3495,14 @@ func (cm *ConfigManager) AddGeminiUpstream(upstream UpstreamConfig) error {
 		upstream.Status = "active"
 	}
 
+	config := cloneConfig(cm.config)
+
 	// Set the Index to the new position
-	upstream.Index = len(cm.config.GeminiUpstream)
+	upstream.Index = len(config.GeminiUpstream)
 
-	cm.config.GeminiUpstream = append(cm.config.GeminiUpstream, upstream)
+	config.GeminiUpstream = append(config.GeminiUpstream, upstream)
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
@@ -3447,7 +3520,8 @@ func (cm *ConfigManager) UpdateGeminiUpstream(index int, updates UpstreamUpdate)
 		return false, fmt.Errorf("invalid Gemini upstream index: %d", index)
 	}
 
-	upstream := &cm.config.GeminiUpstream[index]
+	config := cloneConfig(cm.config)
+	upstream := &config.GeminiUpstream[index]
 
 	if updates.Name != nil {
 		name := strings.TrimSpace(*updates.Name)
@@ -3553,11 +3627,11 @@ func (cm *ConfigManager) UpdateGeminiUpstream(index int, updates UpstreamUpdate)
 		upstream.KeyLoadBalance = *updates.KeyLoadBalance
 	}
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return false, err
 	}
 
-	log.Printf("已更新 Gemini 上游: [%d] %s", index, cm.config.GeminiUpstream[index].Name)
+	log.Printf("已更新 Gemini 上游: [%d] %s", index, config.GeminiUpstream[index].Name)
 	return shouldResetMetrics, nil
 }
 
@@ -3570,20 +3644,19 @@ func (cm *ConfigManager) RemoveGeminiUpstream(index int) (*UpstreamConfig, error
 		return nil, fmt.Errorf("invalid Gemini upstream index: %d", index)
 	}
 
-	removed := cm.config.GeminiUpstream[index]
-	cm.config.GeminiUpstream = append(cm.config.GeminiUpstream[:index], cm.config.GeminiUpstream[index+1:]...)
+	config := cloneConfig(cm.config)
+	removed := config.GeminiUpstream[index]
+	config.GeminiUpstream = append(config.GeminiUpstream[:index], config.GeminiUpstream[index+1:]...)
 
 	// Reindex remaining upstreams
-	for i := range cm.config.GeminiUpstream {
-		cm.config.GeminiUpstream[i].Index = i
+	reindexConfig(&config)
+
+	if err := cm.saveConfigLocked(config); err != nil {
+		return nil, err
 	}
 
 	// 清理被删除渠道的失败 key 冷却记录
 	cm.clearFailedKeysForUpstream(&removed)
-
-	if err := cm.saveConfigLocked(cm.config); err != nil {
-		return nil, err
-	}
 
 	log.Printf("已删除 Gemini 上游: %s", removed.Name)
 	return &removed, nil
@@ -3605,13 +3678,14 @@ func (cm *ConfigManager) AddGeminiAPIKey(index int, apiKey string) error {
 		}
 	}
 
-	cm.config.GeminiUpstream[index].APIKeys = append(cm.config.GeminiUpstream[index].APIKeys, apiKey)
+	config := cloneConfig(cm.config)
+	config.GeminiUpstream[index].APIKeys = append(config.GeminiUpstream[index].APIKeys, apiKey)
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
-	log.Printf("已添加API密钥到 Gemini 上游 [%d] %s", index, cm.config.GeminiUpstream[index].Name)
+	log.Printf("已添加API密钥到 Gemini 上游 [%d] %s", index, config.GeminiUpstream[index].Name)
 	return nil
 }
 
@@ -3625,11 +3699,12 @@ func (cm *ConfigManager) RemoveGeminiAPIKey(index int, apiKey string) error {
 	}
 
 	// 查找并删除密钥
-	keys := cm.config.GeminiUpstream[index].APIKeys
+	config := cloneConfig(cm.config)
+	keys := config.GeminiUpstream[index].APIKeys
 	found := false
 	for i, key := range keys {
 		if key == apiKey {
-			cm.config.GeminiUpstream[index].APIKeys = append(keys[:i], keys[i+1:]...)
+			config.GeminiUpstream[index].APIKeys = append(keys[:i], keys[i+1:]...)
 			found = true
 			break
 		}
@@ -3639,11 +3714,11 @@ func (cm *ConfigManager) RemoveGeminiAPIKey(index int, apiKey string) error {
 		return fmt.Errorf("API key not found")
 	}
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
-	log.Printf("已从 Gemini 上游 [%d] %s 删除API密钥", index, cm.config.GeminiUpstream[index].Name)
+	log.Printf("已从 Gemini 上游 [%d] %s 删除API密钥", index, config.GeminiUpstream[index].Name)
 	return nil
 }
 
@@ -3656,13 +3731,14 @@ func (cm *ConfigManager) SetGeminiChannelStatus(index int, status string) error 
 		return fmt.Errorf("invalid Gemini channel index: %d", index)
 	}
 
-	cm.config.GeminiUpstream[index].Status = status
+	config := cloneConfig(cm.config)
+	config.GeminiUpstream[index].Status = status
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
-	log.Printf("已设置 Gemini 渠道 [%d] %s 状态为: %s", index, cm.config.GeminiUpstream[index].Name, status)
+	log.Printf("已设置 Gemini 渠道 [%d] %s 状态为: %s", index, config.GeminiUpstream[index].Name, status)
 	return nil
 }
 
@@ -3688,14 +3764,15 @@ func (cm *ConfigManager) ReorderGeminiUpstreams(order []int) error {
 	}
 
 	// Reorder
+	config := cloneConfig(cm.config)
 	newUpstreams := make([]UpstreamConfig, len(order))
 	for newIndex, oldIndex := range order {
-		newUpstreams[newIndex] = cm.config.GeminiUpstream[oldIndex]
+		newUpstreams[newIndex] = config.GeminiUpstream[oldIndex]
 		newUpstreams[newIndex].Index = newIndex
 	}
-	cm.config.GeminiUpstream = newUpstreams
+	config.GeminiUpstream = newUpstreams
 
-	return cm.saveConfigLocked(cm.config)
+	return cm.saveConfigLocked(config)
 }
 
 // GetNextGeminiAPIKey 获取下一个 Gemini API 密钥（负载均衡）
@@ -3776,12 +3853,14 @@ func (cm *ConfigManager) AddChatUpstream(upstream UpstreamConfig) error {
 		upstream.Status = "active"
 	}
 
+	config := cloneConfig(cm.config)
+
 	// Set the Index to the new position
-	upstream.Index = len(cm.config.ChatUpstream)
+	upstream.Index = len(config.ChatUpstream)
 
-	cm.config.ChatUpstream = append(cm.config.ChatUpstream, upstream)
+	config.ChatUpstream = append(config.ChatUpstream, upstream)
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
@@ -3799,7 +3878,8 @@ func (cm *ConfigManager) UpdateChatUpstream(index int, updates UpstreamUpdate) (
 		return false, fmt.Errorf("invalid Chat upstream index: %d", index)
 	}
 
-	upstream := &cm.config.ChatUpstream[index]
+	config := cloneConfig(cm.config)
+	upstream := &config.ChatUpstream[index]
 
 	if updates.Name != nil {
 		name := strings.TrimSpace(*updates.Name)
@@ -3905,11 +3985,11 @@ func (cm *ConfigManager) UpdateChatUpstream(index int, updates UpstreamUpdate) (
 		upstream.KeyLoadBalance = *updates.KeyLoadBalance
 	}
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return false, err
 	}
 
-	log.Printf("已更新 Chat 上游: [%d] %s", index, cm.config.ChatUpstream[index].Name)
+	log.Printf("已更新 Chat 上游: [%d] %s", index, config.ChatUpstream[index].Name)
 	return shouldResetMetrics, nil
 }
 
@@ -3922,20 +4002,19 @@ func (cm *ConfigManager) RemoveChatUpstream(index int) (*UpstreamConfig, error) 
 		return nil, fmt.Errorf("invalid Chat upstream index: %d", index)
 	}
 
-	removed := cm.config.ChatUpstream[index]
-	cm.config.ChatUpstream = append(cm.config.ChatUpstream[:index], cm.config.ChatUpstream[index+1:]...)
+	config := cloneConfig(cm.config)
+	removed := config.ChatUpstream[index]
+	config.ChatUpstream = append(config.ChatUpstream[:index], config.ChatUpstream[index+1:]...)
 
 	// Reindex remaining upstreams
-	for i := range cm.config.ChatUpstream {
-		cm.config.ChatUpstream[i].Index = i
+	reindexConfig(&config)
+
+	if err := cm.saveConfigLocked(config); err != nil {
+		return nil, err
 	}
 
 	// 清理被删除渠道的失败 key 冷却记录
 	cm.clearFailedKeysForUpstream(&removed)
-
-	if err := cm.saveConfigLocked(cm.config); err != nil {
-		return nil, err
-	}
 
 	log.Printf("已删除 Chat 上游: %s", removed.Name)
 	return &removed, nil
@@ -3957,13 +4036,14 @@ func (cm *ConfigManager) AddChatAPIKey(index int, apiKey string) error {
 		}
 	}
 
-	cm.config.ChatUpstream[index].APIKeys = append(cm.config.ChatUpstream[index].APIKeys, apiKey)
+	config := cloneConfig(cm.config)
+	config.ChatUpstream[index].APIKeys = append(config.ChatUpstream[index].APIKeys, apiKey)
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
-	log.Printf("已添加API密钥到 Chat 上游 [%d] %s", index, cm.config.ChatUpstream[index].Name)
+	log.Printf("已添加API密钥到 Chat 上游 [%d] %s", index, config.ChatUpstream[index].Name)
 	return nil
 }
 
@@ -3977,11 +4057,12 @@ func (cm *ConfigManager) RemoveChatAPIKey(index int, apiKey string) error {
 	}
 
 	// 查找并删除密钥
-	keys := cm.config.ChatUpstream[index].APIKeys
+	config := cloneConfig(cm.config)
+	keys := config.ChatUpstream[index].APIKeys
 	found := false
 	for i, key := range keys {
 		if key == apiKey {
-			cm.config.ChatUpstream[index].APIKeys = append(keys[:i], keys[i+1:]...)
+			config.ChatUpstream[index].APIKeys = append(keys[:i], keys[i+1:]...)
 			found = true
 			break
 		}
@@ -3991,11 +4072,11 @@ func (cm *ConfigManager) RemoveChatAPIKey(index int, apiKey string) error {
 		return fmt.Errorf("API key not found")
 	}
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
-	log.Printf("已从 Chat 上游 [%d] %s 删除API密钥", index, cm.config.ChatUpstream[index].Name)
+	log.Printf("已从 Chat 上游 [%d] %s 删除API密钥", index, config.ChatUpstream[index].Name)
 	return nil
 }
 
@@ -4008,13 +4089,14 @@ func (cm *ConfigManager) SetChatChannelStatus(index int, status string) error {
 		return fmt.Errorf("invalid Chat channel index: %d", index)
 	}
 
-	cm.config.ChatUpstream[index].Status = status
+	config := cloneConfig(cm.config)
+	config.ChatUpstream[index].Status = status
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 
-	log.Printf("已设置 Chat 渠道 [%d] %s 状态为: %s", index, cm.config.ChatUpstream[index].Name, status)
+	log.Printf("已设置 Chat 渠道 [%d] %s 状态为: %s", index, config.ChatUpstream[index].Name, status)
 	return nil
 }
 
@@ -4040,14 +4122,15 @@ func (cm *ConfigManager) ReorderChatUpstreams(order []int) error {
 	}
 
 	// Reorder
+	config := cloneConfig(cm.config)
 	newUpstreams := make([]UpstreamConfig, len(order))
 	for newIndex, oldIndex := range order {
-		newUpstreams[newIndex] = cm.config.ChatUpstream[oldIndex]
+		newUpstreams[newIndex] = config.ChatUpstream[oldIndex]
 		newUpstreams[newIndex].Index = newIndex
 	}
-	cm.config.ChatUpstream = newUpstreams
+	config.ChatUpstream = newUpstreams
 
-	return cm.saveConfigLocked(cm.config)
+	return cm.saveConfigLocked(config)
 }
 
 // GetNextChatAPIKey 获取下一个 Chat API 密钥（负载均衡）
@@ -4072,9 +4155,10 @@ func (cm *ConfigManager) SetChatLoadBalance(strategy string) error {
 		return err
 	}
 
-	cm.config.ChatLoadBalance = strategy
+	config := cloneConfig(cm.config)
+	config.ChatLoadBalance = strategy
 
-	if err := cm.saveConfigLocked(cm.config); err != nil {
+	if err := cm.saveConfigLocked(config); err != nil {
 		return err
 	}
 

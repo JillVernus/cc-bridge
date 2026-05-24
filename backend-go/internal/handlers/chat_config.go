@@ -138,6 +138,9 @@ func AddChatUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		if err := cfgManager.AddChatUpstream(upstream); err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
@@ -164,6 +167,9 @@ func UpdateChatUpstream(cfgManager *config.ConfigManager, channelScheduler *sche
 
 		shouldResetMetrics, err := cfgManager.UpdateChatUpstream(index, updates)
 		if err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
@@ -189,6 +195,9 @@ func DeleteChatUpstream(cfgManager *config.ConfigManager, channelRateLimiter *mi
 
 		removed, err := cfgManager.RemoveChatUpstream(index)
 		if err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
@@ -227,6 +236,9 @@ func AddChatApiKey(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		if err := cfgManager.AddChatAPIKey(index, req.APIKey); err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
@@ -267,6 +279,9 @@ func DeleteChatApiKeyByIndex(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		apiKey := upstreams[index].APIKeys[keyIndex]
 
 		if err := cfgManager.RemoveChatAPIKey(index, apiKey); err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
@@ -300,6 +315,9 @@ func SetChatChannelStatus(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		if err := cfgManager.SetChatChannelStatus(index, req.Status); err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
@@ -321,6 +339,9 @@ func ReorderChatChannels(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		if err := cfgManager.ReorderChatUpstreams(req.Order); err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
@@ -352,6 +373,9 @@ func SetChatLoadBalance(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		if err := cfgManager.SetChatLoadBalance(req.Strategy); err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}

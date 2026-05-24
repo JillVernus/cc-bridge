@@ -1,0 +1,253 @@
+package handlers
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/JillVernus/cc-bridge/internal/config"
+	"github.com/JillVernus/cc-bridge/internal/database"
+	"github.com/gin-gonic/gin"
+)
+
+func staleConflictSeedConfig() config.Config {
+	return config.Config{
+		Upstream:             []config.UpstreamConfig{},
+		LoadBalance:          "failover",
+		ResponsesUpstream:    []config.UpstreamConfig{},
+		ResponsesLoadBalance: "failover",
+		GeminiLoadBalance:    "failover",
+		ChatLoadBalance:      "failover",
+		UserAgent:            config.GetDefaultUserAgentConfig(),
+		GeminiUpstream:       []config.UpstreamConfig{staleConflictGeminiUpstream("gemini-initial")},
+		ChatUpstream:         []config.UpstreamConfig{staleConflictChatUpstream("chat-initial")},
+	}
+}
+
+func staleConflictGeminiUpstream(name string) config.UpstreamConfig {
+	return config.UpstreamConfig{
+		Name:        name,
+		BaseURL:     "https://gemini.example.com",
+		ServiceType: "gemini",
+		APIKeys:     []string{name + "-key"},
+		Status:      "active",
+	}
+}
+
+func staleConflictChatUpstream(name string) config.UpstreamConfig {
+	return config.UpstreamConfig{
+		Name:        name,
+		BaseURL:     "https://chat.example.com",
+		ServiceType: "openai",
+		APIKeys:     []string{name + "-key"},
+		Status:      "active",
+	}
+}
+
+func newStaleConflictManagers(t *testing.T, seed config.Config) (*config.ConfigManager, *config.ConfigManager, database.DB) {
+	t.Helper()
+
+	dbPath := filepath.Join(t.TempDir(), "handler-stale-conflict.db")
+	db, err := database.New(database.Config{
+		Type: database.DialectSQLite,
+		URL:  dbPath,
+	})
+	if err != nil {
+		t.Fatalf("failed to create test database: %v", err)
+	}
+	if err := database.RunMigrations(db); err != nil {
+		_ = db.Close()
+		t.Fatalf("failed to run migrations: %v", err)
+	}
+
+	seedStorage := config.NewDBConfigStorage(db, time.Second)
+	if err := seedStorage.SaveConfigToDB(&seed); err != nil {
+		_ = db.Close()
+		t.Fatalf("seed SaveConfigToDB() failed: %v", err)
+	}
+
+	return newDBBackedStaleConflictManager(t, db), newDBBackedStaleConflictManager(t, db), db
+}
+
+func newDBBackedStaleConflictManager(t *testing.T, db database.DB) *config.ConfigManager {
+	t.Helper()
+
+	cfgManager, err := config.NewConfigManager(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatalf("NewConfigManager() failed: %v", err)
+	}
+	t.Cleanup(func() { _ = cfgManager.Close() })
+
+	storage := config.NewDBConfigStorage(db, time.Second)
+	storage.SetConfigManager(cfgManager)
+	cfgManager.SetDBStorage(storage)
+
+	return cfgManager
+}
+
+func performJSONRequest(t *testing.T, router *gin.Engine, method string, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+
+	req := httptest.NewRequest(method, path, bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	return w
+}
+
+func TestGeminiStaleChannelMutationHandlersReturnConflict(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name        string
+		remoteWrite func(*config.ConfigManager) error
+		register    func(*gin.Engine, *config.ConfigManager)
+		method      string
+		path        string
+		body        any
+	}{
+		{
+			name: "add",
+			remoteWrite: func(cm *config.ConfigManager) error {
+				return cm.AddGeminiUpstream(staleConflictGeminiUpstream("gemini-remote"))
+			},
+			register: func(router *gin.Engine, cm *config.ConfigManager) {
+				router.POST("/api/gemini/channels", AddGeminiUpstream(cm))
+			},
+			method: http.MethodPost,
+			path:   "/api/gemini/channels",
+			body: map[string]any{
+				"name":        "gemini-stale",
+				"baseUrl":     "https://gemini-stale.example.com",
+				"serviceType": "gemini",
+				"apiKeys":     []string{"gemini-stale-key"},
+			},
+		},
+		{
+			name: "update",
+			remoteWrite: func(cm *config.ConfigManager) error {
+				return cm.AddGeminiUpstream(staleConflictGeminiUpstream("gemini-remote"))
+			},
+			register: func(router *gin.Engine, cm *config.ConfigManager) {
+				router.PUT("/api/gemini/channels/:id", UpdateGeminiUpstream(cm, nil))
+			},
+			method: http.MethodPut,
+			path:   "/api/gemini/channels/0",
+			body:   map[string]any{"name": "gemini-stale-update"},
+		},
+		{
+			name: "delete",
+			remoteWrite: func(cm *config.ConfigManager) error {
+				return cm.AddGeminiUpstream(staleConflictGeminiUpstream("gemini-remote"))
+			},
+			register: func(router *gin.Engine, cm *config.ConfigManager) {
+				router.DELETE("/api/gemini/channels/:id", DeleteGeminiUpstream(cm, nil))
+			},
+			method: http.MethodDelete,
+			path:   "/api/gemini/channels/0",
+			body:   map[string]any{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			managerA, managerB, db := newStaleConflictManagers(t, staleConflictSeedConfig())
+			defer db.Close()
+
+			if err := tt.remoteWrite(managerA); err != nil {
+				t.Fatalf("remote write failed: %v", err)
+			}
+
+			router := gin.New()
+			tt.register(router, managerB)
+
+			w := performJSONRequest(t, router, tt.method, tt.path, tt.body)
+			if w.Code != http.StatusConflict {
+				t.Fatalf("status = %d, want 409 Conflict, body=%s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestChatStaleChannelMutationHandlersReturnConflict(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name        string
+		remoteWrite func(*config.ConfigManager) error
+		register    func(*gin.Engine, *config.ConfigManager)
+		method      string
+		path        string
+		body        any
+	}{
+		{
+			name: "add",
+			remoteWrite: func(cm *config.ConfigManager) error {
+				return cm.AddChatUpstream(staleConflictChatUpstream("chat-remote"))
+			},
+			register: func(router *gin.Engine, cm *config.ConfigManager) {
+				router.POST("/api/chat/channels", AddChatUpstream(cm))
+			},
+			method: http.MethodPost,
+			path:   "/api/chat/channels",
+			body: map[string]any{
+				"name":        "chat-stale",
+				"baseUrl":     "https://chat-stale.example.com",
+				"serviceType": "openai",
+				"apiKeys":     []string{"chat-stale-key"},
+			},
+		},
+		{
+			name: "update",
+			remoteWrite: func(cm *config.ConfigManager) error {
+				return cm.AddChatUpstream(staleConflictChatUpstream("chat-remote"))
+			},
+			register: func(router *gin.Engine, cm *config.ConfigManager) {
+				router.PUT("/api/chat/channels/:id", UpdateChatUpstream(cm, nil))
+			},
+			method: http.MethodPut,
+			path:   "/api/chat/channels/0",
+			body:   map[string]any{"name": "chat-stale-update"},
+		},
+		{
+			name: "delete",
+			remoteWrite: func(cm *config.ConfigManager) error {
+				return cm.AddChatUpstream(staleConflictChatUpstream("chat-remote"))
+			},
+			register: func(router *gin.Engine, cm *config.ConfigManager) {
+				router.DELETE("/api/chat/channels/:id", DeleteChatUpstream(cm, nil))
+			},
+			method: http.MethodDelete,
+			path:   "/api/chat/channels/0",
+			body:   map[string]any{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			managerA, managerB, db := newStaleConflictManagers(t, staleConflictSeedConfig())
+			defer db.Close()
+
+			if err := tt.remoteWrite(managerA); err != nil {
+				t.Fatalf("remote write failed: %v", err)
+			}
+
+			router := gin.New()
+			tt.register(router, managerB)
+
+			w := performJSONRequest(t, router, tt.method, tt.path, tt.body)
+			if w.Code != http.StatusConflict {
+				t.Fatalf("status = %d, want 409 Conflict, body=%s", w.Code, w.Body.String())
+			}
+		})
+	}
+}

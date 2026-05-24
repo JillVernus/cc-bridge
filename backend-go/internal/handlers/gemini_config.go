@@ -133,6 +133,9 @@ func AddGeminiUpstream(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		if err := cfgManager.AddGeminiUpstream(upstream); err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
@@ -159,6 +162,9 @@ func UpdateGeminiUpstream(cfgManager *config.ConfigManager, channelScheduler *sc
 
 		shouldResetMetrics, err := cfgManager.UpdateGeminiUpstream(index, updates)
 		if err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
@@ -184,6 +190,9 @@ func DeleteGeminiUpstream(cfgManager *config.ConfigManager, channelRateLimiter *
 
 		removed, err := cfgManager.RemoveGeminiUpstream(index)
 		if err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
@@ -222,6 +231,9 @@ func AddGeminiApiKey(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		if err := cfgManager.AddGeminiAPIKey(index, req.APIKey); err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
@@ -262,6 +274,9 @@ func DeleteGeminiApiKeyByIndex(cfgManager *config.ConfigManager) gin.HandlerFunc
 		apiKey := upstreams[index].APIKeys[keyIndex]
 
 		if err := cfgManager.RemoveGeminiAPIKey(index, apiKey); err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
@@ -295,6 +310,9 @@ func SetGeminiChannelStatus(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		if err := cfgManager.SetGeminiChannelStatus(index, req.Status); err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
@@ -316,6 +334,9 @@ func ReorderGeminiChannels(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		if err := cfgManager.ReorderGeminiUpstreams(req.Order); err != nil {
+			if writeStaleConfigConflict(c, err) {
+				return
+			}
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
