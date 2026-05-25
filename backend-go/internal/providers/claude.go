@@ -139,7 +139,40 @@ func (p *ClaudeProvider) ConvertToClaudeResponse(providerResp *types.ProviderRes
 	if err := json.Unmarshal(providerResp.Body, &claudeResp); err != nil {
 		return nil, err
 	}
+	sanitizeClaudeTextContent(&claudeResp)
 	return &claudeResp, nil
+}
+
+func sanitizeClaudeTextContent(resp *types.ClaudeResponse) {
+	if resp == nil {
+		return
+	}
+	for i := range resp.Content {
+		if resp.Content[i].Type == "text" && strings.Contains(resp.Content[i].Text, "<") {
+			resp.Content[i].Text = stripRawThinkingTagsFromText(resp.Content[i].Text)
+		}
+	}
+}
+
+func stripRawThinkingTagsFromText(text string) string {
+	parser := newOpenAIChatToolifyParser("<<cc-bridge-never-match-thinking-strip>>", true)
+	parser.FeedString(text)
+	parser.Finish()
+
+	var b strings.Builder
+	foundThinking := false
+	for _, ev := range parser.ConsumeEvents() {
+		switch ev.Type {
+		case "text":
+			b.WriteString(ev.Content)
+		case "thinking":
+			foundThinking = true
+		}
+	}
+	if !foundThinking {
+		return text
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // HandleStreamResponse 处理流式响应（直接透传）

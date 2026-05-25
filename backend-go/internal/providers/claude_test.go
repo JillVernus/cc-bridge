@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/JillVernus/cc-bridge/internal/config"
+	"github.com/JillVernus/cc-bridge/internal/types"
 	"github.com/gin-gonic/gin"
 )
 
@@ -113,5 +114,68 @@ func TestClaudeProviderConvertToProviderRequest_PassesThroughNonJSONBody(t *test
 	}
 	if string(bodyBytes) != "not-json" {
 		t.Fatalf("expected non-JSON body to pass through unchanged, got %q", string(bodyBytes))
+	}
+}
+
+func TestClaudeProviderConvertToClaudeResponse_StripsRawThinkingTagsFromText(t *testing.T) {
+	provider := &ClaudeProvider{}
+	providerResp := &types.ProviderResponse{
+		StatusCode: 200,
+		Body: []byte(`{
+			"id":"msg_1",
+			"type":"message",
+			"role":"assistant",
+			"model":"claude-opus-4-7",
+			"content":[{"type":"text","text":"\n<thinking>\ninternal notes\n</thinking>\n\nHey! What can I help you with?"}],
+			"stop_reason":"end_turn",
+			"usage":{"input_tokens":10,"output_tokens":5}
+		}`),
+	}
+
+	claudeResp, err := provider.ConvertToClaudeResponse(providerResp)
+	if err != nil {
+		t.Fatalf("ConvertToClaudeResponse returned error: %v", err)
+	}
+	if len(claudeResp.Content) != 1 {
+		t.Fatalf("expected one content block, got %d", len(claudeResp.Content))
+	}
+	if strings.Contains(claudeResp.Content[0].Text, "<thinking>") || strings.Contains(claudeResp.Content[0].Text, "</thinking>") {
+		t.Fatalf("expected raw thinking tags to be stripped, got %q", claudeResp.Content[0].Text)
+	}
+	if claudeResp.Content[0].Text != "Hey! What can I help you with?" {
+		t.Fatalf("unexpected sanitized text: %q", claudeResp.Content[0].Text)
+	}
+}
+
+func TestClaudeProviderConvertToClaudeResponse_PreservesProperThinkingContentBlock(t *testing.T) {
+	provider := &ClaudeProvider{}
+	providerResp := &types.ProviderResponse{
+		StatusCode: 200,
+		Body: []byte(`{
+			"id":"msg_1",
+			"type":"message",
+			"role":"assistant",
+			"model":"claude-opus-4-7",
+			"content":[
+				{"type":"thinking","thinking":"valid reasoning block"},
+				{"type":"text","text":"Thinking works."}
+			],
+			"stop_reason":"end_turn",
+			"usage":{"input_tokens":10,"output_tokens":5}
+		}`),
+	}
+
+	claudeResp, err := provider.ConvertToClaudeResponse(providerResp)
+	if err != nil {
+		t.Fatalf("ConvertToClaudeResponse returned error: %v", err)
+	}
+	if len(claudeResp.Content) != 2 {
+		t.Fatalf("expected two content blocks, got %d", len(claudeResp.Content))
+	}
+	if claudeResp.Content[0].Type != "thinking" || claudeResp.Content[0].Thinking != "valid reasoning block" {
+		t.Fatalf("expected proper thinking block to be preserved, got %+v", claudeResp.Content[0])
+	}
+	if claudeResp.Content[1].Text != "Thinking works." {
+		t.Fatalf("expected text block to be preserved, got %+v", claudeResp.Content[1])
 	}
 }
