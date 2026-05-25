@@ -301,6 +301,13 @@
         </v-card>
       </div>
 
+      <!-- Date filter splitter -->
+      <div v-if="!isDateFilterCollapsed" class="panel-splitter" @pointerdown="startPanelResize($event, 'splitter2')">
+        <div class="splitter-handle"></div>
+      </div>
+      <!-- Spacer when collapsed -->
+      <div v-else class="panel-splitter-spacer"></div>
+
       <!-- 日期筛选 -->
       <div
         class="panel-wrapper date-filter-panel"

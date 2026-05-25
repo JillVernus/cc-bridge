@@ -15,7 +15,7 @@
   - Messages / Responses 渠道被手动 `suspended` 或 `disabled` 时立即清理对应 trace affinity，避免客户端继续命中已下线渠道直到失败后才切换。
 
 - **请求日志页面精简**:
-  - 主日志页面隐藏 Active Sessions 卡片，并让摘要面板回收对应空间。
+  - 主日志页面隐藏 Active Sessions 卡片，让摘要面板回收对应空间，并保留摘要 / 日期筛选宽度拖拽调整。
 
 ### ✅ 测试
 
