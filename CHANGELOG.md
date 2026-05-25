@@ -4,6 +4,24 @@
 
 ---
 
+## [v1.5.43] - 2026-05-25
+
+### 🐛 修复
+
+- **Claude Code HTTP 200 malformed response 修复**:
+  - 清理 Claude 上游响应中的原始 thinking 标签时，保留 `model` 与 `stop_sequence` 字段，避免 Claude Code 将成功响应识别为 malformed response。
+
+- **渠道下线后的粘性路由修复**:
+  - Messages / Responses 渠道被手动 `suspended` 或 `disabled` 时立即清理对应 trace affinity，避免客户端继续命中已下线渠道直到失败后才切换。
+
+- **请求日志页面精简**:
+  - 主日志页面隐藏 Active Sessions 卡片，并让摘要面板回收对应空间。
+
+### ✅ 测试
+
+- `cd backend-go && go test ./... -count=1`
+- `cd frontend && bun run type-check`
+
 ## [v1.5.42] - 2026-05-20
 
 ### ✨ 新功能

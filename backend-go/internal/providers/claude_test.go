@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"encoding/json"
 	"io"
 	"net/http/httptest"
 	"strings"
@@ -144,6 +145,17 @@ func TestClaudeProviderConvertToClaudeResponse_StripsRawThinkingTagsFromText(t *
 	}
 	if claudeResp.Content[0].Text != "Hey! What can I help you with?" {
 		t.Fatalf("unexpected sanitized text: %q", claudeResp.Content[0].Text)
+	}
+
+	out, err := json.Marshal(claudeResp)
+	if err != nil {
+		t.Fatalf("marshal sanitized response: %v", err)
+	}
+	if !strings.Contains(string(out), `"model":"claude-opus-4-7"`) {
+		t.Fatalf("expected sanitized response to preserve model, got %s", string(out))
+	}
+	if !strings.Contains(string(out), `"stop_sequence":null`) {
+		t.Fatalf("expected sanitized response to preserve stop_sequence:null, got %s", string(out))
 	}
 }
 

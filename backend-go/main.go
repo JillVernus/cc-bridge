@@ -640,7 +640,7 @@ func main() {
 
 		// 多渠道调度 API
 		apiGroup.POST("/channels/reorder", handlers.ReorderChannels(cfgManager))
-		apiGroup.PATCH("/channels/:id/status", handlers.SetChannelStatus(cfgManager))
+		apiGroup.PATCH("/channels/:id/status", handlers.SetChannelStatus(cfgManager, channelScheduler))
 		apiGroup.POST("/channels/:id/resume", handlers.ResumeChannel(channelScheduler, false))
 		apiGroup.POST("/channels/:id/promotion", handlers.SetChannelPromotion(cfgManager))
 		apiGroup.GET("/channels/:id/test-mapping", handlers.TestCompositeMapping(cfgManager))
@@ -666,7 +666,7 @@ func main() {
 
 		// Responses 多渠道调度 API
 		apiGroup.POST("/responses/channels/reorder", handlers.ReorderResponsesChannels(cfgManager))
-		apiGroup.PATCH("/responses/channels/:id/status", handlers.SetResponsesChannelStatus(cfgManager))
+		apiGroup.PATCH("/responses/channels/:id/status", handlers.SetResponsesChannelStatus(cfgManager, channelScheduler))
 		apiGroup.POST("/responses/channels/:id/resume", handlers.ResumeChannel(channelScheduler, true))
 		apiGroup.POST("/responses/channels/:id/promotion", handlers.SetResponsesChannelPromotion(cfgManager))
 		apiGroup.GET("/responses/channels/metrics", handlers.GetResponsesChannelMetrics(responsesMetricsManager, cfgManager))

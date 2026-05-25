@@ -536,6 +536,9 @@ func UpdateUpstream(cfgManager *config.ConfigManager, sch *scheduler.ChannelSche
 		if shouldResetMetrics && sch != nil {
 			sch.ResetChannelMetrics(id, false)
 		}
+		if updates.Status != nil {
+			clearTraceAffinityForTakenDownChannel(sch, id, *updates.Status)
+		}
 
 		cfg, revision := cfgManager.GetConfigWithRevision()
 		writeConfigRevisionETag(c, revision)
@@ -1276,6 +1279,9 @@ func UpdateResponsesUpstream(cfgManager *config.ConfigManager, sch *scheduler.Ch
 		if shouldResetMetrics && sch != nil {
 			sch.ResetChannelMetrics(id, true)
 		}
+		if updates.Status != nil {
+			clearTraceAffinityForTakenDownChannel(sch, id, *updates.Status)
+		}
 
 		cfg, revision := cfgManager.GetConfigWithRevision()
 		writeConfigRevisionETag(c, revision)
@@ -1545,7 +1551,7 @@ func ReorderResponsesChannels(cfgManager *config.ConfigManager) gin.HandlerFunc 
 }
 
 // SetChannelStatus 设置渠道状态
-func SetChannelStatus(cfgManager *config.ConfigManager) gin.HandlerFunc {
+func SetChannelStatus(cfgManager *config.ConfigManager, sch *scheduler.ChannelScheduler) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		idStr := c.Param("id")
 		id, err := strconv.Atoi(idStr)
@@ -1572,6 +1578,7 @@ func SetChannelStatus(cfgManager *config.ConfigManager) gin.HandlerFunc {
 			}
 			return
 		}
+		clearTraceAffinityForTakenDownChannel(sch, id, req.Status)
 
 		c.JSON(200, gin.H{
 			"success": true,
@@ -1582,7 +1589,7 @@ func SetChannelStatus(cfgManager *config.ConfigManager) gin.HandlerFunc {
 }
 
 // SetResponsesChannelStatus 设置 Responses 渠道状态
-func SetResponsesChannelStatus(cfgManager *config.ConfigManager) gin.HandlerFunc {
+func SetResponsesChannelStatus(cfgManager *config.ConfigManager, sch *scheduler.ChannelScheduler) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		idStr := c.Param("id")
 		id, err := strconv.Atoi(idStr)
@@ -1609,12 +1616,23 @@ func SetResponsesChannelStatus(cfgManager *config.ConfigManager) gin.HandlerFunc
 			}
 			return
 		}
+		clearTraceAffinityForTakenDownChannel(sch, id, req.Status)
 
 		c.JSON(200, gin.H{
 			"success": true,
 			"message": "Responses 渠道状态已更新",
 			"status":  req.Status,
 		})
+	}
+}
+
+func clearTraceAffinityForTakenDownChannel(sch *scheduler.ChannelScheduler, channelIndex int, status string) {
+	if sch == nil || channelIndex < 0 {
+		return
+	}
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "suspended", "disabled":
+		sch.GetTraceAffinityManager().RemoveByChannel(channelIndex)
 	}
 }
 

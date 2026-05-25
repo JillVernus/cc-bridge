@@ -49,12 +49,14 @@ type ClaudeTool struct {
 
 // ClaudeResponse Claude 响应
 type ClaudeResponse struct {
-	ID         string          `json:"id"`
-	Type       string          `json:"type"`
-	Role       string          `json:"role"`
-	Content    []ClaudeContent `json:"content"`
-	StopReason string          `json:"stop_reason,omitempty"`
-	Usage      *Usage          `json:"usage,omitempty"`
+	ID           string          `json:"id"`
+	Type         string          `json:"type"`
+	Role         string          `json:"role"`
+	Model        string          `json:"model,omitempty"`
+	Content      []ClaudeContent `json:"content"`
+	StopReason   string          `json:"stop_reason,omitempty"`
+	StopSequence *string         `json:"stop_sequence"`
+	Usage        *Usage          `json:"usage,omitempty"`
 }
 
 // OpenAIRequest OpenAI 请求结构
