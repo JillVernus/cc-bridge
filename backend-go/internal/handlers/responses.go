@@ -1948,6 +1948,38 @@ func handleSingleChannelResponses(
 			resp.Body.Close()
 			respBodyBytes = utils.DecompressGzipIfNeeded(resp, respBodyBytes)
 
+			if upstream.ServiceType == "responses" && shouldRetryResponsesCompatibility(resp.StatusCode, respBodyBytes) {
+				if sanitizedBodyBytes, changed, sanitizeErr := sanitizeCodexResponsesCompatibilityRequest(effectiveBodyBytes); sanitizeErr != nil {
+					log.Printf("⚠️ [Responses] compatibility sanitize failed: %v", sanitizeErr)
+				} else if changed {
+					log.Printf("🔁 [Responses] upstream rejected Codex-specific payload shape; retrying with compatibility request")
+					c.Request.Body = io.NopCloser(bytes.NewReader(sanitizedBodyBytes))
+					compatProviderReq, _, compatErr := provider.ConvertToProviderRequest(c, upstream, apiKey)
+					if compatErr != nil {
+						log.Printf("⚠️ [Responses] compatibility request conversion failed: %v", compatErr)
+					} else {
+						applyResponsesUserAgentPolicy(c, cfgManager, upstream, compatProviderReq)
+						ApplyOutboundHeaderPolicy(c, cfgManager, compatProviderReq)
+						compatResp, compatErr := sendResponsesRequest(compatProviderReq, upstream, envCfg, responsesReq.Stream)
+						if compatErr != nil {
+							log.Printf("⚠️ [Responses] compatibility retry failed: %v", compatErr)
+						} else if compatResp.StatusCode >= 200 && compatResp.StatusCode < 300 {
+							if failoverTracker != nil {
+								failoverTracker.ResetOnSuccess(upstream.Index, apiKey)
+							}
+							recordSingleSuccess(compatResp.StatusCode)
+							handleResponsesSuccess(c, compatResp, provider, upstream, envCfg, cfgManager, sessionManager, currentStartTime, &responsesReq, sanitizedBodyBytes, reqLogManager, currentRequestLogID, usageManager, logChannelIndex, logChannelName, effectiveIsFastMode, serviceTierOverridden)
+							return
+						} else {
+							respBodyBytes, _ = io.ReadAll(compatResp.Body)
+							compatResp.Body.Close()
+							respBodyBytes = utils.DecompressGzipIfNeeded(compatResp, respBodyBytes)
+							resp = compatResp
+						}
+					}
+				}
+			}
+
 			// Handle 429 errors with smart subtype detection (single-channel mode)
 			if resp.StatusCode == 429 && failoverTracker != nil {
 				// Unified failover logic: always use admin failover settings

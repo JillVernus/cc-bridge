@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
@@ -36,9 +37,19 @@ func sanitizeCodexResponsesCompatibilityRequest(bodyBytes []byte) ([]byte, bool,
 			}
 			itemType, _ := itemMap["type"].(string)
 			switch itemType {
-			case "message", "function_call", "function_call_output":
-				filtered = append(filtered, sanitizeResponsesCompatibilityInputItem(itemMap, itemType))
+			case "message":
+				filtered = append(filtered, sanitizeResponsesCompatibilityMessage(itemMap))
+			case "function_call", "function_call_output", "custom_tool_call", "custom_tool_call_output", "tool_search_call", "tool_search_output":
+				if message, ok := convertResponsesCompatibilityHistoryItemToMessage(itemMap, itemType); ok {
+					filtered = append(filtered, message)
+				}
+				changed = true
 			default:
+				if itemType != "reasoning" {
+					if message, ok := convertResponsesCompatibilityHistoryItemToMessage(itemMap, itemType); ok {
+						filtered = append(filtered, message)
+					}
+				}
 				changed = true
 			}
 		}
@@ -79,31 +90,77 @@ func sanitizeCodexResponsesCompatibilityRequest(bodyBytes []byte) ([]byte, bool,
 	return sanitized, true, nil
 }
 
-func sanitizeResponsesCompatibilityInputItem(item map[string]interface{}, itemType string) map[string]interface{} {
-	allowed := map[string]bool{"type": true}
-	switch itemType {
-	case "message":
-		allowed["role"] = true
-		allowed["content"] = true
-		allowed["status"] = true
-	case "function_call":
-		allowed["call_id"] = true
-		allowed["name"] = true
-		allowed["arguments"] = true
-		allowed["status"] = true
-	case "function_call_output":
-		allowed["call_id"] = true
-		allowed["output"] = true
-		allowed["status"] = true
+func sanitizeResponsesCompatibilityMessage(item map[string]interface{}) map[string]interface{} {
+	filtered := map[string]interface{}{
+		"type": "message",
 	}
-
-	filtered := make(map[string]interface{}, len(allowed))
-	for key, value := range item {
-		if allowed[key] {
-			filtered[key] = value
-		}
+	if role, _ := item["role"].(string); role == "assistant" || role == "user" || role == "system" {
+		filtered["role"] = role
+	} else {
+		filtered["role"] = "user"
+	}
+	if content, ok := item["content"]; ok {
+		filtered["content"] = content
+	} else {
+		filtered["content"] = []interface{}{map[string]interface{}{"type": "input_text", "text": ""}}
 	}
 	return filtered
+}
+
+func convertResponsesCompatibilityHistoryItemToMessage(item map[string]interface{}, itemType string) (map[string]interface{}, bool) {
+	if itemType == "" {
+		itemType = "unknown"
+	}
+
+	text := ""
+	switch itemType {
+	case "function_call":
+		name, _ := item["name"].(string)
+		arguments, _ := item["arguments"].(string)
+		text = fmt.Sprintf("[tool call: %s]\n%s", name, arguments)
+	case "function_call_output":
+		output, _ := item["output"].(string)
+		text = fmt.Sprintf("[tool output]\n%s", output)
+	case "custom_tool_call":
+		name, _ := item["name"].(string)
+		input, _ := item["input"].(string)
+		text = fmt.Sprintf("[custom tool call: %s]\n%s", name, input)
+	case "custom_tool_call_output":
+		output, _ := item["output"].(string)
+		text = fmt.Sprintf("[custom tool output]\n%s", output)
+	case "tool_search_call":
+		text = "[tool search call]"
+		if arguments, ok := item["arguments"]; ok {
+			if encoded, err := json.Marshal(arguments); err == nil {
+				text += "\n" + string(encoded)
+			}
+		}
+	case "tool_search_output":
+		text = "[tool search output]"
+		if tools, ok := item["tools"]; ok {
+			if encoded, err := json.Marshal(tools); err == nil {
+				text += "\n" + string(encoded)
+			}
+		}
+	default:
+		if encoded, err := json.Marshal(item); err == nil {
+			text = fmt.Sprintf("[%s]\n%s", itemType, string(encoded))
+		}
+	}
+
+	if strings.TrimSpace(text) == "" {
+		return nil, false
+	}
+	return map[string]interface{}{
+		"type": "message",
+		"role": "user",
+		"content": []interface{}{
+			map[string]interface{}{
+				"type": "input_text",
+				"text": text,
+			},
+		},
+	}, true
 }
 
 func shouldRetryResponsesCompatibility(status int, bodyBytes []byte) bool {

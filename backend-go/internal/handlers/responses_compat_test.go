@@ -64,15 +64,13 @@ func TestSanitizeCodexResponsesCompatibilityRequest_DropsProviderSpecificState(t
 	}
 
 	input := payload["input"].([]interface{})
-	if len(input) != 3 {
-		t.Fatalf("expected only message/function history items to remain, got %d: %#v", len(input), input)
+	if len(input) != 7 {
+		t.Fatalf("expected provider-specific history to be converted into messages, got %d: %#v", len(input), input)
 	}
 	for _, item := range input {
 		itemMap := item.(map[string]interface{})
-		switch itemMap["type"] {
-		case "message", "function_call", "function_call_output":
-		default:
-			t.Fatalf("unexpected input item after sanitize: %#v", itemMap)
+		if itemMap["type"] != "message" {
+			t.Fatalf("expected sanitized input item to be a message, got %#v", itemMap)
 		}
 		if _, ok := itemMap["namespace"]; ok {
 			t.Fatalf("expected provider-specific namespace to be removed, got %#v", itemMap)
@@ -222,6 +220,138 @@ func TestTryResponsesChannelWithAllKeys_RetriesDecodeFailureWithCompatibilityReq
 		t.Fatalf("expected exactly 2 upstream calls, got %d", got)
 	}
 	recent := mustGetRecentLogByID(t, reqLogManager, finalLogID)
+	if recent.Status != requestlog.StatusCompleted {
+		t.Fatalf("expected completed request log, got %s", recent.Status)
+	}
+}
+
+func TestHandleSingleChannelResponses_RetriesDecodeFailureWithCompatibilityRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var callCount int32
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqBody, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request body: %v", err)
+		}
+		var payload map[string]interface{}
+		if err := json.Unmarshal(reqBody, &payload); err != nil {
+			t.Fatalf("unmarshal request body: %v", err)
+		}
+
+		if atomic.AddInt32(&callCount, 1) == 1 {
+			if _, ok := payload["include"]; !ok {
+				t.Fatalf("expected first attempt to preserve original Codex-specific include")
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"error":{"message":"invalid request: failed to decode responses api request: invalid input: invalid request","type":"invalid_request_error"}}`)
+			return
+		}
+
+		if _, ok := payload["include"]; ok {
+			t.Fatalf("expected compatibility retry to remove include, got %#v", payload)
+		}
+		input := payload["input"].([]interface{})
+		if len(input) != 2 {
+			t.Fatalf("expected compatibility retry to drop reasoning and convert custom tool history, got %#v", input)
+		}
+		for _, item := range input {
+			itemMap := item.(map[string]interface{})
+			if itemMap["type"] != "message" {
+				t.Fatalf("expected compatibility input to contain only messages, got %#v", input)
+			}
+		}
+		tools := payload["tools"].([]interface{})
+		if len(tools) != 1 {
+			t.Fatalf("expected compatibility retry to keep only function tools, got %#v", tools)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{
+			"id":"resp_compat_single",
+			"object":"response",
+			"model":"gpt-5.5",
+			"output":[{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"output_text","text":"compat success"}]}],
+			"usage":{"input_tokens":5,"output_tokens":3,"total_tokens":8}
+		}`)
+	}))
+	defer upstreamServer.Close()
+
+	cfgManager := newTestConfigManagerWithConfig(t, config.Config{
+		ResponsesUpstream: []config.UpstreamConfig{
+			{
+				ID:          "resp-compat-single",
+				Name:        "responses-compat-single",
+				BaseURL:     upstreamServer.URL,
+				ServiceType: "responses",
+				Status:      "active",
+				APIKeys:     []string{"sk-compat"},
+				Index:       0,
+			},
+		},
+		ResponsesLoadBalance: "failover",
+	})
+
+	bodyBytes := []byte(`{
+		"model":"gpt-5.5",
+		"stream":false,
+		"include":["reasoning.encrypted_content"],
+		"input":[
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]},
+			{"type":"reasoning","encrypted_content":"secret"},
+			{"type":"custom_tool_call","call_id":"call_custom","name":"apply_patch","input":"*** Begin Patch"}
+		],
+		"tools":[
+			{"type":"function","name":"exec_command","parameters":{"type":"object"}},
+			{"type":"custom","name":"apply_patch","format":{"type":"grammar"}}
+		]
+	}`)
+	var responsesReq types.ResponsesRequest
+	if err := json.Unmarshal(bodyBytes, &responsesReq); err != nil {
+		t.Fatalf("unmarshal responses request: %v", err)
+	}
+
+	reqLogManager := newTestRequestLogManager(t)
+	initialStart := time.Now().Add(-300 * time.Millisecond)
+	initialLogID := addPendingLogForTest(t, reqLogManager, initialStart, "/v1/responses", "responses", "gpt-5.5", false, 0, "responses-compat-single")
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	handleSingleChannelResponses(
+		c,
+		&config.EnvConfig{LogLevel: "error", RequestTimeout: 30000},
+		cfgManager,
+		newTestScheduler(t, cfgManager),
+		session.NewSessionManager(24*time.Hour, 100, 100000),
+		bodyBytes,
+		responsesReq,
+		initialStart,
+		reqLogManager,
+		initialLogID,
+		nil,
+		nil,
+		nil,
+		"user-test",
+		"",
+		nil,
+		nil,
+		"",
+		false,
+	)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected success after compatibility retry, got status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := atomic.LoadInt32(&callCount); got != 2 {
+		t.Fatalf("expected exactly 2 upstream calls, got %d", got)
+	}
+	recent := mustGetRecentLogByID(t, reqLogManager, initialLogID)
 	if recent.Status != requestlog.StatusCompleted {
 		t.Fatalf("expected completed request log, got %s", recent.Status)
 	}
