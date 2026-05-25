@@ -2821,17 +2821,6 @@ func handleStreamResponse(
 		return
 	}
 
-	// 先转发上游响应头（透明代理）
-	utils.ForwardResponseHeaders(resp.Header, c.Writer)
-
-	// 设置 SSE 响应头（可能覆盖上游的 Content-Type）
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no")
-
-	c.Status(200)
-
 	var logBuffer bytes.Buffer
 	var synthesizer *utils.StreamSynthesizer
 	// /v1/messages always emits Claude-style SSE to clients after provider conversion.
@@ -2859,9 +2848,56 @@ func handleStreamResponse(
 		log.Printf("⚠️ ResponseWriter不支持Flush接口")
 		return
 	}
-	flusher.Flush()
+
+	clientGone := false
+	streamStarted := false
+	pendingInitialEvents := make([]string, 0, 2)
+	startStream := func() {
+		if streamStarted {
+			return
+		}
+
+		// 先转发上游响应头（透明代理）
+		utils.ForwardResponseHeaders(resp.Header, c.Writer)
+
+		// 设置 SSE 响应头（可能覆盖上游的 Content-Type）
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		c.Header("X-Accel-Buffering", "no")
+
+		c.Status(http.StatusOK)
+		streamStarted = true
+		flusher.Flush()
+	}
+
+	writeStreamEvent := func(event string) {
+		startStream()
+		if !clientGone {
+			_, err := w.Write([]byte(event))
+			if err != nil {
+				clientGone = true // 标记客户端已断开，停止后续写入
+				errMsg := err.Error()
+				if strings.Contains(errMsg, "broken pipe") || strings.Contains(errMsg, "connection reset") {
+					if envCfg.ShouldLog("info") {
+						log.Printf("ℹ️ 客户端中断连接 (正常行为)，继续接收上游数据...")
+					}
+				} else {
+					log.Printf("⚠️ 流式传输写入错误: %v", err)
+				}
+				// 注意：这里不再return，而是继续循环以耗尽eventChan
+			} else {
+				flusher.Flush()
+			}
+		}
+	}
 
 	finalizeStreamSuccess := func() {
+		for _, pendingEvent := range pendingInitialEvents {
+			writeStreamEvent(pendingEvent)
+		}
+		pendingInitialEvents = pendingInitialEvents[:0]
+
 		completeTime := time.Now()
 		durationMs := completeTime.Sub(startTime).Milliseconds()
 
@@ -3000,12 +3036,21 @@ func handleStreamResponse(
 				ChannelID:            logChannelIndex,
 				ChannelName:          logChannelName,
 				Error:                streamErr.Error(),
+				UpstreamError:        logBuffer.String(),
 			}
 			_ = reqLogManager.Update(requestLogID, record)
+			SaveDebugLog(c, cfgManager, reqLogManager, requestLogID, resp.StatusCode, resp.Header, logBuffer.Bytes())
 		}
 	}
 
-	clientGone := false
+	finalizeEarlyClaudeSSEError := func(errorMsg string) {
+		finalizeStreamError(errors.New(errorMsg))
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error":   "upstream returned Claude stream error",
+			"message": errorMsg,
+		})
+	}
+
 	eventStream := eventChan
 	errorStream := errChan
 	for {
@@ -3038,24 +3083,29 @@ func handleStreamResponse(
 				}
 			}
 
-			// 实时转发给客户端（流式传输）
-			if !clientGone {
-				_, err := w.Write([]byte(event))
-				if err != nil {
-					clientGone = true // 标记客户端已断开，停止后续写入
-					errMsg := err.Error()
-					if strings.Contains(errMsg, "broken pipe") || strings.Contains(errMsg, "connection reset") {
-						if envCfg.ShouldLog("info") {
-							log.Printf("ℹ️ 客户端中断连接 (正常行为)，继续接收上游数据...")
-						}
+			if upstream.ServiceType == "claude" {
+				if errorMsg, ok := claudeSSEErrorMessage(event); ok {
+					if streamStarted {
+						writeStreamEvent(event)
+						finalizeStreamError(errors.New(errorMsg))
 					} else {
-						log.Printf("⚠️ 流式传输写入错误: %v", err)
+						finalizeEarlyClaudeSSEError(errorMsg)
 					}
-					// 注意：这里不再return，而是继续循环以耗尽eventChan
-				} else {
-					flusher.Flush()
+					return
+				}
+				if !streamStarted && shouldBufferInitialClaudeSSEEvent(event) {
+					pendingInitialEvents = append(pendingInitialEvents, event)
+					continue
 				}
 			}
+
+			for _, pendingEvent := range pendingInitialEvents {
+				writeStreamEvent(pendingEvent)
+			}
+			pendingInitialEvents = pendingInitialEvents[:0]
+
+			// 实时转发给客户端（流式传输）
+			writeStreamEvent(event)
 
 		case streamErr, ok := <-errorStream:
 			if !ok {
@@ -3069,6 +3119,49 @@ func handleStreamResponse(
 			}
 		}
 	}
+}
+
+func shouldBufferInitialClaudeSSEEvent(event string) bool {
+	for _, line := range strings.Split(event, "\n") {
+		if strings.TrimSpace(line) == "event: message_start" {
+			return true
+		}
+	}
+	return false
+}
+
+func claudeSSEErrorMessage(event string) (string, bool) {
+	for _, line := range strings.Split(event, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "" || data == "[DONE]" {
+			continue
+		}
+
+		var payload struct {
+			Type  string `json:"type"`
+			Error struct {
+				Type    string `json:"type"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal([]byte(data), &payload); err != nil || payload.Type != "error" {
+			continue
+		}
+
+		if payload.Error.Message != "" {
+			return payload.Error.Message, true
+		}
+		if payload.Error.Type != "" {
+			return payload.Error.Type, true
+		}
+		return "upstream returned Claude stream error", true
+	}
+	return "", false
 }
 
 // shouldRetryWithNextKey 判断是否应该使用下一个密钥重试

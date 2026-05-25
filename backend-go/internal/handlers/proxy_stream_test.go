@@ -23,6 +23,13 @@ type delayedStreamErrorProvider struct {
 
 var _ providers.Provider = (*delayedStreamErrorProvider)(nil)
 
+type staticStreamProvider struct {
+	events []string
+	err    error
+}
+
+var _ providers.Provider = (*staticStreamProvider)(nil)
+
 func (p *delayedStreamErrorProvider) ConvertToProviderRequest(_ *gin.Context, _ *config.UpstreamConfig, _ string) (*http.Request, []byte, error) {
 	return nil, nil, errors.New("not implemented in test provider")
 }
@@ -47,6 +54,161 @@ func (p *delayedStreamErrorProvider) HandleStreamResponse(_ io.ReadCloser) (<-ch
 	}()
 
 	return eventCh, errCh, nil
+}
+
+func (p *staticStreamProvider) ConvertToProviderRequest(_ *gin.Context, _ *config.UpstreamConfig, _ string) (*http.Request, []byte, error) {
+	return nil, nil, errors.New("not implemented in test provider")
+}
+
+func (p *staticStreamProvider) ConvertToClaudeResponse(_ *types.ProviderResponse) (*types.ClaudeResponse, error) {
+	return nil, errors.New("not implemented in test provider")
+}
+
+func (p *staticStreamProvider) HandleStreamResponse(_ io.ReadCloser) (<-chan string, <-chan error, error) {
+	eventCh := make(chan string, len(p.events))
+	errCh := make(chan error, 1)
+
+	go func() {
+		defer close(eventCh)
+		defer close(errCh)
+
+		for _, event := range p.events {
+			eventCh <- event
+		}
+		if p.err != nil {
+			errCh <- p.err
+		}
+	}()
+
+	return eventCh, errCh, nil
+}
+
+func TestHandleStreamResponse_TreatsClaudeSSEErrorBeforeContentAsUpstreamError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cfgManager := newTestConfigManager(t)
+	reqLogManager := newTestRequestLogManager(t)
+
+	startTime := time.Now().Add(-120 * time.Millisecond)
+	requestLogID := addPendingLogForTest(t, reqLogManager, startTime, "/v1/messages", "claude", "claude-opus-4-7", true, 26, "100xlabs")
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"stream":true}`))
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+		},
+		Body: io.NopCloser(strings.NewReader("")),
+	}
+
+	upstream := &config.UpstreamConfig{
+		Index:       26,
+		Name:        "100xlabs",
+		ServiceType: "claude",
+	}
+	envCfg := &config.EnvConfig{LogLevel: "error"}
+
+	handleStreamResponse(
+		c,
+		resp,
+		&staticStreamProvider{
+			events: []string{
+				"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"model\":\"claude-opus-4.7\",\"usage\":{\"input_tokens\":595,\"output_tokens\":0}}}\n\n",
+				"data: {\"type\":\"error\",\"error\":{\"type\":\"upstream_error\",\"message\":\"Upstream access forbidden, please contact administrator\"}}\n\n",
+			},
+		},
+		envCfg,
+		cfgManager,
+		startTime,
+		upstream,
+		reqLogManager,
+		requestLogID,
+		"claude-opus-4-7",
+		nil,
+		26,
+		"100xlabs",
+		false,
+	)
+
+	if strings.Contains(rec.Body.String(), `"type":"error"`) {
+		t.Fatalf("expected upstream SSE error frame not to be forwarded, got body: %s", rec.Body.String())
+	}
+
+	recent := mustGetRecentLogByID(t, reqLogManager, requestLogID)
+	if recent.Status != requestlog.StatusError {
+		t.Fatalf("expected status %q, got %q", requestlog.StatusError, recent.Status)
+	}
+	if !strings.Contains(recent.Error, "Upstream access forbidden") {
+		t.Fatalf("expected upstream error message to be recorded, got: %q", recent.Error)
+	}
+}
+
+func TestHandleStreamResponse_RecordsClaudeSSEErrorAfterContent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cfgManager := newTestConfigManager(t)
+	reqLogManager := newTestRequestLogManager(t)
+
+	startTime := time.Now().Add(-120 * time.Millisecond)
+	requestLogID := addPendingLogForTest(t, reqLogManager, startTime, "/v1/messages", "claude", "claude-sonnet-4", true, 1, "messages-1")
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"stream":true}`))
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+		},
+		Body: io.NopCloser(strings.NewReader("")),
+	}
+
+	upstream := &config.UpstreamConfig{
+		Index:       1,
+		Name:        "messages-1",
+		ServiceType: "claude",
+	}
+	envCfg := &config.EnvConfig{LogLevel: "error"}
+
+	handleStreamResponse(
+		c,
+		resp,
+		&staticStreamProvider{
+			events: []string{
+				"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"model\":\"claude-sonnet-4\",\"usage\":{\"input_tokens\":5,\"output_tokens\":0}}}\n\n",
+				"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+				"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hi\"}}\n\n",
+				"data: {\"type\":\"error\",\"error\":{\"type\":\"upstream_error\",\"message\":\"stream failed after content\"}}\n\n",
+			},
+		},
+		envCfg,
+		cfgManager,
+		startTime,
+		upstream,
+		reqLogManager,
+		requestLogID,
+		"claude-sonnet-4",
+		nil,
+		1,
+		"messages-1",
+		false,
+	)
+
+	if !strings.Contains(rec.Body.String(), `"type":"error"`) {
+		t.Fatalf("expected post-content SSE error frame to be forwarded, got body: %s", rec.Body.String())
+	}
+
+	recent := mustGetRecentLogByID(t, reqLogManager, requestLogID)
+	if recent.Status != requestlog.StatusError {
+		t.Fatalf("expected status %q, got %q", requestlog.StatusError, recent.Status)
+	}
+	if !strings.Contains(recent.Error, "stream failed after content") {
+		t.Fatalf("expected stream error message to be recorded, got: %q", recent.Error)
+	}
 }
 
 func TestHandleStreamResponse_WaitsForErrorChannelBeforeCompleting(t *testing.T) {
