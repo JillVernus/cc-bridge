@@ -1927,6 +1927,31 @@ defineExpose({
 }
 
 /* 响应式调整 */
+@media (max-width: 1280px) {
+  .channel-row {
+    grid-template-columns: 36px 36px 110px minmax(160px, 1fr) 128px 90px 140px;
+  }
+
+  .channel-row.has-quota-column {
+    grid-template-columns: 36px 36px 110px minmax(160px, 1fr) 128px 132px 90px 140px;
+  }
+
+  .recent-calls-display {
+    gap: 6px;
+  }
+
+  .recent-calls-blocks {
+    display: grid;
+    grid-template-columns: repeat(10, 6px);
+    grid-auto-rows: 6px;
+    gap: 2px;
+  }
+
+  .recent-calls-rate {
+    min-width: 30px;
+  }
+}
+
 @media (max-width: 960px) {
   .channel-row {
     grid-template-columns: 32px 32px 90px 1fr 70px;
