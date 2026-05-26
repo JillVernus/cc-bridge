@@ -226,6 +226,7 @@ refs/
 request_samples/
 sample_request/
 .ace-tool/
+.antigravitycli/
 .codex-tasks/
 .ccb_config/
 .worktrees/
