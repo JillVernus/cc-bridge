@@ -792,6 +792,10 @@ func main() {
 		apiGroup.GET("/config/debug-log", handlers.GetDebugLogConfig(cfgManager))
 		apiGroup.PUT("/config/debug-log", handlers.UpdateDebugLogConfig(cfgManager))
 
+		// Responses WebSocket 传输配置 API
+		apiGroup.GET("/config/responses-websocket", handlers.GetResponsesWebSocketConfig(cfgManager))
+		apiGroup.PUT("/config/responses-websocket", handlers.UpdateResponsesWebSocketConfig(cfgManager))
+
 		// User-Agent 配置 API
 		apiGroup.GET("/config/user-agent", handlers.GetUserAgentConfig(cfgManager))
 		apiGroup.PUT("/config/user-agent", handlers.UpdateUserAgentConfig(cfgManager))
@@ -833,6 +837,7 @@ func main() {
 		v1Group.POST("/models/*action", handlers.GeminiHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker, channelRateLimiter))
 		v1Group.POST("/messages", handlers.ProxyHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker, channelRateLimiter))
 		v1Group.POST("/responses", handlers.ResponsesHandlerWithAPIKey(envCfg, cfgManager, sessionManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker, channelRateLimiter))
+		v1Group.GET("/responses", handlers.ResponsesWebSocketHandler(envCfg, cfgManager, channelScheduler, reqLogManager, apiKeyManager, failoverTracker, channelRateLimiter))
 		v1Group.POST("/chat/completions", handlers.ChatCompletionsHandlerWithAPIKey(envCfg, cfgManager, channelScheduler, reqLogManager, apiKeyManager, usageQuotaManager, failoverTracker, channelRateLimiter))
 
 		// Gemini incoming endpoint (passthrough mode)

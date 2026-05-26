@@ -2,11 +2,165 @@ package requestlog
 
 import (
 	"encoding/json"
-	"strings"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/JillVernus/cc-bridge/internal/database"
 )
+
+func newMigratedRequestLogManager(t *testing.T) (*Manager, database.DB) {
+	t.Helper()
+
+	dbPath := filepath.Join(t.TempDir(), "cc-bridge.db")
+	db, err := database.New(database.Config{
+		Type: database.DialectSQLite,
+		URL:  dbPath,
+	})
+	if err != nil {
+		t.Fatalf("failed to create migrated database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+	if err := database.RunMigrations(db); err != nil {
+		t.Fatalf("failed to run migrations: %v", err)
+	}
+
+	manager, err := NewManagerWithDB(db, "")
+	if err != nil {
+		t.Fatalf("failed to create request log manager with migrated database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = manager.Close()
+	})
+
+	return manager, db
+}
+
+func TestRequestLog_MigratedSchema_RichMetadataRoundTrip(t *testing.T) {
+	manager, _ := newMigratedRequestLogManager(t)
+
+	apiKeyID := int64(42)
+	start := time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC)
+	firstToken := start.Add(175 * time.Millisecond)
+	record := &RequestLog{
+		Status:                StatusPending,
+		InitialTime:           start,
+		FirstTokenTime:        &firstToken,
+		FirstTokenDurationMs:  175,
+		Type:                  "openai-oauth",
+		ProviderName:          "codex-priority",
+		Model:                 "gpt-5",
+		ReasoningEffort:       "high",
+		ServiceTier:           "priority",
+		ServiceTierOverridden: true,
+		OriginalXInitiator:    "user",
+		EffectiveXInitiator:   "assistant",
+		Stream:                true,
+		Transport:             "ws",
+		ChannelID:             3,
+		ChannelUID:            "resp-channel-3",
+		ChannelName:           "codex-priority",
+		Endpoint:              "/v1/responses",
+		Domain:                "api.openai.com",
+		ClientID:              "codex",
+		SessionID:             "session-123",
+		APIKeyID:              &apiKeyID,
+	}
+	if err := manager.Add(record); err != nil {
+		t.Fatalf("failed to add rich pending record: %v", err)
+	}
+
+	completeTime := start.Add(2 * time.Second)
+	if err := manager.Update(record.ID, &RequestLog{
+		Status:                StatusCompleted,
+		CompleteTime:          completeTime,
+		DurationMs:            2000,
+		Type:                  "openai-oauth",
+		ProviderName:          "codex-priority",
+		ResponseModel:         "gpt-5",
+		ReasoningEffort:       "high",
+		ServiceTier:           "priority",
+		ServiceTierOverridden: true,
+		OriginalXInitiator:    "user",
+		EffectiveXInitiator:   "assistant",
+		FirstTokenTime:        &firstToken,
+		FirstTokenDurationMs:  175,
+		HTTPStatus:            200,
+		Stream:                true,
+		Transport:             "ws",
+		ChannelID:             3,
+		ChannelUID:            "resp-channel-3",
+		ChannelName:           "codex-priority",
+		Domain:                "api.openai.com",
+	}); err != nil {
+		t.Fatalf("failed to update rich record: %v", err)
+	}
+
+	got, err := manager.GetByID(record.ID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	assertRichMetadata(t, got, apiKeyID)
+
+	recent, err := manager.GetRecent(&RequestLogFilter{Limit: 1})
+	if err != nil {
+		t.Fatalf("GetRecent failed: %v", err)
+	}
+	if len(recent.Requests) != 1 {
+		t.Fatalf("recent request count = %d, want 1", len(recent.Requests))
+	}
+	assertRichMetadata(t, &recent.Requests[0], apiKeyID)
+
+	complete, err := manager.getCompleteRecordForSSE(record.ID)
+	if err != nil {
+		t.Fatalf("getCompleteRecordForSSE failed: %v", err)
+	}
+	assertRichMetadata(t, complete, apiKeyID)
+}
+
+func assertRichMetadata(t *testing.T, got *RequestLog, apiKeyID int64) {
+	t.Helper()
+
+	if got == nil {
+		t.Fatalf("expected request log")
+	}
+	if got.FirstTokenTime == nil || got.FirstTokenDurationMs != 175 {
+		t.Fatalf("first token metadata = %#v/%d, want present/175", got.FirstTokenTime, got.FirstTokenDurationMs)
+	}
+	if got.ProviderName != "codex-priority" {
+		t.Fatalf("ProviderName = %q, want codex-priority", got.ProviderName)
+	}
+	if got.ChannelName != "codex-priority" {
+		t.Fatalf("ChannelName = %q, want codex-priority", got.ChannelName)
+	}
+	if got.ChannelUID != "resp-channel-3" {
+		t.Fatalf("ChannelUID = %q, want resp-channel-3", got.ChannelUID)
+	}
+	if got.Transport != "ws" {
+		t.Fatalf("Transport = %q, want ws", got.Transport)
+	}
+	if got.ClientID != "codex" {
+		t.Fatalf("ClientID = %q, want codex", got.ClientID)
+	}
+	if got.SessionID != "session-123" {
+		t.Fatalf("SessionID = %q, want session-123", got.SessionID)
+	}
+	if got.APIKeyID == nil || *got.APIKeyID != apiKeyID {
+		t.Fatalf("APIKeyID = %#v, want %d", got.APIKeyID, apiKeyID)
+	}
+	if got.ReasoningEffort != "high" {
+		t.Fatalf("ReasoningEffort = %q, want high", got.ReasoningEffort)
+	}
+	if got.ServiceTier != "priority" || !got.ServiceTierOverridden {
+		t.Fatalf("service tier metadata = %q/%v, want priority/true", got.ServiceTier, got.ServiceTierOverridden)
+	}
+	if got.OriginalXInitiator != "user" || got.EffectiveXInitiator != "assistant" {
+		t.Fatalf("x-initiator metadata = %q/%q, want user/assistant", got.OriginalXInitiator, got.EffectiveXInitiator)
+	}
+}
 
 func TestRequestLog_ServiceTierAndDebugData_RoundTrip(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "request_logs_service_tier.db")
@@ -28,6 +182,7 @@ func TestRequestLog_ServiceTierAndDebugData_RoundTrip(t *testing.T) {
 		ServiceTier:           "priority",
 		ServiceTierOverridden: true,
 		Stream:                true,
+		Transport:             "ws",
 		ChannelID:             1,
 		ChannelName:           "responses-1",
 		Endpoint:              "/v1/responses",
@@ -56,6 +211,7 @@ func TestRequestLog_ServiceTierAndDebugData_RoundTrip(t *testing.T) {
 		ServiceTier:           "priority",
 		ServiceTierOverridden: true,
 		HTTPStatus:            200,
+		Transport:             "ws",
 		ChannelID:             1,
 		ChannelName:           "responses-1",
 	}); err != nil {
@@ -78,6 +234,9 @@ func TestRequestLog_ServiceTierAndDebugData_RoundTrip(t *testing.T) {
 	if !got.HasDebugData {
 		t.Fatalf("expected hasDebugData=true from GetByID")
 	}
+	if got.Transport != "ws" {
+		t.Fatalf("expected transport=ws from GetByID, got %q", got.Transport)
+	}
 
 	complete, err := manager.getCompleteRecordForSSE(record.ID)
 	if err != nil {
@@ -91,6 +250,9 @@ func TestRequestLog_ServiceTierAndDebugData_RoundTrip(t *testing.T) {
 	}
 	if !complete.HasDebugData {
 		t.Fatalf("expected hasDebugData=true from complete SSE record")
+	}
+	if complete.Transport != "ws" {
+		t.Fatalf("expected transport=ws from complete SSE record, got %q", complete.Transport)
 	}
 
 	partial, err := manager.getPartialRecordForSSE(record.ID)
@@ -106,6 +268,9 @@ func TestRequestLog_ServiceTierAndDebugData_RoundTrip(t *testing.T) {
 	if !partial.HasDebugData {
 		t.Fatalf("expected hasDebugData=true from partial SSE record")
 	}
+	if partial.Transport != "ws" {
+		t.Fatalf("expected transport=ws from partial SSE record, got %q", partial.Transport)
+	}
 
 	createdEvent := NewLogCreatedEvent(partial)
 	createdPayload, ok := createdEvent.Data.(LogCreatedPayload)
@@ -120,6 +285,9 @@ func TestRequestLog_ServiceTierAndDebugData_RoundTrip(t *testing.T) {
 	}
 	if !createdPayload.HasDebugData {
 		t.Fatalf("expected created event hasDebugData=true")
+	}
+	if createdPayload.Transport != "ws" {
+		t.Fatalf("expected created event transport=ws, got %q", createdPayload.Transport)
 	}
 
 	complete.Domain = "api.example.com"
@@ -139,6 +307,9 @@ func TestRequestLog_ServiceTierAndDebugData_RoundTrip(t *testing.T) {
 	}
 	if updatedPayload.Domain != "api.example.com" {
 		t.Fatalf("expected updated event domain=api.example.com, got %q", updatedPayload.Domain)
+	}
+	if updatedPayload.Transport != "ws" {
+		t.Fatalf("expected updated event transport=ws, got %q", updatedPayload.Transport)
 	}
 }
 

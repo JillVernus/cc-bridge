@@ -55,6 +55,7 @@ export default {
     rateLimitSettings: 'Rate Limit Settings',
     debugLogSettings: 'Debug Log Settings',
     userAgentSettings: 'User-Agent Settings',
+    responsesWebSocketSettings: 'Responses WebSocket',
     outboundHeaderSettings: 'Outbound Header Rules',
     failoverSettings: 'Failover Settings',
     logout: 'Logout',
@@ -451,6 +452,12 @@ export default {
     apiKey: 'API Key',
     clientId: 'Client ID',
     sessionId: 'Session ID',
+    transport: 'Transport',
+    transportWebSocket: 'WebSocket transport',
+    transportSSE: 'SSE transport',
+    transportHTTP: 'HTTP transport',
+    providerType: 'Provider Type',
+    legacyProviderName: 'Legacy Provider Name',
     filters: 'Filters',
     clearFilters: 'Clear Filters',
     requests: 'Requests',
@@ -937,6 +944,17 @@ export default {
     responsesInvalid: 'Must start with codex_cli_rs/ and include numeric version',
     loadFailed: 'Failed to load User-Agent configuration',
     saveFailed: 'Failed to save User-Agent configuration'
+  },
+
+  responsesWebSocket: {
+    title: 'Responses WebSocket',
+    enabled: 'Enabled',
+    disabled: 'Disabled',
+    description:
+      'Accept WebSocket connections on /v1/responses and bridge them to the official OpenAI Responses WebSocket endpoint.',
+    scope: 'Currently supported for direct openai-oauth channels only. Other channel types fall back to HTTPS/SSE.',
+    loadFailed: 'Failed to load Responses WebSocket configuration',
+    saveFailed: 'Failed to save Responses WebSocket configuration'
   },
 
   outboundHeaders: {

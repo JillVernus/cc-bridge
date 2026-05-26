@@ -77,6 +77,13 @@ func resolveResponsesRequestLogChannelContext(selection *scheduler.SelectionResu
 	return -1, ""
 }
 
+func responsesTransport(stream bool) string {
+	if stream {
+		return "sse"
+	}
+	return "http"
+}
+
 // ResponsesHandler Responses API 代理处理器
 // 支持多渠道调度：当配置多个渠道时自动启用
 func ResponsesHandler(
@@ -219,6 +226,7 @@ func ResponsesHandlerWithAPIKey(
 				ReasoningEffort: reasoningEffort,
 				ServiceTier:     serviceTier,
 				Stream:          responsesReq.Stream,
+				Transport:       responsesTransport(responsesReq.Stream),
 				Endpoint:        "/v1/responses",
 				ClientID:        userID,
 				SessionID:       sessionID,
@@ -546,6 +554,7 @@ func handleMultiChannelResponses(
 					Model:           responsesReq.Model,
 					ReasoningEffort: reasoningEffort,
 					Stream:          responsesReq.Stream,
+					Transport:       responsesTransport(responsesReq.Stream),
 					Endpoint:        "/v1/responses",
 					ChannelID:       logChannelIndex,
 					ChannelName:     logChannelName,
@@ -629,6 +638,7 @@ func handleMultiChannelResponses(
 					Model:           responsesReq.Model,
 					ReasoningEffort: reasoningEffort,
 					Stream:          responsesReq.Stream,
+					Transport:       responsesTransport(responsesReq.Stream),
 					Endpoint:        "/v1/responses",
 					ChannelID:       logChannelIndex,
 					ChannelName:     logChannelName,
@@ -956,6 +966,7 @@ func tryResponsesChannelWithAllKeys(
 							InitialTime: time.Now(),
 							Model:       responsesReq.Model,
 							Stream:      responsesReq.Stream,
+							Transport:   responsesTransport(responsesReq.Stream),
 							Endpoint:    "/v1/responses",
 							ChannelID:   logChannelIndex,
 							ChannelName: logChannelName,
@@ -1138,6 +1149,7 @@ func tryResponsesChannelWithAllKeys(
 							InitialTime: time.Now(),
 							Model:       responsesReq.Model,
 							Stream:      responsesReq.Stream,
+							Transport:   responsesTransport(responsesReq.Stream),
 							Endpoint:    "/v1/responses",
 							ChannelID:   logChannelIndex,
 							ChannelName: logChannelName,
@@ -2023,6 +2035,7 @@ func handleSingleChannelResponses(
 							InitialTime: time.Now(),
 							Model:       responsesReq.Model,
 							Stream:      responsesReq.Stream,
+							Transport:   responsesTransport(responsesReq.Stream),
 							Endpoint:    "/v1/responses",
 							ChannelID:   logChannelIndex,
 							ChannelName: logChannelName,
@@ -2214,6 +2227,7 @@ func handleSingleChannelResponses(
 							InitialTime: time.Now(),
 							Model:       responsesReq.Model,
 							Stream:      responsesReq.Stream,
+							Transport:   responsesTransport(responsesReq.Stream),
 							Endpoint:    "/v1/responses",
 							ChannelID:   logChannelIndex,
 							ChannelName: logChannelName,
@@ -2767,6 +2781,7 @@ func handleResponsesSuccess(
 				ProviderName:         upstream.Name,
 				ResponseModel:        responseModel,
 				HTTPStatus:           recordHTTPStatus,
+				Transport:            responsesTransport(true),
 				ChannelID:            logChannelIndex,
 				ChannelName:          logChannelName,
 				Error:                recordError,
@@ -2892,6 +2907,7 @@ func handleResponsesSuccess(
 			ProviderName:  upstream.Name,
 			ResponseModel: responseModel,
 			HTTPStatus:    resp.StatusCode,
+			Transport:     responsesTransport(false),
 			ChannelID:     logChannelIndex,
 			ChannelName:   logChannelName,
 		}

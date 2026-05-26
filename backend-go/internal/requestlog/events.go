@@ -44,6 +44,7 @@ type LogCreatedPayload struct {
 	Endpoint                 string     `json:"endpoint"`
 	Domain                   string     `json:"domain,omitempty"`
 	Stream                   bool       `json:"stream"`
+	Transport                string     `json:"transport,omitempty"`
 	InputTokens              int        `json:"inputTokens"`
 	OutputTokens             int        `json:"outputTokens"`
 	CacheCreationInputTokens int        `json:"cacheCreationInputTokens"`
@@ -80,6 +81,7 @@ type LogUpdatedPayload struct {
 	ChannelUID               string     `json:"channelUid,omitempty"`
 	ChannelName              string     `json:"channelName"`
 	Domain                   string     `json:"domain,omitempty"`
+	Transport                string     `json:"transport,omitempty"`
 	InputTokens              int        `json:"inputTokens"`
 	OutputTokens             int        `json:"outputTokens"`
 	CacheCreationInputTokens int        `json:"cacheCreationInputTokens"`
@@ -152,6 +154,7 @@ func NewLogCreatedEvent(record *RequestLog) *LogEvent {
 			Endpoint:                 record.Endpoint,
 			Domain:                   record.Domain,
 			Stream:                   record.Stream,
+			Transport:                record.Transport,
 			InputTokens:              record.InputTokens,
 			OutputTokens:             record.OutputTokens,
 			CacheCreationInputTokens: record.CacheCreationInputTokens,
@@ -194,6 +197,7 @@ func NewLogUpdatedEvent(id string, record *RequestLog) *LogEvent {
 			ChannelUID:               record.ChannelUID,
 			ChannelName:              record.ChannelName,
 			Domain:                   record.Domain,
+			Transport:                record.Transport,
 			InputTokens:              record.InputTokens,
 			OutputTokens:             record.OutputTokens,
 			CacheCreationInputTokens: record.CacheCreationInputTokens,

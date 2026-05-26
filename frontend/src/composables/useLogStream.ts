@@ -25,6 +25,7 @@ export interface LogCreatedPayload {
   endpoint: string
   domain?: string
   stream: boolean
+  transport?: string
   inputTokens?: number
   outputTokens?: number
   cacheCreationInputTokens?: number
@@ -61,6 +62,7 @@ export interface LogUpdatedPayload {
   channelUid?: string
   channelName: string
   domain?: string
+  transport?: string
   inputTokens: number
   outputTokens: number
   cacheCreationInputTokens: number

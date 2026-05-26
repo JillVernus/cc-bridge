@@ -141,6 +141,7 @@ func (m *Manager) initSchema() error {
 		price REAL DEFAULT 0,
 		http_status INTEGER DEFAULT 0,
 		stream BOOLEAN NOT NULL,
+		transport TEXT,
 		channel_id INTEGER,
 		channel_name TEXT,
 		endpoint TEXT,
@@ -205,6 +206,19 @@ func (m *Manager) initSchema() error {
 			log.Printf("⚠️ Failed to add first_token_duration_ms column: %v", err)
 		} else {
 			log.Printf("✅ Added first_token_duration_ms column to request_logs table")
+		}
+	}
+
+	// Migration: Add transport column if it doesn't exist
+	err = m.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('request_logs') WHERE name='transport'`).Scan(&count)
+	if err != nil {
+		log.Printf("⚠️ Failed to check transport column: %v", err)
+	} else if count == 0 {
+		_, err = m.db.Exec(`ALTER TABLE request_logs ADD COLUMN transport TEXT`)
+		if err != nil {
+			log.Printf("⚠️ Failed to add transport column: %v", err)
+		} else {
+			log.Printf("✅ Added transport column to request_logs table")
 		}
 	}
 
@@ -727,6 +741,10 @@ func requestLogUpdateQuery() string {
 		cache_creation_cost = ?,
 		cache_read_cost = ?,
 		http_status = ?,
+		transport = CASE
+			WHEN TRIM(COALESCE(?, '')) != '' THEN ?
+			ELSE transport
+		END,
 		channel_id = CASE
 			WHEN TRIM(COALESCE(?, '')) != '' OR TRIM(COALESCE(?, '')) != '' THEN ?
 			ELSE channel_id
@@ -780,9 +798,9 @@ func (m *Manager) Add(record *RequestLog) error {
 		original_x_initiator, effective_x_initiator, input_tokens, output_tokens,
 		cache_creation_input_tokens, cache_read_input_tokens, total_tokens,
 		price, input_cost, output_cost, cache_creation_cost, cache_read_cost,
-		http_status, stream, channel_id, channel_uid, channel_name,
+		http_status, stream, transport, channel_id, channel_uid, channel_name,
 		endpoint, domain, client_id, session_id, api_key_id, error, upstream_error, failover_info, created_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	// Convert api_key_id to nullable value (nil = not set, 0 = master key)
@@ -827,6 +845,7 @@ func (m *Manager) Add(record *RequestLog) error {
 		record.CacheReadCost,
 		record.HTTPStatus,
 		record.Stream,
+		record.Transport,
 		record.ChannelID,
 		record.ChannelUID,
 		record.ChannelName,
@@ -870,7 +889,7 @@ func (m *Manager) Add(record *RequestLog) error {
 			record.CreatedAt,
 		)
 		if err == nil {
-			log.Printf("⚠️ request_logs schema drift detected; inserted request log in legacy compatibility mode")
+			log.Printf("⚠️ request_logs schema drift detected; inserted request log in legacy compatibility mode; rich request metadata may be dropped")
 		}
 	}
 
@@ -936,6 +955,8 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 		record.CacheCreationCost,
 		record.CacheReadCost,
 		record.HTTPStatus,
+		record.Transport,
+		record.Transport,
 		record.ChannelUID,
 		record.ChannelName,
 		record.ChannelID,
@@ -995,7 +1016,7 @@ func (m *Manager) Update(id string, record *RequestLog) error {
 			id,
 		)
 		if err == nil {
-			log.Printf("⚠️ request_logs schema drift detected; updated request log in legacy compatibility mode")
+			log.Printf("⚠️ request_logs schema drift detected; updated request log in legacy compatibility mode; rich request metadata may be dropped")
 		}
 	}
 
@@ -1041,7 +1062,7 @@ func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 			   r.input_tokens, r.output_tokens,
 			   r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
 			   r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
-			   r.http_status, r.stream, r.channel_id, r.channel_uid, r.channel_name,
+			   r.http_status, r.stream, r.transport, r.channel_id, r.channel_uid, r.channel_name,
 			   r.endpoint, r.domain, r.client_id, r.session_id, r.api_key_id, r.error, r.upstream_error, r.failover_info,
 			   CASE WHEN d.request_id IS NOT NULL THEN 1 ELSE 0 END as has_debug_data
 		FROM request_logs r
@@ -1066,7 +1087,7 @@ func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 	var channelID, apiKeyID sql.NullInt64
 	var serviceTierOverridden sql.NullBool
 	var pricedByTargetModel sql.NullBool
-	var channelUID, channelName, endpoint, domain, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr, status, providerName, responseModel, reasoningEffort, serviceTier, originalXInitiator, effectiveXInitiator sql.NullString
+	var channelUID, channelName, endpoint, domain, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr, status, providerName, responseModel, reasoningEffort, serviceTier, originalXInitiator, effectiveXInitiator, transport sql.NullString
 	var initialTime, firstTokenTime, completeTime sql.NullString
 	var hasDebugData int
 
@@ -1076,7 +1097,7 @@ func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 		&r.InputTokens, &r.OutputTokens,
 		&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 		&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
-		&r.HTTPStatus, &r.Stream, &channelID, &channelUID, &channelName,
+		&r.HTTPStatus, &r.Stream, &transport, &channelID, &channelUID, &channelName,
 		&endpoint, &domain, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr,
 		&hasDebugData,
 	)
@@ -1126,6 +1147,9 @@ func (m *Manager) getCompleteRecordForSSE(id string) (*RequestLog, error) {
 	}
 	if effectiveXInitiator.Valid {
 		r.EffectiveXInitiator = effectiveXInitiator.String
+	}
+	if transport.Valid {
+		r.Transport = transport.String
 	}
 	if initialTime.Valid && initialTime.String != "" {
 		r.InitialTime = parseTimeString(initialTime.String)
@@ -1247,7 +1271,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 			   r.original_x_initiator, r.effective_x_initiator, r.input_tokens, r.output_tokens,
 			   r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
 			   r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
-			   r.http_status, r.stream, r.channel_id, r.channel_uid, r.channel_name,
+			   r.http_status, r.stream, r.transport, r.channel_id, r.channel_uid, r.channel_name,
 			   r.endpoint, r.domain, r.client_id, r.session_id, r.api_key_id, r.error, r.upstream_error, r.failover_info, r.created_at,
 			   CASE WHEN d.request_id IS NOT NULL THEN 1 ELSE 0 END as has_debug_data
 		FROM request_logs r
@@ -1290,7 +1314,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		var channelID, apiKeyID sql.NullInt64
 		var serviceTierOverridden sql.NullBool
 		var pricedByTargetModel sql.NullBool
-		var channelUID, channelName, endpoint, domain, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr, status, providerName, responseModel, reasoningEffort, serviceTier, originalXInitiator, effectiveXInitiator sql.NullString
+		var channelUID, channelName, endpoint, domain, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr, status, providerName, responseModel, reasoningEffort, serviceTier, originalXInitiator, effectiveXInitiator, transport sql.NullString
 		var initialTime, firstTokenTime, completeTime, createdAt sql.NullString
 		var hasDebugData int
 
@@ -1312,7 +1336,7 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 				&r.Type, &providerName, &r.Model, &responseModel, &reasoningEffort, &serviceTier, &serviceTierOverridden, &pricedByTargetModel, &originalXInitiator, &effectiveXInitiator, &r.InputTokens, &r.OutputTokens,
 				&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 				&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
-				&r.HTTPStatus, &r.Stream, &channelID, &channelUID, &channelName,
+				&r.HTTPStatus, &r.Stream, &transport, &channelID, &channelUID, &channelName,
 				&endpoint, &domain, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr, &createdAt,
 				&hasDebugData,
 			)
@@ -1351,6 +1375,9 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		}
 		if effectiveXInitiator.Valid {
 			r.EffectiveXInitiator = effectiveXInitiator.String
+		}
+		if transport.Valid {
+			r.Transport = transport.String
 		}
 		if initialTime.Valid && initialTime.String != "" {
 			r.InitialTime = parseTimeString(initialTime.String)
@@ -1499,7 +1526,7 @@ func (m *Manager) GetRecentChannelCalls(limitPerChannel int) ([]ChannelRecentCal
 		)
 		if err == nil {
 			legacyMode = true
-			log.Printf("⚠️ request_logs schema drift detected; reading recent channel calls in legacy compatibility mode")
+			log.Printf("⚠️ request_logs schema drift detected; reading recent channel calls in legacy compatibility mode; stable channel metadata may be incomplete")
 		}
 	}
 	if err != nil {
@@ -1942,7 +1969,7 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 			   r.input_tokens, r.output_tokens,
 			   r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
 			   r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
-			   r.http_status, r.stream, r.channel_id, r.channel_uid, r.channel_name,
+			   r.http_status, r.stream, r.transport, r.channel_id, r.channel_uid, r.channel_name,
 			   r.endpoint, r.domain, r.client_id, r.session_id, r.api_key_id, r.error, r.upstream_error, r.failover_info, r.created_at,
 			   CASE WHEN d.request_id IS NOT NULL THEN 1 ELSE 0 END as has_debug_data
 		FROM request_logs r
@@ -1968,7 +1995,7 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 	var serviceTierOverridden sql.NullBool
 	var pricedByTargetModel sql.NullBool
 	var firstTokenTime sql.NullString
-	var providerName, responseModel, reasoningEffort, serviceTier, originalXInitiator, effectiveXInitiator sql.NullString
+	var providerName, responseModel, reasoningEffort, serviceTier, originalXInitiator, effectiveXInitiator, transport sql.NullString
 	var channelUID, channelName, endpoint, domain, clientID, sessionID, errorStr, upstreamErrorStr, failoverInfoStr sql.NullString
 	var hasDebugData int
 
@@ -1978,7 +2005,7 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 		&r.InputTokens, &r.OutputTokens,
 		&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 		&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
-		&r.HTTPStatus, &r.Stream, &channelID, &channelUID, &channelName,
+		&r.HTTPStatus, &r.Stream, &transport, &channelID, &channelUID, &channelName,
 		&endpoint, &domain, &clientID, &sessionID, &apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr, &r.CreatedAt,
 		&hasDebugData,
 	)
@@ -2030,6 +2057,9 @@ func (m *Manager) GetByID(id string) (*RequestLog, error) {
 	}
 	if effectiveXInitiator.Valid {
 		r.EffectiveXInitiator = effectiveXInitiator.String
+	}
+	if transport.Valid {
+		r.Transport = transport.String
 	}
 
 	if channelID.Valid {

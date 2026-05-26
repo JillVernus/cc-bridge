@@ -363,6 +363,14 @@ func TestRunMigrations_AddsRequestRemovedHeadersToExistingDebugLogsTable(t *test
 			channel_name TEXT NOT NULL,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
+
+		CREATE TABLE request_logs (
+			id TEXT PRIMARY KEY,
+			initial_time DATETIME NOT NULL,
+			provider TEXT NOT NULL,
+			model TEXT NOT NULL,
+			stream BOOLEAN NOT NULL
+		);
 	`)
 	if err != nil {
 		t.Fatalf("Failed to set up legacy schema: %v", err)
@@ -427,6 +435,14 @@ func TestRunMigrations_AddsChannelStableIDToExistingChannelQuotaTable(t *testing
 			exceeded_reason TEXT,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
+
+		CREATE TABLE request_logs (
+			id TEXT PRIMARY KEY,
+			initial_time DATETIME NOT NULL,
+			provider TEXT NOT NULL,
+			model TEXT NOT NULL,
+			stream BOOLEAN NOT NULL
+		);
 	`)
 	if err != nil {
 		t.Fatalf("Failed to set up legacy schema: %v", err)
@@ -443,6 +459,95 @@ func TestRunMigrations_AddsChannelStableIDToExistingChannelQuotaTable(t *testing
 	}
 	if count != 1 {
 		t.Fatalf("Expected channel_stable_id column to exist after migration, got %d", count)
+	}
+}
+
+func TestRunMigrations_AddsRequestLogMetadataColumnsToExistingRequestLogsTable(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "ccbridge-db-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	db, err := New(Config{
+		Type: DialectSQLite,
+		URL:  dbPath,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create database: %v", err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE schema_migrations (
+			version INTEGER PRIMARY KEY,
+			name TEXT NOT NULL,
+			applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		INSERT INTO schema_migrations (version, name) VALUES (15, 'config_revision');
+
+		CREATE TABLE request_logs (
+			id TEXT PRIMARY KEY,
+			status TEXT DEFAULT 'completed',
+			initial_time DATETIME NOT NULL,
+			first_token_time DATETIME,
+			first_token_duration_ms INTEGER DEFAULT 0,
+			complete_time DATETIME,
+			duration_ms INTEGER DEFAULT 0,
+			provider TEXT NOT NULL,
+			provider_name TEXT,
+			model TEXT NOT NULL,
+			response_model TEXT,
+			reasoning_effort TEXT,
+			service_tier TEXT,
+			service_tier_overridden BOOLEAN DEFAULT 0,
+			priced_by_target_model BOOLEAN DEFAULT 0,
+			original_x_initiator TEXT,
+			effective_x_initiator TEXT,
+			input_tokens INTEGER DEFAULT 0,
+			output_tokens INTEGER DEFAULT 0,
+			cache_creation_input_tokens INTEGER DEFAULT 0,
+			cache_read_input_tokens INTEGER DEFAULT 0,
+			total_tokens INTEGER DEFAULT 0,
+			price REAL DEFAULT 0,
+			input_cost REAL DEFAULT 0,
+			output_cost REAL DEFAULT 0,
+			cache_creation_cost REAL DEFAULT 0,
+			cache_read_cost REAL DEFAULT 0,
+			http_status INTEGER DEFAULT 0,
+			stream BOOLEAN NOT NULL,
+			channel_id INTEGER,
+			channel_uid TEXT,
+			channel_name TEXT,
+			endpoint TEXT,
+			client_id TEXT,
+			session_id TEXT,
+			api_key_id INTEGER,
+			error TEXT,
+			upstream_error TEXT,
+			failover_info TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+	`)
+	if err != nil {
+		t.Fatalf("Failed to set up legacy request_logs schema: %v", err)
+	}
+
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("RunMigrations failed: %v", err)
+	}
+
+	var count int
+	for _, column := range []string{"transport", "domain"} {
+		err = db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('request_logs') WHERE name = ?`, column).Scan(&count)
+		if err != nil {
+			t.Fatalf("Failed to inspect request_logs schema for %s: %v", column, err)
+		}
+		if count != 1 {
+			t.Fatalf("Expected %s column to exist after migration, got %d", column, count)
+		}
 	}
 }
 

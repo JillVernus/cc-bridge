@@ -66,19 +66,20 @@ type RequestLog struct {
 	TotalTokens              int        `json:"totalTokens"`
 	Price                    float64    `json:"price"`
 	// 成本明细
-	InputCost         float64 `json:"inputCost"`
-	OutputCost        float64 `json:"outputCost"`
-	CacheCreationCost float64 `json:"cacheCreationCost"`
-	CacheReadCost          float64 `json:"cacheReadCost"`
-	PricedByTargetModel   bool    `json:"pricedByTargetModel,omitempty"` // True when cost was calculated using the target (redirected) model's pricing
+	InputCost           float64 `json:"inputCost"`
+	OutputCost          float64 `json:"outputCost"`
+	CacheCreationCost   float64 `json:"cacheCreationCost"`
+	CacheReadCost       float64 `json:"cacheReadCost"`
+	PricedByTargetModel bool    `json:"pricedByTargetModel,omitempty"` // True when cost was calculated using the target (redirected) model's pricing
 	// 其他字段
 	HTTPStatus    int       `json:"httpStatus"`
 	Stream        bool      `json:"stream"`
+	Transport     string    `json:"transport,omitempty"` // http, sse, ws
 	ChannelID     int       `json:"channelId"`
 	ChannelUID    string    `json:"channelUid,omitempty"`
 	ChannelName   string    `json:"channelName"`
 	Endpoint      string    `json:"endpoint"`            // /v1/messages or /v1/responses
-	Domain        string    `json:"domain,omitempty"`   // Request domain (forward-proxy intercepted host)
+	Domain        string    `json:"domain,omitempty"`    // Request domain (forward-proxy intercepted host)
 	ClientID      string    `json:"clientId,omitempty"`  // Client/machine identifier
 	SessionID     string    `json:"sessionId,omitempty"` // Claude Code conversation session ID
 	APIKeyID      *int64    `json:"apiKeyId"`            // API key ID for tracking (nil = not set, 0 = master key)

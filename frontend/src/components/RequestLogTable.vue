@@ -958,7 +958,7 @@
                     icon="custom:gemini"
                     class="provider-icon mr-1"
                   />
-                  {{ getProviderDisplayName(item) }}
+                  {{ getChannelDisplayName(item) }}
                   <v-tooltip v-if="isForwardProxyLog(item)" location="top">
                     <template v-slot:activator="{ props: fwdProps }">
                       <v-icon v-bind="fwdProps" size="12" class="ml-1" color="grey">mdi-shield-lock-outline</v-icon>
@@ -993,8 +993,17 @@
             </template>
             <div class="stacked-tooltip">
               <div>
-                <strong>{{ t('requestLog.channel') }}:</strong> {{ getProviderDisplayName(item)
+                <strong>{{ t('requestLog.channel') }}:</strong> {{ getChannelDisplayName(item)
                 }}<span v-if="isForwardProxyLog(item)"> ({{ t('forwardProxy.title') }})</span>
+              </div>
+              <div v-if="item.type">
+                <strong>{{ t('requestLog.providerType') }}:</strong> {{ item.type }}
+              </div>
+              <div v-if="getLegacyProviderName(item)">
+                <strong>{{ t('requestLog.legacyProviderName') }}:</strong> {{ getLegacyProviderName(item) }}
+              </div>
+              <div v-if="getTransportIcon(item)">
+                <strong>{{ t('requestLog.transport') }}:</strong> {{ getTransportLabel(item) }}
               </div>
               <div>
                 <strong>{{ t('requestLog.model') }}:</strong> {{ item.model }}
@@ -1033,7 +1042,7 @@
               icon="custom:gemini"
               class="provider-icon mr-1"
             />
-            {{ getProviderDisplayName(item) }}
+            {{ getChannelDisplayName(item) }}
             <v-tooltip v-if="isForwardProxyLog(item)" location="top">
               <template v-slot:activator="{ props: fwdProps }">
                 <v-icon v-bind="fwdProps" size="12" class="ml-1" color="grey">mdi-shield-lock-outline</v-icon>
@@ -1172,10 +1181,25 @@
               <div v-bind="props" class="stacked-cell">
                 <span
                   v-if="item.clientId"
-                  class="text-caption mono-text id-cell clickable-id"
-                  @click.stop="openAliasDialog(item.clientId)"
+                  class="client-id-with-transport"
                 >
-                  {{ getDisplayUserId(item.clientId) }}
+                  <span class="text-caption mono-text id-cell clickable-id" @click.stop="openAliasDialog(item.clientId)">
+                    {{ getDisplayUserId(item.clientId) }}
+                  </span>
+                  <v-tooltip v-if="getTransportIcon(item)" location="top">
+                    <template v-slot:activator="{ props: transportProps }">
+                      <v-icon
+                        v-bind="transportProps"
+                        class="transport-icon"
+                        :color="getTransportColor(item)"
+                        size="13"
+                        @click.stop
+                      >
+                        {{ getTransportIcon(item) }}
+                      </v-icon>
+                    </template>
+                    <span>{{ getTransportLabel(item) }}</span>
+                  </v-tooltip>
                 </span>
                 <span v-else class="text-caption mono-text id-cell">—</span>
                 <span v-if="item.sessionId" class="stacked-secondary mono-text">
@@ -1191,6 +1215,9 @@
                 <div>
                   <span class="id-label">{{ t('requestLog.clientId') }}:</span> {{ normalizeUserId(item.clientId) }}
                 </div>
+                <div v-if="getTransportIcon(item)">
+                  <span class="id-label">{{ t('requestLog.transport') }}:</span> {{ getTransportLabel(item) }}
+                </div>
               </div>
               <div v-else>
                 <span class="id-label">{{ t('requestLog.clientId') }}:</span> —
@@ -1205,10 +1232,25 @@
             <template v-slot:activator="{ props }">
               <span
                 v-bind="props"
-                class="text-caption mono-text id-cell clickable-id"
-                @click.stop="openAliasDialog(item.clientId)"
+                class="client-id-with-transport"
               >
-                {{ getDisplayUserId(item.clientId) }}
+                <span class="text-caption mono-text id-cell clickable-id" @click.stop="openAliasDialog(item.clientId)">
+                  {{ getDisplayUserId(item.clientId) }}
+                </span>
+                <v-tooltip v-if="getTransportIcon(item)" location="top">
+                  <template v-slot:activator="{ props: transportProps }">
+                    <v-icon
+                      v-bind="transportProps"
+                      class="transport-icon"
+                      :color="getTransportColor(item)"
+                      size="13"
+                      @click.stop
+                    >
+                      {{ getTransportIcon(item) }}
+                    </v-icon>
+                  </template>
+                  <span>{{ getTransportLabel(item) }}</span>
+                </v-tooltip>
               </span>
             </template>
             <div class="id-tooltip">
@@ -1217,6 +1259,9 @@
               </div>
               <div>
                 <span class="id-label">{{ t('requestLog.clientId') }}:</span> {{ normalizeUserId(item.clientId) }}
+              </div>
+              <div v-if="getTransportIcon(item)">
+                <span class="id-label">{{ t('requestLog.transport') }}:</span> {{ getTransportLabel(item) }}
               </div>
             </div>
           </v-tooltip>
@@ -2601,6 +2646,7 @@ const handleLogCreated = (payload: LogCreatedPayload) => {
     pricedByTargetModel: payload.pricedByTargetModel ?? false,
     httpStatus: payload.httpStatus ?? 0,
     stream: payload.stream,
+    transport: payload.transport,
     channelId: payload.channelId,
     channelUid: payload.channelUid,
     channelName: payload.channelName,
@@ -2687,6 +2733,7 @@ const handleLogUpdated = (payload: LogUpdatedPayload) => {
     updated.httpStatus = payload.httpStatus
     updated.type = payload.type
     updated.providerName = payload.providerName
+    updated.transport = payload.transport ?? oldLog.transport
     updated.channelId = payload.channelId
     updated.channelUid = payload.channelUid ?? oldLog.channelUid
     updated.channelName = payload.channelName
@@ -3006,11 +3053,21 @@ const getForwardProxyDomainAlias = (host?: string): string | null => {
   return forwardProxyConfig.value?.domainAliases?.[normalizedHost] || null
 }
 
-const getProviderDisplayName = (item: RequestLog): string => {
-  const providerName = item.providerName || item.type
-  if (!providerName) return '—'
-  if (!isForwardProxyLog(item)) return providerName
-  return getForwardProxyDomainAlias(providerName) || providerName
+const getChannelDisplayName = (item: RequestLog): string => {
+  const channelName = item.channelName?.trim()
+  const providerName = item.providerName?.trim()
+  const fallback = item.type?.trim()
+  const displayName = channelName || providerName || fallback
+  if (!displayName) return '—'
+  if (!isForwardProxyLog(item)) return displayName
+  return getForwardProxyDomainAlias(displayName) || displayName
+}
+
+const getLegacyProviderName = (item: RequestLog): string => {
+  const providerName = item.providerName?.trim()
+  const channelName = item.channelName?.trim()
+  if (!providerName || providerName === channelName) return ''
+  return providerName
 }
 
 // Returns true if a secondary column should be hidden from headers
@@ -3430,6 +3487,53 @@ const hasFirstTokenMetric = (item: RequestLog) => {
 const formatFirstTokenDuration = (item: RequestLog) => {
   if (!hasFirstTokenMetric(item)) return '—\u00A0\u00A0'
   return formatDuration(item.firstTokenDurationMs ?? 0)
+}
+
+const getTransportKey = (item: RequestLog) => {
+  const transport = item.transport?.trim().toLowerCase()
+  if (transport === 'ws' || transport === 'websocket') return 'ws'
+  if (transport === 'sse') return 'sse'
+  if (transport === 'http' || transport === 'https') return 'http'
+  return ''
+}
+
+const getTransportIcon = (item: RequestLog) => {
+  switch (getTransportKey(item)) {
+    case 'ws':
+      return 'mdi-lan-connect'
+    case 'sse':
+      return 'mdi-broadcast'
+    case 'http':
+      return 'mdi-web'
+    default:
+      return ''
+  }
+}
+
+const getTransportColor = (item: RequestLog) => {
+  switch (getTransportKey(item)) {
+    case 'ws':
+      return 'info'
+    case 'sse':
+      return 'success'
+    case 'http':
+      return 'grey'
+    default:
+      return 'grey'
+  }
+}
+
+const getTransportLabel = (item: RequestLog) => {
+  switch (getTransportKey(item)) {
+    case 'ws':
+      return t('requestLog.transportWebSocket')
+    case 'sse':
+      return t('requestLog.transportSSE')
+    case 'http':
+      return t('requestLog.transportHTTP')
+    default:
+      return item.transport || ''
+  }
 }
 
 const formatTimingMetric = (
@@ -4277,6 +4381,24 @@ const silentRefresh = async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.client-id-with-transport {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 240px;
+  vertical-align: middle;
+}
+
+.client-id-with-transport .id-cell {
+  min-width: 0;
+}
+
+.transport-icon {
+  flex: 0 0 auto;
+  margin-left: 3px;
+  opacity: 0.9;
 }
 
 /* Spinning animation for sync icon */

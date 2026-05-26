@@ -55,6 +55,7 @@ export default {
     rateLimitSettings: '速率限制设置',
     debugLogSettings: '调试日志设置',
     userAgentSettings: 'User-Agent 设置',
+    responsesWebSocketSettings: 'Responses WebSocket',
     outboundHeaderSettings: '出站请求头规则',
     failoverSettings: '故障转移设置',
     logout: '注销',
@@ -442,6 +443,12 @@ export default {
     apiKey: 'API 密钥',
     clientId: '客户端 ID',
     sessionId: '会话 ID',
+    transport: '传输方式',
+    transportWebSocket: 'WebSocket 传输',
+    transportSSE: 'SSE 传输',
+    transportHTTP: 'HTTP 传输',
+    providerType: '供应商类型',
+    legacyProviderName: '旧版供应商名称',
     filters: '筛选',
     clearFilters: '清空筛选',
     requests: '请求',
@@ -923,6 +930,16 @@ export default {
     responsesInvalid: '必须以 codex_cli_rs/ 开头并包含数字版本号',
     loadFailed: '加载 User-Agent 配置失败',
     saveFailed: '保存 User-Agent 配置失败'
+  },
+
+  responsesWebSocket: {
+    title: 'Responses WebSocket',
+    enabled: '已启用',
+    disabled: '已禁用',
+    description: '在 /v1/responses 接收 WebSocket 连接，并桥接到 OpenAI 官方 Responses WebSocket 端点。',
+    scope: '当前仅支持 direct openai-oauth 渠道。其他渠道类型会回退到 HTTPS/SSE。',
+    loadFailed: '加载 Responses WebSocket 配置失败',
+    saveFailed: '保存 Responses WebSocket 配置失败'
   },
 
   // 故障转移设置

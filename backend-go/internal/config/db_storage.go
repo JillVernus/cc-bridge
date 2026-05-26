@@ -281,6 +281,9 @@ func (s *DBConfigStorage) MigrateFromJSONIfNeeded(jsonPath string) error {
 	outboundHeaderPolicyConfig, _ := json.Marshal(config.OutboundHeaderPolicy)
 	settings["outbound_header_policy"] = string(outboundHeaderPolicyConfig)
 
+	responsesWebSocketConfig, _ := json.Marshal(config.ResponsesWebSocket)
+	settings["responses_websocket"] = string(responsesWebSocketConfig)
+
 	for key, value := range settings {
 		if value == "" {
 			continue
@@ -447,6 +450,8 @@ func (s *DBConfigStorage) LoadConfigFromDBWithRevision() (*Config, int64, error)
 			json.Unmarshal([]byte(value), &config.UserAgent)
 		case "outbound_header_policy":
 			json.Unmarshal([]byte(value), &config.OutboundHeaderPolicy)
+		case "responses_websocket":
+			json.Unmarshal([]byte(value), &config.ResponsesWebSocket)
 		}
 	}
 
@@ -721,6 +726,9 @@ func (s *DBConfigStorage) saveConfigToDBWithRevision(config *Config, expectedRev
 
 	outboundHeaderPolicyConfig, _ := json.Marshal(config.OutboundHeaderPolicy)
 	settings["outbound_header_policy"] = string(outboundHeaderPolicyConfig)
+
+	responsesWebSocketConfig, _ := json.Marshal(config.ResponsesWebSocket)
+	settings["responses_websocket"] = string(responsesWebSocketConfig)
 
 	for key, value := range settings {
 		var query string

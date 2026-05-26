@@ -174,7 +174,7 @@ func (m *Manager) getPartialRecordForSSE(id string) (*RequestLog, error) {
 		       r.cache_creation_input_tokens, r.cache_read_input_tokens, r.total_tokens,
 		       r.price, r.input_cost, r.output_cost, r.cache_creation_cost, r.cache_read_cost,
 		       r.api_key_id, r.error, r.upstream_error, r.failover_info, r.complete_time,
-		       r.channel_id, r.channel_uid, r.channel_name, r.endpoint, r.stream,
+		       r.channel_id, r.channel_uid, r.channel_name, r.endpoint, r.stream, r.transport,
 		       r.client_id, r.session_id, r.reasoning_effort, r.initial_time,
 		       CASE WHEN d.request_id IS NOT NULL THEN 1 ELSE 0 END as has_debug_data
 		FROM request_logs r
@@ -202,16 +202,16 @@ func (m *Manager) getPartialRecordForSSE(id string) (*RequestLog, error) {
 	var pricedByTargetModel sql.NullBool
 	var completeTime, firstTokenTime sql.NullTime
 	var providerName, model, responseModel, serviceTier, originalXInitiator, effectiveXInitiator sql.NullString
-	var channelUID, channelName, endpoint, clientID, sessionID, reasoningEffort sql.NullString
+	var channelUID, channelName, endpoint, clientID, sessionID, reasoningEffort, transport sql.NullString
 	var errorStr, upstreamErrorStr, failoverInfoStr sql.NullString
 
 	err := m.db.QueryRow(query, id).Scan(
-				&r.ID, &r.Status, &r.Type, &providerName, &model, &responseModel, &serviceTier, &serviceTierOverridden, &pricedByTargetModel, &originalXInitiator, &effectiveXInitiator,
+		&r.ID, &r.Status, &r.Type, &providerName, &model, &responseModel, &serviceTier, &serviceTierOverridden, &pricedByTargetModel, &originalXInitiator, &effectiveXInitiator,
 		&firstTokenTime, &r.FirstTokenDurationMs, &r.DurationMs, &r.HTTPStatus, &r.InputTokens, &r.OutputTokens,
 		&r.CacheCreationInputTokens, &r.CacheReadInputTokens, &r.TotalTokens,
 		&r.Price, &r.InputCost, &r.OutputCost, &r.CacheCreationCost, &r.CacheReadCost,
 		&apiKeyID, &errorStr, &upstreamErrorStr, &failoverInfoStr, &completeTime,
-		&channelID, &channelUID, &channelName, &endpoint, &r.Stream,
+		&channelID, &channelUID, &channelName, &endpoint, &r.Stream, &transport,
 		&clientID, &sessionID, &reasoningEffort, &r.InitialTime,
 		&hasDebugData,
 	)
@@ -284,6 +284,9 @@ func (m *Manager) getPartialRecordForSSE(id string) (*RequestLog, error) {
 	}
 	if endpoint.Valid {
 		r.Endpoint = endpoint.String
+	}
+	if transport.Valid {
+		r.Transport = transport.String
 	}
 	if clientID.Valid {
 		r.ClientID = clientID.String

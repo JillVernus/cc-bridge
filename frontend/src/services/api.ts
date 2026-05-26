@@ -1248,6 +1248,19 @@ class ApiService {
     })
   }
 
+  // ============== Responses WebSocket Config API ==============
+
+  async getResponsesWebSocketConfig(): Promise<ResponsesWebSocketConfig> {
+    return this.request('/config/responses-websocket')
+  }
+
+  async updateResponsesWebSocketConfig(config: Partial<ResponsesWebSocketConfig>): Promise<ResponsesWebSocketConfig> {
+    return this.request('/config/responses-websocket', {
+      method: 'PUT',
+      body: JSON.stringify(config)
+    })
+  }
+
   // 获取请求的调试日志
   async getDebugLog(requestId: string): Promise<DebugLogEntry> {
     return this.request(`/logs/${encodeURIComponent(requestId)}/debug`)
@@ -1594,6 +1607,7 @@ export interface RequestLog {
   // 其他字段
   httpStatus: number
   stream: boolean
+  transport?: string
   channelId: number
   channelUid?: string
   channelName: string
@@ -1781,6 +1795,10 @@ export interface UserAgentConfig {
 export interface OutboundHeaderPolicyConfig {
   enabled: boolean
   stripRules: string[]
+}
+
+export interface ResponsesWebSocketConfig {
+  enabled: boolean
 }
 
 // Debug Log Entry

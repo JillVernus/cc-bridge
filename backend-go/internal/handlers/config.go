@@ -1986,6 +1986,45 @@ func UpdateOutboundHeaderPolicy(cfgManager *config.ConfigManager) gin.HandlerFun
 	}
 }
 
+// GetResponsesWebSocketConfig 获取 Responses WebSocket 传输配置
+func GetResponsesWebSocketConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		cfg := cfgManager.GetResponsesWebSocketConfig()
+		c.JSON(http.StatusOK, gin.H{
+			"enabled": cfg.Enabled,
+		})
+	}
+}
+
+// UpdateResponsesWebSocketConfig 更新 Responses WebSocket 传输配置
+func UpdateResponsesWebSocketConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Enabled *bool `json:"enabled"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		cfg := cfgManager.GetResponsesWebSocketConfig()
+		if req.Enabled != nil {
+			cfg.Enabled = *req.Enabled
+		}
+
+		if err := cfgManager.UpdateResponsesWebSocketConfig(cfg); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		savedCfg := cfgManager.GetResponsesWebSocketConfig()
+		c.JSON(http.StatusOK, gin.H{
+			"enabled": savedCfg.Enabled,
+		})
+	}
+}
+
 // GetFailoverConfig 获取故障转移配置
 func GetFailoverConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {

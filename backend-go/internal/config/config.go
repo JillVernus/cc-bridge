@@ -36,6 +36,11 @@ type OAuthTokens struct {
 	LastRefresh  string `json:"last_refresh,omitempty"` // Timestamp of last token refresh
 }
 
+// ResponsesWebSocketConfig controls the optional /v1/responses WebSocket transport.
+type ResponsesWebSocketConfig struct {
+	Enabled bool `json:"enabled"`
+}
+
 const (
 	CodexServiceTierOverrideOff           = "off"
 	CodexServiceTierOverrideForcePriority = "force_priority"
@@ -655,6 +660,9 @@ type Config struct {
 
 	// 出站请求头隐私策略
 	OutboundHeaderPolicy utils.OutboundHeaderPolicy `json:"outboundHeaderPolicy,omitempty"`
+
+	// Responses WebSocket transport for Codex/openai-oauth channels.
+	ResponsesWebSocket ResponsesWebSocketConfig `json:"responsesWebSocket,omitempty"`
 }
 
 // FailedKey 失败密钥记录
@@ -901,7 +909,8 @@ func (cm *ConfigManager) loadConfig() error {
 	// User-Agent 配置迁移：为旧配置填充默认值
 	userAgentChanged := normalizeUserAgentConfig(&cm.config.UserAgent)
 	outboundHeaderPolicyChanged := normalizeOutboundHeaderPolicyConfig(&cm.config.OutboundHeaderPolicy)
-	if userAgentChanged || outboundHeaderPolicyChanged {
+	responsesWebSocketChanged := normalizeResponsesWebSocketConfig(&cm.config.ResponsesWebSocket)
+	if userAgentChanged || outboundHeaderPolicyChanged || responsesWebSocketChanged {
 		log.Printf("检测到缺失/无效的全局代理配置，正在写入默认值...")
 		if err := cm.saveConfigLocked(cm.config); err != nil {
 			log.Printf("保存全局代理配置迁移失败: %v", err)
@@ -3544,6 +3553,15 @@ func normalizeOutboundHeaderPolicyConfig(cfg *utils.OutboundHeaderPolicy) bool {
 	return changed
 }
 
+func normalizeResponsesWebSocketConfig(cfg *ResponsesWebSocketConfig) bool {
+	if cfg == nil {
+		return false
+	}
+	// Bool zero value is the desired default (disabled). Keep this helper for
+	// symmetry with other global config blocks and future validation.
+	return false
+}
+
 // UpdateDebugLogConfig 更新调试日志配置
 func (cm *ConfigManager) UpdateDebugLogConfig(config DebugLogConfig) error {
 	cm.mu.Lock()
@@ -3566,6 +3584,21 @@ func (cm *ConfigManager) UpdateOutboundHeaderPolicy(policy utils.OutboundHeaderP
 	policy.Initialized = true
 	normalizeOutboundHeaderPolicyConfig(&policy)
 	cm.config.OutboundHeaderPolicy = policy
+	return cm.saveConfigLocked(cm.config)
+}
+
+func (cm *ConfigManager) GetResponsesWebSocketConfig() ResponsesWebSocketConfig {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	return cm.config.ResponsesWebSocket
+}
+
+func (cm *ConfigManager) UpdateResponsesWebSocketConfig(config ResponsesWebSocketConfig) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	normalizeResponsesWebSocketConfig(&config)
+	cm.config.ResponsesWebSocket = config
 	return cm.saveConfigLocked(cm.config)
 }
 
