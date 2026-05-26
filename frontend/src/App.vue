@@ -102,12 +102,6 @@
               </template>
               <v-list-item-title>{{ t('app.userAgentSettings') }}</v-list-item-title>
             </v-list-item>
-            <v-list-item @click="showResponsesWebSocketSettings = true">
-              <template #prepend>
-                <v-icon size="small">mdi-lan-connect</v-icon>
-              </template>
-              <v-list-item-title>{{ t('app.responsesWebSocketSettings') }}</v-list-item-title>
-            </v-list-item>
             <v-list-item @click="showOutboundHeaderSettings = true">
               <template #prepend>
                 <v-icon size="small">mdi-filter-remove-outline</v-icon>
@@ -559,9 +553,6 @@
     <!-- User-Agent 设置对话框 -->
     <UserAgentSettings v-model="showUserAgentSettings" />
 
-    <!-- Responses WebSocket 设置对话框 -->
-    <ResponsesWebSocketSettings v-model="showResponsesWebSocketSettings" />
-
     <!-- 出站请求头规则设置对话框 -->
     <OutboundHeaderSettings v-model="showOutboundHeaderSettings" />
 
@@ -720,7 +711,6 @@ import ModelAliasSettings from './components/ModelAliasSettings.vue'
 import RateLimitSettings from './components/RateLimitSettings.vue'
 import DebugLogSettings from './components/DebugLogSettings.vue'
 import UserAgentSettings from './components/UserAgentSettings.vue'
-import ResponsesWebSocketSettings from './components/ResponsesWebSocketSettings.vue'
 import OutboundHeaderSettings from './components/OutboundHeaderSettings.vue'
 import FailoverSettings from './components/FailoverSettings.vue'
 import ForwardProxySettings from './components/ForwardProxySettings.vue'
@@ -777,7 +767,6 @@ const showModelAliasSettings = ref(false) // 模型别名设置对话框
 const showRateLimitSettings = ref(false) // 速率限制设置对话框
 const showDebugLogSettings = ref(false) // 调试日志设置对话框
 const showUserAgentSettings = ref(false) // User-Agent 设置对话框
-const showResponsesWebSocketSettings = ref(false) // Responses WebSocket 设置对话框
 const showOutboundHeaderSettings = ref(false) // 出站请求头规则设置对话框
 const showFailoverSettings = ref(false) // 故障转移设置对话框
 const showForwardProxySettings = ref(false) // 正向代理设置对话框
@@ -1578,7 +1567,6 @@ const handleKeydown = (event: KeyboardEvent) => {
     showRateLimitSettings.value = false
     showDebugLogSettings.value = false
     showUserAgentSettings.value = false
-    showResponsesWebSocketSettings.value = false
     showOutboundHeaderSettings.value = false
     showFailoverSettings.value = false
     showForwardProxySettings.value = false

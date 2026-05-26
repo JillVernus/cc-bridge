@@ -55,7 +55,6 @@ export default {
     rateLimitSettings: 'Rate Limit Settings',
     debugLogSettings: 'Debug Log Settings',
     userAgentSettings: 'User-Agent Settings',
-    responsesWebSocketSettings: 'Responses WebSocket',
     outboundHeaderSettings: 'Outbound Header Rules',
     failoverSettings: 'Failover Settings',
     logout: 'Logout',
@@ -262,6 +261,8 @@ export default {
     codexServiceTierOverrideForceDefault: 'Force default for explicit priority',
     codexServiceTierOverrideHint:
       'Proxy override for this channel: force missing/default service_tier to "priority", or downgrade explicit "priority" to "default". The downgrade mode only rewrites explicit priority requests.',
+    responsesWebSocket: 'Responses WebSocket',
+    responsesWebSocketHint: 'Enable for Codex/Responses-compatible channels whose upstream supports WebSocket.',
     description: 'Description (optional)',
     descriptionHint: 'Optional channel description...',
     modelRedirect: 'Model Redirect (optional)',
@@ -944,17 +945,6 @@ export default {
     responsesInvalid: 'Must start with codex_cli_rs/ and include numeric version',
     loadFailed: 'Failed to load User-Agent configuration',
     saveFailed: 'Failed to save User-Agent configuration'
-  },
-
-  responsesWebSocket: {
-    title: 'Responses WebSocket',
-    enabled: 'Enabled',
-    disabled: 'Disabled',
-    description:
-      'Accept WebSocket connections on /v1/responses and bridge them to the official OpenAI Responses WebSocket endpoint.',
-    scope: 'Currently supported for direct openai-oauth channels only. Other channel types fall back to HTTPS/SSE.',
-    loadFailed: 'Failed to load Responses WebSocket configuration',
-    saveFailed: 'Failed to save Responses WebSocket configuration'
   },
 
   outboundHeaders: {

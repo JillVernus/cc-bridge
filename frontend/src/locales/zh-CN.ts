@@ -55,7 +55,6 @@ export default {
     rateLimitSettings: '速率限制设置',
     debugLogSettings: '调试日志设置',
     userAgentSettings: 'User-Agent 设置',
-    responsesWebSocketSettings: 'Responses WebSocket',
     outboundHeaderSettings: '出站请求头规则',
     failoverSettings: '故障转移设置',
     logout: '注销',
@@ -261,6 +260,8 @@ export default {
     codexServiceTierOverrideForceDefault: '仅对显式 priority 强制 default',
     codexServiceTierOverrideHint:
       '这个渠道会启用代理覆盖：可以把缺失/default 的 service_tier 强制改写为 "priority"，也可以把显式传入的 "priority" 降级为 "default"。降级模式只会改写显式 priority 请求。',
+    responsesWebSocket: 'Responses WebSocket',
+    responsesWebSocketHint: '仅对上游支持 WebSocket 的 Codex/Responses 兼容渠道启用。',
     description: '描述 (可选)',
     descriptionHint: '可选的渠道描述...',
     modelRedirect: '模型重定向 (可选)',
@@ -930,16 +931,6 @@ export default {
     responsesInvalid: '必须以 codex_cli_rs/ 开头并包含数字版本号',
     loadFailed: '加载 User-Agent 配置失败',
     saveFailed: '保存 User-Agent 配置失败'
-  },
-
-  responsesWebSocket: {
-    title: 'Responses WebSocket',
-    enabled: '已启用',
-    disabled: '已禁用',
-    description: '在 /v1/responses 接收 WebSocket 连接，并桥接到 OpenAI 官方 Responses WebSocket 端点。',
-    scope: '当前仅支持 direct openai-oauth 渠道。其他渠道类型会回退到 HTTPS/SSE。',
-    loadFailed: '加载 Responses WebSocket 配置失败',
-    saveFailed: '保存 Responses WebSocket 配置失败'
   },
 
   // 故障转移设置

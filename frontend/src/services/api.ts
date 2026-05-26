@@ -235,6 +235,8 @@ export interface Channel {
   oauthTokens?: OAuthTokens
   // Codex Responses service_tier override policy for eligible channels
   codexServiceTierOverride?: 'off' | 'force_priority' | 'force_default'
+  // Responses WebSocket transport support for compatible Responses-pool channels
+  responsesWebSocketEnabled?: boolean
   // 配额设置
   quotaType?: 'requests' | 'credit' | '' // 配额类型：请求数 | 额度 | 无
   quotaLimit?: number // 最大配额值
@@ -1248,19 +1250,6 @@ class ApiService {
     })
   }
 
-  // ============== Responses WebSocket Config API ==============
-
-  async getResponsesWebSocketConfig(): Promise<ResponsesWebSocketConfig> {
-    return this.request('/config/responses-websocket')
-  }
-
-  async updateResponsesWebSocketConfig(config: Partial<ResponsesWebSocketConfig>): Promise<ResponsesWebSocketConfig> {
-    return this.request('/config/responses-websocket', {
-      method: 'PUT',
-      body: JSON.stringify(config)
-    })
-  }
-
   // 获取请求的调试日志
   async getDebugLog(requestId: string): Promise<DebugLogEntry> {
     return this.request(`/logs/${encodeURIComponent(requestId)}/debug`)
@@ -1795,10 +1784,6 @@ export interface UserAgentConfig {
 export interface OutboundHeaderPolicyConfig {
   enabled: boolean
   stripRules: string[]
-}
-
-export interface ResponsesWebSocketConfig {
-  enabled: boolean
 }
 
 // Debug Log Entry

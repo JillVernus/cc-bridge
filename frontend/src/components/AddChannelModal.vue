@@ -249,17 +249,23 @@
 
                 <!-- 跳过 TLS 证书验证（非 Composite 类型） -->
                 <v-col cols="12" md="6" v-if="!isCompositeChannel">
-                  <div class="d-flex align-center justify-space-between">
-                    <div class="d-flex align-center ga-2">
+                  <div class="channel-toggle-row">
+                    <div class="channel-toggle-copy">
                       <v-icon color="warning">mdi-shield-alert</v-icon>
-                      <div>
+                      <div class="channel-toggle-text">
                         <div class="text-body-1 font-weight-medium">{{ t('addChannel.skipTlsVerify') }}</div>
                         <div class="text-caption text-medium-emphasis">
                           {{ t('addChannel.skipTlsVerifyHint') }}
                         </div>
                       </div>
                     </div>
-                    <v-switch inset color="warning" hide-details v-model="form.insecureSkipVerify" />
+                    <v-switch
+                      class="channel-toggle-switch"
+                      inset
+                      color="warning"
+                      hide-details
+                      v-model="form.insecureSkipVerify"
+                    />
                   </div>
                 </v-col>
 
@@ -295,6 +301,27 @@
                     :hint="t('addChannel.codexServiceTierOverrideHint')"
                     persistent-hint
                   />
+                </v-col>
+
+                <v-col cols="12" md="6" v-if="showResponsesWebSocketToggle">
+                  <div class="channel-toggle-row">
+                    <div class="channel-toggle-copy">
+                      <v-icon color="primary">mdi-lan-connect</v-icon>
+                      <div class="channel-toggle-text">
+                        <div class="text-body-1 font-weight-medium">{{ t('addChannel.responsesWebSocket') }}</div>
+                        <div class="text-caption text-medium-emphasis">
+                          {{ t('addChannel.responsesWebSocketHint') }}
+                        </div>
+                      </div>
+                    </div>
+                    <v-switch
+                      class="channel-toggle-switch"
+                      inset
+                      color="primary"
+                      hide-details
+                      v-model="form.responsesWebSocketEnabled"
+                    />
+                  </div>
                 </v-col>
 
                 <!-- API密钥负载均衡策略（非 Composite 类型） -->
@@ -1768,6 +1795,7 @@ const form = reactive({
   >,
   oauthTokens: undefined as OAuthTokens | undefined,
   codexServiceTierOverride: 'off' as 'off' | 'force_priority' | 'force_default',
+  responsesWebSocketEnabled: false,
   // Composite channel mappings
   compositeMappings: [] as CompositeMapping[],
   // Quota settings
@@ -1937,6 +1965,10 @@ const isCompositeChannel = computed(() => form.serviceType === 'composite')
 
 const showCodexServiceTierOverride = computed(() => {
   return props.channelType === 'responses' && (form.serviceType === 'responses' || form.serviceType === 'openai-oauth')
+})
+
+const showResponsesWebSocketToggle = computed(() => {
+  return props.channelType === 'responses' && !!form.serviceType && !isCompositeChannel.value
 })
 
 // Key for CompositeChannelEditor to force re-creation on channel change
@@ -2426,6 +2458,7 @@ const resetForm = () => {
   form.priceMultipliers = {}
   form.oauthTokens = undefined
   form.codexServiceTierOverride = 'off'
+  form.responsesWebSocketEnabled = false
   form.compositeMappings = []
   // Reset quota settings
   form.quotaType = ''
@@ -2526,6 +2559,7 @@ const loadChannelData = (channel: Channel) => {
   form.modelMapping = { ...(channel.modelMapping || {}) }
   form.priceMultipliers = { ...(channel.priceMultipliers || {}) }
   form.codexServiceTierOverride = channel.codexServiceTierOverride || 'off'
+  form.responsesWebSocketEnabled = !!channel.responsesWebSocketEnabled
 
   // Load composite mappings
   form.compositeMappings = normalizeCompositeMappings(channel.compositeMappings || [])
@@ -2945,6 +2979,7 @@ const handleSubmit = async () => {
     // 始终发送 priceMultipliers，即使为空对象（用于清除已有配置）
     priceMultipliers: form.priceMultipliers,
     codexServiceTierOverride: showCodexServiceTierOverride.value ? form.codexServiceTierOverride : undefined,
+    responsesWebSocketEnabled: showResponsesWebSocketToggle.value ? form.responsesWebSocketEnabled : undefined,
     // Quota settings - always send quotaType (empty string clears quota)
     // Note: Use validNumber helper to convert NaN to undefined (v-model.number returns NaN for empty inputs)
     quotaType: form.quotaType,
@@ -3169,6 +3204,29 @@ onUnmounted(() => {
 
 .mode-toggle-btn {
   text-transform: none;
+}
+
+.channel-toggle-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  min-height: 56px;
+}
+
+.channel-toggle-copy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.channel-toggle-text {
+  min-width: 0;
+}
+
+.channel-toggle-switch {
+  flex: 0 0 auto;
 }
 
 /* 亮色模式下按钮在 primary 背景上显示白色 */

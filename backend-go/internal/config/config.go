@@ -90,6 +90,16 @@ func normalizeUpstreamCodexServiceTierOverride(channelType string, upstream *Ups
 	)
 }
 
+func normalizeUpstreamResponsesWebSocket(channelType string, upstream *UpstreamConfig) {
+	if upstream == nil {
+		return
+	}
+	if strings.ToLower(strings.TrimSpace(channelType)) != "responses" ||
+		strings.EqualFold(strings.TrimSpace(upstream.ServiceType), "composite") {
+		upstream.ResponsesWebSocketEnabled = false
+	}
+}
+
 func normalizeConfigCodexServiceTierOverrides(cfg *Config) {
 	if cfg == nil {
 		return
@@ -97,16 +107,62 @@ func normalizeConfigCodexServiceTierOverrides(cfg *Config) {
 
 	for i := range cfg.Upstream {
 		normalizeUpstreamCodexServiceTierOverride("messages", &cfg.Upstream[i])
+		normalizeUpstreamResponsesWebSocket("messages", &cfg.Upstream[i])
 	}
 	for i := range cfg.ResponsesUpstream {
 		normalizeUpstreamCodexServiceTierOverride("responses", &cfg.ResponsesUpstream[i])
+		normalizeUpstreamResponsesWebSocket("responses", &cfg.ResponsesUpstream[i])
 	}
 	for i := range cfg.GeminiUpstream {
 		normalizeUpstreamCodexServiceTierOverride("gemini", &cfg.GeminiUpstream[i])
+		normalizeUpstreamResponsesWebSocket("gemini", &cfg.GeminiUpstream[i])
 	}
 	for i := range cfg.ChatUpstream {
 		normalizeUpstreamCodexServiceTierOverride("chat", &cfg.ChatUpstream[i])
+		normalizeUpstreamResponsesWebSocket("chat", &cfg.ChatUpstream[i])
 	}
+}
+
+func migrateConfigResponsesWebSocket(cfg *Config) bool {
+	if cfg == nil {
+		return false
+	}
+
+	changed := false
+	if cfg.ResponsesWebSocket.Enabled {
+		for i := range cfg.ResponsesUpstream {
+			if strings.EqualFold(strings.TrimSpace(cfg.ResponsesUpstream[i].ServiceType), "openai-oauth") &&
+				!cfg.ResponsesUpstream[i].ResponsesWebSocketEnabled {
+				cfg.ResponsesUpstream[i].ResponsesWebSocketEnabled = true
+				changed = true
+			}
+		}
+		cfg.ResponsesWebSocket.Enabled = false
+		changed = true
+	}
+
+	for i := range cfg.Upstream {
+		before := cfg.Upstream[i].ResponsesWebSocketEnabled
+		normalizeUpstreamResponsesWebSocket("messages", &cfg.Upstream[i])
+		changed = changed || before != cfg.Upstream[i].ResponsesWebSocketEnabled
+	}
+	for i := range cfg.ResponsesUpstream {
+		before := cfg.ResponsesUpstream[i].ResponsesWebSocketEnabled
+		normalizeUpstreamResponsesWebSocket("responses", &cfg.ResponsesUpstream[i])
+		changed = changed || before != cfg.ResponsesUpstream[i].ResponsesWebSocketEnabled
+	}
+	for i := range cfg.GeminiUpstream {
+		before := cfg.GeminiUpstream[i].ResponsesWebSocketEnabled
+		normalizeUpstreamResponsesWebSocket("gemini", &cfg.GeminiUpstream[i])
+		changed = changed || before != cfg.GeminiUpstream[i].ResponsesWebSocketEnabled
+	}
+	for i := range cfg.ChatUpstream {
+		before := cfg.ChatUpstream[i].ResponsesWebSocketEnabled
+		normalizeUpstreamResponsesWebSocket("chat", &cfg.ChatUpstream[i])
+		changed = changed || before != cfg.ChatUpstream[i].ResponsesWebSocketEnabled
+	}
+
+	return changed
 }
 
 // GetEffectiveMultiplier 获取有效乘数（0 或未设置时返回 1.0）
@@ -192,6 +248,8 @@ type UpstreamConfig struct {
 	// Codex Responses service tier override for eligible channels.
 	// Canonical values: off | force_priority | force_default.
 	CodexServiceTierOverride string `json:"codexServiceTierOverride,omitempty"`
+	// Responses WebSocket transport support for compatible Responses-pool channels.
+	ResponsesWebSocketEnabled bool `json:"responsesWebSocketEnabled,omitempty"`
 	// 配额设置（可选）
 	QuotaType          string     `json:"quotaType,omitempty"`          // "requests" | "credit" | "" (无配额)
 	QuotaLimit         float64    `json:"quotaLimit,omitempty"`         // 最大配额值（请求数或金额）
@@ -407,6 +465,8 @@ type UpstreamUpdate struct {
 	// Codex Responses service tier override for eligible channels.
 	// Canonical values: off | force_priority | force_default.
 	CodexServiceTierOverride *string `json:"codexServiceTierOverride"`
+	// Responses WebSocket transport support for compatible Responses-pool channels.
+	ResponsesWebSocketEnabled *bool `json:"responsesWebSocketEnabled"`
 	// 配额设置
 	QuotaType          *string    `json:"quotaType"`
 	QuotaLimit         *float64   `json:"quotaLimit"`
@@ -661,7 +721,7 @@ type Config struct {
 	// 出站请求头隐私策略
 	OutboundHeaderPolicy utils.OutboundHeaderPolicy `json:"outboundHeaderPolicy,omitempty"`
 
-	// Responses WebSocket transport for Codex/openai-oauth channels.
+	// Legacy global Responses WebSocket setting. New configs use per-channel flags.
 	ResponsesWebSocket ResponsesWebSocketConfig `json:"responsesWebSocket,omitempty"`
 }
 
@@ -909,7 +969,7 @@ func (cm *ConfigManager) loadConfig() error {
 	// User-Agent 配置迁移：为旧配置填充默认值
 	userAgentChanged := normalizeUserAgentConfig(&cm.config.UserAgent)
 	outboundHeaderPolicyChanged := normalizeOutboundHeaderPolicyConfig(&cm.config.OutboundHeaderPolicy)
-	responsesWebSocketChanged := normalizeResponsesWebSocketConfig(&cm.config.ResponsesWebSocket)
+	responsesWebSocketChanged := migrateConfigResponsesWebSocket(&cm.config)
 	if userAgentChanged || outboundHeaderPolicyChanged || responsesWebSocketChanged {
 		log.Printf("检测到缺失/无效的全局代理配置，正在写入默认值...")
 		if err := cm.saveConfigLocked(cm.config); err != nil {
@@ -1133,6 +1193,7 @@ func reindexConfig(config *Config) {
 // saveConfigLocked 保存配置（已加锁）
 func (cm *ConfigManager) saveConfigLocked(config Config) error {
 	normalizeConfigCodexServiceTierOverrides(&config)
+	migrateConfigResponsesWebSocket(&config)
 
 	// When using database storage, skip JSON file operations
 	// Database is the source of truth in multi-instance deployments
@@ -1922,6 +1983,8 @@ func (cm *ConfigManager) updateUpstream(index int, updates UpstreamUpdate, expec
 			return false, fmt.Errorf("invalid composite channel: %w", err)
 		}
 	}
+
+	normalizeUpstreamResponsesWebSocket("messages", upstream)
 
 	if err := cm.saveConfigLocked(config); err != nil {
 		return false, err
@@ -2771,6 +2834,9 @@ func (cm *ConfigManager) updateResponsesUpstream(index int, updates UpstreamUpda
 	}
 	if updates.CodexServiceTierOverride != nil {
 		upstream.CodexServiceTierOverride = strings.TrimSpace(*updates.CodexServiceTierOverride)
+	}
+	if updates.ResponsesWebSocketEnabled != nil {
+		upstream.ResponsesWebSocketEnabled = *updates.ResponsesWebSocketEnabled
 	}
 	// 配额设置
 	if updates.QuotaType != nil {

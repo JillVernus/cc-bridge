@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"bytes"
 	"crypto/tls"
 	"fmt"
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -43,10 +45,10 @@ func ResponsesWebSocketHandler(
 	channelRateLimiter *middleware.ChannelRateLimiter,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if cfgManager == nil || !cfgManager.GetResponsesWebSocketConfig().Enabled {
+		if cfgManager == nil {
 			c.JSON(http.StatusNotFound, gin.H{
 				"error":   "Responses WebSocket disabled",
-				"message": "Responses WebSocket transport is disabled in admin settings",
+				"message": "Responses WebSocket transport is not configured",
 				"path":    c.Request.URL.Path,
 			})
 			return
@@ -75,21 +77,13 @@ func ResponsesWebSocketHandler(
 
 		upstream, selection, err := selectResponsesWebSocketUpstream(c, cfgManager, channelScheduler)
 		if err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
-			return
-		}
-		if upstream.ServiceType != "openai-oauth" {
-			c.JSON(http.StatusNotImplemented, gin.H{
-				"error":   "Responses WebSocket only supports openai-oauth channels",
-				"message": "Use HTTPS/SSE fallback for this channel type",
+			c.JSON(http.StatusNotFound, gin.H{
+				"error":   "Responses WebSocket disabled",
+				"message": err.Error(),
+				"path":    c.Request.URL.Path,
 			})
 			return
 		}
-		if upstream.OAuthTokens == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "OAuth tokens not configured for this channel"})
-			return
-		}
-
 		if channelRateLimiter != nil {
 			result := channelRateLimiter.Acquire(c.Request.Context(), upstream, "responses")
 			if !result.Allowed {
@@ -106,25 +100,15 @@ func ResponsesWebSocketHandler(
 			}
 		}
 
-		accessToken, accountID, updatedTokens, err := codexTokenManager.GetValidToken(upstream.OAuthTokens)
+		upstreamURL, upstreamHeaders, err := buildResponsesWebSocketUpstream(c, cfgManager, upstream)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": fmt.Sprintf("Failed to get valid OAuth token: %s", err.Error())})
-			return
-		}
-		if updatedTokens != nil {
-			if saveErr := cfgManager.UpdateResponsesOAuthTokensByName(upstream.Name, updatedTokens); saveErr != nil {
-				// Do not fail the in-flight request when persistence fails; the
-				// refreshed token is still valid for this connection.
-				fmt.Printf("⚠️ [OAuth WebSocket] failed to save refreshed token: %v\n", saveErr)
+			status := http.StatusServiceUnavailable
+			if strings.Contains(err.Error(), "OAuth") || strings.Contains(err.Error(), "token") {
+				status = http.StatusUnauthorized
 			}
-		}
-
-		upstreamURL, err := buildResponsesWebSocketURL(codexOAuthResponsesEndpoint)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(status, gin.H{"error": err.Error()})
 			return
 		}
-		upstreamHeaders := buildCodexOAuthWebSocketHeaders(c, cfgManager, accessToken, accountID)
 
 		clientConn, err := responsesWebSocketUpgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
@@ -146,7 +130,7 @@ func ResponsesWebSocketHandler(
 		}
 		defer upstreamConn.Close()
 
-		logTracker := newResponsesWebSocketLogTracker(c, reqLogManager, upstream, selection)
+		logTracker := newResponsesWebSocketLogTracker(c, cfgManager, reqLogManager, upstream, selection)
 		err = proxyResponsesWebSocketFrames(clientConn, upstreamConn, logTracker)
 		logTracker.finish(err)
 		if channelScheduler != nil && selection != nil {
@@ -168,7 +152,8 @@ func selectResponsesWebSocketUpstream(c *gin.Context, cfgManager *config.ConfigM
 	}
 
 	if channelScheduler != nil {
-		selection, err := channelScheduler.SelectChannel(c.Request.Context(), "codex-websocket", map[int]bool{}, true, allowedChannels, "")
+		excludedChannels := responsesWebSocketExcludedChannels(cfgManager.GetConfig())
+		selection, err := channelScheduler.SelectChannel(c.Request.Context(), "codex-websocket", excludedChannels, true, allowedChannels, "")
 		if err != nil {
 			return nil, nil, err
 		}
@@ -178,13 +163,16 @@ func selectResponsesWebSocketUpstream(c *gin.Context, cfgManager *config.ConfigM
 		if selection.CompositeUpstream != nil {
 			return nil, nil, fmt.Errorf("Responses WebSocket does not support composite channels")
 		}
+		if !isResponsesWebSocketEligible(selection.Upstream) {
+			return nil, nil, fmt.Errorf("no WebSocket-enabled Responses channels available")
+		}
 		return selection.Upstream, selection, nil
 	}
 
 	cfg := cfgManager.GetConfig()
 	for i := range cfg.ResponsesUpstream {
 		upstream := cfg.ResponsesUpstream[i]
-		if config.GetChannelStatus(&upstream) == "disabled" {
+		if config.GetChannelStatus(&upstream) == "disabled" || !isResponsesWebSocketEligible(&upstream) {
 			continue
 		}
 		if len(allowedChannels) > 0 && !channelIDAllowed(upstream.ID, allowedChannels) {
@@ -193,7 +181,27 @@ func selectResponsesWebSocketUpstream(c *gin.Context, cfgManager *config.ConfigM
 		upstream.Index = i
 		return &upstream, &scheduler.SelectionResult{Upstream: &upstream, ChannelIndex: i}, nil
 	}
-	return nil, nil, fmt.Errorf("no active Responses channels available")
+	return nil, nil, fmt.Errorf("no WebSocket-enabled Responses channels available")
+}
+
+func responsesWebSocketExcludedChannels(cfg config.Config) map[int]bool {
+	excluded := make(map[int]bool)
+	for i := range cfg.ResponsesUpstream {
+		if !isResponsesWebSocketEligible(&cfg.ResponsesUpstream[i]) {
+			excluded[i] = true
+		}
+	}
+	return excluded
+}
+
+func isResponsesWebSocketEligible(upstream *config.UpstreamConfig) bool {
+	if upstream == nil {
+		return false
+	}
+	if !upstream.ResponsesWebSocketEnabled {
+		return false
+	}
+	return !strings.EqualFold(strings.TrimSpace(upstream.ServiceType), "composite")
 }
 
 func channelIDAllowed(channelID string, allowedChannels []string) bool {
@@ -225,6 +233,62 @@ func buildResponsesWebSocketURL(httpURL string) (string, error) {
 	return parsed.String(), nil
 }
 
+func buildResponsesWebSocketUpstream(c *gin.Context, cfgManager *config.ConfigManager, upstream *config.UpstreamConfig) (string, http.Header, error) {
+	if strings.EqualFold(strings.TrimSpace(upstream.ServiceType), "openai-oauth") {
+		if upstream.OAuthTokens == nil {
+			return "", nil, fmt.Errorf("OAuth tokens not configured for this channel")
+		}
+		accessToken, accountID, updatedTokens, err := codexTokenManager.GetValidToken(upstream.OAuthTokens)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to get valid OAuth token: %w", err)
+		}
+		if updatedTokens != nil {
+			if saveErr := cfgManager.UpdateResponsesOAuthTokensByName(upstream.Name, updatedTokens); saveErr != nil {
+				// Do not fail the in-flight request when persistence fails; the
+				// refreshed token is still valid for this connection.
+				fmt.Printf("⚠️ [OAuth WebSocket] failed to save refreshed token: %v\n", saveErr)
+			}
+		}
+		upstreamURL, err := buildResponsesWebSocketURL(codexOAuthResponsesEndpoint)
+		if err != nil {
+			return "", nil, err
+		}
+		return upstreamURL, buildCodexOAuthWebSocketHeaders(c, cfgManager, accessToken, accountID), nil
+	}
+
+	apiKey, err := cfgManager.GetNextResponsesAPIKey(upstream, map[string]bool{})
+	if err != nil {
+		return "", nil, err
+	}
+	upstreamURL, err := buildResponsesWebSocketAPIURL(upstream.BaseURL)
+	if err != nil {
+		return "", nil, err
+	}
+	return upstreamURL, buildAPIKeyResponsesWebSocketHeaders(c, cfgManager, apiKey), nil
+}
+
+func buildResponsesWebSocketAPIURL(baseURL string) (string, error) {
+	baseURL = strings.TrimSuffix(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		return "", fmt.Errorf("responses websocket base URL is empty")
+	}
+
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return "", err
+	}
+	path := strings.TrimSuffix(parsed.Path, "/")
+	switch {
+	case strings.HasSuffix(path, "/responses"):
+		// Already points at a Responses endpoint.
+	case regexp.MustCompile(`/v\d+[a-z]*$`).MatchString(path):
+		parsed.Path = path + "/responses"
+	default:
+		parsed.Path = path + "/v1/responses"
+	}
+	return buildResponsesWebSocketURL(parsed.String())
+}
+
 func buildCodexOAuthWebSocketHeaders(c *gin.Context, cfgManager *config.ConfigManager, accessToken string, accountID string) http.Header {
 	headers := http.Header{}
 	incoming := c.Request.Header
@@ -244,6 +308,34 @@ func buildCodexOAuthWebSocketHeaders(c *gin.Context, cfgManager *config.ConfigMa
 		headers.Set("Originator", "codex_cli_rs")
 	}
 	headers.Set("User-Agent", resolveResponsesUserAgentForOAuth(c, cfgManager))
+
+	beta := strings.TrimSpace(c.GetHeader("OpenAI-Beta"))
+	if beta == "" || !strings.Contains(beta, "responses_websockets=") {
+		beta = codexResponsesWebSocketBetaHeaderValue
+	}
+	headers.Set("OpenAI-Beta", beta)
+
+	return headers
+}
+
+func buildAPIKeyResponsesWebSocketHeaders(c *gin.Context, cfgManager *config.ConfigManager, apiKey string) http.Header {
+	headers := http.Header{}
+	incoming := c.Request.Header
+	copyOptionalHeader(headers, incoming, "x-codex-turn-state")
+	copyOptionalHeader(headers, incoming, "x-codex-turn-metadata")
+	copyOptionalHeader(headers, incoming, "x-client-request-id")
+	copyOptionalHeader(headers, incoming, "x-responsesapi-include-timing-metrics")
+	copyOptionalHeader(headers, incoming, "Version")
+	copyOptionalHeader(headers, incoming, "Conversation_id")
+	copyOptionalHeader(headers, incoming, "Session_id")
+	copyOptionalHeader(headers, incoming, "X-Claude-Code-Session-Id")
+
+	headers.Set("Authorization", "Bearer "+apiKey)
+	if userAgent := strings.TrimSpace(c.GetHeader("User-Agent")); userAgent != "" {
+		headers.Set("User-Agent", userAgent)
+	} else {
+		headers.Set("User-Agent", cfgManager.GetUserAgentConfig().Responses.Latest)
+	}
 
 	beta := strings.TrimSpace(c.GetHeader("OpenAI-Beta"))
 	if beta == "" || !strings.Contains(beta, "responses_websockets=") {
@@ -292,13 +384,23 @@ type responsesWebSocketLogTracker struct {
 	firstTokenDetector *utils.FirstTokenDetector
 	firstTokenTime     *time.Time
 	firstPayloadTime   *time.Time
+
+	debugEnabled  bool
+	debugMaxBytes int
+	debugRequest  []byte
+	debugResponse bytes.Buffer
 }
 
-func newResponsesWebSocketLogTracker(c *gin.Context, manager *requestlog.Manager, upstream *config.UpstreamConfig, selection *scheduler.SelectionResult) *responsesWebSocketLogTracker {
+func newResponsesWebSocketLogTracker(c *gin.Context, cfgManager *config.ConfigManager, manager *requestlog.Manager, upstream *config.UpstreamConfig, selection *scheduler.SelectionResult) *responsesWebSocketLogTracker {
 	tracker := &responsesWebSocketLogTracker{
 		manager:  manager,
 		upstream: upstream,
 		header:   http.Header{},
+	}
+	if cfgManager != nil {
+		debugCfg := cfgManager.GetDebugLogConfig()
+		tracker.debugEnabled = debugCfg.Enabled
+		tracker.debugMaxBytes = debugCfg.GetMaxBodySize()
 	}
 	if c != nil && c.Request != nil {
 		tracker.header = c.Request.Header.Clone()
@@ -329,6 +431,8 @@ func (t *responsesWebSocketLogTracker) observeClientMessage(payload []byte) {
 	t.firstTokenTime = nil
 	t.firstPayloadTime = nil
 	t.firstTokenDetector = streamDetectorForServiceType(upstreamServiceType(t.upstream))
+	t.debugRequest = append(t.debugRequest[:0], payload...)
+	t.debugResponse.Reset()
 	t.model = strings.TrimSpace(gjson.GetBytes(payload, "model").String())
 	promptCacheKey := strings.TrimSpace(gjson.GetBytes(payload, "prompt_cache_key").String())
 	compoundUserID := ""
@@ -378,6 +482,7 @@ func (t *responsesWebSocketLogTracker) observeUpstreamMessage(payload []byte) {
 		return
 	}
 
+	t.captureDebugResponse(payload)
 	t.observeFirstTokenPayload(payload)
 
 	eventType := strings.TrimSpace(gjson.GetBytes(payload, "type").String())
@@ -484,6 +589,7 @@ func (t *responsesWebSocketLogTracker) completeFromPayload(payload []byte) {
 		log.Printf("⚠️ failed to complete Responses WebSocket request log: %v", err)
 		return
 	}
+	t.saveDebugLogLocked(http.StatusOK)
 	t.completed = true
 }
 
@@ -520,7 +626,56 @@ func (t *responsesWebSocketLogTracker) completeErrorLocked(status int, message s
 		log.Printf("⚠️ failed to mark Responses WebSocket request log error: %v", err)
 		return
 	}
+	t.saveDebugLogLocked(status)
 	t.completed = true
+}
+
+func (t *responsesWebSocketLogTracker) captureDebugResponse(payload []byte) {
+	if !t.debugEnabled {
+		return
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.debugResponse.Len() > 0 {
+		t.debugResponse.WriteByte('\n')
+	}
+	t.debugResponse.Write(payload)
+}
+
+func (t *responsesWebSocketLogTracker) saveDebugLogLocked(status int) {
+	if !t.debugEnabled || t.manager == nil || t.requestLogID == "" {
+		return
+	}
+
+	requestBody := t.truncateDebugBody(t.debugRequest)
+	responseBody := t.truncateDebugBody(t.debugResponse.Bytes())
+	entry := &requestlog.DebugLogEntry{
+		RequestID:        t.requestLogID,
+		RequestMethod:    http.MethodGet,
+		RequestPath:      "/v1/responses",
+		RequestHeaders:   requestlog.HttpHeadersToMap(t.header),
+		RequestBody:      string(requestBody),
+		RequestBodySize:  len(t.debugRequest),
+		ResponseStatus:   status,
+		ResponseHeaders:  map[string]string{"Content-Type": "application/jsonl"},
+		ResponseBody:     string(responseBody),
+		ResponseBodySize: t.debugResponse.Len(),
+	}
+
+	if err := t.manager.AddDebugLog(entry); err != nil {
+		log.Printf("⚠️ Failed to save Responses WebSocket debug log: %v", err)
+	}
+}
+
+func (t *responsesWebSocketLogTracker) truncateDebugBody(body []byte) []byte {
+	if t.debugMaxBytes <= 0 || len(body) <= t.debugMaxBytes {
+		return append([]byte(nil), body...)
+	}
+	truncated := append([]byte(nil), body[:t.debugMaxBytes]...)
+	truncated = append(truncated, []byte("\n... [truncated]")...)
+	return truncated
 }
 
 func (t *responsesWebSocketLogTracker) finish(proxyErr error) {

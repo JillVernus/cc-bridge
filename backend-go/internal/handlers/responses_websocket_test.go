@@ -31,10 +31,23 @@ func newResponsesWebSocketTestConfigManager(t *testing.T) *config.ConfigManager 
 	return cfgManager
 }
 
-func TestGetAndUpdateResponsesWebSocketConfig(t *testing.T) {
+func TestLegacyResponsesWebSocketConfigEndpointMigratesToChannelFlags(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cfgManager := newResponsesWebSocketTestConfigManager(t)
+	if err := cfgManager.AddResponsesUpstream(config.UpstreamConfig{
+		Name:        "oauth",
+		BaseURL:     "https://chatgpt.com/backend-api/codex/responses",
+		ServiceType: "openai-oauth",
+		Status:      "active",
+		OAuthTokens: &config.OAuthTokens{
+			AccessToken: "access-token",
+			AccountID:   "account-id",
+		},
+	}); err != nil {
+		t.Fatalf("AddResponsesUpstream() failed: %v", err)
+	}
+
 	router := gin.New()
 	router.GET("/api/config/responses-websocket", GetResponsesWebSocketConfig(cfgManager))
 	router.PUT("/api/config/responses-websocket", UpdateResponsesWebSocketConfig(cfgManager))
@@ -64,8 +77,13 @@ func TestGetAndUpdateResponsesWebSocketConfig(t *testing.T) {
 	if err := json.Unmarshal(putRec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode PUT response: %v", err)
 	}
-	if !got["enabled"] {
-		t.Fatalf("PUT enabled = false, want true")
+	if got["enabled"] {
+		t.Fatalf("PUT enabled = true, want false after legacy migration")
+	}
+
+	cfg := cfgManager.GetConfig()
+	if !cfg.ResponsesUpstream[0].ResponsesWebSocketEnabled {
+		t.Fatalf("openai-oauth channel responsesWebSocketEnabled = false, want true")
 	}
 }
 
@@ -75,6 +93,47 @@ func TestResponsesWebSocketHandlerReturnsNotFoundWhenDisabled(t *testing.T) {
 	cfgManager := newResponsesWebSocketTestConfigManager(t)
 	router := gin.New()
 	router.GET("/v1/responses", ResponsesWebSocketHandler(nil, cfgManager, nil, nil, nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404, body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestResponsesWebSocketHandlerReturnsNotFoundWhenNoChannelEnabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cfgManager := newResponsesWebSocketTestConfigManager(t)
+	if err := cfgManager.AddResponsesUpstream(config.UpstreamConfig{
+		Name:        "oauth-without-ws",
+		BaseURL:     "https://chatgpt.com/backend-api/codex/responses",
+		ServiceType: "openai-oauth",
+		Status:      "active",
+		OAuthTokens: &config.OAuthTokens{
+			AccessToken: "access-token",
+			AccountID:   "account-id",
+		},
+	}); err != nil {
+		t.Fatalf("AddResponsesUpstream() failed: %v", err)
+	}
+
+	sch := scheduler.NewChannelScheduler(
+		cfgManager,
+		metrics.NewMetricsManager(),
+		metrics.NewMetricsManager(),
+		session.NewTraceAffinityManager(),
+	)
+
+	router := gin.New()
+	router.GET("/v1/responses", ResponsesWebSocketHandler(nil, cfgManager, sch, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
 	req.Header.Set("Connection", "Upgrade")
@@ -132,14 +191,17 @@ func TestResponsesWebSocketHandlerProxiesOpenAIOAuthWebSocket(t *testing.T) {
 	t.Cleanup(func() { codexOAuthResponsesEndpoint = oldEndpoint })
 
 	cfgManager := newResponsesWebSocketTestConfigManager(t)
-	if err := cfgManager.UpdateResponsesWebSocketConfig(config.ResponsesWebSocketConfig{Enabled: true}); err != nil {
-		t.Fatalf("enable websocket config: %v", err)
+	cfg := cfgManager.GetConfig()
+	cfg.DebugLog = config.DebugLogConfig{Enabled: true, MaxBodySize: 100000}
+	if err := cfgManager.RestoreConfig(cfg); err != nil {
+		t.Fatalf("enable debug log config: %v", err)
 	}
 	if err := cfgManager.AddResponsesUpstream(config.UpstreamConfig{
-		Name:        "oauth-ws",
-		BaseURL:     "https://chatgpt.com/backend-api/codex/responses",
-		ServiceType: "openai-oauth",
-		Status:      "active",
+		Name:                      "oauth-ws",
+		BaseURL:                   "https://chatgpt.com/backend-api/codex/responses",
+		ServiceType:               "openai-oauth",
+		Status:                    "active",
+		ResponsesWebSocketEnabled: true,
 		OAuthTokens: &config.OAuthTokens{
 			AccessToken: "access-token",
 			AccountID:   "account-id",
@@ -272,5 +334,142 @@ func TestResponsesWebSocketHandlerProxiesOpenAIOAuthWebSocket(t *testing.T) {
 	}
 	if logRecord.InputTokens != 8 || logRecord.CacheReadInputTokens != 4 || logRecord.OutputTokens != 7 {
 		t.Fatalf("request log usage = input:%d cached:%d output:%d", logRecord.InputTokens, logRecord.CacheReadInputTokens, logRecord.OutputTokens)
+	}
+	debugEntry, err := reqLogManager.GetDebugLog(logRecord.ID)
+	if err != nil {
+		t.Fatalf("GetDebugLog failed: %v", err)
+	}
+	if debugEntry == nil {
+		t.Fatalf("expected debug log for websocket request")
+	}
+	if debugEntry.RequestMethod != http.MethodGet || debugEntry.RequestPath != "/v1/responses" {
+		t.Fatalf("debug request target = %s %s", debugEntry.RequestMethod, debugEntry.RequestPath)
+	}
+	if !strings.Contains(debugEntry.RequestBody, `"type":"response.create"`) {
+		t.Fatalf("debug request body = %s", debugEntry.RequestBody)
+	}
+	if !strings.Contains(debugEntry.ResponseBody, `"type":"response.output_text.delta"`) ||
+		!strings.Contains(debugEntry.ResponseBody, `"type":"response.completed"`) {
+		t.Fatalf("debug response body = %s", debugEntry.ResponseBody)
+	}
+}
+
+func TestResponsesWebSocketHandlerProxiesAPIKeyResponsesWebSocket(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	receivedPath := make(chan string, 1)
+	receivedHeaders := make(chan http.Header, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upstream upgrade failed: %v", err)
+			return
+		}
+		defer conn.Close()
+
+		receivedPath <- r.URL.Path
+		receivedHeaders <- r.Header.Clone()
+		if _, _, err := conn.ReadMessage(); err != nil {
+			t.Errorf("upstream read failed: %v", err)
+			return
+		}
+		if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.output_text.delta","delta":"hi"}`)); err != nil {
+			t.Errorf("upstream delta write failed: %v", err)
+			return
+		}
+		completed := `{"type":"response.completed","response":{"id":"resp_key","model":"gpt-5","output":[],"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}}}`
+		if err := conn.WriteMessage(websocket.TextMessage, []byte(completed)); err != nil {
+			t.Errorf("upstream completed write failed: %v", err)
+		}
+	}))
+	defer upstream.Close()
+
+	cfgManager := newResponsesWebSocketTestConfigManager(t)
+	if err := cfgManager.AddResponsesUpstream(config.UpstreamConfig{
+		Name:                      "responses-ws",
+		BaseURL:                   upstream.URL,
+		ServiceType:               "responses",
+		Status:                    "active",
+		APIKeys:                   []string{"upstream-api-key"},
+		ResponsesWebSocketEnabled: true,
+	}); err != nil {
+		t.Fatalf("AddResponsesUpstream() failed: %v", err)
+	}
+
+	sch := scheduler.NewChannelScheduler(
+		cfgManager,
+		metrics.NewMetricsManager(),
+		metrics.NewMetricsManager(),
+		session.NewTraceAffinityManager(),
+	)
+	reqLogManager := newTestRequestLogManager(t)
+
+	router := gin.New()
+	router.GET("/v1/responses", ResponsesWebSocketHandler(nil, cfgManager, sch, reqLogManager, nil, nil, nil))
+	bridge := httptest.NewServer(router)
+	defer bridge.Close()
+
+	parsed, err := url.Parse("ws" + strings.TrimPrefix(bridge.URL, "http"))
+	if err != nil {
+		t.Fatalf("parse bridge ws url: %v", err)
+	}
+	parsed.Path = "/v1/responses"
+
+	conn, resp, err := websocket.DefaultDialer.Dial(parsed.String(), http.Header{
+		"OpenAI-Beta": []string{"responses_websockets=2026-02-06"},
+	})
+	if err != nil {
+		if resp != nil {
+			t.Fatalf("dial failed status=%d err=%v", resp.StatusCode, err)
+		}
+		t.Fatalf("dial failed: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"gpt-5","input":[]}`)); err != nil {
+		t.Fatalf("client write failed: %v", err)
+	}
+	if _, _, err := conn.ReadMessage(); err != nil {
+		t.Fatalf("client read delta failed: %v", err)
+	}
+	if _, _, err := conn.ReadMessage(); err != nil {
+		t.Fatalf("client read completed failed: %v", err)
+	}
+	_ = conn.Close()
+
+	select {
+	case gotPath := <-receivedPath:
+		if gotPath != "/v1/responses" {
+			t.Fatalf("upstream path = %q, want /v1/responses", gotPath)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for upstream path")
+	}
+
+	select {
+	case headers := <-receivedHeaders:
+		if got := headers.Get("Authorization"); got != "Bearer upstream-api-key" {
+			t.Fatalf("upstream Authorization = %q", got)
+		}
+		if got := headers.Get("OpenAI-Beta"); got != "responses_websockets=2026-02-06" {
+			t.Fatalf("upstream OpenAI-Beta = %q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for upstream headers")
+	}
+
+	recent, err := reqLogManager.GetRecent(&requestlog.RequestLogFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("GetRecent failed: %v", err)
+	}
+	if len(recent.Requests) != 1 {
+		t.Fatalf("request log count = %d, want 1", len(recent.Requests))
+	}
+	if recent.Requests[0].Type != "responses" {
+		t.Fatalf("request log type = %q, want responses", recent.Requests[0].Type)
+	}
+	if recent.Requests[0].ProviderName != "responses-ws" {
+		t.Fatalf("request log provider = %q, want responses-ws", recent.Requests[0].ProviderName)
 	}
 }
