@@ -807,6 +807,7 @@
     <!-- 日志表格 -->
     <v-card class="log-table-card">
       <v-data-table
+        ref="logTableRef"
         :headers="headers"
         :items="logs"
         :loading="loading"
@@ -1396,7 +1397,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useDisplay } from 'vuetify'
 import {
@@ -1464,6 +1465,8 @@ const hasMore = ref(false)
 const offset = ref(0)
 const pageSize = 50
 const updatedIds = ref<Set<string>>(new Set())
+// Newly created rows (slide-in + flash); distinct from updatedIds (flash only).
+const newIds = ref<Set<string>>(new Set())
 const updatedModels = ref<Set<string>>(new Set())
 const updatedProviders = ref<Set<string>>(new Set())
 const updatedClients = ref<Set<string>>(new Set())
@@ -2664,18 +2667,21 @@ const handleLogCreated = (payload: LogCreatedPayload) => {
 
   // Only add if not already in list
   if (!logs.value.find(l => l.id === newLog.id)) {
+    // Capture current row positions so existing rows can glide down (FLIP).
+    const oldTops = captureRowTops()
     logs.value = [newLog, ...logs.value.slice(0, pageSize - 1)]
     total.value++
+    nextTick(() => playRowShift(oldTops))
   }
 
   if (payload.channelUid === 'subscription:forward-proxy') {
     scheduleForwardProxyConfigRefresh()
   }
 
-  // Flash the new row
-  updatedIds.value = new Set([payload.id])
+  // Flash + slide-in the new row
+  newIds.value = new Set([payload.id])
   setTimeout(() => {
-    updatedIds.value = new Set()
+    newIds.value = new Set()
   }, 1000)
 
   // Update active sessions incrementally for new request
@@ -3744,9 +3750,63 @@ const getHeaderColorClass = (key: string): string => {
   return ''
 }
 
+const logTableRef = ref<{ $el?: HTMLElement } | null>(null)
+
+// FLIP animation: smoothly slide existing rows down when a new row is prepended.
+// 1. captureRowTops() records each row's vertical position (keyed by log id) BEFORE
+//    the DOM mutation. 2. playRowShift() runs AFTER Vue patches the DOM: it measures
+//    the new positions, applies an inverted transform so each row visually stays put,
+//    then transitions the transform back to 0 — the rows appear to glide into place.
+const getLogRowEls = (): HTMLElement[] => {
+  const root = logTableRef.value?.$el
+  if (!root) return []
+  return Array.from(root.querySelectorAll<HTMLElement>('tbody > tr.v-data-table__tr'))
+}
+
+const captureRowTops = (): Map<string, number> => {
+  const tops = new Map<string, number>()
+  const els = getLogRowEls()
+  // Rows render in the same order as logs.value, so pair them up by index.
+  els.forEach((el, i) => {
+    const log = logs.value[i]
+    if (log) tops.set(log.id, el.getBoundingClientRect().top)
+  })
+  return tops
+}
+
+const ROW_SHIFT_MS = 300
+const playRowShift = (oldTops: Map<string, number>) => {
+  const els = getLogRowEls()
+  els.forEach((el, i) => {
+    const log = logs.value[i]
+    if (!log) return
+    const oldTop = oldTops.get(log.id)
+    if (oldTop === undefined) return // newly inserted row — handled by row-enter
+    const delta = oldTop - el.getBoundingClientRect().top
+    if (!delta) return
+    // Invert: jump the row back to where it was, with no transition...
+    el.style.transition = 'none'
+    el.style.transform = `translateY(${delta}px)`
+    // ...then play: release to its real position on the next frame.
+    requestAnimationFrame(() => {
+      el.style.transition = `transform ${ROW_SHIFT_MS}ms ease-out`
+      el.style.transform = ''
+    })
+    window.setTimeout(() => {
+      el.style.transition = ''
+      el.style.transform = ''
+    }, ROW_SHIFT_MS + 50)
+  })
+}
+
 const getRowProps = ({ item }: { item: RequestLog }) => {
+  const animationClass = newIds.value.has(item.id)
+    ? 'row-enter'
+    : updatedIds.value.has(item.id)
+      ? 'row-flash'
+      : ''
   return {
-    class: updatedIds.value.has(item.id) ? 'row-flash clickable-row' : 'clickable-row',
+    class: animationClass ? `${animationClass} clickable-row` : 'clickable-row',
     onClick: () => openDebugModal(item)
   }
 }
@@ -4113,10 +4173,15 @@ const silentRefresh = async () => {
       // Detect updated/new records
       const oldLogsMap = new Map(logs.value.map(l => [l.id, l]))
       const newUpdatedIds = new Set<string>()
+      const newNewIds = new Set<string>()
 
       for (const newLog of logsRes.requests || []) {
         const oldLog = oldLogsMap.get(newLog.id)
-        if (!oldLog || oldLog.status !== newLog.status) {
+        if (!oldLog) {
+          // Genuinely new row: slide-in + flash.
+          newNewIds.add(newLog.id)
+        } else if (oldLog.status !== newLog.status) {
+          // Existing row changed: flash only.
           newUpdatedIds.add(newLog.id)
         }
       }
@@ -4132,6 +4197,12 @@ const silentRefresh = async () => {
         updatedIds.value = newUpdatedIds
         setTimeout(() => {
           updatedIds.value = new Set()
+        }, 1000)
+      }
+      if (newNewIds.size > 0) {
+        newIds.value = newNewIds
+        setTimeout(() => {
+          newIds.value = new Set()
         }, 1000)
       }
       if (newUpdatedModels.size > 0) {
@@ -4851,6 +4922,31 @@ const silentRefresh = async () => {
 
 .log-table :deep(tr.row-flash) {
   animation: row-flash 1s ease-out;
+}
+
+/* New-row slide-in: combines the green flash with a translate + fade reveal */
+@keyframes row-enter {
+  0% {
+    background-color: rgba(76, 175, 80, 0.4);
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  30% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  50% {
+    background-color: rgba(76, 175, 80, 0.2);
+  }
+  100% {
+    background-color: transparent;
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.log-table :deep(tr.row-enter) {
+  animation: row-enter 1s ease-out;
 }
 
 /* Clickable row style */
