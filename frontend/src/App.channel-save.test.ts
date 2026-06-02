@@ -59,4 +59,23 @@ describe('channel save sequencing', () => {
       /catch \(err\) \{\s*console\.warn\('设置快速添加优先级失败:', err\)\s*\/\/ 不影响主流程，只是提示\s*\}/
     )
   })
+
+  test('editing can replace the last existing API key in one save', async () => {
+    const [appSource, modalSource] = await Promise.all([readSource(appSourcePath), readSource(modalSourcePath)])
+
+    expect(modalSource).toContain('pendingExistingKeyDeleteIndexes')
+    expect(modalSource).toContain('removeExistingKeyIndexes')
+
+    const deleteExistingKeyStart = modalSource.indexOf('const deleteExistingKey =')
+    const moveExistingKeyStart = modalSource.indexOf('const moveExistingKeyToTop =')
+    expect(deleteExistingKeyStart).toBeGreaterThan(0)
+    expect(moveExistingKeyStart).toBeGreaterThan(deleteExistingKeyStart)
+    const deleteExistingKeyBody = modalSource.slice(deleteExistingKeyStart, moveExistingKeyStart)
+    expect(deleteExistingKeyBody).not.toContain('api.remove')
+
+    const addLoopIndex = appSource.indexOf('for (const key of keysToAdd)')
+    const removeLoopIndex = appSource.indexOf('for (const keyIndex of removeExistingKeyIndexes')
+    expect(addLoopIndex).toBeGreaterThan(0)
+    expect(removeLoopIndex).toBeGreaterThan(addLoopIndex)
+  })
 })

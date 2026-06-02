@@ -473,3 +473,51 @@ func TestResponsesWebSocketHandlerProxiesAPIKeyResponsesWebSocket(t *testing.T) 
 		t.Fatalf("request log provider = %q, want responses-ws", recent.Requests[0].ProviderName)
 	}
 }
+
+func TestResponsesWebSocketResponseDoneRestoresAsRecentCallSuccess(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	reqLogManager := newTestRequestLogManager(t)
+	tracker := &responsesWebSocketLogTracker{
+		manager:            reqLogManager,
+		upstream:           &config.UpstreamConfig{Name: "oauth-ws", ServiceType: "openai-oauth"},
+		startTime:          time.Now().Add(-time.Second),
+		header:             http.Header{},
+		channelID:          4,
+		channelName:        "oauth-ws",
+		firstTokenDetector: streamDetectorForServiceType("openai-oauth"),
+	}
+
+	tracker.observeClientMessage([]byte(`{"type":"response.create","model":"gpt-5","input":[]}`))
+	tracker.observeUpstreamMessage([]byte(`{"type":"response.done","response":{"id":"resp_done","model":"gpt-5","status":"completed","output":[],"usage":{"input_tokens":5,"output_tokens":1,"total_tokens":6}}}`))
+	tracker.finish(nil)
+
+	recent, err := reqLogManager.GetRecent(&requestlog.RequestLogFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("GetRecent failed: %v", err)
+	}
+	if len(recent.Requests) != 1 {
+		t.Fatalf("request log count = %d, want 1", len(recent.Requests))
+	}
+	if recent.Requests[0].Status != requestlog.StatusCompleted {
+		t.Fatalf("request log status = %q, want %q", recent.Requests[0].Status, requestlog.StatusCompleted)
+	}
+	if recent.Requests[0].InputTokens != 5 || recent.Requests[0].OutputTokens != 1 {
+		t.Fatalf("request log usage = input:%d output:%d, want input:5 output:1", recent.Requests[0].InputTokens, recent.Requests[0].OutputTokens)
+	}
+
+	calls, err := reqLogManager.GetRecentChannelCalls(20)
+	if err != nil {
+		t.Fatalf("GetRecentChannelCalls failed: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("recent channel calls count = %d, want 1", len(calls))
+	}
+	call := calls[0]
+	if call.Endpoint != "/v1/responses" || call.ChannelID != 4 {
+		t.Fatalf("unexpected recent call target: %+v", call)
+	}
+	if !call.Success || call.HTTPStatus != http.StatusOK {
+		t.Fatalf("recent call should be success with HTTP 200, got %+v", call)
+	}
+}

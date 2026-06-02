@@ -4,6 +4,26 @@
 
 ---
 
+## [v1.5.44] - 2026-06-02
+
+### 🐛 修复
+
+- **Responses WebSocket 最近调用状态修复**:
+  - 将 `response.done` 视为 WebSocket 终止成功事件，避免成功的 WS 调用在最近调用块中显示为失败。
+  - `response.done` 终止事件现在也会提取 usage / model，保持请求日志成本与吞吐统计完整。
+
+- **渠道 API Key 替换保存修复**:
+  - 编辑渠道时，现有 key 删除改为保存时批量处理，避免替换唯一 key 时先删旧 key 被后端 mandatory key 校验拦截。
+  - 保存流程现在先添加新 key，再按索引从高到低删除旧 key，支持一次保存完成 key 轮换。
+
+### ✅ 测试
+
+- `cd backend-go && go test ./... -count=1`
+- `cd frontend && bun test src/App.channel-save.test.ts`
+- `cd frontend && bun run type-check`
+- `cd frontend && bunx prettier --check src/App.vue src/components/AddChannelModal.vue src/App.channel-save.test.ts`
+- `cd frontend && bun test src/App.channel-save.test.ts src/utils/requestLogTps.test.ts src/utils/debugLogRetry.test.ts src/utils/outboundHeaderRules.test.ts src/utils/pointerResize.test.ts src/components/ChannelOrchestration.test.ts src/components/RequestLogTable.test.ts src/App.navigation.test.ts`
+
 ## [v1.5.43] - 2026-05-25
 
 ### 🐛 修复

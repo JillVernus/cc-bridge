@@ -3015,7 +3015,7 @@ type CodexUsage struct {
 }
 
 // extractCodexUsageFromSSE 从 SSE 事件行中提取 Codex usage 数据
-// 返回 usage 和 model，如果不是 response.completed 事件则返回 nil
+// 返回 usage 和 model，如果不是终止响应事件则返回 nil
 func extractCodexUsageFromSSE(line string) (*CodexUsage, string) {
 	// SSE 格式: "data: {...}" 或 "data:{...}"
 	var jsonStr string
@@ -3049,8 +3049,7 @@ func extractCodexUsageFromSSE(line string) (*CodexUsage, string) {
 		return nil, ""
 	}
 
-	// 只处理 response.completed 事件
-	if event.Type != "response.completed" {
+	if event.Type != "response.completed" && event.Type != "response.done" {
 		return nil, ""
 	}
 

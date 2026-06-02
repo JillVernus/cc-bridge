@@ -992,7 +992,7 @@ const refreshChannels = async () => {
 
 const saveChannel = async (
   channel: Omit<Channel, 'index' | 'latency' | 'status'>,
-  options?: { isQuickAdd?: boolean }
+  options?: { isQuickAdd?: boolean; removeExistingKeyIndexes?: number[] }
 ) => {
   if (isSavingChannel.value) return
   isSavingChannel.value = true
@@ -1015,6 +1015,9 @@ const saveChannel = async (
       }
 
       const keysToAdd = (apiKeys || []).map(k => k.trim()).filter(Boolean)
+      const removeExistingKeyIndexes = [...new Set(options?.removeExistingKeyIndexes ?? [])]
+        .filter(keyIndex => Number.isInteger(keyIndex) && keyIndex >= 0)
+        .sort((a, b) => b - a)
       const keyAddErrors: string[] = []
       for (const key of keysToAdd) {
         try {
@@ -1036,9 +1039,29 @@ const saveChannel = async (
         }
       }
 
+      const keyRemoveErrors: string[] = []
+      for (const keyIndex of removeExistingKeyIndexes) {
+        try {
+          if (isChat) {
+            await api.removeChatApiKeyByIndex(editingChannel.value.index, keyIndex)
+          } else if (isGemini) {
+            await api.removeGeminiApiKeyByIndex(editingChannel.value.index, keyIndex)
+          } else if (isResponses) {
+            await api.removeResponsesApiKeyByIndex(editingChannel.value.index, keyIndex)
+          } else {
+            await api.removeApiKeyByIndex(editingChannel.value.index, keyIndex)
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          keyRemoveErrors.push(message)
+        }
+      }
+
       showToast(t('channel.updateSuccess'), 'success')
       if (keyAddErrors.length > 0) {
         showToast(keyAddErrors[0], 'warning')
+      } else if (keyRemoveErrors.length > 0) {
+        showToast(keyRemoveErrors[0], 'warning')
       }
       // Refresh channels to get updated data from server
       await refreshChannels()

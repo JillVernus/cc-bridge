@@ -1153,8 +1153,8 @@
                     </div>
                     <v-list density="compact" class="bg-transparent">
                       <v-list-item
-                        v-for="maskedKey in existingMaskedKeys"
-                        :key="maskedKey.index"
+                        v-for="(maskedKey, displayIndex) in existingMaskedKeys"
+                        :key="`${maskedKey.index}:${maskedKey.masked}`"
                         class="mb-2"
                         rounded="lg"
                         variant="tonal"
@@ -1172,7 +1172,7 @@
                           <div class="d-flex align-center ga-1">
                             <!-- Move to top (only show for last key when multiple keys exist) -->
                             <v-tooltip
-                              v-if="maskedKey.index === existingMaskedKeys.length - 1 && existingMaskedKeys.length > 1"
+                              v-if="displayIndex === existingMaskedKeys.length - 1 && existingMaskedKeys.length > 1"
                               :text="t('addChannel.moveToTop')"
                               location="top"
                               :open-delay="150"
@@ -1187,7 +1187,7 @@
                                   variant="text"
                                   rounded="md"
                                   :loading="existingKeyLoading === maskedKey.index"
-                                  :disabled="existingKeyLoading !== null"
+                                  :disabled="existingKeyLoading !== null || pendingExistingKeyDeleteIndexes.size > 0"
                                   @click="moveExistingKeyToTop(maskedKey.index)"
                                 >
                                   <v-icon size="small">mdi-arrow-up-bold</v-icon>
@@ -1196,7 +1196,7 @@
                             </v-tooltip>
                             <!-- Move to bottom (only show for first key when multiple keys exist) -->
                             <v-tooltip
-                              v-if="maskedKey.index === 0 && existingMaskedKeys.length > 1"
+                              v-if="displayIndex === 0 && existingMaskedKeys.length > 1"
                               :text="t('addChannel.moveToBottom')"
                               location="top"
                               :open-delay="150"
@@ -1211,7 +1211,7 @@
                                   variant="text"
                                   rounded="md"
                                   :loading="existingKeyLoading === maskedKey.index"
-                                  :disabled="existingKeyLoading !== null"
+                                  :disabled="existingKeyLoading !== null || pendingExistingKeyDeleteIndexes.size > 0"
                                   @click="moveExistingKeyToBottom(maskedKey.index)"
                                 >
                                   <v-icon size="small">mdi-arrow-down-bold</v-icon>
@@ -1444,7 +1444,10 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   'update:show': [value: boolean]
-  save: [channel: Omit<Channel, 'index' | 'latency' | 'status'>, options?: { isQuickAdd?: boolean }]
+  save: [
+    channel: Omit<Channel, 'index' | 'latency' | 'status'>,
+    options?: { isQuickAdd?: boolean; removeExistingKeyIndexes?: number[] }
+  ]
 }>()
 
 // 主题
@@ -2004,6 +2007,9 @@ const existingMaskedKeys = ref<Array<{ index: number; masked: string }>>([])
 // Loading state for existing key operations
 const existingKeyLoading = ref<number | null>(null)
 
+// Existing key deletions are staged until Save so key replacement can be atomic.
+const pendingExistingKeyDeleteIndexes = ref<Set<number>>(new Set())
+
 // 新API密钥输入
 const newApiKey = ref('')
 
@@ -2495,6 +2501,7 @@ const resetForm = () => {
   // Reset existing masked keys
   existingMaskedKeys.value = []
   existingKeyLoading.value = null
+  pendingExistingKeyDeleteIndexes.value = new Set()
 
   // 清空密钥错误状态
   apiKeyError.value = ''
@@ -2552,6 +2559,7 @@ const loadChannelData = (channel: Channel) => {
 
   // Store masked keys for display and deletion
   existingMaskedKeys.value = channel.maskedKeys || []
+  pendingExistingKeyDeleteIndexes.value = new Set()
 
   // Clear the original key map (not needed anymore)
   originalKeyMap.value.clear()
@@ -2752,27 +2760,13 @@ const copyApiKey = async (key: string, index: number) => {
 
 // ============== Existing Key Operations (Edit Mode) ==============
 
-// Delete an existing key by index
-const deleteExistingKey = async (keyIndex: number) => {
+// Delete an existing key by index. This is staged until Save so replacing the
+// only key can add the new key before removing the old one.
+const deleteExistingKey = (keyIndex: number) => {
   if (!props.channel) return
-  existingKeyLoading.value = keyIndex
-
-  try {
-    if (props.channelType === 'responses') {
-      await api.removeResponsesApiKeyByIndex(props.channel.index, keyIndex)
-    } else {
-      await api.removeApiKeyByIndex(props.channel.index, keyIndex)
-    }
-    // Remove from local state
-    existingMaskedKeys.value = existingMaskedKeys.value.filter(k => k.index !== keyIndex)
-    // Re-index remaining keys
-    existingMaskedKeys.value = existingMaskedKeys.value.map((k, i) => ({ ...k, index: i }))
-    existingKeyCount.value = existingMaskedKeys.value.length
-  } catch (err) {
-    console.error('Failed to delete existing key:', err)
-  } finally {
-    existingKeyLoading.value = null
-  }
+  pendingExistingKeyDeleteIndexes.value = new Set([...pendingExistingKeyDeleteIndexes.value, keyIndex])
+  existingMaskedKeys.value = existingMaskedKeys.value.filter(k => k.index !== keyIndex)
+  existingKeyCount.value = existingMaskedKeys.value.length
 }
 
 // Move an existing key to top
@@ -2803,7 +2797,8 @@ const moveExistingKeyToTop = async (keyIndex: number) => {
 
 // Move an existing key to bottom
 const moveExistingKeyToBottom = async (keyIndex: number) => {
-  if (!props.channel || keyIndex === existingMaskedKeys.value.length - 1) return
+  const currentIndex = existingMaskedKeys.value.findIndex(k => k.index === keyIndex)
+  if (!props.channel || currentIndex === -1 || currentIndex === existingMaskedKeys.value.length - 1) return
   existingKeyLoading.value = keyIndex
 
   try {
@@ -3056,7 +3051,12 @@ const handleSubmit = async () => {
     }))
   }
 
-  emit('save', channelData as Omit<Channel, 'index' | 'latency' | 'status'>)
+  const removeExistingKeyIndexes =
+    isOAuth || isComposite || isResponsesImport ? [] : Array.from(pendingExistingKeyDeleteIndexes.value)
+
+  emit('save', channelData as Omit<Channel, 'index' | 'latency' | 'status'>, {
+    removeExistingKeyIndexes
+  })
 }
 
 const handleCancel = () => {

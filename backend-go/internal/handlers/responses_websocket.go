@@ -487,7 +487,7 @@ func (t *responsesWebSocketLogTracker) observeUpstreamMessage(payload []byte) {
 
 	eventType := strings.TrimSpace(gjson.GetBytes(payload, "type").String())
 	switch eventType {
-	case "response.completed":
+	case "response.completed", "response.done":
 		t.completeFromPayload(payload)
 	case "error", "response.failed":
 		errMsg := strings.TrimSpace(gjson.GetBytes(payload, "error.message").String())
