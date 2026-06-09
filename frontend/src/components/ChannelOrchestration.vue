@@ -785,11 +785,19 @@ const refreshingOAuthQuotaKeys = ref<Record<string, boolean>>({})
 const oauthQuotaClock = ref(Date.now())
 let oauthQuotaResetTimer: ReturnType<typeof setTimeout> | null = null
 let oauthQuotaRequestSequence = 0
+let usageQuotaRefreshTimer: ReturnType<typeof setInterval> | null = null
 
 const clearOAuthQuotaResetTimer = () => {
   if (oauthQuotaResetTimer) {
     clearTimeout(oauthQuotaResetTimer)
     oauthQuotaResetTimer = null
+  }
+}
+
+const clearUsageQuotaRefreshTimer = () => {
+  if (usageQuotaRefreshTimer) {
+    clearInterval(usageQuotaRefreshTimer)
+    usageQuotaRefreshTimer = null
   }
 }
 
@@ -1404,10 +1412,18 @@ onMounted(() => {
   refreshMetrics()
   fetchOAuthQuotas()
   fetchUsageQuotas()
+
+  // Auto-refresh usage quotas every 10 seconds
+  usageQuotaRefreshTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      fetchUsageQuotas()
+    }
+  }, 10000)
 })
 
 onUnmounted(() => {
   clearOAuthQuotaResetTimer()
+  clearUsageQuotaRefreshTimer()
 })
 
 // Re-fetch quotas when tab changes

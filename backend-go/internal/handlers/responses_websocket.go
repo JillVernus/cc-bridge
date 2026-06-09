@@ -130,16 +130,12 @@ func ResponsesWebSocketHandler(
 		}
 		defer upstreamConn.Close()
 
-		logTracker := newResponsesWebSocketLogTracker(c, cfgManager, reqLogManager, upstream, selection)
+		logTracker := newResponsesWebSocketLogTracker(c, cfgManager, reqLogManager, upstream, selection, channelScheduler)
 		err = proxyResponsesWebSocketFrames(clientConn, upstreamConn, logTracker)
 		logTracker.finish(err)
-		if channelScheduler != nil && selection != nil {
-			if err != nil {
-				channelScheduler.RecordFailure(selection.ChannelIndex, true)
-			} else {
-				channelScheduler.RecordSuccess(selection.ChannelIndex, true)
-			}
-		}
+		// Note: Individual request success/failure is now recorded within logTracker
+		// when each request completes (via completeFromPayload/completeError).
+		// The connection-level error handling here is for connection failures only.
 	}
 }
 
@@ -370,6 +366,7 @@ func dialResponsesWebSocket(ctx interface{ Done() <-chan struct{} }, upstreamURL
 type responsesWebSocketLogTracker struct {
 	mu          sync.Mutex
 	manager     *requestlog.Manager
+	scheduler   *scheduler.ChannelScheduler
 	apiKeyID    *int64
 	upstream    *config.UpstreamConfig
 	channelID   int
@@ -391,11 +388,12 @@ type responsesWebSocketLogTracker struct {
 	debugResponse bytes.Buffer
 }
 
-func newResponsesWebSocketLogTracker(c *gin.Context, cfgManager *config.ConfigManager, manager *requestlog.Manager, upstream *config.UpstreamConfig, selection *scheduler.SelectionResult) *responsesWebSocketLogTracker {
+func newResponsesWebSocketLogTracker(c *gin.Context, cfgManager *config.ConfigManager, manager *requestlog.Manager, upstream *config.UpstreamConfig, selection *scheduler.SelectionResult, sch *scheduler.ChannelScheduler) *responsesWebSocketLogTracker {
 	tracker := &responsesWebSocketLogTracker{
-		manager:  manager,
-		upstream: upstream,
-		header:   http.Header{},
+		manager:   manager,
+		scheduler: sch,
+		upstream:  upstream,
+		header:    http.Header{},
 	}
 	if cfgManager != nil {
 		debugCfg := cfgManager.GetDebugLogConfig()
@@ -591,6 +589,11 @@ func (t *responsesWebSocketLogTracker) completeFromPayload(payload []byte) {
 	}
 	t.saveDebugLogLocked(http.StatusOK)
 	t.completed = true
+
+	// Record success metrics for this individual request
+	if t.scheduler != nil {
+		t.scheduler.RecordSuccessWithStatusDetail(t.channelID, true, http.StatusOK, t.model, t.channelName)
+	}
 }
 
 func (t *responsesWebSocketLogTracker) completeError(status int, message string) {
@@ -628,6 +631,11 @@ func (t *responsesWebSocketLogTracker) completeErrorLocked(status int, message s
 	}
 	t.saveDebugLogLocked(status)
 	t.completed = true
+
+	// Record failure metrics for this individual request
+	if t.scheduler != nil {
+		t.scheduler.RecordFailureWithStatusDetail(t.channelID, true, status, t.model, t.channelName)
+	}
 }
 
 func (t *responsesWebSocketLogTracker) captureDebugResponse(payload []byte) {

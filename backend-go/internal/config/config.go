@@ -2728,6 +2728,11 @@ func (cm *ConfigManager) addResponsesUpstream(upstream UpstreamConfig, expectedR
 		upstream.Status = "active"
 	}
 
+	// Default OAuth channels to websocket enabled
+	if strings.EqualFold(strings.TrimSpace(upstream.ServiceType), "openai-oauth") {
+		upstream.ResponsesWebSocketEnabled = true
+	}
+
 	config := cloneConfig(cm.config)
 
 	// Set the Index to the new position
