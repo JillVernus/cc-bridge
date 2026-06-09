@@ -80,3 +80,5 @@ Convert summary tables to vertical card stacks on mobile (≤960px):
 - ⏳ Visual testing on iOS Safari needed (no horizontal scroll required)
 
 ## Commits
+
+- `326575a` - All steps complete (v1.5.46-v1.5.50)

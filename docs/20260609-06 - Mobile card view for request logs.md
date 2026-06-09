@@ -81,5 +81,5 @@ Add a mobile card view that automatically activates on small screens (≤768px):
 
 ## Commits
 
-Ready for commit and testing on iOS device.
+- `326575a` - All steps complete (v1.5.46-v1.5.50)
 
