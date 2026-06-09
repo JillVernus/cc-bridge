@@ -1767,7 +1767,9 @@ export interface RateLimitConfig {
 // Debug Log Configuration Types
 export interface DebugLogConfig {
   enabled: boolean
-  retentionHours: number
+  retentionHours: number // legacy, for backward compatibility
+  fullRetentionHours: number // headers + bodies retention
+  headerRetentionHours: number // headers-only retention
   maxBodySize: number
 }
 

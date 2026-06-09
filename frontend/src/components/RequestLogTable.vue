@@ -45,6 +45,123 @@
               </v-tooltip>
             </v-btn-toggle>
           </div>
+
+          <!-- Mobile Summary Cards -->
+          <div v-if="isMobile" class="mobile-summary-list pa-2">
+            <v-card
+              v-for="[key, data] in currentSortedData"
+              :key="key"
+              role="region"
+              :aria-label="`${formatSummaryKey(String(key))}: ${data.count} requests, cost ${formatPriceSummary(data.cost)}`"
+              variant="outlined"
+              class="mobile-summary-card mb-2"
+              :class="{ 'summary-row-flash': currentUpdatedSet.has(String(key)) }"
+            >
+              <div class="pa-2">
+                <!-- Name/Title -->
+                <div class="text-subtitle-2 mb-1 d-flex align-center justify-space-between">
+                  <v-tooltip
+                    v-if="
+                      (summaryGroupBy === 'client' || summaryGroupBy === 'session') &&
+                      String(key) &&
+                      String(key) !== '<unknown>'
+                    "
+                    location="top"
+                    max-width="600"
+                  >
+                    <template v-slot:activator="{ props }">
+                      <span
+                        v-bind="props"
+                        :class="{ 'clickable-id': summaryGroupBy === 'client' }"
+                        @click.stop="summaryGroupBy === 'client' && openAliasDialog(String(key))"
+                      >
+                        {{ formatSummaryKey(String(key)) }}
+                      </span>
+                    </template>
+                    <div v-if="summaryGroupBy === 'client'" class="id-tooltip">
+                      <div v-if="getUserAlias(String(key))" class="alias-tooltip-row">
+                        <span class="alias-label">{{ t('requestLog.alias') }}:</span> {{ getUserAlias(String(key)) }}
+                      </div>
+                      <div>
+                        <span class="id-label">{{ t('requestLog.clientId') }}:</span>
+                        {{ normalizeUserId(String(key)) }}
+                      </div>
+                    </div>
+                    <span v-else class="id-tooltip">{{ String(key) }}</span>
+                  </v-tooltip>
+                  <span
+                    v-else
+                    :class="{ 'clickable-id': summaryGroupBy === 'client' }"
+                    @click.stop="summaryGroupBy === 'client' && openAliasDialog(String(key))"
+                  >
+                    {{ formatSummaryKey(String(key)) }}
+                  </span>
+                  <v-chip size="small" variant="tonal" class="mobile-chip">
+                    {{ data.count }} {{ t('requestLog.requests') }}
+                  </v-chip>
+                </div>
+
+                <!-- Metrics -->
+                <div class="text-caption text-grey">
+                  <div class="d-flex justify-space-between mb-1">
+                    <span>
+                      <v-icon size="12" class="mr-1">mdi-arrow-down</v-icon>
+                      {{ t('requestLog.input') }}: {{ formatNumber(data.inputTokens) }}
+                    </span>
+                    <span>
+                      <v-icon size="12" class="mr-1">mdi-arrow-up</v-icon>
+                      {{ t('requestLog.output') }}: {{ formatNumber(data.outputTokens) }}
+                    </span>
+                  </div>
+                  <div class="d-flex justify-space-between">
+                    <span class="text-success">
+                      <v-icon size="12" class="mr-1">mdi-database-plus</v-icon>
+                      {{ t('requestLog.cacheCreation') }}: {{ formatNumber(data.cacheCreationInputTokens) }}
+                    </span>
+                    <span class="text-warning">
+                      <v-icon size="12" class="mr-1">mdi-database-check</v-icon>
+                      {{ t('requestLog.cacheHit') }}: {{ formatNumber(data.cacheReadInputTokens) }}
+                    </span>
+                  </div>
+                  <div class="d-flex justify-space-between mt-1">
+                    <span>{{ t('requestLog.cacheHitRate') }}: {{ calcHitRate(data) }}%</span>
+                    <span class="font-weight-bold">{{ formatPriceSummary(data.cost) }}</span>
+                  </div>
+                </div>
+              </div>
+            </v-card>
+
+            <!-- Mobile Total Card -->
+            <v-card variant="flat" class="mobile-summary-total mt-2 pa-2" color="primary">
+              <div class="text-subtitle-2 mb-1 d-flex align-center justify-space-between">
+                <span>Total</span>
+                <v-chip size="small" variant="flat" color="white" class="mobile-chip">
+                  {{ currentTotals.count }} {{ t('requestLog.requests') }}
+                </v-chip>
+              </div>
+              <div class="text-caption">
+                <div class="d-flex justify-space-between mb-1">
+                  <span>{{ t('requestLog.input') }}: {{ formatNumber(currentTotals.inputTokens) }}</span>
+                  <span>{{ t('requestLog.output') }}: {{ formatNumber(currentTotals.outputTokens) }}</span>
+                </div>
+                <div class="d-flex justify-space-between mb-1">
+                  <span>{{ t('requestLog.cacheCreation') }}: {{ formatNumber(currentTotals.cacheCreationInputTokens) }}</span>
+                  <span>{{ t('requestLog.cacheHit') }}: {{ formatNumber(currentTotals.cacheReadInputTokens) }}</span>
+                </div>
+                <div class="d-flex justify-space-between">
+                  <span>{{ t('requestLog.cacheHitRate') }}: {{ calcHitRate(currentTotals) }}%</span>
+                  <span class="font-weight-bold">{{ formatPriceSummary(currentTotals.cost) }}</span>
+                </div>
+              </div>
+            </v-card>
+
+            <div v-if="currentSortedData.length === 0" class="text-center text-caption text-grey pa-4">
+              {{ t('common.noData') }}
+            </div>
+          </div>
+
+          <!-- Desktop Summary Table -->
+          <div v-else>
           <!-- Header table -->
           <div class="summary-table-header-wrapper">
             <table class="summary-table-custom resizable-summary-table" :style="{ width: summaryTableWidth + 'px' }">
@@ -298,6 +415,8 @@
               </tbody>
             </table>
           </div>
+          </div>
+          <!-- End Desktop Summary Table -->
         </v-card>
       </div>
 
@@ -806,7 +925,132 @@
 
     <!-- 日志表格 -->
     <v-card class="log-table-card">
+      <!-- Mobile Card View -->
+      <div v-if="isMobile" class="mobile-log-list">
+        <v-progress-linear v-if="loading" indeterminate color="primary" class="mb-2" />
+
+        <div v-if="!loading && logs.length === 0" class="text-center pa-8 text-grey">
+          {{ t('requestLog.noData') }}
+        </div>
+
+        <v-card
+          v-for="item in logs"
+          :key="item.id"
+          role="article"
+          :aria-label="`Request log: ${item.status} status, ${item.model} model, ${item.channelName} channel`"
+          variant="outlined"
+          class="mobile-log-card mb-3"
+          :class="{
+            'pending-card': item.status === 'pending',
+            'card-enter': newIds.has(item.id),
+            'card-flash': updatedIds.has(item.id)
+          }"
+          @click="openDebugModal(item)"
+        >
+          <!-- Header: Status, Model, Debug Icon -->
+          <div class="mobile-card-header d-flex align-center justify-space-between pa-3 pb-2">
+            <div class="d-flex align-center ga-2">
+              <v-chip
+                v-if="item.status !== 'pending'"
+                size="small"
+                :color="getRequestStatusColor(item.status)"
+                variant="flat"
+              >
+                {{ item.httpStatus || getRequestStatusLabel(item.status) }}
+              </v-chip>
+              <div v-else class="skeleton-bar" style="width: 52px; height: 24px; border-radius: 12px" />
+
+              <v-icon v-if="item.hasDebugData" size="16" color="info">mdi-bug-outline</v-icon>
+            </div>
+            <span class="text-caption text-grey">{{ formatTime(item.initialTime) }}</span>
+          </div>
+
+          <!-- Model & Channel -->
+          <div class="mobile-card-section px-3 pb-2">
+            <div class="d-flex align-center justify-space-between">
+              <div class="text-body-2">
+                <v-icon size="16" class="mr-1">mdi-head-snowflake-outline</v-icon>
+                {{ item.model || t('requestLog.unknown') }}
+              </div>
+              <div class="text-caption text-grey">
+                <v-icon size="14" class="mr-1">mdi-cloud-outline</v-icon>
+                {{ item.channelName || t('requestLog.unknown') }}
+              </div>
+            </div>
+          </div>
+
+          <v-divider />
+
+          <!-- Session & Client -->
+          <div class="mobile-card-section px-3 py-2">
+            <div class="text-caption">
+              <div class="d-flex align-center mb-1">
+                <v-icon size="14" class="mr-1">mdi-chat-processing-outline</v-icon>
+                <span class="text-grey mr-1">{{ t('requestLog.sessionId') }}:</span>
+                <v-tooltip v-if="item.sessionId" location="top" max-width="400">
+                  <template v-slot:activator="{ props }">
+                    <span v-bind="props" class="text-truncate">{{ item.sessionId }}</span>
+                  </template>
+                  <span>{{ item.sessionId }}</span>
+                </v-tooltip>
+                <span v-else class="text-truncate">-</span>
+              </div>
+              <div class="d-flex align-center">
+                <v-icon size="14" class="mr-1">mdi-laptop</v-icon>
+                <span class="text-grey mr-1">{{ t('requestLog.client') }}:</span>
+                <v-tooltip v-if="item.clientId" location="top" max-width="400">
+                  <template v-slot:activator="{ props }">
+                    <span v-bind="props" class="text-truncate">{{ item.clientId }}</span>
+                  </template>
+                  <span>{{ item.clientId }}</span>
+                </v-tooltip>
+                <span v-else class="text-truncate">-</span>
+              </div>
+            </div>
+          </div>
+
+          <v-divider />
+
+          <!-- Metrics -->
+          <div class="mobile-card-section px-3 py-2">
+            <div class="d-flex justify-space-between text-caption mb-1">
+              <span>
+                <v-icon size="14" class="mr-1">mdi-clock-outline</v-icon>
+                F: {{ formatTimingMetric(item, 'firstToken') }} |
+                D: {{ formatTimingMetric(item, 'duration') }} |
+                S: {{ formatTimingMetric(item, 'streamingDuration') }}
+              </span>
+            </div>
+            <div class="d-flex justify-space-between text-caption">
+              <span>
+                <v-icon size="14" class="mr-1">mdi-message-outline</v-icon>
+                In: {{ formatNumber(item.inputTokens) }} | Out: {{ formatNumber(item.outputTokens) }}
+              </span>
+              <span v-if="item.price" class="text-success">
+                <v-icon size="14" class="mr-1">mdi-currency-usd</v-icon>
+                {{ formatPriceDetailed(item.price) }}
+              </span>
+            </div>
+          </div>
+        </v-card>
+
+        <!-- Mobile Pagination -->
+        <div class="mobile-pagination d-flex align-center justify-center ga-2 pa-4">
+          <v-btn variant="text" size="small" :disabled="offset === 0" @click="prevPage">
+            {{ t('requestLog.prevPage') }}
+          </v-btn>
+          <span class="text-caption text-grey">
+            {{ offset + 1 }} - {{ Math.min(offset + pageSize, total) }} / {{ total }}
+          </span>
+          <v-btn variant="text" size="small" :disabled="!hasMore" @click="nextPage">
+            {{ t('requestLog.nextPage') }}
+          </v-btn>
+        </div>
+      </div>
+
+      <!-- Desktop Table View -->
       <v-data-table
+        v-else
         ref="logTableRef"
         :headers="headers"
         :items="logs"
@@ -1434,8 +1678,9 @@ import {
 // i18n
 const { t } = useI18n()
 
-// Viewport detection for responsive stacking
-const { width: viewportWidth } = useDisplay()
+// Viewport detection for responsive stacking and mobile card view
+const { width: viewportWidth, mdAndDown } = useDisplay()
+const isMobile = computed(() => mdAndDown.value)
 
 const resizePointerTarget = ref<PointerCaptureTarget | null>(null)
 const resizePointerId = ref<number | null>(null)
@@ -5724,5 +5969,141 @@ const silentRefresh = async () => {
 .stacking-toggle .v-btn {
   font-size: 0.7rem !important;
   padding: 0 8px !important;
+}
+
+/* Mobile Card View */
+.mobile-log-list {
+  padding: 12px;
+}
+
+.mobile-log-card {
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 2px solid rgb(var(--v-theme-on-surface));
+  box-shadow: 3px 3px 0 0 rgb(var(--v-theme-on-surface));
+  border-radius: 0 !important;
+}
+
+.v-theme--dark .mobile-log-card {
+  border-color: rgba(255, 255, 255, 0.7);
+  box-shadow: 3px 3px 0 0 rgba(255, 255, 255, 0.7);
+}
+
+.mobile-log-card:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 0 rgb(var(--v-theme-on-surface));
+}
+
+.v-theme--dark .mobile-log-card:active {
+  box-shadow: 1px 1px 0 0 rgba(255, 255, 255, 0.7);
+}
+
+.mobile-log-card.pending-card {
+  opacity: 0.7;
+}
+
+/* New card slide-in animation */
+.mobile-log-card.card-enter {
+  animation: card-enter 1s ease-out;
+}
+
+@keyframes card-enter {
+  0% {
+    background-color: rgba(76, 175, 80, 0.4);
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  30% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  50% {
+    background-color: rgba(76, 175, 80, 0.2);
+  }
+  100% {
+    background-color: transparent;
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Updated card flash animation */
+.mobile-log-card.card-flash {
+  animation: card-flash 2s ease-out;
+}
+
+@keyframes card-flash {
+  0% {
+    background-color: rgba(255, 193, 7, 0.3);
+  }
+  50% {
+    background-color: rgba(255, 193, 7, 0.15);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.mobile-card-header {
+  background-color: rgba(var(--v-theme-primary), 0.05);
+}
+
+.mobile-card-section {
+  font-size: 0.875rem;
+}
+
+.mobile-pagination {
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+}
+
+/* Mobile Summary Cards */
+.mobile-summary-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.mobile-summary-card {
+  border: 2px solid rgb(var(--v-theme-on-surface));
+  box-shadow: 2px 2px 0 0 rgb(var(--v-theme-on-surface));
+  border-radius: 0 !important;
+  transition: all 0.2s ease;
+}
+
+.v-theme--dark .mobile-summary-card {
+  border-color: rgba(255, 255, 255, 0.7);
+  box-shadow: 2px 2px 0 0 rgba(255, 255, 255, 0.7);
+}
+
+.mobile-summary-card.clickable-id {
+  cursor: pointer;
+}
+
+.mobile-summary-card.clickable-id:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 0 rgb(var(--v-theme-on-surface));
+}
+
+.mobile-summary-total {
+  border: 2px solid rgb(var(--v-theme-primary));
+  box-shadow: 3px 3px 0 0 rgb(var(--v-theme-primary));
+  border-radius: 0 !important;
+}
+
+.v-theme--dark .mobile-summary-total {
+  border-color: rgb(var(--v-theme-primary));
+  box-shadow: 3px 3px 0 0 rgb(var(--v-theme-primary));
+}
+
+/* Mobile chip - better touch targets */
+.mobile-chip {
+  min-height: 28px;
+  padding: 0 12px;
+}
+
+/* Hide table on mobile - ensure data table is hidden */
+@media (max-width: 960px) {
+  .log-table-card .v-data-table {
+    display: none;
+  }
 }
 </style>

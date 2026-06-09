@@ -490,17 +490,39 @@ type UpstreamUpdate struct {
 // Config 配置结构
 // DebugLogConfig 调试日志配置
 type DebugLogConfig struct {
-	Enabled        bool `json:"enabled"`        // 是否启用调试日志，默认 false
-	RetentionHours int  `json:"retentionHours"` // 保留时间（小时），默认 24
-	MaxBodySize    int  `json:"maxBodySize"`    // 最大请求体大小（字节），默认 1MB
+	Enabled             bool `json:"enabled"`             // 是否启用调试日志，默认 false
+	RetentionHours      int  `json:"retentionHours"`      // 保留时间（小时），默认 24（已废弃，使用 FullRetentionHours）
+	FullRetentionHours  int  `json:"fullRetentionHours"`  // 完整日志保留时间（header+body），默认 24
+	HeaderRetentionHours int  `json:"headerRetentionHours"` // 仅保留 header 的时间，默认 168（7天）
+	MaxBodySize         int  `json:"maxBodySize"`         // 最大请求体大小（字节），默认 1MB
 }
 
-// GetRetentionHours 获取保留时间，默认 24 小时
+// GetRetentionHours 获取保留时间，默认 24 小时（已废弃，保留用于向后兼容）
 func (d *DebugLogConfig) GetRetentionHours() int {
 	if d.RetentionHours <= 0 {
 		return 24
 	}
 	return d.RetentionHours
+}
+
+// GetFullRetentionHours 获取完整日志保留时间，默认 24 小时
+func (d *DebugLogConfig) GetFullRetentionHours() int {
+	if d.FullRetentionHours <= 0 {
+		// Fallback to legacy RetentionHours for backward compatibility
+		if d.RetentionHours > 0 {
+			return d.RetentionHours
+		}
+		return 24
+	}
+	return d.FullRetentionHours
+}
+
+// GetHeaderRetentionHours 获取 header 保留时间，默认 168 小时（7天）
+func (d *DebugLogConfig) GetHeaderRetentionHours() int {
+	if d.HeaderRetentionHours <= 0 {
+		return 168 // 7 days
+	}
+	return d.HeaderRetentionHours
 }
 
 // GetMaxBodySize 获取最大请求体大小，默认 1MB

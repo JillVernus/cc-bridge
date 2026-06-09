@@ -405,10 +405,16 @@ func main() {
 		}()
 
 		// 启动调试日志清理 goroutine（每小时执行一次）
-		reqLogManager.StartDebugLogCleanup(func() int {
-			cfg := cfgManager.GetDebugLogConfig()
-			return cfg.GetRetentionHours()
-		})
+		reqLogManager.StartDebugLogCleanupTwoTier(
+			func() int {
+				cfg := cfgManager.GetDebugLogConfig()
+				return cfg.GetFullRetentionHours()
+			},
+			func() int {
+				cfg := cfgManager.GetDebugLogConfig()
+				return cfg.GetHeaderRetentionHours()
+			},
+		)
 	}
 
 	// 初始化用量配额管理器（用于渠道配额追踪）

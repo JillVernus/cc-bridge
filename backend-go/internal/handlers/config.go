@@ -1855,9 +1855,11 @@ func GetDebugLogConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		cfg := cfgManager.GetDebugLogConfig()
 		c.JSON(http.StatusOK, gin.H{
-			"enabled":        cfg.Enabled,
-			"retentionHours": cfg.GetRetentionHours(),
-			"maxBodySize":    cfg.GetMaxBodySize(),
+			"enabled":             cfg.Enabled,
+			"retentionHours":      cfg.GetRetentionHours(), // legacy, for backward compatibility
+			"fullRetentionHours":  cfg.GetFullRetentionHours(),
+			"headerRetentionHours": cfg.GetHeaderRetentionHours(),
+			"maxBodySize":         cfg.GetMaxBodySize(),
 		})
 	}
 }
@@ -1866,9 +1868,11 @@ func GetDebugLogConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 func UpdateDebugLogConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
-			Enabled        *bool `json:"enabled"`
-			RetentionHours *int  `json:"retentionHours"`
-			MaxBodySize    *int  `json:"maxBodySize"`
+			Enabled              *bool `json:"enabled"`
+			RetentionHours       *int  `json:"retentionHours"`       // legacy, for backward compatibility
+			FullRetentionHours   *int  `json:"fullRetentionHours"`
+			HeaderRetentionHours *int  `json:"headerRetentionHours"`
+			MaxBodySize          *int  `json:"maxBodySize"`
 		}
 
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -1884,6 +1888,12 @@ func UpdateDebugLogConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		if req.RetentionHours != nil {
 			cfg.RetentionHours = *req.RetentionHours
 		}
+		if req.FullRetentionHours != nil {
+			cfg.FullRetentionHours = *req.FullRetentionHours
+		}
+		if req.HeaderRetentionHours != nil {
+			cfg.HeaderRetentionHours = *req.HeaderRetentionHours
+		}
 		if req.MaxBodySize != nil {
 			cfg.MaxBodySize = *req.MaxBodySize
 		}
@@ -1894,9 +1904,11 @@ func UpdateDebugLogConfig(cfgManager *config.ConfigManager) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"enabled":        cfg.Enabled,
-			"retentionHours": cfg.GetRetentionHours(),
-			"maxBodySize":    cfg.GetMaxBodySize(),
+			"enabled":              cfg.Enabled,
+			"retentionHours":       cfg.GetRetentionHours(), // legacy
+			"fullRetentionHours":   cfg.GetFullRetentionHours(),
+			"headerRetentionHours": cfg.GetHeaderRetentionHours(),
+			"maxBodySize":          cfg.GetMaxBodySize(),
 		})
 	}
 }

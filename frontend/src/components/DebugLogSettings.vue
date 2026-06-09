@@ -32,23 +32,44 @@
           <!-- Retention Hours -->
           <div class="section-title mb-2">{{ t('debugLog.retentionSection') }}</div>
           <v-card variant="outlined" class="mb-4 pa-3">
+            <!-- Full retention (headers + bodies) -->
             <v-slider
-              v-model="config.retentionHours"
+              v-model="config.fullRetentionHours"
               :min="1"
               :max="168"
               :step="1"
-              :label="t('debugLog.retentionHours')"
+              :label="t('debugLog.fullRetentionHours')"
+              thumb-label
+              hide-details
+              :disabled="!config.enabled"
+              class="mb-4"
+            >
+              <template #append>
+                <span class="text-body-2" style="min-width: 60px">
+                  {{ formatRetention(config.fullRetentionHours) }}
+                </span>
+              </template>
+            </v-slider>
+            <div class="text-caption text-grey mb-4">{{ t('debugLog.fullRetentionDescription') }}</div>
+
+            <!-- Header retention (headers only) -->
+            <v-slider
+              v-model="config.headerRetentionHours"
+              :min="config.fullRetentionHours"
+              :max="720"
+              :step="1"
+              :label="t('debugLog.headerRetentionHours')"
               thumb-label
               hide-details
               :disabled="!config.enabled"
             >
               <template #append>
                 <span class="text-body-2" style="min-width: 60px">
-                  {{ formatRetention(config.retentionHours) }}
+                  {{ formatRetention(config.headerRetentionHours) }}
                 </span>
               </template>
             </v-slider>
-            <div class="text-caption text-grey mt-2">{{ t('debugLog.retentionDescription') }}</div>
+            <div class="text-caption text-grey mt-2">{{ t('debugLog.headerRetentionDescription') }}</div>
           </v-card>
 
           <!-- Max Body Size -->

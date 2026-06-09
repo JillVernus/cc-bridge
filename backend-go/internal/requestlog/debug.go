@@ -367,7 +367,7 @@ func (m *Manager) HasDebugLog(requestID string) bool {
 	return count > 0
 }
 
-// PurgeExpiredDebugLogs removes logs older than retention period
+// PurgeExpiredDebugLogs removes logs older than retention period (legacy single-tier)
 func (m *Manager) PurgeExpiredDebugLogs(retentionHours int) (int64, error) {
 	if retentionHours <= 0 {
 		retentionHours = 24
@@ -383,6 +383,47 @@ func (m *Manager) PurgeExpiredDebugLogs(retentionHours int) (int64, error) {
 	}
 
 	return result.RowsAffected()
+}
+
+// PurgeExpiredDebugLogsTwoTier removes bodies after fullRetentionHours, then entire rows after headerRetentionHours
+func (m *Manager) PurgeExpiredDebugLogsTwoTier(fullRetentionHours, headerRetentionHours int) (bodiesDeleted, rowsDeleted int64, err error) {
+	if fullRetentionHours <= 0 {
+		fullRetentionHours = 24
+	}
+	if headerRetentionHours <= 0 {
+		headerRetentionHours = 168 // 7 days
+	}
+	// Ensure header retention is at least as long as full retention
+	if headerRetentionHours < fullRetentionHours {
+		headerRetentionHours = fullRetentionHours
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Step 1: Delete bodies older than fullRetentionHours
+	bodyCutoff := time.Now().Add(-time.Duration(fullRetentionHours) * time.Hour)
+	bodyResult, err := m.db.Exec(
+		m.convertQuery(`UPDATE request_debug_logs SET request_body = NULL, response_body = NULL WHERE created_at < ? AND (request_body IS NOT NULL OR response_body IS NOT NULL)`),
+		bodyCutoff,
+	)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to purge debug log bodies: %w", err)
+	}
+	bodiesDeleted, _ = bodyResult.RowsAffected()
+
+	// Step 2: Delete entire rows older than headerRetentionHours
+	headerCutoff := time.Now().Add(-time.Duration(headerRetentionHours) * time.Hour)
+	rowResult, err := m.db.Exec(
+		m.convertQuery(`DELETE FROM request_debug_logs WHERE created_at < ?`),
+		headerCutoff,
+	)
+	if err != nil {
+		return bodiesDeleted, 0, fmt.Errorf("failed to purge debug log rows: %w", err)
+	}
+	rowsDeleted, _ = rowResult.RowsAffected()
+
+	return bodiesDeleted, rowsDeleted, nil
 }
 
 // PurgeAllDebugLogs removes all debug logs
@@ -411,7 +452,7 @@ func (m *Manager) GetDebugLogCount() (int64, error) {
 	return count, nil
 }
 
-// StartDebugLogCleanup starts a background goroutine to periodically clean up expired debug logs
+// StartDebugLogCleanup starts a background goroutine to periodically clean up expired debug logs (legacy single-tier)
 func (m *Manager) StartDebugLogCleanup(getRetentionHours func() int) {
 	go func() {
 		ticker := time.NewTicker(1 * time.Hour)
@@ -425,6 +466,27 @@ func (m *Manager) StartDebugLogCleanup(getRetentionHours func() int) {
 					log.Printf("⚠️ Failed to purge expired debug logs: %v", err)
 				} else if deleted > 0 {
 					log.Printf("🧹 Purged %d expired debug logs (retention: %d hours)", deleted, retentionHours)
+				}
+			}
+		}
+	}()
+}
+
+// StartDebugLogCleanupTwoTier starts a background goroutine with two-tier retention
+func (m *Manager) StartDebugLogCleanupTwoTier(getFullRetentionHours, getHeaderRetentionHours func() int) {
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			fullHours := getFullRetentionHours()
+			headerHours := getHeaderRetentionHours()
+			if fullHours > 0 && headerHours > 0 {
+				bodiesDeleted, rowsDeleted, err := m.PurgeExpiredDebugLogsTwoTier(fullHours, headerHours)
+				if err != nil {
+					log.Printf("⚠️ Failed to purge expired debug logs: %v", err)
+				} else if bodiesDeleted > 0 || rowsDeleted > 0 {
+					log.Printf("🧹 Purged debug logs: %d bodies (full retention: %dh), %d rows (header retention: %dh)", bodiesDeleted, fullHours, rowsDeleted, headerHours)
 				}
 			}
 		}

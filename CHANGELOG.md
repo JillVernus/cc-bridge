@@ -4,6 +4,94 @@
 
 ---
 
+## [v1.5.50] - 2026-06-09
+
+### 🐛 修复
+
+- **移动端动画修复**:
+  - 修复移动端请求日志卡片缺失新记录动画的问题。
+  - 新记录现在会以绿色背景 + 向上滑入效果出现（与桌面表格行为一致）。
+  - 更新记录现在会以黄色背景闪烁提示用户（与桌面表格行为一致）。
+  - 动画效果：新记录绿色闪烁 1 秒，更新记录黄色闪烁 2 秒。
+
+### 📝 实现
+
+- 前端：`components/RequestLogTable.vue`
+  - 添加动态 CSS 类：`card-enter` 和 `card-flash`
+  - 添加 CSS 动画关键帧：`@keyframes card-enter` 和 `@keyframes card-flash`
+- Bundle size: 1,797.49 KB（与 v1.5.49 相比 +0.06 KB）
+
+## [v1.5.49] - 2026-06-09
+
+### 🐛 修复
+
+- **移动端实现问题修复**:
+  - 修复移动端统计卡片中 Session ID 无提示问题（现在与桌面版一致）。
+  - 修复翻译文本使用 `.toLowerCase()` 在中文/日文下显示异常的问题。
+  - 增大触摸目标尺寸：芯片从 x-small 改为 small（最小高度 28px）。
+  - 添加 ARIA 无障碍属性：log 卡片使用 `role="article"`，summary 卡片使用 `role="region"`。
+  - 添加截断文本提示：Session ID 和 Client ID 长按显示完整内容。
+  - 提升屏幕阅读器体验和触摸交互友好度。
+
+### 📝 实现
+
+- 实现计划：`docs/20260609-08 - Address mobile implementation issues.md`
+- 前端：`components/RequestLogTable.vue`
+- Bundle size 增长：+1.47 KB (1,795.96 KB → 1,797.43 KB)
+
+## [v1.5.48] - 2026-06-09
+
+### ✨ 新功能
+
+- **统计面板移动端卡片视图**:
+  - 修复 iOS Safari 无法横向滚动统计表格的问题。
+  - 在移动设备（≤960px）上自动切换到垂直卡片布局。
+  - 每张卡片显示完整指标：名称、请求数、输入/输出令牌、缓存创建/命中、命中率、成本。
+  - 支持所有分组模式（Provider、Model、Client、Session、API Key）。
+  - Total 汇总卡片采用主题色背景。
+  - 保留交互功能：Client ID 点击打开别名对话框，更新时闪烁动画。
+  - 卡片采用新拟态风格，与请求日志卡片保持一致。
+
+### 📝 实现
+
+- 实现计划：`docs/20260609-07 - Mobile-friendly summary cards.md`
+- 前端：`components/RequestLogTable.vue`
+
+## [v1.5.47] - 2026-06-09
+
+### ✨ 新功能
+
+- **请求日志移动端卡片视图**:
+  - 在移动设备（≤960px）上自动切换到卡片布局，替代桌面表格视图。
+  - 每张卡片显示关键信息：状态、模型、渠道、时间、会话、客户端、性能指标、令牌、价格。
+  - 保留所有交互功能：点击卡片打开调试详情，状态指示器，调试数据徽章。
+  - 卡片采用新拟态风格（黑/白边框 + 阴影偏移），支持按压动画。
+  - 移动端优化的分页控件，显示当前偏移量。
+  - 加载状态与空数据状态。
+
+### 📝 实现
+
+- 实现计划：`docs/20260609-06 - Mobile card view for request logs.md`
+- 前端：`components/RequestLogTable.vue`, `locales/en.ts`, `locales/zh-CN.ts`
+
+## [v1.5.46] - 2026-06-09
+
+### ✨ 新功能
+
+- **调试日志两级保留策略**:
+  - 新增 `fullRetentionHours`（默认 24 小时）：保留完整日志（请求头 + 请求体）。
+  - 新增 `headerRetentionHours`（默认 168 小时 / 7 天）：删除请求体后仅保留请求头。
+  - 超过 `headerRetentionHours` 后完全删除调试日志。
+  - 请求头体积小（< 5KB），对调试更有价值；请求体体积大（最多 1MB）且包含更多敏感数据。
+  - 前端界面显示两个独立的保留期滑块，并在请求体已过期时显示提示。
+  - 向后兼容：保留旧的 `retentionHours` 字段作为 `fullRetentionHours` 的回退值。
+
+### 📝 实现
+
+- 实现计划：`docs/20260609-05 - Two-tier debug log retention.md`
+- 后端：`internal/config/config.go`, `internal/requestlog/debug.go`, `main.go`, `internal/handlers/config.go`
+- 前端：`components/DebugLogSettings.vue`, `components/RequestDebugModal.vue`, `services/api.ts`, `locales/en.ts`, `locales/zh-CN.ts`
+
 ## [v1.5.45] - 2026-06-09
 
 ### 🐛 修复

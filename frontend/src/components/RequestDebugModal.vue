@@ -275,10 +275,16 @@
                   </v-btn>
                 </div>
                 <v-card variant="outlined">
-                  <div v-if="requestParsed" class="parsed-content pa-3">
-                    <parsed-body :body="debugData.requestBody" type="request" />
+                  <div v-if="debugData.requestBody">
+                    <div v-if="requestParsed" class="parsed-content pa-3">
+                      <parsed-body :body="debugData.requestBody" type="request" />
+                    </div>
+                    <pre v-else class="body-content">{{ formatJson(debugData.requestBody) }}</pre>
                   </div>
-                  <pre v-else class="body-content">{{ formatJson(debugData.requestBody) }}</pre>
+                  <div v-else class="text-center pa-4 text-grey-darken-1">
+                    <v-icon size="small" class="mr-1">mdi-timer-sand</v-icon>
+                    <span class="text-caption">{{ t('debugModal.bodyExpired') }}</span>
+                  </div>
                 </v-card>
               </div>
               <div v-else class="text-center pa-8">
@@ -350,10 +356,16 @@
                   </v-btn>
                 </div>
                 <v-card variant="outlined">
-                  <div v-if="responseParsed" class="parsed-content pa-3">
-                    <parsed-body :body="debugData.responseBody" type="response" />
+                  <div v-if="debugData.responseBody">
+                    <div v-if="responseParsed" class="parsed-content pa-3">
+                      <parsed-body :body="debugData.responseBody" type="response" />
+                    </div>
+                    <pre v-else class="body-content">{{ formatJson(debugData.responseBody) }}</pre>
                   </div>
-                  <pre v-else class="body-content">{{ formatJson(debugData.responseBody) }}</pre>
+                  <div v-else class="text-center pa-4 text-grey-darken-1">
+                    <v-icon size="small" class="mr-1">mdi-timer-sand</v-icon>
+                    <span class="text-caption">{{ t('debugModal.bodyExpired') }}</span>
+                  </div>
                 </v-card>
               </div>
               <div v-else class="text-center pa-8">
