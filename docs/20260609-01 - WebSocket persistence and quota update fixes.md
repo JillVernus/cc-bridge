@@ -73,6 +73,27 @@ Ensure all new OAuth channels get `ResponsesWebSocketEnabled = true` at creation
   - Test: Make websocket requests → verify quota updates automatically
   - Test: Make websocket requests → verify recent calls shows correct status
 
+### Manual Verification - 2026-06-09
+
+Preflight result: **BLOCKED**. Step 4 remains unchecked because the local workspace has no running app and no usable OAuth Responses channel/credentials for browser/runtime verification.
+
+| Preflight item | Result | Evidence | Notes |
+| --- | --- | --- | --- |
+| Runtime available | BLOCKED | Local listener check for ports 3000/5173 returned no backend/frontend listener | No local dev server, built binary, or container was already running for manual browser checks. |
+| Browser available | PASS | `playwright --version` → `Version 1.58.0` | Browser automation entrypoint exists. |
+| Usable OAuth channel/credentials available | BLOCKED | `.config/config.json` scan returned `[]` for Responses channels with `serviceType == "openai-oauth"` | No real/test OAuth Responses channel is configured. |
+
+Manual check results:
+
+Each manual check records `Result:`, `Evidence:`, and `Notes:` below so the runbook can be validated mechanically.
+
+| Check | Result / Evidence / Notes |
+| --- | --- |
+| Create new OAuth Responses channel and verify WebSocket enabled by default | Result: BLOCKED<br>Evidence: Preflight lacks a running app and usable OAuth channel setup<br>Notes: Automated coverage added in `TestAddResponsesOpenAIOAuthDefaultsWebSocketEnabledAndPersists`. |
+| Restart container/service and verify setting persists | Result: BLOCKED<br>Evidence: Preflight lacks a running app/container and usable OAuth channel setup<br>Notes: Automated reload persistence coverage added in `TestAddResponsesOpenAIOAuthDefaultsWebSocketEnabledAndPersists`. |
+| Make WebSocket request and verify quota updates automatically | Result: BLOCKED<br>Evidence: Preflight lacks usable OAuth credentials and runtime<br>Notes: Source-level timer lifecycle guard added; runtime quota mutation still requires OAuth/browser evidence. |
+| Make WebSocket request and verify recent calls shows correct status | Result: BLOCKED<br>Evidence: Preflight lacks usable OAuth credentials and runtime<br>Notes: Automated WebSocket recent-call success/fallback coverage exists, but browser-level manual evidence is still unavailable. |
+
 ## Implementation Notes
 
 ### Quota Polling Strategy
@@ -114,7 +135,7 @@ if channelType == "responses" &&
 ## Commits
 
 - `e88b97b` - fix: websocket persistence, quota auto-refresh, and metrics recording
-- `2d55ff8` - fix: address review findings for websocket and quota features
+- `65dbb01` - fix: address review findings for websocket and quota features
 
 ## Review & Improvements
 
@@ -124,4 +145,17 @@ After initial implementation, a thorough review identified and fixed:
 2. **Quota timer management** - Clear and restart timer on tab change to prevent memory leaks
 3. **Request tracking** - Added `requestCount` and `hadAnyRequests()` to distinguish connection failures from request failures
 
+Commit `65dbb01` contains the connection-level failure fallback and quota timer lifecycle cleanup.
+
 See `docs/20260609-02 - Implementation review findings.md` for detailed analysis.
+
+## Edge-Case Checklist - 2026-06-09
+
+| Edge case | Result | Evidence | Residual risk |
+| --- | --- | --- | --- |
+| connection fails before first request | COVERED | `go test ./internal/handlers -run 'TestResponsesWebSocket.*(Fallback|Failure|Metrics|RecentCall|ResponseDone)' -count=1`; `TestResponsesWebSocketFallbackRecordsFailureAfterUpstreamConnectBeforeFirstRequest` covers post-upstream-connect proxy error before first `response.create` | Browser/manual OAuth path blocked by missing runtime and credentials. |
+| connection fails after one completed request | COVERED | Same handler command; `TestResponsesWebSocketResponseDoneRestoresAsRecentCallSuccess` verifies completed request remains one recent-call success | Does not manually verify browser rendering without runtime/OAuth setup. |
+| tab changes repeatedly while quota polling is active | COVERED_SOURCE_LEVEL | `bun test src/components/ChannelOrchestration.test.ts`; source guard verifies watcher calls `clearUsageQuotaRefreshTimer()` before assigning a new interval | Source-level guard only; it does not prove exact live interval cardinality at runtime. |
+| component unmounts while polling is active | COVERED_SOURCE_LEVEL | `bun test src/components/ChannelOrchestration.test.ts`; source guard verifies `onUnmounted()` calls `clearUsageQuotaRefreshTimer()` | Source-level guard only; no Vue mount harness added. |
+| quota API errors repeatedly | ACCEPTED_RESIDUAL_RISK | Existing `fetchUsageQuotas()` catches and logs errors; no new production behavior change in this follow-up | No automated retry/backoff change; P2 polling optimization deferred. |
+| invisible/background tab | COVERED_SOURCE_LEVEL | `bun test src/components/ChannelOrchestration.test.ts`; source guard verifies polling checks `document.visibilityState === 'visible'` | Source-level guard only; browser runtime verification blocked by preflight. |

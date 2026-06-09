@@ -113,14 +113,11 @@ func TestResponsesWebSocketHandlerReturnsNotFoundWhenNoChannelEnabled(t *testing
 
 	cfgManager := newResponsesWebSocketTestConfigManager(t)
 	if err := cfgManager.AddResponsesUpstream(config.UpstreamConfig{
-		Name:        "oauth-without-ws",
-		BaseURL:     "https://chatgpt.com/backend-api/codex/responses",
-		ServiceType: "openai-oauth",
+		Name:        "responses-without-ws",
+		BaseURL:     "https://api.openai.com/v1",
+		ServiceType: "responses",
 		Status:      "active",
-		OAuthTokens: &config.OAuthTokens{
-			AccessToken: "access-token",
-			AccountID:   "account-id",
-		},
+		APIKeys:     []string{"api-key"},
 	}); err != nil {
 		t.Fatalf("AddResponsesUpstream() failed: %v", err)
 	}
@@ -474,12 +471,125 @@ func TestResponsesWebSocketHandlerProxiesAPIKeyResponsesWebSocket(t *testing.T) 
 	}
 }
 
+func TestResponsesWebSocketFallbackRecordsFailureAfterUpstreamConnectBeforeFirstRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	upstreamConnected := make(chan struct{}, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upstream upgrade failed: %v", err)
+			return
+		}
+		upstreamConnected <- struct{}{}
+		_ = conn.UnderlyingConn().Close()
+	}))
+	defer upstream.Close()
+
+	oldEndpoint := codexOAuthResponsesEndpoint
+	codexOAuthResponsesEndpoint = upstream.URL
+	t.Cleanup(func() { codexOAuthResponsesEndpoint = oldEndpoint })
+
+	cfgManager := newResponsesWebSocketTestConfigManager(t)
+	if err := cfgManager.AddResponsesUpstream(config.UpstreamConfig{
+		Name:                      "oauth-ws",
+		BaseURL:                   "https://chatgpt.com/backend-api/codex/responses",
+		ServiceType:               "openai-oauth",
+		Status:                    "active",
+		ResponsesWebSocketEnabled: true,
+		OAuthTokens: &config.OAuthTokens{
+			AccessToken: "access-token",
+			AccountID:   "account-id",
+		},
+	}); err != nil {
+		t.Fatalf("AddResponsesUpstream() failed: %v", err)
+	}
+
+	sch := scheduler.NewChannelScheduler(
+		cfgManager,
+		metrics.NewMetricsManager(),
+		metrics.NewMetricsManager(),
+		session.NewTraceAffinityManager(),
+	)
+	reqLogManager := newTestRequestLogManager(t)
+
+	router := gin.New()
+	router.GET("/v1/responses", ResponsesWebSocketHandler(nil, cfgManager, sch, reqLogManager, nil, nil, nil))
+	bridge := httptest.NewServer(router)
+	defer bridge.Close()
+
+	parsed, err := url.Parse("ws" + strings.TrimPrefix(bridge.URL, "http"))
+	if err != nil {
+		t.Fatalf("parse bridge ws url: %v", err)
+	}
+	parsed.Path = "/v1/responses"
+
+	conn, resp, err := websocket.DefaultDialer.Dial(parsed.String(), http.Header{
+		"OpenAI-Beta": []string{"responses_websockets=2026-02-06"},
+	})
+	if err != nil {
+		if resp != nil {
+			t.Fatalf("dial failed status=%d err=%v", resp.StatusCode, err)
+		}
+		t.Fatalf("dial failed: %v", err)
+	}
+	defer conn.Close()
+
+	select {
+	case <-upstreamConnected:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for upstream websocket connection")
+	}
+
+	if _, _, err := conn.ReadMessage(); err == nil {
+		t.Fatal("client read succeeded, want proxy error after abrupt upstream close")
+	}
+
+	deadline := time.After(time.Second)
+	for {
+		got := sch.GetResponsesMetricsManager().GetMetrics(0)
+		if got != nil && got.FailureCount == 1 {
+			if got.SuccessCount != 0 {
+				t.Fatalf("success count = %d, want 0", got.SuccessCount)
+			}
+			if len(got.RecentCalls) != 1 || got.RecentCalls[0].Success {
+				t.Fatalf("recent calls = %+v, want one failure", got.RecentCalls)
+			}
+			break
+		}
+
+		select {
+		case <-deadline:
+			t.Fatalf("metrics after fallback = %+v, want one failure and zero successes", got)
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	recent, err := reqLogManager.GetRecent(&requestlog.RequestLogFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("GetRecent failed: %v", err)
+	}
+	if len(recent.Requests) != 0 {
+		t.Fatalf("request log count = %d, want 0 before first response.create", len(recent.Requests))
+	}
+}
+
 func TestResponsesWebSocketResponseDoneRestoresAsRecentCallSuccess(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
+	cfgManager := newResponsesWebSocketTestConfigManager(t)
+	sch := scheduler.NewChannelScheduler(
+		cfgManager,
+		metrics.NewMetricsManager(),
+		metrics.NewMetricsManager(),
+		session.NewTraceAffinityManager(),
+	)
 	reqLogManager := newTestRequestLogManager(t)
 	tracker := &responsesWebSocketLogTracker{
 		manager:            reqLogManager,
+		scheduler:          sch,
 		upstream:           &config.UpstreamConfig{Name: "oauth-ws", ServiceType: "openai-oauth"},
 		startTime:          time.Now().Add(-time.Second),
 		header:             http.Header{},
@@ -519,5 +629,16 @@ func TestResponsesWebSocketResponseDoneRestoresAsRecentCallSuccess(t *testing.T)
 	}
 	if !call.Success || call.HTTPStatus != http.StatusOK {
 		t.Fatalf("recent call should be success with HTTP 200, got %+v", call)
+	}
+
+	metrics := sch.GetResponsesMetricsManager().GetMetrics(4)
+	if metrics == nil {
+		t.Fatalf("expected metrics for channel 4")
+	}
+	if metrics.SuccessCount != 1 || metrics.FailureCount != 0 {
+		t.Fatalf("metrics = success:%d failure:%d, want success:1 failure:0", metrics.SuccessCount, metrics.FailureCount)
+	}
+	if len(metrics.RecentCalls) != 1 || !metrics.RecentCalls[0].Success {
+		t.Fatalf("metrics recent calls = %+v, want one success", metrics.RecentCalls)
 	}
 }
