@@ -113,3 +113,15 @@ if channelType == "responses" &&
 
 ## Commits
 
+- `e88b97b` - fix: websocket persistence, quota auto-refresh, and metrics recording
+- `2d55ff8` - fix: address review findings for websocket and quota features
+
+## Review & Improvements
+
+After initial implementation, a thorough review identified and fixed:
+
+1. **Connection-level failure handling** - Added fallback to record failures when websocket connection fails before any requests are made
+2. **Quota timer management** - Clear and restart timer on tab change to prevent memory leaks
+3. **Request tracking** - Added `requestCount` and `hadAnyRequests()` to distinguish connection failures from request failures
+
+See `docs/20260609-02 - Implementation review findings.md` for detailed analysis.

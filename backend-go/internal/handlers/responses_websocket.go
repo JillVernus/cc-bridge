@@ -133,9 +133,14 @@ func ResponsesWebSocketHandler(
 		logTracker := newResponsesWebSocketLogTracker(c, cfgManager, reqLogManager, upstream, selection, channelScheduler)
 		err = proxyResponsesWebSocketFrames(clientConn, upstreamConn, logTracker)
 		logTracker.finish(err)
-		// Note: Individual request success/failure is now recorded within logTracker
-		// when each request completes (via completeFromPayload/completeError).
-		// The connection-level error handling here is for connection failures only.
+
+		// Record connection-level failures when no individual requests were made
+		// (e.g., connection failed before first request, auth failure, network error)
+		if err != nil && channelScheduler != nil && selection != nil {
+			if !logTracker.hadAnyRequests() {
+				channelScheduler.RecordFailure(selection.ChannelIndex, true)
+			}
+		}
 	}
 }
 
@@ -377,6 +382,7 @@ type responsesWebSocketLogTracker struct {
 	startTime    time.Time
 	model        string
 	completed    bool
+	requestCount int // Track number of requests seen
 
 	firstTokenDetector *utils.FirstTokenDetector
 	firstTokenTime     *time.Time
@@ -424,6 +430,7 @@ func (t *responsesWebSocketLogTracker) observeClientMessage(payload []byte) {
 		return
 	}
 
+	t.requestCount++ // Increment request counter
 	t.startTime = time.Now()
 	t.completed = false
 	t.firstTokenTime = nil
@@ -701,6 +708,15 @@ func (t *responsesWebSocketLogTracker) finish(proxyErr error) {
 		return
 	}
 	t.completeErrorLocked(http.StatusBadGateway, proxyErr.Error())
+}
+
+func (t *responsesWebSocketLogTracker) hadAnyRequests() bool {
+	if t == nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.requestCount > 0
 }
 
 func extractConversationIDFromHeaders(headers http.Header, payload []byte) string {

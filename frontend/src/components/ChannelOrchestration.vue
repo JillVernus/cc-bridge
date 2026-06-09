@@ -1434,9 +1434,20 @@ watch(
     showGreyPlaceholder.value = true
     metrics.value = []
     schedulerStats.value = null
+
+    // Clear and restart usage quota refresh timer for new tab
+    clearUsageQuotaRefreshTimer()
+
     void refreshMetrics()
     fetchOAuthQuotas()
     fetchUsageQuotas()
+
+    // Restart timer for new tab
+    usageQuotaRefreshTimer = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchUsageQuotas()
+      }
+    }, 10000)
   }
 )
 
