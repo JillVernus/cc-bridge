@@ -785,12 +785,20 @@ const refreshingOAuthQuotaKeys = ref<Record<string, boolean>>({})
 const oauthQuotaClock = ref(Date.now())
 let oauthQuotaResetTimer: ReturnType<typeof setTimeout> | null = null
 let oauthQuotaRequestSequence = 0
+let oauthQuotaRefreshTimer: ReturnType<typeof setInterval> | null = null
 let usageQuotaRefreshTimer: ReturnType<typeof setInterval> | null = null
 
 const clearOAuthQuotaResetTimer = () => {
   if (oauthQuotaResetTimer) {
     clearTimeout(oauthQuotaResetTimer)
     oauthQuotaResetTimer = null
+  }
+}
+
+const clearOAuthQuotaRefreshTimer = () => {
+  if (oauthQuotaRefreshTimer) {
+    clearInterval(oauthQuotaRefreshTimer)
+    oauthQuotaRefreshTimer = null
   }
 }
 
@@ -1413,6 +1421,13 @@ onMounted(() => {
   fetchOAuthQuotas()
   fetchUsageQuotas()
 
+  // Auto-refresh OAuth quota snapshots after backend updates them from request headers.
+  oauthQuotaRefreshTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      fetchOAuthQuotas()
+    }
+  }, 10000)
+
   // Auto-refresh usage quotas every 10 seconds
   usageQuotaRefreshTimer = setInterval(() => {
     if (document.visibilityState === 'visible') {
@@ -1423,6 +1438,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   clearOAuthQuotaResetTimer()
+  clearOAuthQuotaRefreshTimer()
   clearUsageQuotaRefreshTimer()
 })
 
@@ -1435,7 +1451,8 @@ watch(
     metrics.value = []
     schedulerStats.value = null
 
-    // Clear and restart usage quota refresh timer for new tab
+    // Clear and restart quota refresh timers for new tab
+    clearOAuthQuotaRefreshTimer()
     clearUsageQuotaRefreshTimer()
 
     void refreshMetrics()
@@ -1443,6 +1460,12 @@ watch(
     fetchUsageQuotas()
 
     // Restart timer for new tab
+    oauthQuotaRefreshTimer = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchOAuthQuotas()
+      }
+    }, 10000)
+
     usageQuotaRefreshTimer = setInterval(() => {
       if (document.visibilityState === 'visible') {
         fetchUsageQuotas()
