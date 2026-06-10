@@ -2,7 +2,7 @@
 FROM oven/bun:alpine AS bun-runtime
 
 # --- 阶段 2: 构建阶段 (Go + Bun) ---
-FROM golang:1.22-alpine AS builder
+FROM golang:1.23-alpine AS builder
 
 # 接收版本参数（从 GitHub Actions 传入）
 ARG VERSION=v0.0.0-dev
