@@ -4,6 +4,30 @@
 
 ---
 
+## [v1.5.53] - 2026-06-10
+
+### 🐛 修复
+
+- **Bug 1: OAuth 配额指标重启后重置**:
+  - X-Initiator Override 配额/成本状态现在持久化到 `forward-proxy-state.json`。
+  - 每次配额/成本状态更新时自动保存。
+  - 服务重启后从磁盘恢复状态，不再显示 100% / 100%。
+
+- **Bug 2: PC 浏览器窗口缩窄时仍显示卡片视图**:
+  - 改用 userAgent 检测真实移动设备（Android/iOS/iPad 等）。
+  - PC 浏览器（包括 Chrome DevTools 移动模拟）始终显示表格视图。
+  - 移动设备始终显示卡片视图。
+
+### 📝 实现
+
+- 后端：`internal/forwardproxy/server.go`
+  - 添加 `statePath` 字段和 `loadState()`/`saveState()` 方法
+  - 新增 `xInitiatorPersistedState` 结构体
+- 后端：`internal/forwardproxy/x_initiator_override.go`
+  - 配额/成本状态修改后调用 `saveState()`
+- 前端：`components/RequestLogTable.vue`
+  - 使用 `navigator.userAgent` 正则检测移动设备
+
 ## [v1.5.52] - 2026-06-10
 
 ### 📦 依赖更新

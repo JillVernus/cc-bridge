@@ -184,9 +184,11 @@ func (s *Server) applyXInitiatorOverrideWithWindow(host string, headers http.Hea
 		state.remainingOverrides--
 		if state.remainingOverrides <= 0 {
 			delete(s.xInitiatorQuotaDomainState, hostKey)
+			s.saveState()
 			return true, xInitiatorCostWindowRef{}
 		}
 		s.xInitiatorQuotaDomainState[hostKey] = state
+		s.saveState()
 		return true, xInitiatorCostWindowRef{}
 	}
 
@@ -214,6 +216,7 @@ func (s *Server) applyXInitiatorOverrideWithWindow(host string, headers http.Hea
 				windowID:        s.nextXInitiatorCostWindowID,
 			}
 			s.xInitiatorCostDomainState[hostKey] = state
+			s.saveState()
 			return false, xInitiatorCostWindowRef{expiresAt: state.expiresAt, windowID: state.windowID}
 		}
 
@@ -285,10 +288,12 @@ func (s *Server) applyWindowedCostCompletion(host string, window xInitiatorCostW
 	state.accumulatedCost += price
 	if state.accumulatedCost > state.budgetCost {
 		delete(s.xInitiatorCostDomainState, hostKey)
+		s.saveState()
 		return
 	}
 
 	s.xInitiatorCostDomainState[hostKey] = state
+	s.saveState()
 }
 
 func (s *Server) GetXInitiatorOverrideRuntimeStatus() XInitiatorOverrideRuntimeStatus {

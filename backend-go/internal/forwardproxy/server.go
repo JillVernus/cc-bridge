@@ -57,6 +57,7 @@ type Server struct {
 	port              int
 	bindAddress       string
 	configPath        string
+	statePath         string // path for x-initiator quota/cost state persistence
 
 	mu               sync.RWMutex
 	interceptDomains map[string]bool
@@ -92,6 +93,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		configDir = ".config"
 	}
 	configPath := filepath.Join(configDir, "forward-proxy.json")
+	statePath := filepath.Join(configDir, "forward-proxy-state.json")
 	discoveryPath := filepath.Join(configDir, "forward-proxy-discovery.json")
 
 	bindAddr := cfg.BindAddress
@@ -119,6 +121,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		port:                       cfg.Port,
 		bindAddress:                bindAddr,
 		configPath:                 configPath,
+		statePath:                  statePath,
 		interceptDomains:           make(map[string]bool),
 		domainAliases:              make(map[string]string),
 		enabled:                    cfg.Enabled,
@@ -761,10 +764,67 @@ func (s *Server) loadConfig() error {
 		return err
 	}
 	s.xInitiatorOverride = cfg.XInitiatorOverride
-	s.xInitiatorDomainState = make(map[string]time.Time)
-	s.xInitiatorQuotaDomainState = make(map[string]xInitiatorQuotaState)
-	s.xInitiatorCostDomainState = make(map[string]xInitiatorCostState)
+	// Don't reset state maps — load persisted state instead
+	if err := s.loadState(); err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("[fwd-proxy] failed to load state: %v", err)
+		}
+		// Initialize empty if no state file
+		s.xInitiatorDomainState = make(map[string]time.Time)
+		s.xInitiatorQuotaDomainState = make(map[string]xInitiatorQuotaState)
+		s.xInitiatorCostDomainState = make(map[string]xInitiatorCostState)
+	}
 	return nil
+}
+
+type xInitiatorPersistedState struct {
+	DomainState      map[string]time.Time            `json:"domainState"`
+	QuotaDomainState map[string]xInitiatorQuotaState `json:"quotaDomainState"`
+	CostDomainState  map[string]xInitiatorCostState  `json:"costDomainState"`
+	NextCostWindowID uint64                          `json:"nextCostWindowID"`
+}
+
+func (s *Server) loadState() error {
+	data, err := os.ReadFile(s.statePath)
+	if err != nil {
+		return err
+	}
+	var state xInitiatorPersistedState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return err
+	}
+	s.xInitiatorDomainState = state.DomainState
+	s.xInitiatorQuotaDomainState = state.QuotaDomainState
+	s.xInitiatorCostDomainState = state.CostDomainState
+	s.nextXInitiatorCostWindowID = state.NextCostWindowID
+	if s.xInitiatorDomainState == nil {
+		s.xInitiatorDomainState = make(map[string]time.Time)
+	}
+	if s.xInitiatorQuotaDomainState == nil {
+		s.xInitiatorQuotaDomainState = make(map[string]xInitiatorQuotaState)
+	}
+	if s.xInitiatorCostDomainState == nil {
+		s.xInitiatorCostDomainState = make(map[string]xInitiatorCostState)
+	}
+	return nil
+}
+
+func (s *Server) saveState() error {
+	state := xInitiatorPersistedState{
+		DomainState:      s.xInitiatorDomainState,
+		QuotaDomainState: s.xInitiatorQuotaDomainState,
+		CostDomainState:  s.xInitiatorCostDomainState,
+		NextCostWindowID: s.nextXInitiatorCostWindowID,
+	}
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(s.statePath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(s.statePath, data, 0644)
 }
 
 func shouldDefaultLegacyQuotaOverrideTimes(cfg XInitiatorOverrideConfig, raw json.RawMessage) bool {

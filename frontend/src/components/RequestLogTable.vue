@@ -1679,8 +1679,12 @@ import {
 const { t } = useI18n()
 
 // Viewport detection for responsive stacking and mobile card view
-const { width: viewportWidth, mobile } = useDisplay()
-const isMobile = computed(() => mobile.value)
+const { width: viewportWidth } = useDisplay()
+// True mobile device detection via userAgent (not viewport width)
+const isMobile = computed(() => {
+  if (typeof navigator === 'undefined') return false
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+})
 
 const resizePointerTarget = ref<PointerCaptureTarget | null>(null)
 const resizePointerId = ref<number | null>(null)
