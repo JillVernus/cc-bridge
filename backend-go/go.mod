@@ -1,6 +1,6 @@
 module github.com/JillVernus/cc-bridge
 
-go 1.25.0
+go 1.22.0
 
 require (
 	github.com/fsnotify/fsnotify v1.10.1
