@@ -536,6 +536,7 @@ func (m *Manager) initSchema() error {
 		exceeded_at DATETIME,
 		recover_at DATETIME,
 		exceeded_reason TEXT,
+		codex_quota_snapshot TEXT,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 	`
@@ -549,6 +550,15 @@ func (m *Manager) initSchema() error {
 			log.Printf("⚠️ Failed to add channel_stable_id column: %v", err)
 		} else {
 			log.Printf("✅ Added channel_stable_id column to channel_quota table")
+		}
+	}
+	if err = m.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('channel_quota') WHERE name='codex_quota_snapshot'`).Scan(&count); err != nil {
+		log.Printf("⚠️ Failed to check codex_quota_snapshot column: %v", err)
+	} else if count == 0 {
+		if _, err = m.db.Exec(`ALTER TABLE channel_quota ADD COLUMN codex_quota_snapshot TEXT`); err != nil {
+			log.Printf("⚠️ Failed to add codex_quota_snapshot column: %v", err)
+		} else {
+			log.Printf("✅ Added codex_quota_snapshot column to channel_quota table")
 		}
 	}
 
@@ -3669,7 +3679,47 @@ type ChannelQuota struct {
 	ExceededAt             *time.Time
 	RecoverAt              *time.Time
 	ExceededReason         string
+	CodexQuotaSnapshot     string
 	UpdatedAt              time.Time
+}
+
+func (m *Manager) ensureChannelQuotaPersistenceColumns() error {
+	if m == nil || m.db == nil {
+		return nil
+	}
+	columns := []struct {
+		name       string
+		definition string
+	}{
+		{name: "channel_stable_id", definition: "TEXT"},
+		{name: "codex_quota_snapshot", definition: "TEXT"},
+	}
+
+	for _, column := range columns {
+		exists, err := m.columnExists("channel_quota", column.name)
+		if err != nil {
+			return fmt.Errorf("check channel_quota.%s column: %w", column.name, err)
+		}
+		if exists {
+			continue
+		}
+		if _, err := m.db.Exec(fmt.Sprintf("ALTER TABLE channel_quota ADD COLUMN %s %s", column.name, column.definition)); err != nil {
+			return fmt.Errorf("add channel_quota.%s column: %w", column.name, err)
+		}
+		log.Printf("✅ Added %s column to channel_quota table", column.name)
+	}
+
+	return nil
+}
+
+func (m *Manager) columnExists(table string, column string) (bool, error) {
+	helper := database.NewDialectHelper(m.dialect)
+	query := helper.ColumnExistsQuery(table, column)
+	var count int
+	if err := m.db.QueryRow(query).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 // SaveChannelQuota saves or updates quota data for a channel
@@ -3724,7 +3774,7 @@ func (m *Manager) SaveChannelQuota(q *ChannelQuota) error {
 	return m.insertOrUpdateChannelQuota(q.ChannelID, q, now)
 }
 
-func (m *Manager) channelQuotaIDAvailableForStableID(channelID int, stableID string) (bool, error) {
+func (m *Manager) channelQuotaIDAvailableForStableID(channelID int, _ string) (bool, error) {
 	var existingStableID sql.NullString
 	err := m.db.QueryRow(m.convertQuery(`
 		SELECT channel_stable_id
@@ -3737,7 +3787,7 @@ func (m *Manager) channelQuotaIDAvailableForStableID(channelID int, stableID str
 	if err != nil {
 		return false, err
 	}
-	return !existingStableID.Valid || strings.TrimSpace(existingStableID.String) == "" || strings.TrimSpace(existingStableID.String) == stableID, nil
+	return false, nil
 }
 
 func (m *Manager) nextSyntheticChannelQuotaID() (int, error) {
@@ -3775,6 +3825,7 @@ func (m *Manager) updateChannelQuotaByID(existingChannelID int, targetChannelID 
 		exceeded_at = ?,
 		recover_at = ?,
 		exceeded_reason = ?,
+		codex_quota_snapshot = ?,
 		updated_at = ?
 	WHERE channel_id = ?
 	`
@@ -3784,7 +3835,7 @@ func (m *Manager) updateChannelQuotaByID(existingChannelID int, targetChannelID 
 		q.PrimaryUsedPercent, q.PrimaryWindowMinutes, q.PrimaryResetAt,
 		q.SecondaryUsedPercent, q.SecondaryWindowMinutes, q.SecondaryResetAt,
 		q.CreditsHasCredits, q.CreditsUnlimited, q.CreditsBalance,
-		q.IsExceeded, q.ExceededAt, q.RecoverAt, q.ExceededReason, updatedAt,
+		q.IsExceeded, q.ExceededAt, q.RecoverAt, q.ExceededReason, q.CodexQuotaSnapshot, updatedAt,
 		existingChannelID,
 	)
 	return err
@@ -3797,8 +3848,8 @@ func (m *Manager) insertOrUpdateChannelQuota(channelID int, q *ChannelQuota, upd
 		primary_used_percent, primary_window_minutes, primary_reset_at,
 		secondary_used_percent, secondary_window_minutes, secondary_reset_at,
 		credits_has_credits, credits_unlimited, credits_balance,
-		is_exceeded, exceeded_at, recover_at, exceeded_reason, updated_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		is_exceeded, exceeded_at, recover_at, exceeded_reason, codex_quota_snapshot, updated_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(channel_id) DO UPDATE SET
 		channel_stable_id = excluded.channel_stable_id,
 		channel_name = excluded.channel_name,
@@ -3816,6 +3867,7 @@ func (m *Manager) insertOrUpdateChannelQuota(channelID int, q *ChannelQuota, upd
 		exceeded_at = excluded.exceeded_at,
 		recover_at = excluded.recover_at,
 		exceeded_reason = excluded.exceeded_reason,
+		codex_quota_snapshot = excluded.codex_quota_snapshot,
 		updated_at = excluded.updated_at
 	`
 
@@ -3824,7 +3876,7 @@ func (m *Manager) insertOrUpdateChannelQuota(channelID int, q *ChannelQuota, upd
 		q.PrimaryUsedPercent, q.PrimaryWindowMinutes, q.PrimaryResetAt,
 		q.SecondaryUsedPercent, q.SecondaryWindowMinutes, q.SecondaryResetAt,
 		q.CreditsHasCredits, q.CreditsUnlimited, q.CreditsBalance,
-		q.IsExceeded, q.ExceededAt, q.RecoverAt, q.ExceededReason, updatedAt,
+		q.IsExceeded, q.ExceededAt, q.RecoverAt, q.ExceededReason, q.CodexQuotaSnapshot, updatedAt,
 	)
 	return err
 }
@@ -3839,20 +3891,20 @@ func (m *Manager) GetChannelQuota(channelID int) (*ChannelQuota, error) {
 		primary_used_percent, primary_window_minutes, primary_reset_at,
 		secondary_used_percent, secondary_window_minutes, secondary_reset_at,
 		credits_has_credits, credits_unlimited, credits_balance,
-		is_exceeded, exceeded_at, recover_at, exceeded_reason, updated_at
+		is_exceeded, exceeded_at, recover_at, exceeded_reason, codex_quota_snapshot, updated_at
 	FROM channel_quota WHERE channel_id = ?
 	`
 
 	var q ChannelQuota
 	var primaryResetAt, secondaryResetAt, exceededAt, recoverAt sql.NullTime
-	var channelStableID, planType, creditsBalance, exceededReason sql.NullString
+	var channelStableID, planType, creditsBalance, exceededReason, codexQuotaSnapshot sql.NullString
 
 	err := m.db.QueryRow(m.convertQuery(query), channelID).Scan(
 		&q.ChannelID, &channelStableID, &q.ChannelName, &planType,
 		&q.PrimaryUsedPercent, &q.PrimaryWindowMinutes, &primaryResetAt,
 		&q.SecondaryUsedPercent, &q.SecondaryWindowMinutes, &secondaryResetAt,
 		&q.CreditsHasCredits, &q.CreditsUnlimited, &creditsBalance,
-		&q.IsExceeded, &exceededAt, &recoverAt, &exceededReason, &q.UpdatedAt,
+		&q.IsExceeded, &exceededAt, &recoverAt, &exceededReason, &codexQuotaSnapshot, &q.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -3861,7 +3913,7 @@ func (m *Manager) GetChannelQuota(channelID int) (*ChannelQuota, error) {
 		return nil, err
 	}
 
-	applyChannelQuotaNullableText(&q, channelStableID, planType, creditsBalance, exceededReason)
+	applyChannelQuotaNullableText(&q, channelStableID, planType, creditsBalance, exceededReason, codexQuotaSnapshot)
 	if primaryResetAt.Valid {
 		q.PrimaryResetAt = &primaryResetAt.Time
 	}
@@ -3888,7 +3940,7 @@ func (m *Manager) GetAllChannelQuotas() ([]*ChannelQuota, error) {
 		primary_used_percent, primary_window_minutes, primary_reset_at,
 		secondary_used_percent, secondary_window_minutes, secondary_reset_at,
 		credits_has_credits, credits_unlimited, credits_balance,
-		is_exceeded, exceeded_at, recover_at, exceeded_reason, updated_at
+		is_exceeded, exceeded_at, recover_at, exceeded_reason, codex_quota_snapshot, updated_at
 	FROM channel_quota
 	`
 
@@ -3902,20 +3954,20 @@ func (m *Manager) GetAllChannelQuotas() ([]*ChannelQuota, error) {
 	for rows.Next() {
 		var q ChannelQuota
 		var primaryResetAt, secondaryResetAt, exceededAt, recoverAt sql.NullTime
-		var channelStableID, planType, creditsBalance, exceededReason sql.NullString
+		var channelStableID, planType, creditsBalance, exceededReason, codexQuotaSnapshot sql.NullString
 
 		err := rows.Scan(
 			&q.ChannelID, &channelStableID, &q.ChannelName, &planType,
 			&q.PrimaryUsedPercent, &q.PrimaryWindowMinutes, &primaryResetAt,
 			&q.SecondaryUsedPercent, &q.SecondaryWindowMinutes, &secondaryResetAt,
 			&q.CreditsHasCredits, &q.CreditsUnlimited, &creditsBalance,
-			&q.IsExceeded, &exceededAt, &recoverAt, &exceededReason, &q.UpdatedAt,
+			&q.IsExceeded, &exceededAt, &recoverAt, &exceededReason, &codexQuotaSnapshot, &q.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-		applyChannelQuotaNullableText(&q, channelStableID, planType, creditsBalance, exceededReason)
+		applyChannelQuotaNullableText(&q, channelStableID, planType, creditsBalance, exceededReason, codexQuotaSnapshot)
 		if primaryResetAt.Valid {
 			q.PrimaryResetAt = &primaryResetAt.Time
 		}
@@ -3935,7 +3987,7 @@ func (m *Manager) GetAllChannelQuotas() ([]*ChannelQuota, error) {
 	return quotas, rows.Err()
 }
 
-func applyChannelQuotaNullableText(q *ChannelQuota, channelStableID, planType, creditsBalance, exceededReason sql.NullString) {
+func applyChannelQuotaNullableText(q *ChannelQuota, channelStableID, planType, creditsBalance, exceededReason, codexQuotaSnapshot sql.NullString) {
 	if q == nil {
 		return
 	}
@@ -3950,6 +4002,9 @@ func applyChannelQuotaNullableText(q *ChannelQuota, channelStableID, planType, c
 	}
 	if exceededReason.Valid {
 		q.ExceededReason = exceededReason.String
+	}
+	if codexQuotaSnapshot.Valid {
+		q.CodexQuotaSnapshot = codexQuotaSnapshot.String
 	}
 }
 

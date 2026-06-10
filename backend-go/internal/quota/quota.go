@@ -40,6 +40,7 @@ type PersistedQuota struct {
 	ExceededAt             *time.Time
 	RecoverAt              *time.Time
 	ExceededReason         string
+	CodexQuotaSnapshot     string
 	UpdatedAt              time.Time
 }
 
@@ -234,8 +235,12 @@ func (m *Manager) loadFromPersistence() {
 			status.RecoverAt = *pq.RecoverAt
 		}
 
-		// Restore Codex quota if we have plan type or usage data
-		if pq.PlanType != "" || pq.PrimaryUsedPercent > 0 || pq.SecondaryUsedPercent > 0 {
+		if snapshot := decodeCodexQuotaSnapshot(pq.CodexQuotaSnapshot); snapshot != nil {
+			status.CodexQuota = snapshot
+			if status.CodexQuota.UpdatedAt.IsZero() {
+				status.CodexQuota.UpdatedAt = pq.UpdatedAt
+			}
+		} else if persistedQuotaHasCodexData(pq) {
 			status.CodexQuota = &CodexQuotaInfo{
 				PlanType:               pq.PlanType,
 				PrimaryUsedPercent:     pq.PrimaryUsedPercent,
@@ -264,10 +269,26 @@ func (m *Manager) loadFromPersistence() {
 	}
 }
 
+func persistedQuotaHasCodexData(pq *PersistedQuota) bool {
+	if pq == nil {
+		return false
+	}
+	return pq.PlanType != "" ||
+		pq.PrimaryUsedPercent > 0 ||
+		pq.PrimaryWindowMinutes > 0 ||
+		pq.PrimaryResetAt != nil ||
+		pq.SecondaryUsedPercent > 0 ||
+		pq.SecondaryWindowMinutes > 0 ||
+		pq.SecondaryResetAt != nil ||
+		pq.CreditsHasCredits ||
+		pq.CreditsUnlimited ||
+		pq.CreditsBalance != ""
+}
+
 // persist saves the current quota status to persistence
-func (m *Manager) persist(status *QuotaStatus) {
+func (m *Manager) persist(status *QuotaStatus) error {
 	if m.persister == nil || status == nil {
-		return
+		return nil
 	}
 
 	pq := &PersistedQuota{
@@ -296,6 +317,7 @@ func (m *Manager) persist(status *QuotaStatus) {
 		pq.CreditsHasCredits = cq.CreditsHasCredits
 		pq.CreditsUnlimited = cq.CreditsUnlimited
 		pq.CreditsBalance = cq.CreditsBalance
+		pq.CodexQuotaSnapshot = encodeCodexQuotaSnapshot(cq)
 
 		if !cq.PrimaryResetAt.IsZero() {
 			pq.PrimaryResetAt = &cq.PrimaryResetAt
@@ -307,7 +329,9 @@ func (m *Manager) persist(status *QuotaStatus) {
 
 	if err := m.persister.SaveChannelQuota(pq); err != nil {
 		log.Printf("⚠️ [Quota] Failed to persist quota for channel %d: %v", status.ChannelID, err)
+		return err
 	}
+	return nil
 }
 
 // UpdateFromHeaders updates quota info from HTTP response headers
@@ -367,9 +391,9 @@ func (m *Manager) UpdateFromHeadersForChannel(channelID int, channelStableID str
 
 // UpdateCodexQuotaForChannel stores Codex quota data obtained from a direct
 // usage endpoint refresh.
-func (m *Manager) UpdateCodexQuotaForChannel(channelID int, channelStableID string, channelName string, codexInfo *CodexQuotaInfo) {
+func (m *Manager) UpdateCodexQuotaForChannel(channelID int, channelStableID string, channelName string, codexInfo *CodexQuotaInfo) error {
 	if m == nil || codexInfo == nil {
-		return
+		return nil
 	}
 	if codexInfo.UpdatedAt.IsZero() {
 		codexInfo.UpdatedAt = time.Now()
@@ -390,8 +414,9 @@ func (m *Manager) UpdateCodexQuotaForChannel(channelID int, channelStableID stri
 		status.ExceededReason = ""
 	}
 
-	m.persist(status)
+	err := m.persist(status)
 	m.mu.Unlock()
+	return err
 }
 
 // mergeCodexQuotaRefresh assigns refreshed Codex quota into status while

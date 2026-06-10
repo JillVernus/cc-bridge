@@ -364,6 +364,10 @@ func TestRunMigrations_AddsRequestRemovedHeadersToExistingDebugLogsTable(t *test
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
 
+		CREATE TABLE channels (
+			id INTEGER PRIMARY KEY AUTOINCREMENT
+		);
+
 		CREATE TABLE request_logs (
 			id TEXT PRIMARY KEY,
 			initial_time DATETIME NOT NULL,
@@ -436,6 +440,10 @@ func TestRunMigrations_AddsChannelStableIDToExistingChannelQuotaTable(t *testing
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
 
+		CREATE TABLE channels (
+			id INTEGER PRIMARY KEY AUTOINCREMENT
+		);
+
 		CREATE TABLE request_logs (
 			id TEXT PRIMARY KEY,
 			initial_time DATETIME NOT NULL,
@@ -487,6 +495,14 @@ func TestRunMigrations_AddsRequestLogMetadataColumnsToExistingRequestLogsTable(t
 			applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
 		INSERT INTO schema_migrations (version, name) VALUES (15, 'config_revision');
+
+		CREATE TABLE channels (
+			id INTEGER PRIMARY KEY AUTOINCREMENT
+		);
+
+		CREATE TABLE channel_quota (
+			channel_id INTEGER PRIMARY KEY
+		);
 
 		CREATE TABLE request_logs (
 			id TEXT PRIMARY KEY,

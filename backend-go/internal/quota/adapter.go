@@ -37,6 +37,7 @@ func (a *RequestLogAdapter) SaveChannelQuota(q *PersistedQuota) error {
 		ExceededAt:             q.ExceededAt,
 		RecoverAt:              q.RecoverAt,
 		ExceededReason:         q.ExceededReason,
+		CodexQuotaSnapshot:     q.CodexQuotaSnapshot,
 		UpdatedAt:              q.UpdatedAt,
 	}
 	return a.manager.SaveChannelQuota(cq)
@@ -87,6 +88,7 @@ func convertToPersistedQuota(cq *requestlog.ChannelQuota) *PersistedQuota {
 		ExceededAt:             cq.ExceededAt,
 		RecoverAt:              cq.RecoverAt,
 		ExceededReason:         cq.ExceededReason,
+		CodexQuotaSnapshot:     cq.CodexQuotaSnapshot,
 		UpdatedAt:              updatedAt,
 	}
 }

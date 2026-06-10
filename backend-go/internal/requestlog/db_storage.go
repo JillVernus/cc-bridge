@@ -26,6 +26,11 @@ func NewManagerWithDB(db database.DB, connStr string) (*Manager, error) {
 		listenerStop: cancel,
 	}
 
+	if err := m.ensureChannelQuotaPersistenceColumns(); err != nil {
+		cancel()
+		return nil, err
+	}
+
 	// Start PostgreSQL LISTEN for cross-instance SSE (only for PostgreSQL)
 	if m.isPostgres() && connStr != "" {
 		if err := m.startPGListener(ctx); err != nil {

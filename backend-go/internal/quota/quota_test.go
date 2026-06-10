@@ -3,15 +3,22 @@ package quota
 import (
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/JillVernus/cc-bridge/internal/requestlog"
 )
 
 type testQuotaPersister struct {
 	quotas []*PersistedQuota
+	err    error
 }
 
 func (p *testQuotaPersister) SaveChannelQuota(q *PersistedQuota) error {
+	if p.err != nil {
+		return p.err
+	}
 	return fmt.Errorf("unexpected SaveChannelQuota call: %+v", q)
 }
 
@@ -209,6 +216,37 @@ func TestSetPersister_LoadedLegacyQuotaCanBeReadByStableIDWhenCurrentNameMatches
 	}
 }
 
+func TestSetPersister_LoadsZeroPercentQuotaWhenWindowDataExists(t *testing.T) {
+	resetAt := time.Now().Add(2 * time.Hour)
+	m := &Manager{
+		quotas: make(map[int]*QuotaStatus),
+	}
+	m.SetPersister(&testQuotaPersister{
+		quotas: []*PersistedQuota{
+			{
+				ChannelID:              3,
+				ChannelStableID:        "oauth-stable-a",
+				ChannelName:            "oauth-a",
+				PrimaryUsedPercent:     0,
+				PrimaryWindowMinutes:   300,
+				PrimaryResetAt:         &resetAt,
+				SecondaryUsedPercent:   0,
+				SecondaryWindowMinutes: 10080,
+				SecondaryResetAt:       &resetAt,
+				UpdatedAt:              time.Now(),
+			},
+		},
+	})
+
+	got := m.GetStatusForChannel(3, "oauth-stable-a", "oauth-a")
+	if got == nil || got.CodexQuota == nil {
+		t.Fatalf("expected zero-percent persisted quota with window data to reload, got %+v", got)
+	}
+	if got.CodexQuota.PrimaryWindowMinutes != 300 || got.CodexQuota.SecondaryWindowMinutes != 10080 {
+		t.Fatalf("unexpected reloaded quota windows: %+v", got.CodexQuota)
+	}
+}
+
 func TestGetStatusForChannel_LookupByStableIDSurvivesRename(t *testing.T) {
 	m := &Manager{
 		quotas: make(map[int]*QuotaStatus),
@@ -380,6 +418,64 @@ func TestUpdateFromHeadersForChannel_ParsesDecimalCodexUsedPercent(t *testing.T)
 	}
 	if got.CodexQuota.SecondaryUsedPercentValue() != 27.4 {
 		t.Fatalf("secondary used percent = %v, want 27.4", got.CodexQuota.SecondaryUsedPercentValue())
+	}
+}
+
+func TestRequestLogAdapter_PersistsCodexQuotaSnapshotAcrossReload(t *testing.T) {
+	requestLogManager, err := requestlog.NewManager(filepath.Join(t.TempDir(), "request_logs.db"))
+	if err != nil {
+		t.Fatalf("NewManager failed: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := requestLogManager.Close(); err != nil {
+			t.Fatalf("Close failed: %v", err)
+		}
+	})
+
+	writer := &Manager{quotas: make(map[int]*QuotaStatus)}
+	writer.SetPersister(NewRequestLogAdapter(requestLogManager))
+
+	headers := http.Header{}
+	headers.Set("X-Codex-Active-Limit", "premium")
+	headers.Set("X-Codex-Plan-Type", "pro")
+	headers.Set("X-Codex-Primary-Used-Percent", "36.5")
+	headers.Set("X-Codex-Secondary-Used-Percent", "27.4")
+	headers.Set("X-Codex-Bengalfox-Limit-Name", "GPT-5.3-Codex-Spark")
+	headers.Set("X-Codex-Bengalfox-Primary-Used-Percent", "0.25")
+	headers.Set("X-Codex-Bengalfox-Primary-Window-Minutes", "300")
+	headers.Set("X-Codex-Bengalfox-Secondary-Used-Percent", "1.5")
+	headers.Set("X-Codex-Bengalfox-Secondary-Window-Minutes", "10080")
+
+	writer.UpdateFromHeadersForChannel(5, "oauth-stable-a", "oauth-a", headers)
+
+	reader := &Manager{quotas: make(map[int]*QuotaStatus)}
+	reader.SetPersister(NewRequestLogAdapter(requestLogManager))
+
+	got := reader.GetStatusForChannel(5, "oauth-stable-a", "oauth-a")
+	if got == nil || got.CodexQuota == nil {
+		t.Fatalf("expected persisted codex quota after reload, got %+v", got)
+	}
+	if got.CodexQuota.ActiveLimit != "premium" {
+		t.Fatalf("ActiveLimit = %q, want premium", got.CodexQuota.ActiveLimit)
+	}
+	if got.CodexQuota.PrimaryUsedPercentValue() != 36.5 {
+		t.Fatalf("primary used percent = %v, want 36.5", got.CodexQuota.PrimaryUsedPercentValue())
+	}
+	if got.CodexQuota.SecondaryUsedPercentValue() != 27.4 {
+		t.Fatalf("secondary used percent = %v, want 27.4", got.CodexQuota.SecondaryUsedPercentValue())
+	}
+	if len(got.CodexQuota.DetailedLimits) != 1 {
+		t.Fatalf("DetailedLimits length = %d, want 1: %+v", len(got.CodexQuota.DetailedLimits), got.CodexQuota.DetailedLimits)
+	}
+	limit := got.CodexQuota.DetailedLimits[0]
+	if limit.LimitID != "codex_bengalfox" || limit.LimitName != "GPT-5.3-Codex-Spark" {
+		t.Fatalf("unexpected detailed limit identity: %+v", limit)
+	}
+	if limit.PrimaryUsedPercentValue() != 0.25 {
+		t.Fatalf("detailed primary used percent = %v, want 0.25", limit.PrimaryUsedPercentValue())
+	}
+	if limit.SecondaryUsedPercentValue() != 1.5 {
+		t.Fatalf("detailed secondary used percent = %v, want 1.5", limit.SecondaryUsedPercentValue())
 	}
 }
 
@@ -616,6 +712,23 @@ func TestUpdateCodexQuotaForChannel_PreservesDetailedLimitsAndActiveLimitWhenRef
 	}
 	if len(got.CodexQuota.DetailedLimits) != 1 || got.CodexQuota.DetailedLimits[0].LimitID != "codex_bengalfox" {
 		t.Fatalf("DetailedLimits = %+v, want preserved bengalfox", got.CodexQuota.DetailedLimits)
+	}
+}
+
+func TestUpdateCodexQuotaForChannel_ReturnsPersistError(t *testing.T) {
+	persistErr := fmt.Errorf("persist failed")
+	m := &Manager{quotas: make(map[int]*QuotaStatus)}
+	m.SetPersister(&testQuotaPersister{err: persistErr})
+
+	err := m.UpdateCodexQuotaForChannel(5, "oauth-stable-a", "oauth-a", &CodexQuotaInfo{
+		PlanType:           "plus",
+		PrimaryUsedPercent: 12,
+	})
+	if err == nil {
+		t.Fatalf("expected persist error, got nil")
+	}
+	if err.Error() != persistErr.Error() {
+		t.Fatalf("error = %v, want %v", err, persistErr)
 	}
 }
 

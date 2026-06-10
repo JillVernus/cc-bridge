@@ -339,6 +339,71 @@ func TestDBConfigStorage_SaveAndLoadCodexServiceTierOverride(t *testing.T) {
 	}
 }
 
+func TestDBConfigStorage_SaveAndLoadResponsesWebSocketEnabled(t *testing.T) {
+	dbStorage, db := newConfigTestDBStorage(t)
+	defer db.Close()
+
+	cfg := Config{
+		Upstream:        []UpstreamConfig{},
+		CurrentUpstream: 0,
+		LoadBalance:     "failover",
+		ResponsesUpstream: []UpstreamConfig{
+			{
+				ID:                        "oauth-ws",
+				Name:                      "Codex OAuth",
+				BaseURL:                   "https://chatgpt.com/backend-api/codex/responses",
+				ServiceType:               "openai-oauth",
+				Status:                    "active",
+				ResponsesWebSocketEnabled: true,
+			},
+			{
+				ID:                        "responses-ws",
+				Name:                      "Responses API",
+				BaseURL:                   "https://api.openai.com/v1",
+				ServiceType:               "responses",
+				Status:                    "active",
+				ResponsesWebSocketEnabled: true,
+			},
+			{
+				ID:          "responses-http",
+				Name:        "Responses HTTP",
+				BaseURL:     "https://api.openai.com/v1",
+				ServiceType: "responses",
+				Status:      "active",
+			},
+		},
+		CurrentResponsesUpstream: 0,
+		ResponsesLoadBalance:     "failover",
+		GeminiUpstream:           []UpstreamConfig{},
+		GeminiLoadBalance:        "failover",
+		ChatUpstream:             []UpstreamConfig{},
+		ChatLoadBalance:          "failover",
+		UserAgent:                GetDefaultUserAgentConfig(),
+	}
+
+	if err := dbStorage.SaveConfigToDB(&cfg); err != nil {
+		t.Fatalf("SaveConfigToDB() failed: %v", err)
+	}
+
+	loaded, err := dbStorage.LoadConfigFromDB()
+	if err != nil {
+		t.Fatalf("LoadConfigFromDB() failed: %v", err)
+	}
+	if len(loaded.ResponsesUpstream) != 3 {
+		t.Fatalf("responses channel count = %d, want 3", len(loaded.ResponsesUpstream))
+	}
+
+	if !loaded.ResponsesUpstream[0].ResponsesWebSocketEnabled {
+		t.Fatalf("oauth channel responsesWebSocketEnabled = false, want true after DB reload")
+	}
+	if !loaded.ResponsesUpstream[1].ResponsesWebSocketEnabled {
+		t.Fatalf("responses channel responsesWebSocketEnabled = false, want true after DB reload")
+	}
+	if loaded.ResponsesUpstream[2].ResponsesWebSocketEnabled {
+		t.Fatalf("http-only responses channel responsesWebSocketEnabled = true, want false after DB reload")
+	}
+}
+
 func TestDBConfigStorage_SaveAndLoadOutboundHeaderPolicy(t *testing.T) {
 	dbStorage, db := newConfigTestDBStorage(t)
 	defer db.Close()

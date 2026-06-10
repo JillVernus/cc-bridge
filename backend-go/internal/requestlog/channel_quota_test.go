@@ -3,6 +3,8 @@ package requestlog
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/JillVernus/cc-bridge/internal/database"
 )
 
 func TestSaveChannelQuota_StableIDUpsertsAcrossIndexChanges(t *testing.T) {
@@ -72,6 +74,59 @@ func TestSaveChannelQuota_StableIDUpsertsAcrossIndexChanges(t *testing.T) {
 	}
 }
 
+func TestSaveChannelQuota_StableIDMoveDoesNotCollideWithLegacyCurrentIndexRow(t *testing.T) {
+	manager, err := NewManager(filepath.Join(t.TempDir(), "request_logs.db"))
+	if err != nil {
+		t.Fatalf("NewManager failed: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := manager.Close(); err != nil {
+			t.Fatalf("Close failed: %v", err)
+		}
+	})
+
+	if err := manager.SaveChannelQuota(&ChannelQuota{
+		ChannelID:          5,
+		ChannelStableID:    "oauth-stable-a",
+		ChannelName:        "OAuth A",
+		PrimaryUsedPercent: 20,
+	}); err != nil {
+		t.Fatalf("SaveChannelQuota stable row failed: %v", err)
+	}
+
+	if _, err := manager.db.Exec(`
+		INSERT INTO channel_quota (
+			channel_id, channel_stable_id, channel_name, primary_used_percent
+		) VALUES (?, NULL, ?, ?)
+	`, 1, "Legacy OAuth A", 100); err != nil {
+		t.Fatalf("insert legacy current-index row failed: %v", err)
+	}
+
+	if err := manager.SaveChannelQuota(&ChannelQuota{
+		ChannelID:          1,
+		ChannelStableID:    "oauth-stable-a",
+		ChannelName:        "OAuth A",
+		PrimaryUsedPercent: 35,
+	}); err != nil {
+		t.Fatalf("SaveChannelQuota stable row moved onto legacy index failed: %v", err)
+	}
+
+	quotas, err := manager.GetAllChannelQuotas()
+	if err != nil {
+		t.Fatalf("GetAllChannelQuotas failed: %v", err)
+	}
+	var got *ChannelQuota
+	for _, quota := range quotas {
+		if quota.ChannelStableID == "oauth-stable-a" {
+			got = quota
+			break
+		}
+	}
+	if got == nil || got.PrimaryUsedPercent != 35 {
+		t.Fatalf("expected stable row to update without colliding, got %+v in %+v", got, quotas)
+	}
+}
+
 func TestGetAllChannelQuotas_LoadsLegacyRowsWithNullTextFields(t *testing.T) {
 	manager, err := NewManager(filepath.Join(t.TempDir(), "request_logs.db"))
 	if err != nil {
@@ -110,5 +165,69 @@ func TestGetAllChannelQuotas_LoadsLegacyRowsWithNullTextFields(t *testing.T) {
 	}
 	if got.PrimaryUsedPercent != 64 {
 		t.Fatalf("expected primary_used_percent=64, got %+v", got)
+	}
+}
+
+func TestNewManagerWithDB_RepairsMissingCodexQuotaSnapshotColumn(t *testing.T) {
+	db, err := database.New(database.Config{
+		Type: database.DialectSQLite,
+		URL:  filepath.Join(t.TempDir(), "cc-bridge.db"),
+	})
+	if err != nil {
+		t.Fatalf("New database failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+
+	if _, err := db.Exec(`
+		CREATE TABLE channel_quota (
+			channel_id INTEGER PRIMARY KEY,
+			channel_stable_id TEXT,
+			channel_name TEXT NOT NULL,
+			plan_type TEXT,
+			primary_used_percent INTEGER DEFAULT 0,
+			primary_window_minutes INTEGER DEFAULT 0,
+			primary_reset_at DATETIME,
+			secondary_used_percent INTEGER DEFAULT 0,
+			secondary_window_minutes INTEGER DEFAULT 0,
+			secondary_reset_at DATETIME,
+			credits_has_credits BOOLEAN DEFAULT 0,
+			credits_unlimited BOOLEAN DEFAULT 0,
+			credits_balance TEXT,
+			is_exceeded BOOLEAN DEFAULT 0,
+			exceeded_at DATETIME,
+			recover_at DATETIME,
+			exceeded_reason TEXT,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+	`); err != nil {
+		t.Fatalf("create legacy channel_quota schema failed: %v", err)
+	}
+
+	manager, err := NewManagerWithDB(db, "")
+	if err != nil {
+		t.Fatalf("NewManagerWithDB failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = manager.Close()
+	})
+
+	if err := manager.SaveChannelQuota(&ChannelQuota{
+		ChannelID:          1,
+		ChannelStableID:    "oauth-stable-a",
+		ChannelName:        "OAuth A",
+		PrimaryUsedPercent: 12,
+		CodexQuotaSnapshot: `{"plan_type":"plus","primary_used_percent":12}`,
+	}); err != nil {
+		t.Fatalf("SaveChannelQuota failed after schema repair: %v", err)
+	}
+
+	got, err := manager.GetChannelQuota(1)
+	if err != nil {
+		t.Fatalf("GetChannelQuota failed: %v", err)
+	}
+	if got == nil || got.CodexQuotaSnapshot == "" {
+		t.Fatalf("expected codex quota snapshot to round-trip, got %+v", got)
 	}
 }

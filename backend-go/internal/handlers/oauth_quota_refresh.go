@@ -93,7 +93,10 @@ func refreshResponsesChannelOAuthQuota(c *gin.Context, cfgManager *config.Config
 		return
 	}
 
-	quota.GetManager().UpdateCodexQuotaForChannel(channelIndex, upstream.ID, upstream.Name, codexInfo)
+	if err := quota.GetManager().UpdateCodexQuotaForChannel(channelIndex, upstream.ID, upstream.Name, codexInfo); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist Codex quota", "message": err.Error()})
+		return
+	}
 	writeResponsesChannelOAuthStatus(c, channelIndex, upstream)
 }
 
