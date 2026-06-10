@@ -1679,8 +1679,8 @@ import {
 const { t } = useI18n()
 
 // Viewport detection for responsive stacking and mobile card view
-const { width: viewportWidth, mdAndDown } = useDisplay()
-const isMobile = computed(() => mdAndDown.value)
+const { width: viewportWidth, mobile } = useDisplay()
+const isMobile = computed(() => mobile.value)
 
 const resizePointerTarget = ref<PointerCaptureTarget | null>(null)
 const resizePointerId = ref<number | null>(null)
@@ -5974,6 +5974,7 @@ const silentRefresh = async () => {
 /* Mobile Card View */
 .mobile-log-list {
   padding: 12px;
+  position: relative;
 }
 
 .mobile-log-card {
@@ -5982,6 +5983,7 @@ const silentRefresh = async () => {
   border: 2px solid rgb(var(--v-theme-on-surface));
   box-shadow: 3px 3px 0 0 rgb(var(--v-theme-on-surface));
   border-radius: 0 !important;
+  transition: transform 0.5s ease-out, margin 0.5s ease-out, opacity 0.3s ease-out;
 }
 
 .v-theme--dark .mobile-log-card {
@@ -6010,11 +6012,13 @@ const silentRefresh = async () => {
 @keyframes card-enter {
   0% {
     background-color: rgba(76, 175, 80, 0.4);
-    transform: translateY(-20px);
+    transform: translateY(-80px);
     opacity: 0;
+    margin-bottom: -80px;
   }
   30% {
     transform: translateY(0);
+    margin-bottom: 12px;
     opacity: 1;
   }
   50% {
@@ -6023,6 +6027,7 @@ const silentRefresh = async () => {
   100% {
     background-color: transparent;
     transform: translateY(0);
+    margin-bottom: 12px;
     opacity: 1;
   }
 }
