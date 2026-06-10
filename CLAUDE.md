@@ -78,6 +78,7 @@ bun run type-check    # TypeScript check
 - **Config hot-reload**: `backend-go/.config/config.json` auto-reloads
 - **Minimal changes**: Only modify what's necessary; avoid scope creep
 - **Test before commit**: Run `make test` (backend) and `bun run type-check` (frontend)
+- **Persistence**: Use DB (`settings` table) for runtime state, NOT JSON files. Forward proxy state, channel quota, request logs all stored in DB.
 
 ## Debugging Guide
 

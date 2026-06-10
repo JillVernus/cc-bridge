@@ -2,6 +2,7 @@ package forwardproxy
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -57,7 +58,6 @@ type Server struct {
 	port              int
 	bindAddress       string
 	configPath        string
-	statePath         string // path for x-initiator quota/cost state persistence
 
 	mu               sync.RWMutex
 	interceptDomains map[string]bool
@@ -93,7 +93,6 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		configDir = ".config"
 	}
 	configPath := filepath.Join(configDir, "forward-proxy.json")
-	statePath := filepath.Join(configDir, "forward-proxy-state.json")
 	discoveryPath := filepath.Join(configDir, "forward-proxy-discovery.json")
 
 	bindAddr := cfg.BindAddress
@@ -121,7 +120,6 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		port:                       cfg.Port,
 		bindAddress:                bindAddr,
 		configPath:                 configPath,
-		statePath:                  statePath,
 		interceptDomains:           make(map[string]bool),
 		domainAliases:              make(map[string]string),
 		enabled:                    cfg.Enabled,
@@ -785,12 +783,23 @@ type xInitiatorPersistedState struct {
 }
 
 func (s *Server) loadState() error {
-	data, err := os.ReadFile(s.statePath)
+	if s.requestLogManager == nil {
+		return fmt.Errorf("requestLogManager not initialized")
+	}
+
+	db := s.requestLogManager.GetDB()
+	var stateJSON string
+	err := db.QueryRow(`SELECT value FROM settings WHERE key = 'forward_proxy_state' AND category = 'forward_proxy'`).Scan(&stateJSON)
+	if err == sql.ErrNoRows {
+		// No state yet, initialize empty
+		return os.ErrNotExist
+	}
 	if err != nil {
 		return err
 	}
+
 	var state xInitiatorPersistedState
-	if err := json.Unmarshal(data, &state); err != nil {
+	if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
 		return err
 	}
 	s.xInitiatorDomainState = state.DomainState
@@ -810,21 +819,28 @@ func (s *Server) loadState() error {
 }
 
 func (s *Server) saveState() error {
+	if s.requestLogManager == nil {
+		return fmt.Errorf("requestLogManager not initialized")
+	}
+
 	state := xInitiatorPersistedState{
 		DomainState:      s.xInitiatorDomainState,
 		QuotaDomainState: s.xInitiatorQuotaDomainState,
 		CostDomainState:  s.xInitiatorCostDomainState,
 		NextCostWindowID: s.nextXInitiatorCostWindowID,
 	}
-	data, err := json.MarshalIndent(state, "", "  ")
+	data, err := json.Marshal(state)
 	if err != nil {
 		return err
 	}
-	dir := filepath.Dir(s.statePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-	return os.WriteFile(s.statePath, data, 0644)
+
+	db := s.requestLogManager.GetDB()
+	_, err = db.Exec(`
+		INSERT INTO settings (key, value, category, updated_at)
+		VALUES ('forward_proxy_state', ?, 'forward_proxy', CURRENT_TIMESTAMP)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+	`, string(data))
+	return err
 }
 
 func shouldDefaultLegacyQuotaOverrideTimes(cfg XInitiatorOverrideConfig, raw json.RawMessage) bool {

@@ -4,6 +4,20 @@
 
 ---
 
+## [v1.5.54] - 2026-06-10
+
+### ♻️ 重构
+
+- **Forward Proxy 状态持久化改用数据库**:
+  - OAuth 配额/成本状态从 JSON 文件迁移到 DB `settings` 表
+  - 使用 `key='forward_proxy_state', category='forward_proxy'` 存储
+  - 通过 `requestLogManager.GetDB()` 访问数据库
+  - 移除 `statePath` 字段和 JSON 文件依赖
+
+### 📝 文档
+
+- CLAUDE.md 添加持久化规则：运行时状态使用 DB，不用 JSON 文件
+
 ## [v1.5.53] - 2026-06-10
 
 ### 🐛 修复
