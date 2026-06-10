@@ -121,6 +121,9 @@ cd frontend && bun run type-check      # TypeScript check
 **Database:**
 - Migrations: `cmd/dbmigrate/` (SQLite)
 - Schema: versioned, reversible
+- **ALL runtime state uses database, NOT JSON files**
+- Channels, model pricing, channel quota, request logs, forward proxy state → DB `settings` table
+- Only static config uses JSON: `.config/config.json`, `.config/model-aliases.json`
 
 **Config:**
 - `.env.example` → `.env` (local only, never commit `.env`)

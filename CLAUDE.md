@@ -78,7 +78,12 @@ bun run type-check    # TypeScript check
 - **Config hot-reload**: `backend-go/.config/config.json` auto-reloads
 - **Minimal changes**: Only modify what's necessary; avoid scope creep
 - **Test before commit**: Run `make test` (backend) and `bun run type-check` (frontend)
-- **Persistence**: Use DB (`settings` table) for runtime state, NOT JSON files. Forward proxy state, channel quota, request logs all stored in DB.
+- **Persistence**: 
+  - ✅ **Use DB for ALL runtime state** (channels, quota, logs, forward proxy state, etc.)
+  - ✅ DB access via `requestLogManager.GetDB()` or config manager
+  - ✅ Store in `settings` table with appropriate category
+  - ❌ **NEVER use JSON files for runtime state/metrics**
+  - ✅ JSON files ONLY for static config (config.json, model-aliases.json, ratelimit.json)
 
 ## Debugging Guide
 
