@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"fmt"
 	"log"
@@ -16,6 +17,7 @@ import (
 	"github.com/JillVernus/cc-bridge/internal/config"
 	"github.com/JillVernus/cc-bridge/internal/middleware"
 	"github.com/JillVernus/cc-bridge/internal/pricing"
+	"github.com/JillVernus/cc-bridge/internal/quota"
 	"github.com/JillVernus/cc-bridge/internal/requestlog"
 	"github.com/JillVernus/cc-bridge/internal/scheduler"
 	"github.com/JillVernus/cc-bridge/internal/utils"
@@ -371,6 +373,7 @@ func dialResponsesWebSocket(ctx interface{ Done() <-chan struct{} }, upstreamURL
 type responsesWebSocketLogTracker struct {
 	mu          sync.Mutex
 	manager     *requestlog.Manager
+	cfgManager  *config.ConfigManager
 	scheduler   *scheduler.ChannelScheduler
 	apiKeyID    *int64
 	upstream    *config.UpstreamConfig
@@ -396,10 +399,11 @@ type responsesWebSocketLogTracker struct {
 
 func newResponsesWebSocketLogTracker(c *gin.Context, cfgManager *config.ConfigManager, manager *requestlog.Manager, upstream *config.UpstreamConfig, selection *scheduler.SelectionResult, sch *scheduler.ChannelScheduler) *responsesWebSocketLogTracker {
 	tracker := &responsesWebSocketLogTracker{
-		manager:   manager,
-		scheduler: sch,
-		upstream:  upstream,
-		header:    http.Header{},
+		manager:    manager,
+		cfgManager: cfgManager,
+		scheduler:  sch,
+		upstream:   upstream,
+		header:     http.Header{},
 	}
 	if cfgManager != nil {
 		debugCfg := cfgManager.GetDebugLogConfig()
@@ -600,6 +604,70 @@ func (t *responsesWebSocketLogTracker) completeFromPayload(payload []byte) {
 	// Record success metrics for this individual request
 	if t.scheduler != nil {
 		t.scheduler.RecordSuccessWithStatusDetail(t.channelID, true, http.StatusOK, t.model, t.channelName)
+	}
+	if refreshCtx := t.oauthQuotaRefreshContextLocked(); refreshCtx != nil {
+		go refreshCodexOAuthQuotaAfterWebSocketCompletion(refreshCtx)
+	}
+}
+
+type responsesWebSocketQuotaRefreshContext struct {
+	cfgManager   *config.ConfigManager
+	tokens       config.OAuthTokens
+	upstreamName string
+	channelID    int
+	stableID     string
+	channelName  string
+}
+
+func (t *responsesWebSocketLogTracker) oauthQuotaRefreshContextLocked() *responsesWebSocketQuotaRefreshContext {
+	if t == nil || t.cfgManager == nil || t.upstream == nil || t.upstream.OAuthTokens == nil {
+		return nil
+	}
+	if !strings.EqualFold(strings.TrimSpace(t.upstream.ServiceType), "openai-oauth") {
+		return nil
+	}
+
+	channelName := strings.TrimSpace(t.channelName)
+	if channelName == "" {
+		channelName = strings.TrimSpace(t.upstream.Name)
+	}
+
+	return &responsesWebSocketQuotaRefreshContext{
+		cfgManager:   t.cfgManager,
+		tokens:       *t.upstream.OAuthTokens,
+		upstreamName: strings.TrimSpace(t.upstream.Name),
+		channelID:    t.channelID,
+		stableID:     strings.TrimSpace(t.upstream.ID),
+		channelName:  channelName,
+	}
+}
+
+func refreshCodexOAuthQuotaAfterWebSocketCompletion(refreshCtx *responsesWebSocketQuotaRefreshContext) {
+	if refreshCtx == nil || refreshCtx.cfgManager == nil {
+		return
+	}
+
+	accessToken, accountID, updatedTokens, err := codexTokenManager.GetValidToken(&refreshCtx.tokens)
+	if err != nil {
+		log.Printf("⚠️ [OAuth WebSocket] failed to get token for quota refresh: %v", err)
+		return
+	}
+	if updatedTokens != nil {
+		if saveErr := refreshCtx.cfgManager.UpdateResponsesOAuthTokensByName(refreshCtx.upstreamName, updatedTokens); saveErr != nil {
+			log.Printf("⚠️ [OAuth WebSocket] failed to save refreshed token before quota refresh: %v", saveErr)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	codexInfo, err := fetchCodexOAuthUsageQuota(ctx, accessToken, accountID)
+	if err != nil {
+		log.Printf("⚠️ [OAuth WebSocket] failed to refresh Codex quota after completion: %v", err)
+		return
+	}
+	if err := quota.GetManager().UpdateCodexQuotaForChannel(refreshCtx.channelID, refreshCtx.stableID, refreshCtx.channelName, codexInfo); err != nil {
+		log.Printf("⚠️ [OAuth WebSocket] failed to persist Codex quota after completion: %v", err)
 	}
 }
 

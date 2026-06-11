@@ -4,6 +4,20 @@
 
 ---
 
+## [v1.5.58] - 2026-06-11
+
+### 🐛 修复
+
+- **Responses WebSocket OAuth 配额刷新修复**:
+  - OAuth WebSocket 请求完成后会异步查询 Codex usage endpoint 并保存最新配额快照。
+  - 修复 WebSocket 请求日志已完成、手动刷新可见新配额，但渠道配额条仍显示旧值的问题。
+  - 保持客户端 `response.completed` 转发不被配额刷新阻塞。
+
+### ✅ 验证
+
+- 后端完整测试 `go test ./... -count=1` 通过
+- `git diff --check` 通过
+
 ## [v1.5.57] - 2026-06-10
 
 ### 🐛 修复

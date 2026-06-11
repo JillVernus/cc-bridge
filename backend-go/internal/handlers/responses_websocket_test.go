@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/JillVernus/cc-bridge/internal/config"
 	"github.com/JillVernus/cc-bridge/internal/metrics"
+	"github.com/JillVernus/cc-bridge/internal/quota"
 	"github.com/JillVernus/cc-bridge/internal/requestlog"
 	"github.com/JillVernus/cc-bridge/internal/scheduler"
 	"github.com/JillVernus/cc-bridge/internal/session"
@@ -187,6 +189,36 @@ func TestResponsesWebSocketHandlerProxiesOpenAIOAuthWebSocket(t *testing.T) {
 	codexOAuthResponsesEndpoint = upstream.URL
 	t.Cleanup(func() { codexOAuthResponsesEndpoint = oldEndpoint })
 
+	usageRequests := make(chan http.Header, 1)
+	usageServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		usageRequests <- r.Header.Clone()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{
+			"plan_type": "pro",
+			"rate_limit": {
+				"primary_window": {
+					"used_percent": 3,
+					"limit_window_seconds": 18000,
+					"reset_at": 1893456000
+				},
+				"secondary_window": {
+					"used_percent": 11,
+					"limit_window_seconds": 604800,
+					"reset_at": 1894060800
+				}
+			}
+		}`)
+	}))
+	defer usageServer.Close()
+	oldUsageEndpoints := codexOAuthUsageEndpoints
+	oldUsageHTTPClient := codexOAuthUsageHTTPClient
+	codexOAuthUsageEndpoints = []string{usageServer.URL + "/backend-api/codex/usage"}
+	codexOAuthUsageHTTPClient = usageServer.Client()
+	t.Cleanup(func() {
+		codexOAuthUsageEndpoints = oldUsageEndpoints
+		codexOAuthUsageHTTPClient = oldUsageHTTPClient
+	})
+
 	cfgManager := newResponsesWebSocketTestConfigManager(t)
 	cfg := cfgManager.GetConfig()
 	cfg.DebugLog = config.DebugLogConfig{Enabled: true, MaxBodySize: 100000}
@@ -348,6 +380,30 @@ func TestResponsesWebSocketHandlerProxiesOpenAIOAuthWebSocket(t *testing.T) {
 	if !strings.Contains(debugEntry.ResponseBody, `"type":"response.output_text.delta"`) ||
 		!strings.Contains(debugEntry.ResponseBody, `"type":"response.completed"`) {
 		t.Fatalf("debug response body = %s", debugEntry.ResponseBody)
+	}
+
+	select {
+	case headers := <-usageRequests:
+		if got := headers.Get("Authorization"); got != "Bearer access-token" {
+			t.Fatalf("usage Authorization = %q", got)
+		}
+		if got := headers.Get("Chatgpt-Account-Id"); got != "account-id" {
+			t.Fatalf("usage Chatgpt-Account-Id = %q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for websocket quota refresh")
+	}
+
+	cfgAfter := cfgManager.GetConfig()
+	stableID := cfgAfter.ResponsesUpstream[0].ID
+	stored := quota.GetManager().GetStatusForChannel(logRecord.ChannelID, stableID, "oauth-ws")
+	if stored == nil || stored.CodexQuota == nil {
+		t.Fatalf("expected stored websocket Codex quota, got %+v", stored)
+	}
+	if stored.CodexQuota.PrimaryUsedPercentValue() != 3 || stored.CodexQuota.SecondaryUsedPercentValue() != 11 {
+		t.Fatalf("stored quota = primary:%v secondary:%v, want primary:3 secondary:11",
+			stored.CodexQuota.PrimaryUsedPercentValue(),
+			stored.CodexQuota.SecondaryUsedPercentValue())
 	}
 }
 
