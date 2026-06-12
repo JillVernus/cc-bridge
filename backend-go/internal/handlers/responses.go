@@ -2656,6 +2656,7 @@ func handleResponsesSuccess(
 		firstTokenDetector := streamDetectorForServiceType(upstreamType)
 		var firstTokenTime *time.Time
 		var firstStreamPayloadTime *time.Time
+		responsesTerminalState := responsesTerminalSSEState{}
 
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -2715,6 +2716,21 @@ func handleResponsesSuccess(
 
 			if flusher != nil {
 				flusher.Flush()
+			}
+
+			if responsesTerminalState.Observe(line) {
+				_, err := c.Writer.Write([]byte("\n"))
+				if err != nil {
+					log.Printf("⚠️ 流式响应传输错误: %v", err)
+					streamWriteErr = err
+				}
+				if streamLoggingEnabled || debugLogEnabled {
+					logBuffer.WriteString("\n")
+				}
+				if flusher != nil {
+					flusher.Flush()
+				}
+				break
 			}
 		}
 
@@ -3012,6 +3028,39 @@ type CodexUsage struct {
 	OutputTokens int
 	CachedTokens int
 	TotalTokens  int
+}
+
+type responsesTerminalSSEState struct {
+	lastEvent string
+}
+
+func (s *responsesTerminalSSEState) Observe(line string) bool {
+	if s == nil {
+		return false
+	}
+
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		s.lastEvent = ""
+		return false
+	}
+
+	if strings.HasPrefix(trimmed, "event:") {
+		s.lastEvent = strings.TrimSpace(strings.TrimPrefix(trimmed, "event:"))
+		return false
+	}
+
+	if !strings.HasPrefix(trimmed, "data:") {
+		return false
+	}
+
+	payload := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
+	if payload == "[DONE]" || s.lastEvent == "response.completed" || s.lastEvent == "response.done" {
+		return true
+	}
+
+	eventType := strings.TrimSpace(gjson.Get(payload, "type").String())
+	return eventType == "response.completed" || eventType == "response.done"
 }
 
 // extractCodexUsageFromSSE 从 SSE 事件行中提取 Codex usage 数据

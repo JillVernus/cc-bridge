@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -265,6 +266,99 @@ func TestHandleResponsesSuccess_StreamRecordsFirstToken(t *testing.T) {
 				t.Fatalf("expected positive firstTokenDurationMs, got %d", got.FirstTokenDurationMs)
 			}
 		})
+	}
+}
+
+func TestHandleResponsesSuccess_CompletesAfterResponsesTerminalEventWithoutEOF(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cfgManager := newTestConfigManager(t)
+	reqLogManager := newTestRequestLogManager(t)
+
+	startTime := time.Now().Add(-150 * time.Millisecond)
+	requestLogID := addPendingLogForTest(t, reqLogManager, startTime, "/v1/responses", "responses", "gpt-5", true, 2, "responses-2")
+
+	body := newBlockingHandlerReadCloser(strings.Join([]string{
+		`event: response.output_text.delta`,
+		`data: {"type":"response.output_text.delta","delta":"Hi"}`,
+		``,
+		`event: response.completed`,
+		`data: {"type":"response.completed","response":{"id":"resp_1","model":"gpt-5-codex","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"Hi"}]}],"usage":{"input_tokens":10,"input_tokens_details":{"cached_tokens":3},"output_tokens":2,"total_tokens":12}}}`,
+		``,
+	}, "\n"))
+	t.Cleanup(func() {
+		_ = body.Close()
+	})
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"stream":true}`))
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+		},
+		Body: body,
+	}
+
+	upstream := &config.UpstreamConfig{
+		Index:       2,
+		Name:        "responses-2",
+		ServiceType: "responses",
+	}
+	envCfg := &config.EnvConfig{LogLevel: "error"}
+
+	done := make(chan struct{})
+	go func() {
+		handleResponsesSuccess(
+			c,
+			resp,
+			nil,
+			upstream,
+			envCfg,
+			cfgManager,
+			nil,
+			startTime,
+			&types.ResponsesRequest{Model: "gpt-5", Stream: true},
+			[]byte(`{"model":"gpt-5","stream":true}`),
+			reqLogManager,
+			requestLogID,
+			nil,
+			2,
+			"responses-2",
+			false,
+			false,
+		)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(300 * time.Millisecond):
+		_ = body.Close()
+		<-done
+		t.Fatal("expected Responses stream log to complete after response.completed without waiting for EOF")
+	}
+
+	got := mustGetRecentLogByID(t, reqLogManager, requestLogID)
+	if got.Status != requestlog.StatusCompleted {
+		t.Fatalf("expected completed status, got %s", got.Status)
+	}
+	if got.InputTokens != 7 || got.CacheReadInputTokens != 3 || got.OutputTokens != 2 {
+		t.Fatalf("expected usage input/cache/output 7/3/2, got %d/%d/%d", got.InputTokens, got.CacheReadInputTokens, got.OutputTokens)
+	}
+	if got.ResponseModel != "gpt-5-codex" {
+		t.Fatalf("expected responseModel gpt-5-codex, got %q", got.ResponseModel)
+	}
+
+	responseBody := rec.Body.String()
+	completedIndex := strings.Index(responseBody, `"type":"response.completed"`)
+	if completedIndex < 0 {
+		t.Fatalf("expected response.completed to be forwarded, body=%q", responseBody)
+	}
+	if !strings.Contains(responseBody[completedIndex:], "\n\n") {
+		t.Fatalf("expected response.completed SSE frame delimiter to be forwarded before closing, body=%q", responseBody)
 	}
 }
 
@@ -868,4 +962,32 @@ func mustGetRecentLogByID(t *testing.T, manager *requestlog.Manager, id string) 
 	}
 	t.Fatalf("record %s not found in recent logs", id)
 	return requestlog.RequestLog{}
+}
+
+type blockingHandlerReadCloser struct {
+	reader *strings.Reader
+	done   chan struct{}
+	once   sync.Once
+}
+
+func newBlockingHandlerReadCloser(data string) *blockingHandlerReadCloser {
+	return &blockingHandlerReadCloser{
+		reader: strings.NewReader(data),
+		done:   make(chan struct{}),
+	}
+}
+
+func (b *blockingHandlerReadCloser) Read(p []byte) (int, error) {
+	if b.reader.Len() > 0 {
+		return b.reader.Read(p)
+	}
+	<-b.done
+	return 0, io.EOF
+}
+
+func (b *blockingHandlerReadCloser) Close() error {
+	b.once.Do(func() {
+		close(b.done)
+	})
+	return nil
 }

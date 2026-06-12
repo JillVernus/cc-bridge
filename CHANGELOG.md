@@ -4,6 +4,21 @@
 
 ---
 
+## [v1.5.60] - 2026-06-12
+
+### 🐛 修复
+
+- **Responses SSE 完成状态与 Codex 客户端断流修复**:
+  - 原生 `/v1/responses` 流在收到 `response.completed` / `response.done` / `[DONE]` 后会立即完成请求日志，不再等待上游 EOF。
+  - 关闭流前会补齐 SSE 事件空行分隔符，避免 Codex 客户端误报 `stream closed before response.completed`。
+  - Forward Proxy 的 Responses SSE 捕获路径同步支持终止事件后即时完成日志。
+
+### ✅ 验证
+
+- `go test ./internal/forwardproxy -count=1` 通过
+- `go test ./internal/handlers -run TestHandleResponsesSuccess_CompletesAfterResponsesTerminalEventWithoutEOF -count=1 -v` 通过
+- `git diff --check` 通过
+
 ## [v1.5.59] - 2026-06-11
 
 ### 📝 发布

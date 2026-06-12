@@ -560,6 +560,167 @@ func TestProxyRequest_InterceptedResponsesEndpointCreatesCompletedLog(t *testing
 	}
 }
 
+func TestProxySSEResponse_ResponsesSSECompletesLogAfterTerminalEventWithoutEOF(t *testing.T) {
+	reqLogManager := newForwardProxyTestRequestLogManager(t)
+
+	startTime := time.Now().Add(-150 * time.Millisecond)
+	pending := &requestlog.RequestLog{
+		Status:       requestlog.StatusPending,
+		InitialTime:  startTime,
+		Type:         "responses",
+		ProviderName: "api.openai.com",
+		Model:        "gpt-5",
+		Stream:       true,
+		Endpoint:     "/v1/responses",
+		ChannelUID:   "subscription:forward-proxy",
+		ChannelName:  "Subscription (Forward Proxy)",
+	}
+	if err := reqLogManager.Add(pending); err != nil {
+		t.Fatalf("failed to add pending log: %v", err)
+	}
+
+	body := newBlockingReadCloser(strings.Join([]string{
+		`data: {"type":"response.output_text.delta","delta":"Hi"}`,
+		``,
+		`data: {"type":"response.completed","response":{"model":"gpt-5-codex","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"Hi"}]}],"usage":{"input_tokens":5,"output_tokens":1,"total_tokens":6}}}`,
+		``,
+		``,
+	}, "\n"))
+	t.Cleanup(func() {
+		_ = body.Close()
+	})
+
+	s := &Server{
+		requestLogManager: reqLogManager,
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "https://api.openai.com/v1/responses", strings.NewReader(`{"model":"gpt-5","stream":true}`))
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+		},
+		Body: body,
+	}
+
+	var clientSink bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		s.proxySSEResponse(&clientSink, resp, req, "api.openai.com", xInitiatorCostWindowRef{}, startTime, nil, pending.ID)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(300 * time.Millisecond):
+		_ = body.Close()
+		<-done
+		t.Fatal("expected Responses SSE log to complete after response.completed without waiting for EOF")
+	}
+
+	recent, err := reqLogManager.GetRecent(&requestlog.RequestLogFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("GetRecent failed: %v", err)
+	}
+	if len(recent.Requests) != 1 {
+		t.Fatalf("expected exactly one request log, got %d", len(recent.Requests))
+	}
+
+	got := recent.Requests[0]
+	if got.Status != requestlog.StatusCompleted {
+		t.Fatalf("expected completed status, got %s", got.Status)
+	}
+	if got.InputTokens != 5 || got.OutputTokens != 1 {
+		t.Fatalf("expected usage 5/1, got %d/%d", got.InputTokens, got.OutputTokens)
+	}
+	if got.ResponseModel != "gpt-5-codex" {
+		t.Fatalf("expected responseModel gpt-5-codex, got %q", got.ResponseModel)
+	}
+}
+
+func TestHandleHTTPForward_ResponsesSSECompletesLogAfterTerminalEventWithoutEOF(t *testing.T) {
+	reqLogManager := newForwardProxyTestRequestLogManager(t)
+
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseUpstream := func() {
+		releaseOnce.Do(func() {
+			close(release)
+		})
+	}
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `data: {"type":"response.output_text.delta","delta":"Hi"}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"response.completed","response":{"model":"gpt-5-codex","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"Hi"}]}],"usage":{"input_tokens":5,"output_tokens":1,"total_tokens":6}}}`+"\n\n")
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-release
+	}))
+	t.Cleanup(func() {
+		releaseUpstream()
+		upstream.Close()
+	})
+
+	upstreamURL, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatalf("failed to parse upstream URL: %v", err)
+	}
+	hostOnly := strings.ToLower(upstreamURL.Hostname())
+
+	s := &Server{
+		requestLogManager: reqLogManager,
+		httpClient:        upstream.Client(),
+		enabled:           true,
+		interceptDomains: map[string]bool{
+			hostOnly: true,
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, upstream.URL+"/v1/responses", strings.NewReader(`{"model":"gpt-5","stream":true}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		s.handleHTTPForward(rec, req)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(300 * time.Millisecond):
+		releaseUpstream()
+		<-done
+		t.Fatal("expected HTTP forward Responses SSE log to complete after response.completed without waiting for EOF")
+	}
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	recent, err := reqLogManager.GetRecent(&requestlog.RequestLogFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("GetRecent failed: %v", err)
+	}
+	if len(recent.Requests) != 1 {
+		t.Fatalf("expected exactly one request log, got %d", len(recent.Requests))
+	}
+
+	got := recent.Requests[0]
+	if got.Status != requestlog.StatusCompleted {
+		t.Fatalf("expected completed status, got %s", got.Status)
+	}
+	if got.InputTokens != 5 || got.OutputTokens != 1 {
+		t.Fatalf("expected usage 5/1, got %d/%d", got.InputTokens, got.OutputTokens)
+	}
+	if got.ResponseModel != "gpt-5-codex" {
+		t.Fatalf("expected responseModel gpt-5-codex, got %q", got.ResponseModel)
+	}
+}
+
 func TestHandleHTTPForward_UnknownSSEStreamStillParsesClaudeStyleUsage(t *testing.T) {
 	reqLogManager := newForwardProxyTestRequestLogManager(t)
 
@@ -688,4 +849,32 @@ func TestHandleHTTPForward_InterceptedOpenAIChatSSEParsesFinalUsageAndModel(t *t
 	if got.ResponseModel != "claude-haiku-4.5" {
 		t.Fatalf("expected responseModel claude-haiku-4.5, got %q", got.ResponseModel)
 	}
+}
+
+type blockingReadCloser struct {
+	reader *strings.Reader
+	done   chan struct{}
+	once   sync.Once
+}
+
+func newBlockingReadCloser(data string) *blockingReadCloser {
+	return &blockingReadCloser{
+		reader: strings.NewReader(data),
+		done:   make(chan struct{}),
+	}
+}
+
+func (b *blockingReadCloser) Read(p []byte) (int, error) {
+	if b.reader.Len() > 0 {
+		return b.reader.Read(p)
+	}
+	<-b.done
+	return 0, io.EOF
+}
+
+func (b *blockingReadCloser) Close() error {
+	b.once.Do(func() {
+		close(b.done)
+	})
+	return nil
 }

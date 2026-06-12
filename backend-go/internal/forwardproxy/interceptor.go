@@ -213,6 +213,7 @@ func (s *Server) proxyRequest(clientConn io.Writer, upstreamConn net.Conn, upstr
 // Uses resp.Write() to preserve correct HTTP transfer framing (chunked encoding, etc.).
 func (s *Server) proxySSEResponse(clientConn io.Writer, resp *http.Response, req *http.Request, hostOnly string, windowedCostWindow xInitiatorCostWindowRef, startTime time.Time, reqBody []byte, pendingLogID string) {
 	parser := newInterceptedStreamParser(req.URL.Path)
+	resp.Body = wrapTerminalSSEResponseBody(req.URL.Path, resp.Body)
 
 	// Tee the response body: resp.Write reads and forwards to client,
 	// TeeReader copies bytes to parser for metric extraction.

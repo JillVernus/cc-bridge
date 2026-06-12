@@ -436,6 +436,7 @@ func (s *Server) handleHTTPForward(w http.ResponseWriter, r *http.Request) {
 
 	if isSSE {
 		parser := newInterceptedStreamParser(r.URL.Path)
+		resp.Body = wrapTerminalSSEResponseBody(r.URL.Path, resp.Body)
 
 		w.WriteHeader(resp.StatusCode)
 
