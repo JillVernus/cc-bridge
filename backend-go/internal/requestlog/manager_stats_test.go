@@ -1,10 +1,232 @@
 package requestlog
 
 import (
+	"encoding/json"
+	"math"
 	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestGetStats_IncludesAverageTPSPerSummaryGroup(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "request_logs_stats.db")
+	manager, err := NewManager(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create manager: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = manager.Close()
+	})
+
+	apiKeyID := int64(7)
+	base := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
+	records := []*RequestLog{
+		{
+			Status:       StatusCompleted,
+			InitialTime:  base,
+			Type:         "claude",
+			ProviderName: "channel-a",
+			Model:        "model-a",
+			OutputTokens: 100,
+			DurationMs:   10000,
+			HTTPStatus:   200,
+			ChannelID:    1,
+			ChannelName:  "channel-a",
+			Endpoint:     "/v1/messages",
+			ClientID:     "client-a",
+			SessionID:    "session-a",
+			APIKeyID:     &apiKeyID,
+		},
+		{
+			Status:       StatusCompleted,
+			InitialTime:  base.Add(time.Second),
+			Type:         "claude",
+			ProviderName: "channel-a",
+			Model:        "model-a",
+			OutputTokens: 10,
+			DurationMs:   100,
+			HTTPStatus:   200,
+			ChannelID:    1,
+			ChannelName:  "channel-a",
+			Endpoint:     "/v1/messages",
+			ClientID:     "client-a",
+			SessionID:    "session-a",
+			APIKeyID:     &apiKeyID,
+		},
+		{
+			Status:       StatusCompleted,
+			InitialTime:  base.Add(2 * time.Second),
+			Type:         "claude",
+			ProviderName: "channel-a",
+			Model:        "model-a",
+			OutputTokens: 999,
+			DurationMs:   0,
+			HTTPStatus:   200,
+			ChannelID:    1,
+			ChannelName:  "channel-a",
+			Endpoint:     "/v1/messages",
+			ClientID:     "client-a",
+			SessionID:    "session-a",
+			APIKeyID:     &apiKeyID,
+		},
+	}
+	for _, record := range records {
+		mustAddLog(t, manager, record)
+	}
+
+	stats, err := manager.GetStats(&RequestLogFilter{})
+	if err != nil {
+		t.Fatalf("GetStats failed: %v", err)
+	}
+
+	payload, err := json.Marshal(stats)
+	if err != nil {
+		t.Fatalf("marshal stats failed: %v", err)
+	}
+	var decoded struct {
+		AvgTPS            float64                       `json:"avgTps"`
+		AvgTPSSampleCount int64                         `json:"avgTpsSampleCount"`
+		ByProvider        map[string]map[string]float64 `json:"byProvider"`
+		ByModel           map[string]map[string]float64 `json:"byModel"`
+		ByClient          map[string]map[string]float64 `json:"byClient"`
+		BySession         map[string]map[string]float64 `json:"bySession"`
+		ByAPIKey          map[string]map[string]float64 `json:"byApiKey"`
+	}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("unmarshal stats failed: %v", err)
+	}
+
+	wantAvgTPS := 55.0
+	if math.Abs(decoded.AvgTPS-wantAvgTPS) > 0.0001 {
+		t.Fatalf("avgTps = %v, want %v", decoded.AvgTPS, wantAvgTPS)
+	}
+	if decoded.AvgTPSSampleCount != 2 {
+		t.Fatalf("avgTpsSampleCount = %d, want 2", decoded.AvgTPSSampleCount)
+	}
+
+	assertAvgTPS := func(name string, group map[string]map[string]float64, key string) {
+		t.Helper()
+		got, ok := group[key]["avgTps"]
+		if !ok {
+			t.Fatalf("%s[%q] missing avgTps in JSON payload: %#v", name, key, group[key])
+		}
+		if math.Abs(got-wantAvgTPS) > 0.0001 {
+			t.Fatalf("%s[%q].avgTps = %v, want %v", name, key, got, wantAvgTPS)
+		}
+	}
+
+	assertAvgTPS("byProvider", decoded.ByProvider, "channel-a")
+	assertAvgTPS("byModel", decoded.ByModel, "model-a")
+	assertAvgTPS("byClient", decoded.ByClient, "client-a")
+	assertAvgTPS("bySession", decoded.BySession, "session-a")
+	assertAvgTPS("byApiKey", decoded.ByAPIKey, "7")
+}
+
+func TestGetDailyStats_IncludesAverageTPSPerDay(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "request_logs_daily_tps.db")
+	manager, err := NewManager(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create manager: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = manager.Close()
+	})
+
+	base := time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC)
+	records := []*RequestLog{
+		{
+			Status:       StatusCompleted,
+			InitialTime:  base,
+			Type:         "claude",
+			ProviderName: "channel-a",
+			Model:        "model-a",
+			OutputTokens: 100,
+			DurationMs:   10000,
+			HTTPStatus:   200,
+			ChannelID:    1,
+			ChannelName:  "channel-a",
+			Endpoint:     "/v1/messages",
+		},
+		{
+			Status:       StatusCompleted,
+			InitialTime:  base.Add(time.Hour),
+			Type:         "claude",
+			ProviderName: "channel-a",
+			Model:        "model-a",
+			OutputTokens: 10,
+			DurationMs:   100,
+			HTTPStatus:   200,
+			ChannelID:    1,
+			ChannelName:  "channel-a",
+			Endpoint:     "/v1/messages",
+		},
+		{
+			Status:       StatusCompleted,
+			InitialTime:  base.Add(2 * time.Hour),
+			Type:         "claude",
+			ProviderName: "channel-a",
+			Model:        "model-a",
+			OutputTokens: 999,
+			DurationMs:   0,
+			HTTPStatus:   200,
+			ChannelID:    1,
+			ChannelName:  "channel-a",
+			Endpoint:     "/v1/messages",
+		},
+		{
+			Status:       StatusCompleted,
+			InitialTime:  base.AddDate(0, 0, 1),
+			Type:         "claude",
+			ProviderName: "channel-a",
+			Model:        "model-a",
+			OutputTokens: 20,
+			DurationMs:   1000,
+			HTTPStatus:   200,
+			ChannelID:    1,
+			ChannelName:  "channel-a",
+			Endpoint:     "/v1/messages",
+		},
+	}
+	for _, record := range records {
+		mustAddLog(t, manager, record)
+	}
+
+	resp, err := manager.GetDailyStats(base.Add(-time.Minute), base.AddDate(0, 0, 2), "/v1/messages")
+	if err != nil {
+		t.Fatalf("GetDailyStats failed: %v", err)
+	}
+	if len(resp.DataPoints) != 2 {
+		t.Fatalf("expected 2 daily data points, got %d", len(resp.DataPoints))
+	}
+
+	payload, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal daily stats failed: %v", err)
+	}
+	var decoded struct {
+		DataPoints []struct {
+			Date              string  `json:"date"`
+			AvgTPS            float64 `json:"avgTps"`
+			AvgTPSSampleCount int64   `json:"avgTpsSampleCount"`
+		} `json:"dataPoints"`
+	}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("unmarshal daily stats failed: %v", err)
+	}
+
+	if math.Abs(decoded.DataPoints[0].AvgTPS-55.0) > 0.0001 {
+		t.Fatalf("%s avgTps = %v, want 55", decoded.DataPoints[0].Date, decoded.DataPoints[0].AvgTPS)
+	}
+	if decoded.DataPoints[0].AvgTPSSampleCount != 2 {
+		t.Fatalf("%s avgTpsSampleCount = %d, want 2", decoded.DataPoints[0].Date, decoded.DataPoints[0].AvgTPSSampleCount)
+	}
+	if math.Abs(decoded.DataPoints[1].AvgTPS-20.0) > 0.0001 {
+		t.Fatalf("%s avgTps = %v, want 20", decoded.DataPoints[1].Date, decoded.DataPoints[1].AvgTPS)
+	}
+	if decoded.DataPoints[1].AvgTPSSampleCount != 1 {
+		t.Fatalf("%s avgTpsSampleCount = %d, want 1", decoded.DataPoints[1].Date, decoded.DataPoints[1].AvgTPSSampleCount)
+	}
+}
 
 func TestGetStats_ExcludesRetryWaitAuditRows(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "request_logs_stats.db")

@@ -4,6 +4,24 @@
 
 ---
 
+## [v1.5.62] - 2026-06-13
+
+### ✨ 功能
+
+- **Main Log 渠道过滤与 Avg TPS 报表增强**:
+  - Main Log 表格的渠道过滤入口移动到 Channel 列头，并通过后端 `channel` 过滤参数精确筛选请求日志。
+  - Main Log 汇总卡新增 Avg TPS，支持按渠道、模型、客户端、会话和 API Key 分组展示与排序。
+  - Report 页面新增 Avg TPS 汇总卡、每日 Avg TPS 趋势图、各维度明细表 Avg TPS 列和 CSV 导出字段。
+  - Report 明细表支持点击表头切换排序方向，默认保持按费用倒序。
+
+### ✅ 验证
+
+- `go test ./internal/requestlog ./internal/handlers -count=1` 通过
+- `bun test` 通过
+- `bun run type-check` 通过
+- `bun run build` 通过（保留现有大 chunk 警告）
+- `git diff --check` 通过
+
 ## [v1.5.61] - 2026-06-13
 
 ### 🐛 修复

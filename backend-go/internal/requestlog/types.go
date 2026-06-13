@@ -102,6 +102,7 @@ type UsageData struct {
 // RequestLogFilter represents filter options for querying request logs
 type RequestLogFilter struct {
 	Provider   string     `json:"provider,omitempty"`
+	Channel    string     `json:"channel,omitempty"`
 	Model      string     `json:"model,omitempty"`
 	HTTPStatus int        `json:"httpStatus,omitempty"`
 	Endpoint   string     `json:"endpoint,omitempty"`
@@ -115,19 +116,21 @@ type RequestLogFilter struct {
 
 // RequestLogStats represents aggregated statistics
 type RequestLogStats struct {
-	TotalRequests int64                    `json:"totalRequests"`
-	TotalSuccess  int64                    `json:"totalSuccess"`
-	TotalFailure  int64                    `json:"totalFailure"`
-	TotalTokens   UsageData                `json:"totalTokens"`
-	TotalCost     float64                  `json:"totalCost"`
-	AvgLatencyMs  float64                  `json:"avgLatencyMs"`
-	P95LatencyMs  int64                    `json:"p95LatencyMs"`
-	ByProvider    map[string]ProviderStats `json:"byProvider"`
-	ByModel       map[string]ModelStats    `json:"byModel"`
-	ByClient      map[string]GroupStats    `json:"byClient"`
-	BySession     map[string]GroupStats    `json:"bySession"`
-	ByAPIKey      map[string]GroupStats    `json:"byApiKey"`
-	TimeRange     TimeRange                `json:"timeRange"`
+	TotalRequests     int64                    `json:"totalRequests"`
+	TotalSuccess      int64                    `json:"totalSuccess"`
+	TotalFailure      int64                    `json:"totalFailure"`
+	TotalTokens       UsageData                `json:"totalTokens"`
+	TotalCost         float64                  `json:"totalCost"`
+	AvgLatencyMs      float64                  `json:"avgLatencyMs"`
+	AvgTPS            float64                  `json:"avgTps"`
+	AvgTPSSampleCount int64                    `json:"avgTpsSampleCount"`
+	P95LatencyMs      int64                    `json:"p95LatencyMs"`
+	ByProvider        map[string]ProviderStats `json:"byProvider"`
+	ByModel           map[string]ModelStats    `json:"byModel"`
+	ByClient          map[string]GroupStats    `json:"byClient"`
+	BySession         map[string]GroupStats    `json:"bySession"`
+	ByAPIKey          map[string]GroupStats    `json:"byApiKey"`
+	TimeRange         TimeRange                `json:"timeRange"`
 }
 
 // GroupStats represents statistics for a generic group (user, session, etc.)
@@ -141,6 +144,8 @@ type GroupStats struct {
 	CacheReadInputTokens     int     `json:"cacheReadInputTokens"`
 	Cost                     float64 `json:"cost"`
 	AvgLatencyMs             float64 `json:"avgLatencyMs"`
+	AvgTPS                   float64 `json:"avgTps"`
+	AvgTPSSampleCount        int64   `json:"avgTpsSampleCount"`
 }
 
 // ProviderStats represents statistics for a single provider
@@ -154,6 +159,8 @@ type ProviderStats struct {
 	CacheReadInputTokens     int     `json:"cacheReadInputTokens"`
 	Cost                     float64 `json:"cost"`
 	AvgLatencyMs             float64 `json:"avgLatencyMs"`
+	AvgTPS                   float64 `json:"avgTps"`
+	AvgTPSSampleCount        int64   `json:"avgTpsSampleCount"`
 }
 
 // ModelStats represents statistics for a single model
@@ -167,6 +174,8 @@ type ModelStats struct {
 	CacheReadInputTokens     int     `json:"cacheReadInputTokens"`
 	Cost                     float64 `json:"cost"`
 	AvgLatencyMs             float64 `json:"avgLatencyMs"`
+	AvgTPS                   float64 `json:"avgTps"`
+	AvgTPSSampleCount        int64   `json:"avgTpsSampleCount"`
 }
 
 // TimeRange represents a time range for statistics
@@ -187,6 +196,8 @@ type DailyStatsDataPoint struct {
 	CacheReadInputTokens     int64   `json:"cacheReadInputTokens"`
 	Cost                     float64 `json:"cost"`
 	AvgDurationMs            float64 `json:"avgDurationMs"`
+	AvgTPS                   float64 `json:"avgTps"`
+	AvgTPSSampleCount        int64   `json:"avgTpsSampleCount"`
 }
 
 // DailyStatsResponse is the response for the daily stats endpoint

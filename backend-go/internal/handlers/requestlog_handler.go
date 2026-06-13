@@ -407,6 +407,9 @@ func (h *RequestLogHandler) GetLogs(c *gin.Context) {
 	if provider := c.Query("provider"); provider != "" {
 		filter.Provider = provider
 	}
+	if channel := strings.TrimSpace(c.Query("channel")); channel != "" {
+		filter.Channel = channel
+	}
 	if model := c.Query("model"); model != "" {
 		filter.Model = model
 	}

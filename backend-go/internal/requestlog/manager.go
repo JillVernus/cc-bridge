@@ -1232,6 +1232,10 @@ func (m *Manager) GetRecent(filter *RequestLogFilter) (*RequestLogListResponse, 
 		conditions = append(conditions, "r.provider = ?")
 		args = append(args, filter.Provider)
 	}
+	if filter.Channel != "" {
+		conditions = append(conditions, "(r.channel_name = ? OR r.provider_name = ? OR r.provider = ?)")
+		args = append(args, filter.Channel, filter.Channel, filter.Channel)
+	}
 	if filter.Model != "" {
 		conditions = append(conditions, "r.model = ?")
 		args = append(args, filter.Model)
@@ -1652,6 +1656,8 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 			COALESCE(SUM(total_tokens), 0),
 			COALESCE(SUM(price), 0),
 			COALESCE(AVG(CASE WHEN duration_ms > 0 THEN duration_ms END), 0),
+			COALESCE(AVG(CASE WHEN output_tokens > 0 AND duration_ms > 0 THEN output_tokens * 1000.0 / duration_ms END), 0),
+			COALESCE(SUM(CASE WHEN output_tokens > 0 AND duration_ms > 0 THEN 1 ELSE 0 END), 0),
 			MIN(initial_time),
 			MAX(initial_time)
 		FROM request_logs %s
@@ -1670,6 +1676,8 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 		&stats.TotalTokens.TotalTokens,
 		&stats.TotalCost,
 		&avgLatency,
+		&stats.AvgTPS,
+		&stats.AvgTPSSampleCount,
 		&minTimeStr,
 		&maxTimeStr,
 	)
@@ -1726,7 +1734,9 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 			COALESCE(SUM(cache_creation_input_tokens), 0),
 			COALESCE(SUM(cache_read_input_tokens), 0),
 			COALESCE(SUM(price), 0),
-			COALESCE(AVG(CASE WHEN duration_ms > 0 THEN duration_ms END), 0)`
+			COALESCE(AVG(CASE WHEN duration_ms > 0 THEN duration_ms END), 0),
+			COALESCE(AVG(CASE WHEN output_tokens > 0 AND duration_ms > 0 THEN output_tokens * 1000.0 / duration_ms END), 0),
+			COALESCE(SUM(CASE WHEN output_tokens > 0 AND duration_ms > 0 THEN 1 ELSE 0 END), 0)`
 
 	// Get stats by provider (group by provider_name, the actual channel name)
 	providerQuery := m.convertQuery(fmt.Sprintf(`
@@ -1744,7 +1754,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 	for providerRows.Next() {
 		var provider string
 		var ps ProviderStats
-		if err := providerRows.Scan(&provider, &ps.Count, &ps.Success, &ps.Failure, &ps.InputTokens, &ps.OutputTokens, &ps.CacheCreationInputTokens, &ps.CacheReadInputTokens, &ps.Cost, &ps.AvgLatencyMs); err != nil {
+		if err := providerRows.Scan(&provider, &ps.Count, &ps.Success, &ps.Failure, &ps.InputTokens, &ps.OutputTokens, &ps.CacheCreationInputTokens, &ps.CacheReadInputTokens, &ps.Cost, &ps.AvgLatencyMs, &ps.AvgTPS, &ps.AvgTPSSampleCount); err != nil {
 			return nil, fmt.Errorf("failed to scan provider stats: %w", err)
 		}
 		stats.ByProvider[provider] = ps
@@ -1766,7 +1776,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 	for modelRows.Next() {
 		var model string
 		var ms ModelStats
-		if err := modelRows.Scan(&model, &ms.Count, &ms.Success, &ms.Failure, &ms.InputTokens, &ms.OutputTokens, &ms.CacheCreationInputTokens, &ms.CacheReadInputTokens, &ms.Cost, &ms.AvgLatencyMs); err != nil {
+		if err := modelRows.Scan(&model, &ms.Count, &ms.Success, &ms.Failure, &ms.InputTokens, &ms.OutputTokens, &ms.CacheCreationInputTokens, &ms.CacheReadInputTokens, &ms.Cost, &ms.AvgLatencyMs, &ms.AvgTPS, &ms.AvgTPSSampleCount); err != nil {
 			return nil, fmt.Errorf("failed to scan model stats: %w", err)
 		}
 		stats.ByModel[model] = ms
@@ -1788,7 +1798,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 	for userRows.Next() {
 		var client string
 		var us GroupStats
-		if err := userRows.Scan(&client, &us.Count, &us.Success, &us.Failure, &us.InputTokens, &us.OutputTokens, &us.CacheCreationInputTokens, &us.CacheReadInputTokens, &us.Cost, &us.AvgLatencyMs); err != nil {
+		if err := userRows.Scan(&client, &us.Count, &us.Success, &us.Failure, &us.InputTokens, &us.OutputTokens, &us.CacheCreationInputTokens, &us.CacheReadInputTokens, &us.Cost, &us.AvgLatencyMs, &us.AvgTPS, &us.AvgTPSSampleCount); err != nil {
 			return nil, fmt.Errorf("failed to scan client stats: %w", err)
 		}
 		stats.ByClient[client] = us
@@ -1810,7 +1820,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 	for sessionRows.Next() {
 		var session string
 		var ss GroupStats
-		if err := sessionRows.Scan(&session, &ss.Count, &ss.Success, &ss.Failure, &ss.InputTokens, &ss.OutputTokens, &ss.CacheCreationInputTokens, &ss.CacheReadInputTokens, &ss.Cost, &ss.AvgLatencyMs); err != nil {
+		if err := sessionRows.Scan(&session, &ss.Count, &ss.Success, &ss.Failure, &ss.InputTokens, &ss.OutputTokens, &ss.CacheCreationInputTokens, &ss.CacheReadInputTokens, &ss.Cost, &ss.AvgLatencyMs, &ss.AvgTPS, &ss.AvgTPSSampleCount); err != nil {
 			return nil, fmt.Errorf("failed to scan session stats: %w", err)
 		}
 		stats.BySession[session] = ss
@@ -1832,7 +1842,7 @@ func (m *Manager) GetStats(filter *RequestLogFilter) (*RequestLogStats, error) {
 	for apiKeyRows.Next() {
 		var apiKey string
 		var aks GroupStats
-		if err := apiKeyRows.Scan(&apiKey, &aks.Count, &aks.Success, &aks.Failure, &aks.InputTokens, &aks.OutputTokens, &aks.CacheCreationInputTokens, &aks.CacheReadInputTokens, &aks.Cost, &aks.AvgLatencyMs); err != nil {
+		if err := apiKeyRows.Scan(&apiKey, &aks.Count, &aks.Success, &aks.Failure, &aks.InputTokens, &aks.OutputTokens, &aks.CacheCreationInputTokens, &aks.CacheReadInputTokens, &aks.Cost, &aks.AvgLatencyMs, &aks.AvgTPS, &aks.AvgTPSSampleCount); err != nil {
 			return nil, fmt.Errorf("failed to scan api key stats: %w", err)
 		}
 		stats.ByAPIKey[apiKey] = aks
@@ -1887,6 +1897,8 @@ func (m *Manager) GetDailyStats(from, to time.Time, endpoint string) (*DailyStat
 	dayBuckets := make(map[string]*DailyStatsDataPoint)
 	dayDurationSums := make(map[string]float64)
 	dayDurationCounts := make(map[string]int64)
+	dayTPSSums := make(map[string]float64)
+	dayTPSCounts := make(map[string]int64)
 	var dayKeys []string
 	for rows.Next() {
 		var initialTimeStr string
@@ -1938,6 +1950,10 @@ func (m *Manager) GetDailyStats(from, to time.Time, endpoint string) (*DailyStat
 			dayDurationSums[dayKey] += float64(durationMs)
 			dayDurationCounts[dayKey]++
 		}
+		if outputTokens > 0 && durationMs > 0 {
+			dayTPSSums[dayKey] += float64(outputTokens) * 1000.0 / float64(durationMs)
+			dayTPSCounts[dayKey]++
+		}
 	}
 
 	sort.Strings(dayKeys)
@@ -1947,6 +1963,10 @@ func (m *Manager) GetDailyStats(from, to time.Time, endpoint string) (*DailyStat
 		dp := dayBuckets[dayKey]
 		if dayDurationCounts[dayKey] > 0 {
 			dp.AvgDurationMs = dayDurationSums[dayKey] / float64(dayDurationCounts[dayKey])
+		}
+		if dayTPSCounts[dayKey] > 0 {
+			dp.AvgTPS = dayTPSSums[dayKey] / float64(dayTPSCounts[dayKey])
+			dp.AvgTPSSampleCount = dayTPSCounts[dayKey]
 		}
 		dataPoints = append(dataPoints, *dp)
 	}

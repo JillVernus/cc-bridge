@@ -72,6 +72,10 @@
           <div class="rsc-value">{{ cacheHitRate }}%</div>
         </div>
         <div class="report-summary-card">
+          <div class="rsc-label">{{ t('report.avgTps') }}</div>
+          <div class="rsc-value">{{ fmtTps(stats?.avgTps ?? 0) }}</div>
+        </div>
+        <div class="report-summary-card">
           <div class="rsc-label">{{ t('report.avgLatency') }}</div>
           <div class="rsc-value">{{ fmtDuration(stats?.avgLatencyMs ?? 0) }}</div>
           <div class="rsc-sub">P95: {{ fmtDuration(stats?.p95LatencyMs ?? 0) }}</div>
@@ -95,7 +99,22 @@
             </div>
           </v-card>
         </v-col>
-        <v-col cols="12" md="3">
+        <v-col cols="12" md="6">
+          <v-card elevation="0" class="report-chart-card pa-3">
+            <div class="text-caption text-medium-emphasis mb-2">{{ t('report.dailyAvgTpsTrend') }}</div>
+            <apexchart
+              v-if="dailyTpsSeries.length"
+              type="line"
+              height="220"
+              :options="dailyTpsOptions"
+              :series="dailyTpsSeries"
+            />
+            <div v-else class="d-flex justify-center align-center text-medium-emphasis" style="height: 220px">
+              <span class="text-caption">{{ t('chart.noData') }}</span>
+            </div>
+          </v-card>
+        </v-col>
+        <v-col cols="12" md="6">
           <v-card elevation="0" class="report-chart-card pa-3">
             <div class="text-caption text-medium-emphasis mb-2">{{ t('report.modelDistribution') }}</div>
             <apexchart
@@ -110,7 +129,7 @@
             </div>
           </v-card>
         </v-col>
-        <v-col cols="12" md="3">
+        <v-col cols="12" md="6">
           <v-card elevation="0" class="report-chart-card pa-3">
             <div class="text-caption text-medium-emphasis mb-2">{{ t('report.tokenBreakdown') }}</div>
             <apexchart
@@ -147,14 +166,60 @@
           <v-table v-if="activeBreakdown === 'channel'" density="compact" class="report-table">
             <thead>
               <tr>
-                <th>{{ t('report.channelName') }}</th>
-                <th class="text-right">{{ t('report.requests') }}</th>
-                <th class="text-right">{{ t('report.successRateShort') }}</th>
-                <th class="text-right">{{ t('report.inputTokensShort') }}</th>
-                <th class="text-right">{{ t('report.outputTokensShort') }}</th>
-                <th class="text-right">{{ t('report.cacheTokens') }}</th>
-                <th class="text-right">{{ t('report.cost') }}</th>
-                <th class="text-right">{{ t('report.avgLatencyShort') }}</th>
+                <th :aria-sort="getBreakdownSortAria('name')">
+                  <button type="button" class="report-sort-header" @click="toggleBreakdownSort('name')">
+                    {{ t('report.channelName') }}
+                    <v-icon v-if="breakdownSortColumn === 'name'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
+                <th class="text-right" :aria-sort="getBreakdownSortAria('requests')">
+                  <button type="button" class="report-sort-header justify-end" @click="toggleBreakdownSort('requests')">
+                    {{ t('report.requests') }}
+                    <v-icon v-if="breakdownSortColumn === 'requests'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
+                <th class="text-right" :aria-sort="getBreakdownSortAria('successRate')">
+                  <button type="button" class="report-sort-header justify-end" @click="toggleBreakdownSort('successRate')">
+                    {{ t('report.successRateShort') }}
+                    <v-icon v-if="breakdownSortColumn === 'successRate'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
+                <th class="text-right" :aria-sort="getBreakdownSortAria('inputTokens')">
+                  <button type="button" class="report-sort-header justify-end" @click="toggleBreakdownSort('inputTokens')">
+                    {{ t('report.inputTokensShort') }}
+                    <v-icon v-if="breakdownSortColumn === 'inputTokens'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
+                <th class="text-right" :aria-sort="getBreakdownSortAria('outputTokens')">
+                  <button type="button" class="report-sort-header justify-end" @click="toggleBreakdownSort('outputTokens')">
+                    {{ t('report.outputTokensShort') }}
+                    <v-icon v-if="breakdownSortColumn === 'outputTokens'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
+                <th class="text-right" :aria-sort="getBreakdownSortAria('cacheTokens')">
+                  <button type="button" class="report-sort-header justify-end" @click="toggleBreakdownSort('cacheTokens')">
+                    {{ t('report.cacheTokens') }}
+                    <v-icon v-if="breakdownSortColumn === 'cacheTokens'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
+                <th class="text-right" :aria-sort="getBreakdownSortAria('avgTps')">
+                  <button type="button" class="report-sort-header justify-end" @click="toggleBreakdownSort('avgTps')">
+                    {{ t('report.avgTps') }}
+                    <v-icon v-if="breakdownSortColumn === 'avgTps'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
+                <th class="text-right" :aria-sort="getBreakdownSortAria('cost')">
+                  <button type="button" class="report-sort-header justify-end" @click="toggleBreakdownSort('cost')">
+                    {{ t('report.cost') }}
+                    <v-icon v-if="breakdownSortColumn === 'cost'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
+                <th class="text-right" :aria-sort="getBreakdownSortAria('avgLatencyMs')">
+                  <button type="button" class="report-sort-header justify-end" @click="toggleBreakdownSort('avgLatencyMs')">
+                    {{ t('report.avgLatencyShort') }}
+                    <v-icon v-if="breakdownSortColumn === 'avgLatencyMs'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -165,11 +230,12 @@
                 <td class="text-right">{{ fmtNum(row.inputTokens) }}</td>
                 <td class="text-right">{{ fmtNum(row.outputTokens) }}</td>
                 <td class="text-right">{{ fmtNum(getCacheTokens(row)) }}</td>
+                <td class="text-right">{{ fmtTps(row.avgTps) }}</td>
                 <td class="text-right">{{ fmtCurrency(row.cost) }}</td>
                 <td class="text-right">{{ fmtDuration(row.avgLatencyMs) }}</td>
               </tr>
               <tr v-if="!channelRows.length">
-                <td colspan="8" class="text-center text-medium-emphasis">{{ t('common.noData') }}</td>
+                <td colspan="9" class="text-center text-medium-emphasis">{{ t('common.noData') }}</td>
               </tr>
             </tbody>
           </v-table>
@@ -178,12 +244,48 @@
           <v-table v-if="activeBreakdown === 'model'" density="compact" class="report-table">
             <thead>
               <tr>
-                <th>{{ t('report.modelName') }}</th>
-                <th class="text-right">{{ t('report.requests') }}</th>
-                <th class="text-right">{{ t('report.inputTokensShort') }}</th>
-                <th class="text-right">{{ t('report.outputTokensShort') }}</th>
-                <th class="text-right">{{ t('report.cost') }}</th>
-                <th class="text-right">{{ t('report.avgCostPerReq') }}</th>
+                <th :aria-sort="getBreakdownSortAria('name')">
+                  <button type="button" class="report-sort-header" @click="toggleBreakdownSort('name')">
+                    {{ t('report.modelName') }}
+                    <v-icon v-if="breakdownSortColumn === 'name'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
+                <th class="text-right" :aria-sort="getBreakdownSortAria('requests')">
+                  <button type="button" class="report-sort-header justify-end" @click="toggleBreakdownSort('requests')">
+                    {{ t('report.requests') }}
+                    <v-icon v-if="breakdownSortColumn === 'requests'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
+                <th class="text-right" :aria-sort="getBreakdownSortAria('inputTokens')">
+                  <button type="button" class="report-sort-header justify-end" @click="toggleBreakdownSort('inputTokens')">
+                    {{ t('report.inputTokensShort') }}
+                    <v-icon v-if="breakdownSortColumn === 'inputTokens'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
+                <th class="text-right" :aria-sort="getBreakdownSortAria('outputTokens')">
+                  <button type="button" class="report-sort-header justify-end" @click="toggleBreakdownSort('outputTokens')">
+                    {{ t('report.outputTokensShort') }}
+                    <v-icon v-if="breakdownSortColumn === 'outputTokens'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
+                <th class="text-right" :aria-sort="getBreakdownSortAria('avgTps')">
+                  <button type="button" class="report-sort-header justify-end" @click="toggleBreakdownSort('avgTps')">
+                    {{ t('report.avgTps') }}
+                    <v-icon v-if="breakdownSortColumn === 'avgTps'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
+                <th class="text-right" :aria-sort="getBreakdownSortAria('cost')">
+                  <button type="button" class="report-sort-header justify-end" @click="toggleBreakdownSort('cost')">
+                    {{ t('report.cost') }}
+                    <v-icon v-if="breakdownSortColumn === 'cost'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
+                <th class="text-right" :aria-sort="getBreakdownSortAria('avgCostPerReq')">
+                  <button type="button" class="report-sort-header justify-end" @click="toggleBreakdownSort('avgCostPerReq')">
+                    {{ t('report.avgCostPerReq') }}
+                    <v-icon v-if="breakdownSortColumn === 'avgCostPerReq'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -192,11 +294,12 @@
                 <td class="text-right">{{ fmtNum(row.count) }}</td>
                 <td class="text-right">{{ fmtNum(row.inputTokens) }}</td>
                 <td class="text-right">{{ fmtNum(row.outputTokens) }}</td>
+                <td class="text-right">{{ fmtTps(row.avgTps) }}</td>
                 <td class="text-right">{{ fmtCurrency(row.cost) }}</td>
                 <td class="text-right">{{ fmtCurrency(row.count > 0 ? row.cost / row.count : 0) }}</td>
               </tr>
               <tr v-if="!modelRows.length">
-                <td colspan="6" class="text-center text-medium-emphasis">{{ t('common.noData') }}</td>
+                <td colspan="7" class="text-center text-medium-emphasis">{{ t('common.noData') }}</td>
               </tr>
             </tbody>
           </v-table>
@@ -205,10 +308,36 @@
           <v-table v-if="activeBreakdown === 'apikey'" density="compact" class="report-table">
             <thead>
               <tr>
-                <th>{{ t('report.apiKeyId') }}</th>
-                <th class="text-right">{{ t('report.requests') }}</th>
-                <th class="text-right">{{ t('report.totalTokensShort') }}</th>
-                <th class="text-right">{{ t('report.cost') }}</th>
+                <th :aria-sort="getBreakdownSortAria('name')">
+                  <button type="button" class="report-sort-header" @click="toggleBreakdownSort('name')">
+                    {{ t('report.apiKeyId') }}
+                    <v-icon v-if="breakdownSortColumn === 'name'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
+                <th class="text-right" :aria-sort="getBreakdownSortAria('requests')">
+                  <button type="button" class="report-sort-header justify-end" @click="toggleBreakdownSort('requests')">
+                    {{ t('report.requests') }}
+                    <v-icon v-if="breakdownSortColumn === 'requests'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
+                <th class="text-right" :aria-sort="getBreakdownSortAria('tokens')">
+                  <button type="button" class="report-sort-header justify-end" @click="toggleBreakdownSort('tokens')">
+                    {{ t('report.totalTokensShort') }}
+                    <v-icon v-if="breakdownSortColumn === 'tokens'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
+                <th class="text-right" :aria-sort="getBreakdownSortAria('avgTps')">
+                  <button type="button" class="report-sort-header justify-end" @click="toggleBreakdownSort('avgTps')">
+                    {{ t('report.avgTps') }}
+                    <v-icon v-if="breakdownSortColumn === 'avgTps'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
+                <th class="text-right" :aria-sort="getBreakdownSortAria('cost')">
+                  <button type="button" class="report-sort-header justify-end" @click="toggleBreakdownSort('cost')">
+                    {{ t('report.cost') }}
+                    <v-icon v-if="breakdownSortColumn === 'cost'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -216,10 +345,11 @@
                 <td>{{ row.name }}</td>
                 <td class="text-right">{{ fmtNum(row.count) }}</td>
                 <td class="text-right">{{ fmtNum(row.inputTokens + row.outputTokens) }}</td>
+                <td class="text-right">{{ fmtTps(row.avgTps) }}</td>
                 <td class="text-right">{{ fmtCurrency(row.cost) }}</td>
               </tr>
               <tr v-if="!apiKeyRows.length">
-                <td colspan="4" class="text-center text-medium-emphasis">{{ t('common.noData') }}</td>
+                <td colspan="5" class="text-center text-medium-emphasis">{{ t('common.noData') }}</td>
               </tr>
             </tbody>
           </v-table>
@@ -228,10 +358,36 @@
           <v-table v-if="activeBreakdown === 'client'" density="compact" class="report-table">
             <thead>
               <tr>
-                <th>{{ t('report.clientId') }}</th>
-                <th class="text-right">{{ t('report.requests') }}</th>
-                <th class="text-right">{{ t('report.totalTokensShort') }}</th>
-                <th class="text-right">{{ t('report.cost') }}</th>
+                <th :aria-sort="getBreakdownSortAria('name')">
+                  <button type="button" class="report-sort-header" @click="toggleBreakdownSort('name')">
+                    {{ t('report.clientId') }}
+                    <v-icon v-if="breakdownSortColumn === 'name'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
+                <th class="text-right" :aria-sort="getBreakdownSortAria('requests')">
+                  <button type="button" class="report-sort-header justify-end" @click="toggleBreakdownSort('requests')">
+                    {{ t('report.requests') }}
+                    <v-icon v-if="breakdownSortColumn === 'requests'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
+                <th class="text-right" :aria-sort="getBreakdownSortAria('tokens')">
+                  <button type="button" class="report-sort-header justify-end" @click="toggleBreakdownSort('tokens')">
+                    {{ t('report.totalTokensShort') }}
+                    <v-icon v-if="breakdownSortColumn === 'tokens'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
+                <th class="text-right" :aria-sort="getBreakdownSortAria('avgTps')">
+                  <button type="button" class="report-sort-header justify-end" @click="toggleBreakdownSort('avgTps')">
+                    {{ t('report.avgTps') }}
+                    <v-icon v-if="breakdownSortColumn === 'avgTps'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
+                <th class="text-right" :aria-sort="getBreakdownSortAria('cost')">
+                  <button type="button" class="report-sort-header justify-end" @click="toggleBreakdownSort('cost')">
+                    {{ t('report.cost') }}
+                    <v-icon v-if="breakdownSortColumn === 'cost'" size="14">{{ breakdownSortIcon }}</v-icon>
+                  </button>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -239,10 +395,11 @@
                 <td>{{ row.name }}</td>
                 <td class="text-right">{{ fmtNum(row.count) }}</td>
                 <td class="text-right">{{ fmtNum(row.inputTokens + row.outputTokens) }}</td>
+                <td class="text-right">{{ fmtTps(row.avgTps) }}</td>
                 <td class="text-right">{{ fmtCurrency(row.cost) }}</td>
               </tr>
               <tr v-if="!clientRows.length">
-                <td colspan="4" class="text-center text-medium-emphasis">{{ t('common.noData') }}</td>
+                <td colspan="5" class="text-center text-medium-emphasis">{{ t('common.noData') }}</td>
               </tr>
             </tbody>
           </v-table>
@@ -266,6 +423,19 @@ const isDark = computed(() => theme.global.current.value.dark)
 
 type EndpointFilter = 'all' | 'messages' | 'responses' | 'gemini' | 'chat'
 type PresetValue = 'today' | 'yesterday' | '7d' | '30d' | 'thisMonth' | 'lastMonth' | 'custom'
+type SortDirection = 'asc' | 'desc'
+type BreakdownSortColumn =
+  | 'name'
+  | 'requests'
+  | 'successRate'
+  | 'inputTokens'
+  | 'outputTokens'
+  | 'cacheTokens'
+  | 'tokens'
+  | 'avgTps'
+  | 'cost'
+  | 'avgLatencyMs'
+  | 'avgCostPerReq'
 
 const endpointMap: Record<string, string> = {
   messages: '/v1/messages',
@@ -285,6 +455,8 @@ const errorMessage = ref('')
 const stats = ref<RequestLogStats | null>(null)
 const dailyData = ref<DailyStatsResponse | null>(null)
 const activeBreakdown = ref('channel')
+const breakdownSortColumn = ref<BreakdownSortColumn>('cost')
+const breakdownSortDirection = ref<SortDirection>('desc')
 const apiKeys = ref<APIKey[]>([])
 
 const apiKeyMap = computed(() => {
@@ -419,9 +591,76 @@ function getCacheTokens(row: Pick<GroupStats, 'cacheCreationInputTokens' | 'cach
 
 function toRows(map: Record<string, GroupStats> | undefined): BreakdownRow[] {
   if (!map) return []
-  return Object.entries(map)
-    .map(([name, s]) => ({ key: name, name, ...s }))
-    .sort((a, b) => b.cost - a.cost)
+  return Object.entries(map).map(([name, s]) => ({ key: name, name, ...s }))
+}
+
+const breakdownSortIcon = computed(() => (breakdownSortDirection.value === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'))
+
+const toggleBreakdownSort = (column: BreakdownSortColumn) => {
+  if (breakdownSortColumn.value === column) {
+    breakdownSortDirection.value = breakdownSortDirection.value === 'asc' ? 'desc' : 'asc'
+    return
+  }
+  breakdownSortColumn.value = column
+  breakdownSortDirection.value = column === 'name' ? 'asc' : 'desc'
+}
+
+const getBreakdownSortAria = (column: BreakdownSortColumn) => {
+  if (breakdownSortColumn.value !== column) return 'none'
+  return breakdownSortDirection.value === 'asc' ? 'ascending' : 'descending'
+}
+
+const getSuccessRate = (row: BreakdownRow) => (row.count > 0 ? row.success / row.count : 0)
+const getAvgCostPerRequest = (row: BreakdownRow) => (row.count > 0 ? row.cost / row.count : 0)
+
+const getBreakdownSortValue = (row: BreakdownRow, column: BreakdownSortColumn): string | number => {
+  switch (column) {
+    case 'name':
+      return row.name.toLowerCase()
+    case 'requests':
+      return row.count
+    case 'successRate':
+      return getSuccessRate(row)
+    case 'inputTokens':
+      return row.inputTokens
+    case 'outputTokens':
+      return row.outputTokens
+    case 'cacheTokens':
+      return getCacheTokens(row)
+    case 'tokens':
+      return row.inputTokens + row.outputTokens
+    case 'avgTps':
+      return row.avgTps
+    case 'avgLatencyMs':
+      return row.avgLatencyMs
+    case 'avgCostPerReq':
+      return getAvgCostPerRequest(row)
+    case 'cost':
+    default:
+      return row.cost
+  }
+}
+
+const compareBreakdownRows = (a: BreakdownRow, b: BreakdownRow) => {
+  const column = breakdownSortColumn.value
+  const aValue = getBreakdownSortValue(a, column)
+  const bValue = getBreakdownSortValue(b, column)
+
+  let diff = 0
+  if (typeof aValue === 'string' || typeof bValue === 'string') {
+    diff = String(aValue).localeCompare(String(bValue))
+  } else {
+    diff = aValue - bValue
+  }
+
+  if (diff === 0) {
+    return a.name.localeCompare(b.name)
+  }
+  return breakdownSortDirection.value === 'asc' ? diff : -diff
+}
+
+const sortBreakdownRows = (rows: BreakdownRow[]) => {
+  return [...rows].sort((a, b) => compareBreakdownRows(a, b))
 }
 
 function getAPIKeyDisplayName(key: string): string {
@@ -442,15 +681,17 @@ async function loadAPIKeys() {
   }
 }
 
-const channelRows = computed(() => toRows(stats.value?.byProvider))
-const modelRows = computed(() => toRows(stats.value?.byModel))
+const channelRows = computed(() => sortBreakdownRows(toRows(stats.value?.byProvider)))
+const modelRows = computed(() => sortBreakdownRows(toRows(stats.value?.byModel)))
 const apiKeyRows = computed(() =>
-  toRows(stats.value?.byApiKey).map(row => ({
-    ...row,
-    name: getAPIKeyDisplayName(row.key)
-  }))
+  sortBreakdownRows(
+    toRows(stats.value?.byApiKey).map(row => ({
+      ...row,
+      name: getAPIKeyDisplayName(row.key)
+    }))
+  )
 )
-const clientRows = computed(() => toRows(stats.value?.byClient))
+const clientRows = computed(() => sortBreakdownRows(toRows(stats.value?.byClient)))
 
 // Format helpers
 function fmtNum(n: number): string {
@@ -475,6 +716,11 @@ function fmtDuration(ms: number): string {
   return Math.round(ms) + 'ms'
 }
 
+function fmtTps(tps?: number): string {
+  if (!tps || !Number.isFinite(tps) || tps <= 0) return '--'
+  return tps.toFixed(1)
+}
+
 // CSV export
 function exportCSV() {
   let rows: BreakdownRow[] = []
@@ -492,6 +738,7 @@ function exportCSV() {
         'Input Tokens',
         'Output Tokens',
         'Cache Tokens',
+        'Avg TPS',
         'Cost',
         'Avg Latency (ms)'
       ]
@@ -499,17 +746,17 @@ function exportCSV() {
       break
     case 'model':
       rows = modelRows.value
-      headers = ['Model', 'Requests', 'Input Tokens', 'Output Tokens', 'Cost', 'Avg Cost/Req']
+      headers = ['Model', 'Requests', 'Input Tokens', 'Output Tokens', 'Avg TPS', 'Cost', 'Avg Cost/Req']
       filename = 'report-by-model'
       break
     case 'apikey':
       rows = apiKeyRows.value
-      headers = ['API Key', 'Requests', 'Tokens', 'Cost']
+      headers = ['API Key', 'Requests', 'Tokens', 'Avg TPS', 'Cost']
       filename = 'report-by-apikey'
       break
     case 'client':
       rows = clientRows.value
-      headers = ['Client', 'Requests', 'Tokens', 'Cost']
+      headers = ['Client', 'Requests', 'Tokens', 'Avg TPS', 'Cost']
       filename = 'report-by-client'
       break
   }
@@ -527,6 +774,7 @@ function exportCSV() {
           String(r.inputTokens),
           String(r.outputTokens),
           String(getCacheTokens(r)),
+          r.avgTps.toFixed(1),
           r.cost.toFixed(4),
           r.avgLatencyMs.toFixed(0)
         ]
@@ -537,12 +785,13 @@ function exportCSV() {
           String(r.count),
           String(r.inputTokens),
           String(r.outputTokens),
+          r.avgTps.toFixed(1),
           r.cost.toFixed(4),
           r.count > 0 ? (r.cost / r.count).toFixed(4) : '0'
         ]
         break
       default:
-        line = [r.name, String(r.count), String(r.inputTokens + r.outputTokens), r.cost.toFixed(4)]
+        line = [r.name, String(r.count), String(r.inputTokens + r.outputTokens), r.avgTps.toFixed(1), r.cost.toFixed(4)]
     }
     csvRows.push(line.map(v => `"${v}"`).join(','))
   }
@@ -589,6 +838,30 @@ const dailyCostOptions = computed(() => ({
   xaxis: { type: 'category' as const, labels: { style: { fontSize: '10px' } } },
   yaxis: { labels: { formatter: (v: number) => fmtCurrency(v) } },
   tooltip: { y: { formatter: (v: number) => fmtCurrency(v) } },
+  dataLabels: { enabled: false },
+  grid: { borderColor: isDark.value ? '#333' : '#e5e7eb' }
+}))
+
+// Daily Avg TPS chart
+const dailyTpsSeries = computed(() => {
+  if (!dailyData.value?.dataPoints?.length) return []
+  return [
+    {
+      name: t('report.avgTps'),
+      data: dailyData.value.dataPoints.map(dp => ({ x: dp.date, y: parseFloat(dp.avgTps.toFixed(1)) }))
+    }
+  ]
+})
+
+const dailyTpsOptions = computed(() => ({
+  chart: { type: 'line' as const, toolbar: { show: false }, background: 'transparent' },
+  theme: { mode: (isDark.value ? 'dark' : 'light') as 'dark' | 'light' },
+  colors: ['#10b981'],
+  stroke: { curve: 'smooth' as const, width: 2 },
+  markers: { size: 3 },
+  xaxis: { type: 'category' as const, labels: { style: { fontSize: '10px' } } },
+  yaxis: { labels: { formatter: (v: number) => fmtTps(v) } },
+  tooltip: { y: { formatter: (v: number) => fmtTps(v) } },
   dataLabels: { enabled: false },
   grid: { borderColor: isDark.value ? '#333' : '#e5e7eb' }
 }))
@@ -721,6 +994,25 @@ onMounted(() => {
   text-transform: uppercase;
   letter-spacing: 0.3px;
   white-space: nowrap;
+}
+
+.report-sort-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.report-sort-header:hover {
+  color: rgb(var(--v-theme-primary));
 }
 
 .report-table td {

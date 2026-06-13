@@ -1044,6 +1044,7 @@ class ApiService {
   async getRequestLogs(filter?: RequestLogFilter): Promise<RequestLogListResponse> {
     const params = new URLSearchParams()
     if (filter?.provider) params.set('provider', filter.provider)
+    if (filter?.channel) params.set('channel', filter.channel)
     if (filter?.model) params.set('model', filter.model)
     if (filter?.endpoint) params.set('endpoint', filter.endpoint)
     if (filter?.clientId) params.set('clientId', filter.clientId)
@@ -1614,6 +1615,7 @@ export interface RequestLog {
 
 export interface RequestLogFilter {
   provider?: string
+  channel?: string
   model?: string
   httpStatus?: number
   endpoint?: string
@@ -1641,6 +1643,8 @@ export interface GroupStats {
   cacheReadInputTokens: number
   cost: number
   avgLatencyMs: number
+  avgTps: number
+  avgTpsSampleCount: number
 }
 
 export interface RequestLogStats {
@@ -1656,6 +1660,8 @@ export interface RequestLogStats {
   }
   totalCost: number
   avgLatencyMs: number
+  avgTps: number
+  avgTpsSampleCount: number
   p95LatencyMs: number
   byProvider: Record<string, GroupStats>
   byModel: Record<string, GroupStats>
@@ -1677,6 +1683,8 @@ export interface DailyStatsDataPoint {
   cacheReadInputTokens: number
   cost: number
   avgDurationMs: number
+  avgTps: number
+  avgTpsSampleCount: number
 }
 
 export interface DailyStatsResponse {

@@ -125,6 +125,7 @@
                   </div>
                   <div class="d-flex justify-space-between mt-1">
                     <span>{{ t('requestLog.cacheHitRate') }}: {{ calcHitRate(data) }}%</span>
+                    <span>{{ t('requestLog.tps') }}: {{ formatSummaryTps(data.avgTps) }}</span>
                     <span class="font-weight-bold">{{ formatPriceSummary(data.cost) }}</span>
                   </div>
                 </div>
@@ -150,6 +151,7 @@
                 </div>
                 <div class="d-flex justify-space-between">
                   <span>{{ t('requestLog.cacheHitRate') }}: {{ calcHitRate(currentTotals) }}%</span>
+                  <span>{{ t('requestLog.tps') }}: {{ formatSummaryTps(currentTotals.avgTps) }}</span>
                   <span class="font-weight-bold">{{ formatPriceSummary(currentTotals.cost) }}</span>
                 </div>
               </div>
@@ -260,6 +262,19 @@
                   </th>
                   <th
                     class="text-end resizable-summary-header sortable-header"
+                    :style="{ width: summaryColumnWidths.avgTps + 'px' }"
+                    @click="toggleSummarySort('avgTps')"
+                  >
+                    <span class="header-content">
+                      {{ summaryColumnLabels.avgTps }}
+                      <v-icon v-if="summarySortColumn === 'avgTps'" size="14" class="sort-icon">{{
+                        summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
+                      }}</v-icon>
+                    </span>
+                    <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'avgTps')"></div>
+                  </th>
+                  <th
+                    class="text-end resizable-summary-header sortable-header"
                     :style="{ width: summaryColumnWidths.cost + 'px' }"
                     @click="toggleSummarySort('cost')"
                   >
@@ -347,12 +362,15 @@
                       </template>
                     </v-tooltip>
                   </td>
+                  <td class="text-end text-caption" :style="{ width: summaryColumnWidths.avgTps + 'px' }">
+                    {{ formatSummaryTps(data.avgTps) }}
+                  </td>
                   <td class="text-end text-caption cost-cell" :style="{ width: summaryColumnWidths.cost + 'px' }">
                     {{ formatPriceSummary(data.cost) }}
                   </td>
                 </tr>
                 <tr v-if="currentSortedData.length === 0">
-                  <td colspan="8" class="text-center text-caption text-grey">{{ t('common.noData') }}</td>
+                  <td colspan="9" class="text-center text-caption text-grey">{{ t('common.noData') }}</td>
                 </tr>
               </tbody>
             </table>
@@ -404,6 +422,12 @@
                         <span v-bind="props" class="hit-rate-value">{{ calcHitRate(currentTotals) }}%</span>
                       </template>
                     </v-tooltip>
+                  </td>
+                  <td
+                    class="text-end text-caption font-weight-bold"
+                    :style="{ width: summaryColumnWidths.avgTps + 'px' }"
+                  >
+                    {{ formatSummaryTps(currentTotals.avgTps) }}
                   </td>
                   <td
                     class="text-end text-caption font-weight-bold cost-cell"
@@ -1069,8 +1093,63 @@
               :style="{ width: column.width }"
               class="v-data-table__th"
             >
-              <div :class="column.key === 'status' ? 'resizable-header-last' : 'resizable-header'">
-                <span :class="getHeaderColorClass(column.key ?? '')">{{ column.title }}</span>
+              <div
+                :class="[
+                  column.key === 'status' ? 'resizable-header-last' : 'resizable-header',
+                  { 'channel-header-filter': column.key === 'providerName' }
+                ]"
+              >
+                <template v-if="column.key === 'providerName'">
+                  <span :class="getHeaderColorClass(column.key ?? '')">{{ column.title }}</span>
+                  <v-tooltip :text="t('requestLog.filterByChannel')" location="top">
+                    <template v-slot:activator="{ props: tooltipProps }">
+                      <span v-bind="tooltipProps" class="channel-filter-tooltip-wrapper" @click.stop>
+                        <v-menu
+                          v-model="channelFilterMenuOpen"
+                          :close-on-content-click="false"
+                          location="bottom start"
+                        >
+                          <template v-slot:activator="{ props: menuProps }">
+                            <v-btn
+                              v-bind="menuProps"
+                              icon
+                              variant="text"
+                              size="x-small"
+                              class="channel-filter-btn"
+                              :color="selectedChannelFilter ? 'primary' : undefined"
+                              :aria-label="t('requestLog.filterByChannel')"
+                            >
+                              <v-icon size="16">{{
+                                selectedChannelFilter ? 'mdi-filter' : 'mdi-filter-outline'
+                              }}</v-icon>
+                            </v-btn>
+                          </template>
+                          <div class="channel-filter-menu" @click.stop>
+                            <v-autocomplete
+                              v-model="selectedChannelFilter"
+                              :items="channelFilterOptions"
+                              item-title="label"
+                              item-value="value"
+                              :label="t('requestLog.filterByChannel')"
+                              density="compact"
+                              variant="outlined"
+                              clearable
+                              hide-details
+                              autofocus
+                              class="channel-filter-select"
+                              @update:model-value="onChannelFilterChange"
+                            >
+                              <template v-slot:prepend-inner>
+                                <v-icon size="18">mdi-filter-outline</v-icon>
+                              </template>
+                            </v-autocomplete>
+                          </div>
+                        </v-menu>
+                      </span>
+                    </template>
+                  </v-tooltip>
+                </template>
+                <span v-else :class="getHeaderColorClass(column.key ?? '')">{{ column.title }}</span>
                 <div
                   v-if="column.key && column.key !== 'status'"
                   class="resize-handle"
@@ -1648,6 +1727,7 @@ import {
   api,
   type RequestLog,
   type RequestLogStats,
+  type RequestLogFilter,
   type GroupStats,
   type ActiveSession,
   type APIKey,
@@ -1752,6 +1832,37 @@ const apiKeyMap = computed(() => {
   return map
 })
 
+// Channel filter state
+const selectedChannelFilter = ref<string | null>(null)
+const channelFilterMenuOpen = ref(false)
+const addChannelFilterOption = (channels: Set<string>, value?: string | null) => {
+  const channel = value?.trim()
+  if (channel && channel !== '<unknown>' && channel !== '—') {
+    channels.add(channel)
+  }
+}
+const channelFilterOptions = computed(() => {
+  const channels = new Set<string>()
+
+  if (stats.value?.byProvider) {
+    Object.keys(stats.value.byProvider).forEach(provider => {
+      addChannelFilterOption(channels, provider)
+    })
+  }
+
+  logs.value.forEach(item => {
+    addChannelFilterOption(channels, item.channelName)
+    addChannelFilterOption(channels, item.providerName)
+  })
+
+  const sorted = Array.from(channels).sort((a, b) => a.localeCompare(b))
+
+  return [
+    { label: t('requestLog.allChannels'), value: null },
+    ...sorted.map(ch => ({ label: ch, value: ch }))
+  ]
+})
+
 // Summary table group by state
 type SummaryGroupBy = 'model' | 'provider' | 'client' | 'session' | 'apiKey'
 const summaryGroupBy = ref<SummaryGroupBy>('provider')
@@ -1762,6 +1873,9 @@ const summaryGroupByOptions = computed(() => [
   { label: t('requestLog.groupBySession'), value: 'session' },
   { label: t('requestLog.groupByApiKey'), value: 'apiKey' }
 ])
+const summaryColumnLabels = computed(() => ({
+  avgTps: t('requestLog.tps')
+}))
 
 const summaryNameHeaderTitle = computed(() => {
   switch (summaryGroupBy.value) {
@@ -1786,6 +1900,7 @@ type SummarySortColumn =
   | 'requests'
   | 'input'
   | 'output'
+  | 'avgTps'
   | 'cacheCreation'
   | 'cacheHit'
   | 'cacheHitRate'
@@ -2067,106 +2182,58 @@ const sortedByAPIKey = computed(() => {
   })
 })
 
+interface SummaryTotals {
+  count: number
+  inputTokens: number
+  outputTokens: number
+  cacheCreationInputTokens: number
+  cacheReadInputTokens: number
+  cost: number
+  avgTps: number
+  avgTpsSampleCount: number
+}
+
+const emptySummaryTotals = (): SummaryTotals => ({
+  count: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheCreationInputTokens: 0,
+  cacheReadInputTokens: 0,
+  cost: 0,
+  avgTps: 0,
+  avgTpsSampleCount: 0
+})
+
+const averageSummaryTps = (weightedTpsSum: number, sampleCount: number) => {
+  if (sampleCount <= 0) return 0
+  return weightedTpsSum / sampleCount
+}
+
+const getSummaryTotals = (entries: [string, GroupStats][]) => {
+  const totals = emptySummaryTotals()
+  let weightedTpsSum = 0
+
+  for (const [, data] of entries) {
+    totals.count += data.count
+    totals.inputTokens += data.inputTokens
+    totals.outputTokens += data.outputTokens
+    totals.cacheCreationInputTokens += data.cacheCreationInputTokens
+    totals.cacheReadInputTokens += data.cacheReadInputTokens
+    totals.cost += data.cost
+    totals.avgTpsSampleCount += data.avgTpsSampleCount ?? 0
+    weightedTpsSum += (data.avgTps ?? 0) * (data.avgTpsSampleCount ?? 0)
+  }
+
+  totals.avgTps = averageSummaryTps(weightedTpsSum, totals.avgTpsSampleCount)
+  return totals
+}
+
 // Totals for summary tables
-const modelTotals = computed(() => {
-  const totals = {
-    count: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheCreationInputTokens: 0,
-    cacheReadInputTokens: 0,
-    cost: 0
-  }
-  for (const [, data] of sortedByModel.value) {
-    totals.count += data.count
-    totals.inputTokens += data.inputTokens
-    totals.outputTokens += data.outputTokens
-    totals.cacheCreationInputTokens += data.cacheCreationInputTokens
-    totals.cacheReadInputTokens += data.cacheReadInputTokens
-    totals.cost += data.cost
-  }
-  return totals
-})
-
-const providerTotals = computed(() => {
-  const totals = {
-    count: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheCreationInputTokens: 0,
-    cacheReadInputTokens: 0,
-    cost: 0
-  }
-  for (const [, data] of sortedByProvider.value) {
-    totals.count += data.count
-    totals.inputTokens += data.inputTokens
-    totals.outputTokens += data.outputTokens
-    totals.cacheCreationInputTokens += data.cacheCreationInputTokens
-    totals.cacheReadInputTokens += data.cacheReadInputTokens
-    totals.cost += data.cost
-  }
-  return totals
-})
-
-const clientTotals = computed(() => {
-  const totals = {
-    count: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheCreationInputTokens: 0,
-    cacheReadInputTokens: 0,
-    cost: 0
-  }
-  for (const [, data] of sortedByClient.value) {
-    totals.count += data.count
-    totals.inputTokens += data.inputTokens
-    totals.outputTokens += data.outputTokens
-    totals.cacheCreationInputTokens += data.cacheCreationInputTokens
-    totals.cacheReadInputTokens += data.cacheReadInputTokens
-    totals.cost += data.cost
-  }
-  return totals
-})
-
-const sessionTotals = computed(() => {
-  const totals = {
-    count: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheCreationInputTokens: 0,
-    cacheReadInputTokens: 0,
-    cost: 0
-  }
-  for (const [, data] of sortedBySession.value) {
-    totals.count += data.count
-    totals.inputTokens += data.inputTokens
-    totals.outputTokens += data.outputTokens
-    totals.cacheCreationInputTokens += data.cacheCreationInputTokens
-    totals.cacheReadInputTokens += data.cacheReadInputTokens
-    totals.cost += data.cost
-  }
-  return totals
-})
-
-const apiKeyTotals = computed(() => {
-  const totals = {
-    count: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheCreationInputTokens: 0,
-    cacheReadInputTokens: 0,
-    cost: 0
-  }
-  for (const [, data] of sortedByAPIKey.value) {
-    totals.count += data.count
-    totals.inputTokens += data.inputTokens
-    totals.outputTokens += data.outputTokens
-    totals.cacheCreationInputTokens += data.cacheCreationInputTokens
-    totals.cacheReadInputTokens += data.cacheReadInputTokens
-    totals.cost += data.cost
-  }
-  return totals
-})
+const modelTotals = computed(() => getSummaryTotals(sortedByModel.value))
+const providerTotals = computed(() => getSummaryTotals(sortedByProvider.value))
+const clientTotals = computed(() => getSummaryTotals(sortedByClient.value))
+const sessionTotals = computed(() => getSummaryTotals(sortedBySession.value))
+const apiKeyTotals = computed(() => getSummaryTotals(sortedByAPIKey.value))
 
 // Unified summary computed properties
 const currentSortedData = computed(() => {
@@ -2210,6 +2277,9 @@ const currentSortedData = computed(() => {
         break
       case 'output':
         diff = a.outputTokens - b.outputTokens
+        break
+      case 'avgTps':
+        diff = (a.avgTps ?? 0) - (b.avgTps ?? 0)
         break
       case 'cacheCreation':
         diff = a.cacheCreationInputTokens - b.cacheCreationInputTokens
@@ -2273,6 +2343,7 @@ const summaryTableWidth = computed(() => {
     summaryColumnWidths.value.cacheCreation +
     summaryColumnWidths.value.cacheHit +
     summaryColumnWidths.value.cacheHitRate +
+    summaryColumnWidths.value.avgTps +
     summaryColumnWidths.value.cost
   )
 })
@@ -2499,6 +2570,7 @@ const defaultSummaryColumnWidths: Record<string, number> = {
   cacheCreation: 80,
   cacheHit: 80,
   cacheHitRate: 60,
+  avgTps: 70,
   cost: 80
 }
 
@@ -3044,7 +3116,9 @@ const handleLogUpdated = (payload: LogUpdatedPayload) => {
             cacheCreationInputTokens: 0,
             cacheReadInputTokens: 0,
             cost: 0,
-            avgLatencyMs: 0
+            avgLatencyMs: 0,
+            avgTps: 0,
+            avgTpsSampleCount: 0
           }
         }
         group[key].count++
@@ -3053,6 +3127,13 @@ const handleLogUpdated = (payload: LogUpdatedPayload) => {
         group[key].cacheCreationInputTokens += payload.cacheCreationInputTokens
         group[key].cacheReadInputTokens += payload.cacheReadInputTokens
         group[key].cost += payload.price
+        if (payload.outputTokens > 0 && payload.durationMs > 0) {
+          const requestTps = payload.outputTokens / (payload.durationMs / 1000)
+          const previousSampleCount = group[key].avgTpsSampleCount ?? 0
+          group[key].avgTps =
+            (group[key].avgTps * previousSampleCount + requestTps) / (previousSampleCount + 1)
+          group[key].avgTpsSampleCount = previousSampleCount + 1
+        }
       }
 
       // Update all stat groups
@@ -3657,8 +3738,19 @@ const refreshLogs = async () => {
   loading.value = true
   try {
     const { from, to } = getDateRange()
+    const filter: RequestLogFilter = {
+      limit: pageSize,
+      offset: offset.value,
+      from,
+      to
+    }
+
+    if (selectedChannelFilter.value) {
+      filter.channel = selectedChannelFilter.value
+    }
+
     const [logsRes, statsRes, proxyCfg] = await Promise.all([
-      api.getRequestLogs({ limit: pageSize, offset: offset.value, from, to }),
+      api.getRequestLogs(filter),
       api.getRequestLogStats({ from, to }),
       api.getForwardProxyConfig().catch(() => null)
     ])
@@ -3698,6 +3790,13 @@ watch(
   },
   { immediate: false }
 )
+
+// Channel filter change handler
+const onChannelFilterChange = () => {
+  channelFilterMenuOpen.value = false
+  offset.value = 0
+  refreshLogs()
+}
 
 const prevPage = () => {
   if (offset.value > 0) {
@@ -3861,6 +3960,11 @@ const formatPriceDetailed = (price: number) => {
 const formatPriceSummary = (price: number) => {
   if (!price || price === 0) return '$0.00'
   return '$' + price.toFixed(2)
+}
+
+const formatSummaryTps = (tps?: number) => {
+  if (!tps || !Number.isFinite(tps) || tps <= 0) return '-'
+  return tps.toFixed(1)
 }
 
 // Check if a request log has cost breakdown details
@@ -6115,4 +6219,43 @@ const silentRefresh = async () => {
     display: none;
   }
 }
+
+.channel-header-filter {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.channel-header-filter > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channel-filter-tooltip-wrapper {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.channel-filter-btn {
+  width: 24px !important;
+  height: 24px !important;
+  margin-left: 2px;
+}
+
+.channel-filter-menu {
+  width: min(320px, calc(100vw - 32px));
+  padding: 8px;
+  background: rgb(var(--v-theme-surface));
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.16);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.channel-filter-select {
+  width: 100%;
+}
+
 </style>
