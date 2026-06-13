@@ -77,6 +77,62 @@ func TestProxySSEResponse_RecordsFirstTokenForMITMPath(t *testing.T) {
 	}
 }
 
+func TestProxySSEResponse_ResponsesTerminalCompletedOutputDoesNotRecordFirstToken(t *testing.T) {
+	reqLogManager := newForwardProxyTestRequestLogManager(t)
+
+	startTime := time.Now().Add(-120 * time.Millisecond)
+	pending := &requestlog.RequestLog{
+		Status:       requestlog.StatusPending,
+		InitialTime:  startTime,
+		Type:         "responses",
+		ProviderName: "api.openai.com",
+		Model:        "gpt-5",
+		Stream:       true,
+		Endpoint:     "/v1/responses",
+		ChannelUID:   "subscription:forward-proxy",
+		ChannelName:  "Subscription (Forward Proxy)",
+	}
+	if err := reqLogManager.Add(pending); err != nil {
+		t.Fatalf("failed to add pending log: %v", err)
+	}
+
+	s := &Server{
+		requestLogManager: reqLogManager,
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "https://api.openai.com/v1/responses", strings.NewReader(`{"stream":true}`))
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+		},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`data: {"type":"response.completed","response":{"id":"resp_1","model":"gpt-5-codex","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"Hi"}]}],"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}}`,
+			``,
+		}, "\n"))),
+	}
+
+	var clientSink bytes.Buffer
+	s.proxySSEResponse(&clientSink, resp, req, "api.openai.com", xInitiatorCostWindowRef{}, startTime, nil, pending.ID)
+
+	got, err := reqLogManager.GetByID(pending.ID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	if got == nil {
+		t.Fatalf("expected request log")
+	}
+	if got.FirstTokenTime != nil {
+		t.Fatalf("terminal-only completed output must not set firstTokenTime")
+	}
+	if got.FirstTokenDurationMs != 0 {
+		t.Fatalf("expected firstTokenDurationMs 0 for missing first token, got %d", got.FirstTokenDurationMs)
+	}
+	if got.DurationMs <= 0 {
+		t.Fatalf("expected positive durationMs, got %d", got.DurationMs)
+	}
+}
+
 func TestHandleHTTPForward_RecordsFirstTokenForSSEPath(t *testing.T) {
 	reqLogManager := newForwardProxyTestRequestLogManager(t)
 

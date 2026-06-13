@@ -4,6 +4,23 @@
 
 ---
 
+## [v1.5.61] - 2026-06-13
+
+### 🐛 修复
+
+- **AnyRouter-Codex 首 token 计时修复**:
+  - Responses SSE 的 `response.completed` / `response.done` 终止事件不再被当作首 token。
+  - 修复上游只发送终止完成帧时，`firstTokenDurationMs` 与 `durationMs` 几乎相同，导致处理耗时显示小于 100ms 的问题。
+  - 保留真实 `response.output_text.delta`、`response.output_text.done` 和非终止输出事件的首 token 记录。
+  - 原生 `/v1/responses` 与 Forward Proxy Responses SSE 路径均添加回归覆盖。
+
+### ✅ 验证
+
+- `go test ./internal/utils -run 'TestFirstTokenDetector_ResponsesSSE_(CompletedOutputDoesNotCountAsFirstToken|DoneFallback|OutputItemFallback|OutputItemAndCompleted_IgnoresNonTextShapes)' -count=1 -v` 通过
+- `go test ./internal/handlers -run 'TestHandleResponsesSuccess_(StreamRecordsFirstToken|TerminalCompletedOutputDoesNotRecordFirstToken|CompletesAfterResponsesTerminalEventWithoutEOF)' -count=1 -v` 通过
+- `go test ./internal/forwardproxy -run 'TestProxySSEResponse_(RecordsFirstTokenForMITMPath|ResponsesTerminalCompletedOutputDoesNotRecordFirstToken)|TestHandleHTTPForward_RecordsFirstTokenForSSEPath' -count=1 -v` 通过
+- `git diff --check` 通过
+
 ## [v1.5.60] - 2026-06-12
 
 ### 🐛 修复

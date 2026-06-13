@@ -103,14 +103,14 @@ func TestFirstTokenDetector_ResponsesSSE_ContentPartAdded_IgnoresNonOutputTextPa
 	}
 }
 
-func TestFirstTokenDetector_ResponsesSSE_CompletedOutputFallback(t *testing.T) {
+func TestFirstTokenDetector_ResponsesSSE_CompletedOutputDoesNotCountAsFirstToken(t *testing.T) {
 	d := NewFirstTokenDetector(FirstTokenProtocolResponsesSSE)
 
 	if d.ObserveLine(`data: {"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"   "}]}]}}`) {
 		t.Fatalf("whitespace-only completed output text must not count as first token")
 	}
-	if !d.ObserveLine(`data: {"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"hello"}]}]}}`) {
-		t.Fatalf("non-empty completed output text should count as first token")
+	if d.ObserveLine(`data: {"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"hello"}]}]}}`) {
+		t.Fatalf("terminal completed output text must not count as first token")
 	}
 }
 

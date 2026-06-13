@@ -2660,7 +2660,10 @@ func handleResponsesSuccess(
 
 		for scanner.Scan() {
 			line := scanner.Text()
-			markFirstSSEPayloadIfPresent(line, &firstStreamPayloadTime)
+			isResponsesTerminalLine := responsesTerminalState.Observe(line)
+			if !isResponsesTerminalLine {
+				markFirstSSEPayloadIfPresent(line, &firstStreamPayloadTime)
+			}
 			if firstTokenDetector != nil && firstTokenTime == nil {
 				markFirstTokenIfDetected(firstTokenDetector.ObserveLine(line), &firstTokenTime)
 			}
@@ -2718,7 +2721,7 @@ func handleResponsesSuccess(
 				flusher.Flush()
 			}
 
-			if responsesTerminalState.Observe(line) {
+			if isResponsesTerminalLine {
 				_, err := c.Writer.Write([]byte("\n"))
 				if err != nil {
 					log.Printf("⚠️ 流式响应传输错误: %v", err)

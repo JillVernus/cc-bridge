@@ -246,9 +246,6 @@ func (d *FirstTokenDetector) detectResponsesText(payload string) bool {
 	case "response.output_item.added", "response.output_item.done":
 		item, _ := msg["item"].(map[string]interface{})
 		return hasResponseItemOutputText(item)
-	case "response.completed", "response.done":
-		responseObj, _ := msg["response"].(map[string]interface{})
-		return hasResponseOutputText(responseObj)
 	default:
 		return false
 	}
@@ -274,23 +271,6 @@ func hasResponseItemOutputText(item map[string]interface{}) bool {
 		}
 		text, _ := block["text"].(string)
 		if strings.TrimSpace(text) != "" {
-			return true
-		}
-	}
-	return false
-}
-
-func hasResponseOutputText(responseObj map[string]interface{}) bool {
-	if len(responseObj) == 0 {
-		return false
-	}
-	output, _ := responseObj["output"].([]interface{})
-	for _, itemAny := range output {
-		item, ok := itemAny.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if hasResponseItemOutputText(item) {
 			return true
 		}
 	}

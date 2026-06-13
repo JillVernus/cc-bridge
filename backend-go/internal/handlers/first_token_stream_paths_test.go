@@ -269,6 +269,72 @@ func TestHandleResponsesSuccess_StreamRecordsFirstToken(t *testing.T) {
 	}
 }
 
+func TestHandleResponsesSuccess_TerminalCompletedOutputDoesNotRecordFirstToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cfgManager := newTestConfigManager(t)
+	reqLogManager := newTestRequestLogManager(t)
+
+	startTime := time.Now().Add(-120 * time.Millisecond)
+	requestLogID := addPendingLogForTest(t, reqLogManager, startTime, "/v1/responses", "responses", "gpt-5", true, 2, "responses-2")
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"stream":true}`))
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+		},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`data: {"type":"response.completed","response":{"id":"resp_1","model":"gpt-5-codex","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"Hi"}]}],"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}}`,
+			``,
+		}, "\n"))),
+	}
+
+	upstream := &config.UpstreamConfig{
+		Index:       2,
+		Name:        "responses-2",
+		ServiceType: "responses",
+	}
+	envCfg := &config.EnvConfig{LogLevel: "error"}
+
+	handleResponsesSuccess(
+		c,
+		resp,
+		nil,
+		upstream,
+		envCfg,
+		cfgManager,
+		nil,
+		startTime,
+		&types.ResponsesRequest{Model: "gpt-5", Stream: true},
+		nil,
+		reqLogManager,
+		requestLogID,
+		nil,
+		2,
+		"responses-2",
+		false,
+		false,
+	)
+
+	got := mustGetRecentLogByID(t, reqLogManager, requestLogID)
+	if got.Status != requestlog.StatusCompleted {
+		t.Fatalf("expected completed status, got %s", got.Status)
+	}
+	if got.FirstTokenTime != nil {
+		t.Fatalf("terminal-only completed output must not set firstTokenTime")
+	}
+	if got.FirstTokenDurationMs != 0 {
+		t.Fatalf("expected firstTokenDurationMs 0 for missing first token, got %d", got.FirstTokenDurationMs)
+	}
+	if got.DurationMs <= 0 {
+		t.Fatalf("expected positive durationMs, got %d", got.DurationMs)
+	}
+}
+
 func TestHandleResponsesSuccess_CompletesAfterResponsesTerminalEventWithoutEOF(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
