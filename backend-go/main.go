@@ -734,6 +734,7 @@ func main() {
 			// 调试日志 API
 			apiGroup.GET("/logs/:id/debug", reqLogHandler.GetDebugLog)
 			apiGroup.DELETE("/logs/debug", reqLogHandler.PurgeDebugLogs)
+			apiGroup.DELETE("/logs/debug/headers", reqLogHandler.PurgeDebugLogHeaders)
 			apiGroup.GET("/logs/debug/stats", reqLogHandler.GetDebugLogStats)
 
 			// 用户别名 API

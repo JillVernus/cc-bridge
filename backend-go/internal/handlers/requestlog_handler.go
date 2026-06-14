@@ -862,6 +862,21 @@ func (h *RequestLogHandler) PurgeDebugLogs(c *gin.Context) {
 	})
 }
 
+// PurgeDebugLogHeaders clears stored debug header data without deleting stored bodies.
+func (h *RequestLogHandler) PurgeDebugLogHeaders(c *gin.Context) {
+	headersCleared, rowsDeleted, err := h.manager.PurgeAllDebugLogHeaders()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":        "Debug log headers purged",
+		"headersCleared": headersCleared,
+		"deleted":        rowsDeleted,
+	})
+}
+
 // GetDebugLogStats 获取调试日志统计信息
 func (h *RequestLogHandler) GetDebugLogStats(c *gin.Context) {
 	count, err := h.manager.GetDebugLogCount()

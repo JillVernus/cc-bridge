@@ -1261,6 +1261,11 @@ class ApiService {
     return this.request('/logs/debug', { method: 'DELETE' })
   }
 
+  // 清除所有调试日志请求头
+  async purgeDebugLogHeaders(): Promise<{ message: string; headersCleared: number; deleted: number }> {
+    return this.request('/logs/debug/headers', { method: 'DELETE' })
+  }
+
   // 获取调试日志统计
   async getDebugLogStats(): Promise<{ count: number }> {
     return this.request('/logs/debug/stats')
@@ -1778,6 +1783,7 @@ export interface DebugLogConfig {
   retentionHours: number // legacy, for backward compatibility
   fullRetentionHours: number // headers + bodies retention
   headerRetentionHours: number // headers-only retention
+  headerRetentionForever?: boolean // true when headers should never expire automatically
   maxBodySize: number
 }
 

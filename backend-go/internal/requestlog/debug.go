@@ -390,11 +390,12 @@ func (m *Manager) PurgeExpiredDebugLogsTwoTier(fullRetentionHours, headerRetenti
 	if fullRetentionHours <= 0 {
 		fullRetentionHours = 24
 	}
-	if headerRetentionHours <= 0 {
+	headerRetentionForever := headerRetentionHours == 0
+	if headerRetentionHours < 0 {
 		headerRetentionHours = 168 // 7 days
 	}
 	// Ensure header retention is at least as long as full retention
-	if headerRetentionHours < fullRetentionHours {
+	if !headerRetentionForever && headerRetentionHours < fullRetentionHours {
 		headerRetentionHours = fullRetentionHours
 	}
 
@@ -412,6 +413,10 @@ func (m *Manager) PurgeExpiredDebugLogsTwoTier(fullRetentionHours, headerRetenti
 	}
 	bodiesDeleted, _ = bodyResult.RowsAffected()
 
+	if headerRetentionForever {
+		return bodiesDeleted, 0, nil
+	}
+
 	// Step 2: Delete entire rows older than headerRetentionHours
 	headerCutoff := time.Now().Add(-time.Duration(headerRetentionHours) * time.Hour)
 	rowResult, err := m.db.Exec(
@@ -424,6 +429,47 @@ func (m *Manager) PurgeExpiredDebugLogsTwoTier(fullRetentionHours, headerRetenti
 	rowsDeleted, _ = rowResult.RowsAffected()
 
 	return bodiesDeleted, rowsDeleted, nil
+}
+
+// PurgeAllDebugLogHeaders clears stored header data and removes rows that become empty.
+func (m *Manager) PurgeAllDebugLogHeaders() (headersCleared, rowsDeleted int64, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	updateQuery := `UPDATE request_debug_logs
+		SET request_headers = NULL, request_removed_headers = NULL, response_headers = NULL
+		WHERE request_headers IS NOT NULL OR request_removed_headers IS NOT NULL OR response_headers IS NOT NULL`
+	deleteQuery := `DELETE FROM request_debug_logs
+		WHERE request_headers IS NULL
+		  AND request_removed_headers IS NULL
+		  AND response_headers IS NULL
+		  AND (request_body IS NULL OR length(request_body) = 0)
+		  AND (response_body IS NULL OR length(response_body) = 0)`
+
+	result, err := m.db.Exec(m.convertQuery(updateQuery))
+	if err != nil && isAnyMissingColumnErr(err) {
+		updateQuery = `UPDATE request_debug_logs
+			SET request_headers = NULL, response_headers = NULL
+			WHERE request_headers IS NOT NULL OR response_headers IS NOT NULL`
+		deleteQuery = `DELETE FROM request_debug_logs
+			WHERE request_headers IS NULL
+			  AND response_headers IS NULL
+			  AND (request_body IS NULL OR length(request_body) = 0)
+			  AND (response_body IS NULL OR length(response_body) = 0)`
+		result, err = m.db.Exec(m.convertQuery(updateQuery))
+	}
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to purge debug log headers: %w", err)
+	}
+	headersCleared, _ = result.RowsAffected()
+
+	rowResult, err := m.db.Exec(m.convertQuery(deleteQuery))
+	if err != nil {
+		return headersCleared, 0, fmt.Errorf("failed to delete empty debug log rows: %w", err)
+	}
+	rowsDeleted, _ = rowResult.RowsAffected()
+
+	return headersCleared, rowsDeleted, nil
 }
 
 // PurgeAllDebugLogs removes all debug logs
@@ -481,7 +527,7 @@ func (m *Manager) StartDebugLogCleanupTwoTier(getFullRetentionHours, getHeaderRe
 		for range ticker.C {
 			fullHours := getFullRetentionHours()
 			headerHours := getHeaderRetentionHours()
-			if fullHours > 0 && headerHours > 0 {
+			if fullHours > 0 && headerHours >= 0 {
 				bodiesDeleted, rowsDeleted, err := m.PurgeExpiredDebugLogsTwoTier(fullHours, headerHours)
 				if err != nil {
 					log.Printf("⚠️ Failed to purge expired debug logs: %v", err)
@@ -512,6 +558,10 @@ func CreateDebugLogEntry(
 		ResponseStatus:   respStatus,
 		ResponseHeaders:  HttpHeadersToMap(respHeaders),
 		ResponseBodySize: len(respBody),
+	}
+
+	if maxBodySize < 0 {
+		return entry
 	}
 
 	// Truncate bodies if needed

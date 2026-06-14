@@ -8,7 +8,15 @@
         <v-btn icon variant="text" size="small" @click="$emit('update:modelValue', false)" class="modal-action-btn">
           <v-icon>mdi-close</v-icon>
         </v-btn>
-        <v-btn icon variant="flat" size="small" color="primary" @click="saveConfig" :loading="saving" class="modal-action-btn">
+        <v-btn
+          icon
+          variant="flat"
+          size="small"
+          color="primary"
+          @click="saveConfig"
+          :loading="saving"
+          class="modal-action-btn"
+        >
           <v-icon>mdi-check</v-icon>
         </v-btn>
       </v-card-title>
@@ -53,19 +61,27 @@
             <div class="text-caption text-grey mb-4">{{ t('debugLog.fullRetentionDescription') }}</div>
 
             <!-- Header retention (headers only) -->
+            <v-switch
+              v-model="headerRetentionForever"
+              :label="t('debugLog.headerRetentionForever')"
+              color="primary"
+              density="compact"
+              hide-details
+              class="mb-2"
+            />
             <v-slider
-              v-model="config.headerRetentionHours"
+              v-model="headerRetentionHoursForSlider"
               :min="config.fullRetentionHours"
               :max="720"
               :step="1"
               :label="t('debugLog.headerRetentionHours')"
               thumb-label
               hide-details
-              :disabled="!config.enabled"
+              :disabled="headerRetentionForever"
             >
               <template #append>
                 <span class="text-body-2" style="min-width: 60px">
-                  {{ formatRetention(config.headerRetentionHours) }}
+                  {{ formatHeaderRetention(config.headerRetentionHours) }}
                 </span>
               </template>
             </v-slider>
@@ -101,16 +117,20 @@
                 <v-icon size="16" class="mr-1">mdi-database</v-icon>
                 {{ t('debugLog.storedLogs', { count: stats.count }) }}
               </span>
-              <v-btn
-                v-if="stats.count > 0"
-                size="x-small"
-                variant="text"
-                color="error"
-                @click="confirmPurge"
-                :loading="purging"
-              >
-                {{ t('debugLog.purgeAll') }}
-              </v-btn>
+              <div v-if="stats.count > 0" class="d-flex align-center ga-2">
+                <v-btn
+                  size="x-small"
+                  variant="text"
+                  color="warning"
+                  @click="confirmPurgeHeaders"
+                  :loading="purgingHeaders"
+                >
+                  {{ t('debugLog.purgeHeaders') }}
+                </v-btn>
+                <v-btn size="x-small" variant="text" color="error" @click="confirmPurge" :loading="purging">
+                  {{ t('debugLog.purgeAll') }}
+                </v-btn>
+              </div>
             </div>
           </div>
         </div>
@@ -130,11 +150,44 @@
         <v-btn icon variant="text" size="small" @click="showPurgeDialog = false" class="modal-action-btn">
           <v-icon>mdi-close</v-icon>
         </v-btn>
-        <v-btn icon variant="flat" size="small" color="error" @click="purgeAll" :loading="purging" class="modal-action-btn">
+        <v-btn
+          icon
+          variant="flat"
+          size="small"
+          color="error"
+          @click="purgeAll"
+          :loading="purging"
+          class="modal-action-btn"
+        >
           <v-icon>mdi-check</v-icon>
         </v-btn>
       </v-card-title>
       <v-card-text class="modal-content">{{ t('debugLog.confirmPurgeDesc') }}</v-card-text>
+    </v-card>
+  </v-dialog>
+
+  <!-- Purge Headers Confirmation Dialog -->
+  <v-dialog v-model="showPurgeHeadersDialog" max-width="400">
+    <v-card class="modal-card">
+      <v-card-title class="d-flex align-center modal-header pa-4 text-warning">
+        {{ t('debugLog.confirmPurgeHeaders') }}
+        <v-spacer />
+        <v-btn icon variant="text" size="small" @click="showPurgeHeadersDialog = false" class="modal-action-btn">
+          <v-icon>mdi-close</v-icon>
+        </v-btn>
+        <v-btn
+          icon
+          variant="flat"
+          size="small"
+          color="warning"
+          @click="purgeHeaders"
+          :loading="purgingHeaders"
+          class="modal-action-btn"
+        >
+          <v-icon>mdi-check</v-icon>
+        </v-btn>
+      </v-card-title>
+      <v-card-text class="modal-content">{{ t('debugLog.confirmPurgeHeadersDesc') }}</v-card-text>
     </v-card>
   </v-dialog>
 
@@ -164,7 +217,9 @@ const stats = ref<{ count: number } | null>(null)
 const loading = ref(false)
 const saving = ref(false)
 const purging = ref(false)
+const purgingHeaders = ref(false)
 const showPurgeDialog = ref(false)
+const showPurgeHeadersDialog = ref(false)
 
 // Snackbar
 const snackbar = ref({
@@ -179,11 +234,35 @@ const showSnackbar = (text: string, color: string = 'error') => {
 
 // Convert bytes to KB for slider
 const maxBodySizeKB = computed({
-  get: () => config.value ? Math.round(config.value.maxBodySize / 1024) : 512,
+  get: () => (config.value ? Math.round(config.value.maxBodySize / 1024) : 512),
   set: (kb: number) => {
     if (config.value) {
       config.value.maxBodySize = kb * 1024
     }
+  }
+})
+
+const headerRetentionForever = computed({
+  get: () => Boolean(config.value?.headerRetentionForever || config.value?.headerRetentionHours === 0),
+  set: (forever: boolean) => {
+    if (!config.value) return
+    config.value.headerRetentionForever = forever
+    config.value.headerRetentionHours = forever ? 0 : Math.max(config.value.fullRetentionHours, 168)
+  }
+})
+
+const headerRetentionHoursForSlider = computed({
+  get: () => {
+    if (!config.value) return 168
+    if (headerRetentionForever.value) {
+      return Math.max(config.value.fullRetentionHours, 168)
+    }
+    return Math.max(config.value.headerRetentionHours, config.value.fullRetentionHours)
+  },
+  set: (hours: number) => {
+    if (!config.value) return
+    config.value.headerRetentionForever = false
+    config.value.headerRetentionHours = Math.max(hours, config.value.fullRetentionHours)
   }
 })
 
@@ -199,6 +278,13 @@ const formatRetention = (hours: number): string => {
   return `${hours}h`
 }
 
+const formatHeaderRetention = (hours: number): string => {
+  if (headerRetentionForever.value || hours === 0) {
+    return t('debugLog.forever')
+  }
+  return formatRetention(hours)
+}
+
 const formatSize = (bytes: number): string => {
   if (bytes >= 1024 * 1024) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
@@ -207,12 +293,15 @@ const formatSize = (bytes: number): string => {
 }
 
 // Load config when dialog opens
-watch(() => props.modelValue, (newVal) => {
-  if (newVal) {
-    loadConfig()
-    loadStats()
+watch(
+  () => props.modelValue,
+  newVal => {
+    if (newVal) {
+      loadConfig()
+      loadStats()
+    }
   }
-})
+)
 
 const loadConfig = async () => {
   loading.value = true
@@ -237,6 +326,14 @@ const loadStats = async () => {
 const saveConfig = async () => {
   if (!config.value) return
 
+  if (headerRetentionForever.value) {
+    config.value.headerRetentionHours = 0
+    config.value.headerRetentionForever = true
+  } else {
+    config.value.headerRetentionForever = false
+    config.value.headerRetentionHours = Math.max(config.value.headerRetentionHours, config.value.fullRetentionHours)
+  }
+
   saving.value = true
   try {
     await api.updateDebugLogConfig(config.value)
@@ -252,6 +349,25 @@ const saveConfig = async () => {
 
 const confirmPurge = () => {
   showPurgeDialog.value = true
+}
+
+const confirmPurgeHeaders = () => {
+  showPurgeHeadersDialog.value = true
+}
+
+const purgeHeaders = async () => {
+  purgingHeaders.value = true
+  try {
+    const result = await api.purgeDebugLogHeaders()
+    showPurgeHeadersDialog.value = false
+    showSnackbar(t('debugLog.headersPurged', { count: result.headersCleared, deleted: result.deleted }), 'success')
+    await loadStats()
+  } catch (error) {
+    console.error('Failed to purge debug log headers:', error)
+    showSnackbar(t('debugLog.purgeHeadersFailed'), 'error')
+  } finally {
+    purgingHeaders.value = false
+  }
 }
 
 const purgeAll = async () => {

@@ -685,12 +685,15 @@ func (s *Server) isDebugEnabled() bool {
 
 // saveDebugLog saves request/response data for debug inspection.
 func (s *Server) saveDebugLog(requestID string, req *http.Request, reqBody []byte, respStatus int, respHeaders http.Header, respBody []byte) {
-	if s.requestLogManager == nil || !s.isDebugEnabled() {
+	if s.requestLogManager == nil {
 		return
 	}
 
-	maxBodySize := 1024 * 1024 // 1MB default
-	if s.configProvider != nil {
+	maxBodySize := -1 // Header-only by default; bodies require debug logging to be enabled.
+	if s.isDebugEnabled() {
+		maxBodySize = 1024 * 1024 // 1MB default
+	}
+	if maxBodySize >= 0 && s.configProvider != nil {
 		if size := s.configProvider.GetDebugLogMaxBodySize(); size > 0 {
 			maxBodySize = size
 		}

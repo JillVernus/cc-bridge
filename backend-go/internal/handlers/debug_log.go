@@ -56,10 +56,12 @@ func SaveDebugLog(
 		return
 	}
 
-	// Check if debug logging is enabled
-	debugCfg := cfgManager.GetDebugLogConfig()
-	if !debugCfg.Enabled {
-		return
+	debugEnabled := false
+	maxBodySize := 1024 * 1024
+	if cfgManager != nil {
+		debugCfg := cfgManager.GetDebugLogConfig()
+		debugEnabled = debugCfg.Enabled
+		maxBodySize = debugCfg.GetMaxBodySize()
 	}
 
 	// Get request body from context
@@ -97,18 +99,19 @@ func SaveDebugLog(
 		ResponseBodySize:      len(respBody),
 	}
 
-	// Apply body size limits
-	maxBodySize := debugCfg.GetMaxBodySize()
-	if maxBodySize > 0 && len(reqBody) > maxBodySize {
-		entry.RequestBody = string(reqBody[:maxBodySize]) + "\n... [truncated]"
-	} else {
-		entry.RequestBody = string(reqBody)
-	}
+	if debugEnabled {
+		// Apply body size limits only when full debug body logging is enabled.
+		if maxBodySize > 0 && len(reqBody) > maxBodySize {
+			entry.RequestBody = string(reqBody[:maxBodySize]) + "\n... [truncated]"
+		} else {
+			entry.RequestBody = string(reqBody)
+		}
 
-	if maxBodySize > 0 && len(respBody) > maxBodySize {
-		entry.ResponseBody = string(respBody[:maxBodySize]) + "\n... [truncated]"
-	} else {
-		entry.ResponseBody = string(respBody)
+		if maxBodySize > 0 && len(respBody) > maxBodySize {
+			entry.ResponseBody = string(respBody[:maxBodySize]) + "\n... [truncated]"
+		} else {
+			entry.ResponseBody = string(respBody)
+		}
 	}
 
 	// Save asynchronously to avoid blocking the response

@@ -4,6 +4,24 @@
 
 ---
 
+## [v1.5.64] - 2026-06-14
+
+### ✨ 功能
+
+- **调试日志请求头长期保留**:
+  - 无论调试日志开关是否启用，都会保存请求头、响应头、请求方法、路径、状态码和 body size。
+  - 调试日志关闭时仅保存 headers，不保存请求体或响应体，避免 body 数据过大。
+  - `headerRetentionHours = 0` 支持永久保留 headers；旧配置未设置时仍默认保留 7 天。
+  - 调试日志设置新增“永久保留请求头”开关和“清除请求头”按钮。
+  - 新增 `DELETE /api/logs/debug/headers`，可仅清除已保存 headers，并移除空的 header-only 调试记录。
+
+### ✅ 验证
+
+- `go test . ./internal/requestlog ./internal/handlers ./internal/forwardproxy ./internal/config -count=1` 通过
+- `bun run type-check` 通过
+- `bunx prettier --check src/components/DebugLogSettings.vue src/services/api.ts src/locales/en.ts src/locales/zh-CN.ts` 通过
+- `git diff --check` 通过
+
 ## [v1.5.63] - 2026-06-14
 
 ### 🐛 修复
