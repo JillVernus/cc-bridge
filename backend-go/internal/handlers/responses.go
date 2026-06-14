@@ -2661,7 +2661,7 @@ func handleResponsesSuccess(
 		for scanner.Scan() {
 			line := scanner.Text()
 			isResponsesTerminalLine := responsesTerminalState.Observe(line)
-			if !isResponsesTerminalLine {
+			if !isResponsesTerminalLine && !isResponsesFinalizationSSELine(line, responsesTerminalState.lastEvent) {
 				markFirstSSEPayloadIfPresent(line, &firstStreamPayloadTime)
 			}
 			if firstTokenDetector != nil && firstTokenTime == nil {
@@ -2778,9 +2778,12 @@ func handleResponsesSuccess(
 				pricingModel = originalReq.Model
 			}
 
-			// Best-effort fallback for streams without detectable text-token events
-			// (for example tool-call-only responses): use first non-empty SSE data payload arrival.
-			if firstTokenTime == nil && firstStreamPayloadTime != nil {
+			// Native Responses streams may batch output deltas near completion while
+			// still sending early lifecycle payloads. Use the first non-terminal SSE
+			// payload for the logged responsiveness metric on those streams.
+			if shouldUseFirstResponsesStreamPayload(upstreamType) && firstStreamPayloadTime != nil {
+				firstTokenTime = firstStreamPayloadTime
+			} else if firstTokenTime == nil && firstStreamPayloadTime != nil {
 				firstTokenTime = firstStreamPayloadTime
 			}
 
@@ -3064,6 +3067,42 @@ func (s *responsesTerminalSSEState) Observe(line string) bool {
 
 	eventType := strings.TrimSpace(gjson.Get(payload, "type").String())
 	return eventType == "response.completed" || eventType == "response.done"
+}
+
+func isResponsesFinalizationSSELine(line string, lastEvent string) bool {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "data:") {
+		return false
+	}
+
+	payload := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
+	if payload == "" || payload == "[DONE]" {
+		return true
+	}
+
+	eventType := strings.TrimSpace(gjson.Get(payload, "type").String())
+	if eventType == "" {
+		eventType = strings.TrimSpace(lastEvent)
+	}
+
+	return isResponsesFinalizationEventType(eventType)
+}
+
+func isResponsesFinalizationEventType(eventType string) bool {
+	eventType = strings.TrimSpace(eventType)
+	if eventType == "response.completed" || eventType == "response.done" {
+		return true
+	}
+	return strings.HasPrefix(eventType, "response.") && strings.HasSuffix(eventType, ".done")
+}
+
+func shouldUseFirstResponsesStreamPayload(upstreamType string) bool {
+	switch strings.ToLower(strings.TrimSpace(upstreamType)) {
+	case "responses", "openai-oauth":
+		return true
+	default:
+		return false
+	}
 }
 
 // extractCodexUsageFromSSE 从 SSE 事件行中提取 Codex usage 数据

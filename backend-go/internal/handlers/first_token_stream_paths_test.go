@@ -194,14 +194,14 @@ func TestHandleResponsesSuccess_StreamRecordsFirstToken(t *testing.T) {
 			wantMsg: "delta",
 		},
 		{
-			name: "detects from output_text.done fallback",
+			name: "detects from content_part.added fallback",
 			stream: strings.Join([]string{
-				`data: {"type":"response.output_text.done","text":"final answer"}`,
+				`data: {"type":"response.content_part.added","part":{"type":"output_text","text":"final answer"}}`,
 				`data: {"type":"response.completed"}`,
 				"data: [DONE]",
 				"",
 			}, "\n"),
-			wantMsg: "done fallback",
+			wantMsg: "content part added fallback",
 		},
 		{
 			name: "falls back to first payload for tool-call-only stream",
@@ -264,6 +264,183 @@ func TestHandleResponsesSuccess_StreamRecordsFirstToken(t *testing.T) {
 			}
 			if got.FirstTokenDurationMs <= 0 {
 				t.Fatalf("expected positive firstTokenDurationMs, got %d", got.FirstTokenDurationMs)
+			}
+		})
+	}
+}
+
+func TestHandleResponsesSuccess_UsesFirstStreamPayloadWhenResponsesDeltaArrivesLate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cfgManager := newTestConfigManager(t)
+	reqLogManager := newTestRequestLogManager(t)
+	envCfg := &config.EnvConfig{LogLevel: "error"}
+	upstream := &config.UpstreamConfig{
+		Index:       2,
+		Name:        "responses-2",
+		ServiceType: "responses",
+	}
+
+	delayBeforeDelta := 80 * time.Millisecond
+	body := &delayedHandlerReadCloser{
+		segments: []delayedHandlerSegment{
+			{
+				data: strings.Join([]string{
+					`data: {"type":"response.created","response":{"id":"resp_1","status":"in_progress"}}`,
+					``,
+				}, "\n"),
+			},
+			{
+				delay: delayBeforeDelta,
+				data: strings.Join([]string{
+					`data: {"type":"response.output_text.delta","delta":"hello"}`,
+					`data: {"type":"response.completed","response":{"id":"resp_1","model":"gpt-5-codex","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":10,"output_tokens":1,"total_tokens":11}}}`,
+					``,
+				}, "\n"),
+			},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"stream":true}`))
+
+	startTime := time.Now()
+	requestLogID := addPendingLogForTest(t, reqLogManager, startTime, "/v1/responses", "responses", "gpt-5", true, 2, "responses-2")
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+		},
+		Body: body,
+	}
+
+	handleResponsesSuccess(
+		c,
+		resp,
+		nil,
+		upstream,
+		envCfg,
+		cfgManager,
+		nil,
+		startTime,
+		&types.ResponsesRequest{Model: "gpt-5", Stream: true},
+		nil,
+		reqLogManager,
+		requestLogID,
+		nil,
+		2,
+		"responses-2",
+		false,
+		false,
+	)
+
+	got := mustGetRecentLogByID(t, reqLogManager, requestLogID)
+	if got.FirstTokenTime == nil {
+		t.Fatalf("expected firstTokenTime captured from early stream payload")
+	}
+	if got.DurationMs < delayBeforeDelta.Milliseconds() {
+		t.Fatalf("expected durationMs to include delayed delta, got %d", got.DurationMs)
+	}
+	maxEarlyPayloadDurationMs := (delayBeforeDelta / 2).Milliseconds()
+	if got.FirstTokenDurationMs > maxEarlyPayloadDurationMs {
+		t.Fatalf("expected firstTokenDurationMs to use early stream payload <= %dms, got %dms", maxEarlyPayloadDurationMs, got.FirstTokenDurationMs)
+	}
+}
+
+func TestHandleResponsesSuccess_FinalizationOnlyStreamDoesNotRecordFirstToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name   string
+		events []string
+	}{
+		{
+			name: "output text done only",
+			events: []string{
+				`data: {"type":"response.output_text.done","text":"Hi"}`,
+				`data: {"type":"response.completed","response":{"id":"resp_1","model":"gpt-5-codex","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"Hi"}]}],"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}}`,
+				``,
+			},
+		},
+		{
+			name: "content part done only",
+			events: []string{
+				`data: {"type":"response.content_part.done","part":{"type":"output_text","text":"Hi"}}`,
+				`data: {"type":"response.completed","response":{"id":"resp_1","model":"gpt-5-codex","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"Hi"}]}],"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}}`,
+				``,
+			},
+		},
+		{
+			name: "output item done only",
+			events: []string{
+				`data: {"type":"response.output_item.done","item":{"type":"message","content":[{"type":"output_text","text":"Hi"}]}}`,
+				`data: {"type":"response.completed","response":{"id":"resp_1","model":"gpt-5-codex","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"Hi"}]}],"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}}`,
+				``,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfgManager := newTestConfigManager(t)
+			reqLogManager := newTestRequestLogManager(t)
+
+			startTime := time.Now().Add(-120 * time.Millisecond)
+			requestLogID := addPendingLogForTest(t, reqLogManager, startTime, "/v1/responses", "responses", "gpt-5", true, 2, "responses-2")
+
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"stream":true}`))
+
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Header: http.Header{
+					"Content-Type": []string{"text/event-stream"},
+				},
+				Body: io.NopCloser(strings.NewReader(strings.Join(tc.events, "\n"))),
+			}
+
+			upstream := &config.UpstreamConfig{
+				Index:       2,
+				Name:        "responses-2",
+				ServiceType: "responses",
+			}
+			envCfg := &config.EnvConfig{LogLevel: "error"}
+
+			handleResponsesSuccess(
+				c,
+				resp,
+				nil,
+				upstream,
+				envCfg,
+				cfgManager,
+				nil,
+				startTime,
+				&types.ResponsesRequest{Model: "gpt-5", Stream: true},
+				nil,
+				reqLogManager,
+				requestLogID,
+				nil,
+				2,
+				"responses-2",
+				false,
+				false,
+			)
+
+			got := mustGetRecentLogByID(t, reqLogManager, requestLogID)
+			if got.Status != requestlog.StatusCompleted {
+				t.Fatalf("expected completed status, got %s", got.Status)
+			}
+			if got.FirstTokenTime != nil {
+				t.Fatalf("finalization-only stream must not set firstTokenTime")
+			}
+			if got.FirstTokenDurationMs != 0 {
+				t.Fatalf("expected firstTokenDurationMs 0 for missing first token, got %d", got.FirstTokenDurationMs)
+			}
+			if got.DurationMs <= 0 {
+				t.Fatalf("expected positive durationMs, got %d", got.DurationMs)
 			}
 		})
 	}
@@ -1055,5 +1232,41 @@ func (b *blockingHandlerReadCloser) Close() error {
 	b.once.Do(func() {
 		close(b.done)
 	})
+	return nil
+}
+
+type delayedHandlerSegment struct {
+	data  string
+	delay time.Duration
+}
+
+type delayedHandlerReadCloser struct {
+	segments []delayedHandlerSegment
+	index    int
+}
+
+func (d *delayedHandlerReadCloser) Read(p []byte) (int, error) {
+	for d.index < len(d.segments) && d.segments[d.index].data == "" {
+		d.index++
+	}
+	if d.index >= len(d.segments) {
+		return 0, io.EOF
+	}
+
+	segment := &d.segments[d.index]
+	if segment.delay > 0 {
+		time.Sleep(segment.delay)
+		segment.delay = 0
+	}
+
+	n := copy(p, segment.data)
+	segment.data = segment.data[n:]
+	if segment.data == "" {
+		d.index++
+	}
+	return n, nil
+}
+
+func (d *delayedHandlerReadCloser) Close() error {
 	return nil
 }

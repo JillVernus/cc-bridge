@@ -33,8 +33,8 @@ func TestStreamDetectorForServiceType(t *testing.T) {
 		{
 			name:         "responses",
 			serviceType:  "responses",
-			preludeEvent: "event: response.output_text.done",
-			detectLine:   `data: {"type":"response.output_text.done","text":"hi"}`,
+			preludeEvent: "event: response.output_text.delta",
+			detectLine:   `data: {"type":"response.output_text.delta","delta":"hi"}`,
 			expectDetect: true,
 		},
 		{

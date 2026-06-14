@@ -4,6 +4,22 @@
 
 ---
 
+## [v1.5.63] - 2026-06-14
+
+### 🐛 修复
+
+- **AnyRouter-Codex 首 token 计时口径修复**:
+  - Responses SSE 的 `response.output_text.done`、`response.content_part.done`、`response.output_item.done` 等收尾事件不再被识别为首 token。
+  - 原生 `/v1/responses` 与 `openai-oauth` 流式日志改为使用首个非终止 SSE payload 记录响应开始时间，避免 AnyRouter-Codex 将首 token 时间贴近完成时间。
+  - 保留终止-only 流不记录首 token 的保护，避免 `response.completed` / `response.done` 再次污染计时。
+
+### ✅ 验证
+
+- `go test ./internal/utils ./internal/handlers ./internal/forwardproxy -count=1` 通过
+- `go test ./internal/handlers -count=1` 通过
+- `git diff --check` 通过
+- 测试环境 AnyRouter-Codex 实测：`firstTokenDurationMs=666ms`，`durationMs=3562ms`
+
 ## [v1.5.62] - 2026-06-13
 
 ### ✨ 功能

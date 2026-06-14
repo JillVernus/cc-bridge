@@ -232,10 +232,7 @@ func (d *FirstTokenDetector) detectResponsesText(payload string) bool {
 	case "response.output_text.delta":
 		delta, _ := msg["delta"].(string)
 		return strings.TrimSpace(delta) != ""
-	case "response.output_text.done":
-		text, _ := msg["text"].(string)
-		return strings.TrimSpace(text) != ""
-	case "response.content_part.added", "response.content_part.done":
+	case "response.content_part.added":
 		part, _ := msg["part"].(map[string]interface{})
 		partType, _ := part["type"].(string)
 		if partType != "output_text" {
@@ -243,10 +240,14 @@ func (d *FirstTokenDetector) detectResponsesText(payload string) bool {
 		}
 		text, _ := part["text"].(string)
 		return strings.TrimSpace(text) != ""
-	case "response.output_item.added", "response.output_item.done":
+	case "response.output_item.added":
 		item, _ := msg["item"].(map[string]interface{})
 		return hasResponseItemOutputText(item)
 	default:
+		if strings.HasPrefix(eventType, "response.") && strings.HasSuffix(eventType, ".delta") {
+			delta, _ := msg["delta"].(string)
+			return strings.TrimSpace(delta) != ""
+		}
 		return false
 	}
 }

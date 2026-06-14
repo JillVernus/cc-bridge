@@ -63,15 +63,48 @@ func TestFirstTokenDetector_ResponsesSSE_DeltaAcrossChunkBoundaries(t *testing.T
 	}
 }
 
-func TestFirstTokenDetector_ResponsesSSE_DoneFallback(t *testing.T) {
+func TestFirstTokenDetector_ResponsesSSE_FinalizationEventsDoNotCountAsFirstToken(t *testing.T) {
 	d := NewFirstTokenDetector(FirstTokenProtocolResponsesSSE)
 	if d.ObserveLine(`data: {"type":"response.output_text.done","text":"   "}`) {
 		t.Fatalf("whitespace done text must not count as first token")
 	}
 
-	d = NewFirstTokenDetector(FirstTokenProtocolResponsesSSE)
-	if !d.ObserveLine(`data: {"type":"response.output_text.done","text":"final text"}`) {
-		t.Fatalf("done text fallback should count when no delta was seen")
+	tests := []struct {
+		name string
+		line string
+	}{
+		{
+			name: "output text done",
+			line: `data: {"type":"response.output_text.done","text":"final text"}`,
+		},
+		{
+			name: "content part done",
+			line: `data: {"type":"response.content_part.done","part":{"type":"output_text","text":"final text"}}`,
+		},
+		{
+			name: "output item done",
+			line: `data: {"type":"response.output_item.done","item":{"type":"message","content":[{"type":"output_text","text":"final text"}]}}`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			d := NewFirstTokenDetector(FirstTokenProtocolResponsesSSE)
+			if d.ObserveLine(tc.line) {
+				t.Fatalf("%s must not count as first token", tc.name)
+			}
+		})
+	}
+}
+
+func TestFirstTokenDetector_ResponsesSSE_FunctionCallArgumentDeltaCountsAsFirstOutput(t *testing.T) {
+	d := NewFirstTokenDetector(FirstTokenProtocolResponsesSSE)
+
+	if d.ObserveLine(`data: {"type":"response.function_call_arguments.delta","delta":"   "}`) {
+		t.Fatalf("whitespace function call delta must not count as first output")
+	}
+	if !d.ObserveLine(`data: {"type":"response.function_call_arguments.delta","delta":"{\"cmd\""}`) {
+		t.Fatalf("non-empty function call delta should count as first output")
 	}
 }
 
