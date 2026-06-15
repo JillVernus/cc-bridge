@@ -198,6 +198,15 @@
                   >
                     {{ t('debugModal.removedHeadersSummary', { count: removedRequestHeaderCount }) }}
                   </v-chip>
+                  <v-chip
+                    v-if="modifiedRequestHeaderCount > 0"
+                    size="x-small"
+                    class="ml-2"
+                    color="info"
+                    variant="tonal"
+                  >
+                    {{ t('debugModal.modifiedHeadersSummary', { count: modifiedRequestHeaderCount }) }}
+                  </v-chip>
                   <v-btn
                     v-if="canRevealRequestHeaders"
                     icon
@@ -217,6 +226,9 @@
                 <div v-if="removedRequestHeaderCount > 0" class="text-caption text-medium-emphasis mb-2">
                   {{ t('debugModal.removedHeadersHint') }}
                 </div>
+                <div v-if="modifiedRequestHeaderCount > 0" class="text-caption text-medium-emphasis mb-2">
+                  {{ t('debugModal.modifiedHeadersHint') }}
+                </div>
                 <v-card variant="outlined" class="mb-4">
                   <div class="headers-container">
                     <table class="headers-table">
@@ -231,6 +243,14 @@
                               </v-chip>
                               <span class="text-caption text-medium-emphasis ml-2">
                                 {{ t('debugModal.removedByRule', { rule: entry.removedRule }) }}
+                              </span>
+                            </div>
+                            <div v-if="entry.modifiedValue" class="mt-1">
+                              <v-chip size="x-small" color="info" variant="tonal">
+                                {{ t('debugModal.modifiedBeforeUpstream') }}
+                              </v-chip>
+                              <span class="text-caption text-medium-emphasis ml-2">
+                                {{ t('debugModal.modifiedTo', { value: entry.modifiedValue }) }}
                               </span>
                             </div>
                           </td>
@@ -504,11 +524,16 @@ const removedRequestHeaders = computed(() => debugData.value?.requestRemovedHead
 
 const removedRequestHeaderCount = computed(() => Object.keys(removedRequestHeaders.value).length)
 
+const modifiedRequestHeaders = computed(() => debugData.value?.requestModifiedHeaders ?? {})
+
+const modifiedRequestHeaderCount = computed(() => Object.keys(modifiedRequestHeaders.value).length)
+
 const requestHeaderEntries = computed(() =>
   Object.entries(displayedRequestHeaders.value).map(([key, value]) => ({
     key,
     value,
-    removedRule: removedRequestHeaders.value[key]
+    removedRule: removedRequestHeaders.value[key],
+    modifiedValue: modifiedRequestHeaders.value[key]
   }))
 )
 

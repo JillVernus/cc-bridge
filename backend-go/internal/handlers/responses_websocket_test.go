@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -31,6 +32,22 @@ func newResponsesWebSocketTestConfigManager(t *testing.T) *config.ConfigManager 
 	}
 	t.Cleanup(func() { _ = cfgManager.Close() })
 	return cfgManager
+}
+
+func assertJSONBytesEqual(t *testing.T, got []byte, want []byte) {
+	t.Helper()
+
+	var gotValue interface{}
+	if err := json.Unmarshal(got, &gotValue); err != nil {
+		t.Fatalf("failed to parse got JSON %s: %v", got, err)
+	}
+	var wantValue interface{}
+	if err := json.Unmarshal(want, &wantValue); err != nil {
+		t.Fatalf("failed to parse want JSON %s: %v", want, err)
+	}
+	if !reflect.DeepEqual(gotValue, wantValue) {
+		t.Fatalf("JSON payload = %s, want %s", got, want)
+	}
 }
 
 func TestLegacyResponsesWebSocketConfigEndpointMigratesToChannelFlags(t *testing.T) {
@@ -304,9 +321,7 @@ func TestResponsesWebSocketHandlerProxiesOpenAIOAuthWebSocket(t *testing.T) {
 
 	select {
 	case got := <-received:
-		if !bytes.Equal(got, clientPayload) {
-			t.Fatalf("upstream payload = %s, want %s", got, clientPayload)
-		}
+		assertJSONBytesEqual(t, got, clientPayload)
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for upstream payload")
 	}
@@ -396,7 +411,15 @@ func TestResponsesWebSocketHandlerProxiesOpenAIOAuthWebSocket(t *testing.T) {
 
 	cfgAfter := cfgManager.GetConfig()
 	stableID := cfgAfter.ResponsesUpstream[0].ID
-	stored := quota.GetManager().GetStatusForChannel(logRecord.ChannelID, stableID, "oauth-ws")
+	var stored *quota.QuotaStatus
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		stored = quota.GetManager().GetStatusForChannel(logRecord.ChannelID, stableID, "oauth-ws")
+		if stored != nil && stored.CodexQuota != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	if stored == nil || stored.CodexQuota == nil {
 		t.Fatalf("expected stored websocket Codex quota, got %+v", stored)
 	}
@@ -404,6 +427,42 @@ func TestResponsesWebSocketHandlerProxiesOpenAIOAuthWebSocket(t *testing.T) {
 		t.Fatalf("stored quota = primary:%v secondary:%v, want primary:3 secondary:11",
 			stored.CodexQuota.PrimaryUsedPercentValue(),
 			stored.CodexQuota.SecondaryUsedPercentValue())
+	}
+}
+
+func TestSanitizeCodexOAuthWebSocketClientPayload_StripsEncryptedReasoning(t *testing.T) {
+	payload := []byte(`{
+		"type":"response.create",
+		"model":"gpt-5",
+		"include":["reasoning.encrypted_content","file_search_call.results"],
+		"input":[
+			{"type":"reasoning","encrypted_content":"QVhO...fQ=="},
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"hello","encrypted_content":"nested"}]}
+		]
+	}`)
+
+	sanitized := sanitizeCodexOAuthWebSocketClientPayload(
+		&config.UpstreamConfig{ServiceType: "openai-oauth"},
+		payload,
+	)
+
+	var got map[string]interface{}
+	if err := json.Unmarshal(sanitized, &got); err != nil {
+		t.Fatalf("failed to parse sanitized payload %s: %v", sanitized, err)
+	}
+	include := got["include"].([]interface{})
+	if len(include) != 1 || include[0] != "file_search_call.results" {
+		t.Fatalf("include = %#v, want file_search_call.results only", include)
+	}
+	input := got["input"].([]interface{})
+	if len(input) != 1 {
+		t.Fatalf("input length = %d, want encrypted reasoning item removed", len(input))
+	}
+	message := input[0].(map[string]interface{})
+	content := message["content"].([]interface{})
+	contentPart := content[0].(map[string]interface{})
+	if _, exists := contentPart["encrypted_content"]; exists {
+		t.Fatalf("nested encrypted_content was not stripped: %#v", contentPart)
 	}
 }
 

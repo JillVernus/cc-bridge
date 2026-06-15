@@ -13,9 +13,10 @@ import (
 
 // Context keys for debug logging
 const (
-	ContextKeyDebugRequestBody       = "debug_request_body"
-	ContextKeyDebugReqHeaders        = "debug_request_headers"
-	ContextKeyDebugRemovedReqHeaders = "debug_removed_request_headers"
+	ContextKeyDebugRequestBody        = "debug_request_body"
+	ContextKeyDebugReqHeaders         = "debug_request_headers"
+	ContextKeyDebugRemovedReqHeaders  = "debug_removed_request_headers"
+	ContextKeyDebugModifiedReqHeaders = "debug_modified_request_headers"
 )
 
 // StoreDebugRequestData stores request data in context for later debug logging
@@ -40,6 +41,21 @@ func ApplyOutboundHeaderPolicy(c *gin.Context, cfgManager *config.ConfigManager,
 	removed := utils.MatchHeaderStripRules(c.Request.Header, policy)
 	c.Set(ContextKeyDebugRemovedReqHeaders, removed)
 	_ = utils.ApplyHeaderStripRules(outboundReq.Header, policy)
+}
+
+func RecordDebugModifiedRequestHeader(c *gin.Context, headerName string, outboundValue string) {
+	if c == nil || headerName == "" {
+		return
+	}
+
+	modified := make(map[string]string)
+	if v, exists := c.Get(ContextKeyDebugModifiedReqHeaders); exists {
+		if headers, ok := v.(map[string]string); ok {
+			modified = headers
+		}
+	}
+	modified[headerName] = outboundValue
+	c.Set(ContextKeyDebugModifiedReqHeaders, modified)
 }
 
 // SaveDebugLog saves debug log entry if debug logging is enabled
@@ -85,18 +101,25 @@ func SaveDebugLog(
 			reqRemovedHeaders = headers
 		}
 	}
+	reqModifiedHeaders := make(map[string]string)
+	if v, exists := c.Get(ContextKeyDebugModifiedReqHeaders); exists {
+		if headers, ok := v.(map[string]string); ok {
+			reqModifiedHeaders = headers
+		}
+	}
 
 	// Create debug log entry
 	entry := &requestlog.DebugLogEntry{
-		RequestID:             requestLogID,
-		RequestMethod:         c.Request.Method,
-		RequestPath:           c.Request.URL.Path,
-		RequestHeaders:        reqHeaders,
-		RequestRemovedHeaders: reqRemovedHeaders,
-		RequestBodySize:       len(reqBody),
-		ResponseStatus:        respStatus,
-		ResponseHeaders:       requestlog.HttpHeadersToMap(respHeaders),
-		ResponseBodySize:      len(respBody),
+		RequestID:              requestLogID,
+		RequestMethod:          c.Request.Method,
+		RequestPath:            c.Request.URL.Path,
+		RequestHeaders:         reqHeaders,
+		RequestRemovedHeaders:  reqRemovedHeaders,
+		RequestModifiedHeaders: reqModifiedHeaders,
+		RequestBodySize:        len(reqBody),
+		ResponseStatus:         respStatus,
+		ResponseHeaders:        requestlog.HttpHeadersToMap(respHeaders),
+		ResponseBodySize:       len(respBody),
 	}
 
 	if debugEnabled {

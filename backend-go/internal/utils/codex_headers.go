@@ -86,5 +86,5 @@ func SetCodexOAuthNonStreamHeaders(headers http.Header, input CodexOAuthHeadersI
 
 // isValidCodexUserAgent checks if the User-Agent is from the official Codex CLI
 func isValidCodexUserAgent(userAgent string) bool {
-	return strings.HasPrefix(userAgent, "codex_cli_rs/")
+	return strings.HasPrefix(userAgent, "codex_cli_rs/") || strings.HasPrefix(userAgent, "codex-tui/")
 }

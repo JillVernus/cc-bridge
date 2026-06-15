@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS channels (
     model_mapping TEXT,
     price_multipliers TEXT,
     oauth_tokens TEXT,
+    responses_encrypted_reasoning_mode TEXT,
     quota_models TEXT,
     composite_mappings TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

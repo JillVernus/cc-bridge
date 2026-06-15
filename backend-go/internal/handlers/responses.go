@@ -898,7 +898,9 @@ func tryResponsesChannelWithAllKeys(
 				} else if changed {
 					log.Printf("🔁 [Responses] upstream rejected Codex-specific payload shape; retrying with compatibility request")
 					c.Request.Body = io.NopCloser(bytes.NewReader(sanitizedBodyBytes))
-					compatProviderReq, _, compatErr := provider.ConvertToProviderRequest(c, upstream, apiKey)
+					compatUpstream := *upstream
+					compatUpstream.ResponsesEncryptedReasoningMode = config.ResponsesEncryptedReasoningModeOff
+					compatProviderReq, _, compatErr := provider.ConvertToProviderRequest(c, &compatUpstream, apiKey)
 					if compatErr != nil {
 						log.Printf("⚠️ [Responses] compatibility request conversion failed: %v", compatErr)
 					} else {
@@ -1576,11 +1578,16 @@ func buildCodexOAuthRequest(
 	// both names here for this OAuth-specific endpoint.
 	delete(reqMap, "max_output_tokens")
 	delete(reqMap, "max_tokens")
+	sanitizeCodexOAuthEncryptedReasoningState(reqMap)
 
 	// ChatGPT Codex OAuth endpoint requires explicit opt-out of server-side
 	// storage. Preserve all other fields, but force `store: false` for both
 	// direct `/v1/responses` OAuth requests and `/v1/messages` bridge requests.
 	reqMap["store"] = false
+
+	if config.ShouldIncludeResponsesEncryptedReasoning("responses", upstream.ServiceType, upstream.ResponsesEncryptedReasoningMode) {
+		utils.EnsureResponsesEncryptedReasoningInclude(reqMap)
+	}
 
 	// 序列化请求体
 	reqBody, err := json.Marshal(reqMap)
@@ -1624,6 +1631,112 @@ func buildCodexOAuthRequest(
 	}
 
 	return req, serviceTierOverridden, nil
+}
+
+func sanitizeCodexOAuthEncryptedReasoningState(reqMap map[string]interface{}) {
+	if reqMap == nil {
+		return
+	}
+
+	sanitizeCodexOAuthEncryptedReasoningValue(reqMap)
+}
+
+func sanitizeCodexOAuthEncryptedReasoningValue(value interface{}) {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		if include, ok := v["include"].([]interface{}); ok {
+			filtered := make([]interface{}, 0, len(include))
+			for _, item := range include {
+				if str, ok := item.(string); ok && str == utils.ResponsesEncryptedReasoningInclude {
+					continue
+				}
+				filtered = append(filtered, item)
+			}
+			if len(filtered) == 0 {
+				delete(v, "include")
+			} else {
+				v["include"] = filtered
+			}
+		}
+
+		if input, ok := v["input"].([]interface{}); ok {
+			filtered := make([]interface{}, 0, len(input))
+			for _, item := range input {
+				itemMap, ok := item.(map[string]interface{})
+				if !ok {
+					filtered = append(filtered, item)
+					continue
+				}
+				if hasEncryptedContent(itemMap) && strings.EqualFold(strings.TrimSpace(getItemType(itemMap)), "reasoning") {
+					continue
+				}
+				delete(itemMap, "encrypted_content")
+				sanitizeCodexOAuthEncryptedReasoningValue(itemMap)
+				filtered = append(filtered, itemMap)
+			}
+			v["input"] = filtered
+		}
+
+		for key, item := range v {
+			sanitizeCodexOAuthEncryptedReasoningValueForKey(v, key, item)
+		}
+	case []interface{}:
+		for i, item := range v {
+			sanitizeCodexOAuthEncryptedReasoningStateItem(v, i, item)
+		}
+	}
+}
+
+func sanitizeCodexOAuthEncryptedReasoningValueForKey(parent map[string]interface{}, key string, item interface{}) {
+	if parent == nil || item == nil {
+		return
+	}
+	switch typed := item.(type) {
+	case map[string]interface{}:
+		if key == "include" {
+			return
+		}
+		if key == "input" {
+			return
+		}
+		sanitizeCodexOAuthEncryptedReasoningValue(typed)
+	case []interface{}:
+		if key == "include" || key == "input" {
+			return
+		}
+		sanitizeCodexOAuthEncryptedReasoningValue(typed)
+	}
+}
+
+func sanitizeCodexOAuthEncryptedReasoningStateItem(items []interface{}, index int, item interface{}) {
+	if index < 0 || index >= len(items) || item == nil {
+		return
+	}
+	switch typed := item.(type) {
+	case map[string]interface{}:
+		delete(typed, "encrypted_content")
+		sanitizeCodexOAuthEncryptedReasoningValue(typed)
+	case []interface{}:
+		sanitizeCodexOAuthEncryptedReasoningValue(typed)
+	}
+}
+
+func getItemType(item map[string]interface{}) string {
+	if item == nil {
+		return ""
+	}
+	if v, ok := item["type"].(string); ok {
+		return v
+	}
+	return ""
+}
+
+func hasEncryptedContent(item map[string]interface{}) bool {
+	if item == nil {
+		return false
+	}
+	value, ok := item["encrypted_content"].(string)
+	return ok && strings.TrimSpace(value) != ""
 }
 
 // handleSingleChannelResponses 处理单渠道 Responses 请求（现有逻辑）
@@ -1966,7 +2079,9 @@ func handleSingleChannelResponses(
 				} else if changed {
 					log.Printf("🔁 [Responses] upstream rejected Codex-specific payload shape; retrying with compatibility request")
 					c.Request.Body = io.NopCloser(bytes.NewReader(sanitizedBodyBytes))
-					compatProviderReq, _, compatErr := provider.ConvertToProviderRequest(c, upstream, apiKey)
+					compatUpstream := *upstream
+					compatUpstream.ResponsesEncryptedReasoningMode = config.ResponsesEncryptedReasoningModeOff
+					compatProviderReq, _, compatErr := provider.ConvertToProviderRequest(c, &compatUpstream, apiKey)
 					if compatErr != nil {
 						log.Printf("⚠️ [Responses] compatibility request conversion failed: %v", compatErr)
 					} else {

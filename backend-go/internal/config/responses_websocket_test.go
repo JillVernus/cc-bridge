@@ -122,7 +122,6 @@ func TestResponsesWebSocketFlagPersistsForNonOAuthResponsesChannel(t *testing.T)
 	if err != nil {
 		t.Fatalf("NewConfigManager() failed: %v", err)
 	}
-	t.Cleanup(func() { _ = cm.Close() })
 
 	if err := cm.AddResponsesUpstream(UpstreamConfig{
 		Name:                      "responses-ws",
@@ -150,5 +149,8 @@ func TestResponsesWebSocketFlagPersistsForNonOAuthResponsesChannel(t *testing.T)
 	cfg = cm.GetConfig()
 	if cfg.ResponsesUpstream[0].ResponsesWebSocketEnabled {
 		t.Fatalf("composite channel responsesWebSocketEnabled = true, want false")
+	}
+	if err := cm.Close(); err != nil {
+		t.Fatalf("Close() failed: %v", err)
 	}
 }

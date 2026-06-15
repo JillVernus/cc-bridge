@@ -92,3 +92,21 @@ func TestResolveResponsesUserAgentCaptureNewerVersion(t *testing.T) {
 		t.Fatalf("expected LastCapturedAt to be recorded")
 	}
 }
+
+func TestResolveResponsesUserAgentAcceptsCodexTUIVersion(t *testing.T) {
+	cm := newTestConfigManagerForUA(t)
+	incoming := "codex-tui/0.139.0 (Ubuntu 24.4.0; aarch64) vscode/1.124.2 (codex-tui; 0.139.0)"
+
+	got := cm.ResolveResponsesUserAgent(incoming)
+	if got != incoming {
+		t.Fatalf("ResolveResponsesUserAgent() = %q, want %q", got, incoming)
+	}
+
+	cfg := cm.GetUserAgentConfig()
+	if cfg.Responses.Latest != incoming {
+		t.Fatalf("stored latest = %q, want %q", cfg.Responses.Latest, incoming)
+	}
+	if cfg.Responses.LastCapturedAt == "" {
+		t.Fatalf("expected LastCapturedAt to be recorded")
+	}
+}

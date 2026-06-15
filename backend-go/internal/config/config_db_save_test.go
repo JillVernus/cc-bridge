@@ -404,6 +404,82 @@ func TestDBConfigStorage_SaveAndLoadResponsesWebSocketEnabled(t *testing.T) {
 	}
 }
 
+func TestDBConfigStorage_SaveAndLoadResponsesEncryptedReasoningMode(t *testing.T) {
+	dbStorage, db := newConfigTestDBStorage(t)
+	defer db.Close()
+
+	cfg := Config{
+		Upstream:        []UpstreamConfig{},
+		CurrentUpstream: 0,
+		LoadBalance:     "failover",
+		ResponsesUpstream: []UpstreamConfig{
+			{
+				ID:                              "responses-auto",
+				Name:                            "Responses Auto",
+				BaseURL:                         "https://api.openai.com/v1",
+				ServiceType:                     "responses",
+				Status:                          "active",
+				ResponsesEncryptedReasoningMode: "",
+			},
+			{
+				ID:                              "oauth-always",
+				Name:                            "OAuth Always",
+				BaseURL:                         "https://chatgpt.com/backend-api/codex/responses",
+				ServiceType:                     "openai-oauth",
+				Status:                          "active",
+				ResponsesEncryptedReasoningMode: " Always ",
+			},
+			{
+				ID:                              "responses-off",
+				Name:                            "Responses Off",
+				BaseURL:                         "https://api.openai.com/v1",
+				ServiceType:                     "responses",
+				Status:                          "active",
+				ResponsesEncryptedReasoningMode: "off",
+			},
+			{
+				ID:                              "openai-ineligible",
+				Name:                            "OpenAI Ineligible",
+				BaseURL:                         "https://api.openai.com/v1",
+				ServiceType:                     "openai",
+				Status:                          "active",
+				ResponsesEncryptedReasoningMode: "always",
+			},
+		},
+		CurrentResponsesUpstream: 0,
+		ResponsesLoadBalance:     "failover",
+		GeminiUpstream:           []UpstreamConfig{},
+		GeminiLoadBalance:        "failover",
+		ChatUpstream:             []UpstreamConfig{},
+		ChatLoadBalance:          "failover",
+		UserAgent:                GetDefaultUserAgentConfig(),
+	}
+
+	if err := dbStorage.SaveConfigToDB(&cfg); err != nil {
+		t.Fatalf("SaveConfigToDB() failed: %v", err)
+	}
+
+	loaded, err := dbStorage.LoadConfigFromDB()
+	if err != nil {
+		t.Fatalf("LoadConfigFromDB() failed: %v", err)
+	}
+	if len(loaded.ResponsesUpstream) != 4 {
+		t.Fatalf("responses channel count = %d, want 4", len(loaded.ResponsesUpstream))
+	}
+
+	want := map[string]string{
+		"responses-auto":    ResponsesEncryptedReasoningModeAuto,
+		"oauth-always":      ResponsesEncryptedReasoningModeOff,
+		"responses-off":     ResponsesEncryptedReasoningModeOff,
+		"openai-ineligible": ResponsesEncryptedReasoningModeOff,
+	}
+	for _, upstream := range loaded.ResponsesUpstream {
+		if got := upstream.ResponsesEncryptedReasoningMode; got != want[upstream.ID] {
+			t.Fatalf("loaded ResponsesEncryptedReasoningMode for %s = %q, want %q", upstream.ID, got, want[upstream.ID])
+		}
+	}
+}
+
 func TestDBConfigStorage_SaveAndLoadOutboundHeaderPolicy(t *testing.T) {
 	dbStorage, db := newConfigTestDBStorage(t)
 	defer db.Close()

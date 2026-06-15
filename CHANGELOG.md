@@ -4,6 +4,32 @@
 
 ---
 
+## [v1.5.65] - 2026-06-15
+
+### ✨ 功能
+
+- **Responses 加密推理兼容模式**:
+  - Responses 渠道新增加密推理 include 模式，可按渠道选择自动、始终开启或关闭。
+  - 仅直接 Responses 渠道使用 `reasoning.encrypted_content`，避免影响 Codex OAuth。
+
+- **User-Agent 覆盖可观测性增强**:
+  - Responses UA 识别同时支持 `codex_cli_rs/...` 与 `codex-tui/...`。
+  - 请求详情新增修改后请求头展示，可确认 User-Agent 是否被覆盖。
+
+### 🐛 修复
+
+- **Codex OAuth 加密内容清理**:
+  - OAuth HTTP 与 WebSocket 请求都会移除旧会话中的 `reasoning.encrypted_content` 和嵌套 `encrypted_content`。
+  - 修复 Codex OAuth WebSocket 仍可能返回 `invalid_encrypted_content` 的问题。
+
+- **Debug Log 请求头保留修复**:
+  - 请求头保留数据改为独立随 debug log 保存，避免日志 body 过期清理时连同 headers 一起丢失。
+  - 清理请求日志时会保留仍有关联 debug header 数据的父记录。
+
+### ✅ 验证
+
+- `go test ./... -count=1` 通过
+
 ## [v1.5.64] - 2026-06-14
 
 ### ✨ 功能

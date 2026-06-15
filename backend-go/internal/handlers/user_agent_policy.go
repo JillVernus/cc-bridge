@@ -15,7 +15,12 @@ func applyMessagesUserAgentPolicy(c *gin.Context, cfgManager *config.ConfigManag
 	if upstream.ServiceType != "claude" {
 		return
 	}
-	req.Header.Set("User-Agent", cfgManager.ResolveMessagesUserAgent(c.GetHeader("User-Agent")))
+	incoming := c.GetHeader("User-Agent")
+	resolved := cfgManager.ResolveMessagesUserAgent(incoming)
+	if incoming != "" && incoming != resolved {
+		RecordDebugModifiedRequestHeader(c, "User-Agent", resolved)
+	}
+	req.Header.Set("User-Agent", resolved)
 }
 
 // applyResponsesUserAgentPolicy applies UA capture/fallback for /v1/responses direct passthrough channels.
@@ -26,12 +31,22 @@ func applyResponsesUserAgentPolicy(c *gin.Context, cfgManager *config.ConfigMana
 	if upstream.ServiceType != "responses" {
 		return
 	}
-	req.Header.Set("User-Agent", cfgManager.ResolveResponsesUserAgent(c.GetHeader("User-Agent")))
+	incoming := c.GetHeader("User-Agent")
+	resolved := cfgManager.ResolveResponsesUserAgent(incoming)
+	if incoming != "" && incoming != resolved {
+		RecordDebugModifiedRequestHeader(c, "User-Agent", resolved)
+	}
+	req.Header.Set("User-Agent", resolved)
 }
 
 func resolveResponsesUserAgentForOAuth(c *gin.Context, cfgManager *config.ConfigManager) string {
 	if c == nil || cfgManager == nil {
 		return config.DefaultResponsesUserAgent
 	}
-	return cfgManager.ResolveResponsesUserAgent(c.GetHeader("User-Agent"))
+	incoming := c.GetHeader("User-Agent")
+	resolved := cfgManager.ResolveResponsesUserAgent(incoming)
+	if incoming != "" && incoming != resolved {
+		RecordDebugModifiedRequestHeader(c, "User-Agent", resolved)
+	}
+	return resolved
 }

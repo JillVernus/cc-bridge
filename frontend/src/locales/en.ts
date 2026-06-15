@@ -261,6 +261,12 @@ export default {
     codexServiceTierOverrideForceDefault: 'Force default for explicit priority',
     codexServiceTierOverrideHint:
       'Proxy override for this channel: force missing/default service_tier to "priority", or downgrade explicit "priority" to "default". The downgrade mode only rewrites explicit priority requests.',
+    responsesEncryptedReasoningMode: 'Encrypted Reasoning',
+    responsesEncryptedReasoningModeAuto: 'Auto',
+    responsesEncryptedReasoningModeAlways: 'Always include',
+    responsesEncryptedReasoningModeOff: 'Off',
+    responsesEncryptedReasoningModeHint:
+      'Adds encrypted reasoning content for native Responses channels. Leave on Auto unless this upstream rejects the field.',
     responsesWebSocket: 'Responses WebSocket',
     responsesWebSocketHint: 'Enable for Codex/Responses-compatible channels whose upstream supports WebSocket.',
     description: 'Description (optional)',
@@ -1069,10 +1075,15 @@ export default {
     body: 'Body',
     noHeaders: 'No headers captured',
     removedHeadersSummary: '{count} removed',
+    modifiedHeadersSummary: '{count} modified',
     removedHeadersHint:
       'These request headers were captured by CC-Bridge but stripped before the upstream request was sent.',
+    modifiedHeadersHint:
+      'These request headers were captured from the client, then changed by CC-Bridge before the upstream request was sent.',
     removedBeforeUpstream: 'Removed before upstream',
     removedByRule: 'matched: {rule}',
+    modifiedBeforeUpstream: 'Modified before upstream',
+    modifiedTo: 'sent as: {value}',
     showSensitiveHeaders: 'Show sensitive headers',
     hideSensitiveHeaders: 'Hide sensitive headers',
     noData: 'No debug data available for this request',

@@ -235,6 +235,8 @@ export interface Channel {
   oauthTokens?: OAuthTokens
   // Codex Responses service_tier override policy for eligible channels
   codexServiceTierOverride?: 'off' | 'force_priority' | 'force_default'
+  // Encrypted reasoning include policy for native Responses-pool channels
+  responsesEncryptedReasoningMode?: 'auto' | 'always' | 'off'
   // Responses WebSocket transport support for compatible Responses-pool channels
   responsesWebSocketEnabled?: boolean
   // 配额设置
@@ -1808,6 +1810,7 @@ export interface DebugLogEntry {
   requestHeaders: Record<string, string>
   requestHeadersRaw?: Record<string, string>
   requestRemovedHeaders?: Record<string, string>
+  requestModifiedHeaders?: Record<string, string>
   requestBody: string
   responseHeaders: Record<string, string>
   responseHeadersRaw?: Record<string, string>

@@ -109,6 +109,116 @@ func TestBuildCodexOAuthRequest_ForcesStoreFalse(t *testing.T) {
 	}
 }
 
+func TestBuildCodexOAuthRequest_StripsEncryptedReasoningState(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("POST", "/v1/responses", bytes.NewReader(nil))
+
+	body := []byte(`{
+		"model":"gpt-5.4",
+		"stream":true,
+		"include":["reasoning.encrypted_content","file_search_call.results"],
+		"input":[
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]},
+			{"type":"reasoning","id":"rs_1","summary":[],"encrypted_content":"QVhO...fQ=="},
+			{"type":"reasoning","id":"rs_2","summary":[{"type":"summary_text","text":"kept summary"}]},
+			{"type":"function_call","call_id":"call_1","name":"exec_command","arguments":"{}"}
+		]
+	}`)
+
+	req, _, err := buildCodexOAuthRequest(
+		c,
+		nil,
+		&config.UpstreamConfig{ServiceType: "openai-oauth"},
+		body,
+		types.ResponsesRequest{Model: "gpt-5.4", Stream: true},
+		"access-token",
+		"account-1",
+		false,
+	)
+	if err != nil {
+		t.Fatalf("buildCodexOAuthRequest returned error: %v", err)
+	}
+
+	payloadBytes, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatalf("failed to read built request body: %v", err)
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
+		t.Fatalf("failed to parse built request body: %v", err)
+	}
+
+	include, ok := payload["include"].([]interface{})
+	if !ok {
+		t.Fatalf("expected include to preserve non-encrypted entries, got %#v", payload["include"])
+	}
+	if len(include) != 1 || include[0] != "file_search_call.results" {
+		t.Fatalf("include = %#v, want file_search_call.results only", include)
+	}
+
+	input := payload["input"].([]interface{})
+	if len(input) != 3 {
+		t.Fatalf("input length = %d, want 3 after dropping encrypted reasoning item: %#v", len(input), input)
+	}
+	for _, item := range input {
+		itemMap, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if _, exists := itemMap["encrypted_content"]; exists {
+			t.Fatalf("encrypted_content was not stripped: %#v", itemMap)
+		}
+	}
+	if input[1].(map[string]interface{})["type"] != "reasoning" {
+		t.Fatalf("expected non-encrypted reasoning summary to remain, got %#v", input[1])
+	}
+}
+
+func TestSanitizeCodexOAuthEncryptedReasoningState_StripsNestedEncryptedContent(t *testing.T) {
+	reqMap := map[string]interface{}{
+		"type": "response.create",
+		"response": map[string]interface{}{
+			"include": []interface{}{"reasoning.encrypted_content", "file_search_call.results"},
+			"input": []interface{}{
+				map[string]interface{}{
+					"type":              "reasoning",
+					"encrypted_content": "QVhO...fQ==",
+				},
+				map[string]interface{}{
+					"type": "message",
+					"content": []interface{}{
+						map[string]interface{}{
+							"type":              "input_text",
+							"text":              "hello",
+							"encrypted_content": "nested-secret",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	sanitizeCodexOAuthEncryptedReasoningState(reqMap)
+
+	response := reqMap["response"].(map[string]interface{})
+	include := response["include"].([]interface{})
+	if len(include) != 1 || include[0] != "file_search_call.results" {
+		t.Fatalf("include = %#v, want file_search_call.results only", include)
+	}
+	input := response["input"].([]interface{})
+	if len(input) != 1 {
+		t.Fatalf("input length = %d, want encrypted reasoning item removed", len(input))
+	}
+	message := input[0].(map[string]interface{})
+	content := message["content"].([]interface{})
+	contentPart := content[0].(map[string]interface{})
+	if _, exists := contentPart["encrypted_content"]; exists {
+		t.Fatalf("nested encrypted_content was not stripped: %#v", contentPart)
+	}
+}
+
 func TestBuildCodexOAuthRequest_AppliesCodexPriorityOverride(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

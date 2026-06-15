@@ -303,6 +303,23 @@
                   />
                 </v-col>
 
+                <v-col cols="12" md="6" v-if="showResponsesEncryptedReasoningMode">
+                  <v-select
+                    v-model="form.responsesEncryptedReasoningMode"
+                    :label="t('addChannel.responsesEncryptedReasoningMode')"
+                    :items="[
+                      { title: t('addChannel.responsesEncryptedReasoningModeAuto'), value: 'auto' },
+                      { title: t('addChannel.responsesEncryptedReasoningModeAlways'), value: 'always' },
+                      { title: t('addChannel.responsesEncryptedReasoningModeOff'), value: 'off' }
+                    ]"
+                    prepend-inner-icon="mdi-shield-key"
+                    variant="outlined"
+                    density="comfortable"
+                    :hint="t('addChannel.responsesEncryptedReasoningModeHint')"
+                    persistent-hint
+                  />
+                </v-col>
+
                 <v-col cols="12" md="6" v-if="showResponsesWebSocketToggle">
                   <div class="channel-toggle-row">
                     <div class="channel-toggle-copy">
@@ -1798,6 +1815,7 @@ const form = reactive({
   >,
   oauthTokens: undefined as OAuthTokens | undefined,
   codexServiceTierOverride: 'off' as 'off' | 'force_priority' | 'force_default',
+  responsesEncryptedReasoningMode: 'auto' as 'auto' | 'always' | 'off',
   responsesWebSocketEnabled: false,
   // Composite channel mappings
   compositeMappings: [] as CompositeMapping[],
@@ -1968,6 +1986,10 @@ const isCompositeChannel = computed(() => form.serviceType === 'composite')
 
 const showCodexServiceTierOverride = computed(() => {
   return props.channelType === 'responses' && (form.serviceType === 'responses' || form.serviceType === 'openai-oauth')
+})
+
+const showResponsesEncryptedReasoningMode = computed(() => {
+  return props.channelType === 'responses' && form.serviceType === 'responses'
 })
 
 const showResponsesWebSocketToggle = computed(() => {
@@ -2464,6 +2486,7 @@ const resetForm = () => {
   form.priceMultipliers = {}
   form.oauthTokens = undefined
   form.codexServiceTierOverride = 'off'
+  form.responsesEncryptedReasoningMode = 'auto'
   form.responsesWebSocketEnabled = false
   form.compositeMappings = []
   // Reset quota settings
@@ -2567,6 +2590,7 @@ const loadChannelData = (channel: Channel) => {
   form.modelMapping = { ...(channel.modelMapping || {}) }
   form.priceMultipliers = { ...(channel.priceMultipliers || {}) }
   form.codexServiceTierOverride = channel.codexServiceTierOverride || 'off'
+  form.responsesEncryptedReasoningMode = channel.responsesEncryptedReasoningMode || 'auto'
   form.responsesWebSocketEnabled = !!channel.responsesWebSocketEnabled
 
   // Load composite mappings
@@ -2974,6 +2998,9 @@ const handleSubmit = async () => {
     // 始终发送 priceMultipliers，即使为空对象（用于清除已有配置）
     priceMultipliers: form.priceMultipliers,
     codexServiceTierOverride: showCodexServiceTierOverride.value ? form.codexServiceTierOverride : undefined,
+    responsesEncryptedReasoningMode: showResponsesEncryptedReasoningMode.value
+      ? form.responsesEncryptedReasoningMode
+      : undefined,
     responsesWebSocketEnabled: showResponsesWebSocketToggle.value ? form.responsesWebSocketEnabled : undefined,
     // Quota settings - always send quotaType (empty string clears quota)
     // Note: Use validNumber helper to convert NaN to undefined (v-model.number returns NaN for empty inputs)

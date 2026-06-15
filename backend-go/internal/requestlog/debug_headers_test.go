@@ -43,6 +43,9 @@ func TestDebugLog_RoundTripPreservesRawHeadersAndReturnsMaskedView(t *testing.T)
 		RequestRemovedHeaders: map[string]string{
 			"CF-Connecting-IP": "Cf-*",
 		},
+		RequestModifiedHeaders: map[string]string{
+			"User-Agent": "codex_cli_rs/0.80.0 (Linux; x86_64)",
+		},
 		ResponseHeaders: map[string]string{
 			"Set-Cookie":   "session=abc123",
 			"Content-Type": "text/event-stream",
@@ -72,11 +75,71 @@ func TestDebugLog_RoundTripPreservesRawHeadersAndReturnsMaskedView(t *testing.T)
 	if got := entry.RequestRemovedHeaders["CF-Connecting-IP"]; got != "Cf-*" {
 		t.Fatalf("expected removed header rule preserved, got %q", got)
 	}
+	if got := entry.RequestModifiedHeaders["User-Agent"]; got != "codex_cli_rs/0.80.0 (Linux; x86_64)" {
+		t.Fatalf("expected modified User-Agent target preserved, got %q", got)
+	}
 	if got := entry.ResponseHeadersRaw["Set-Cookie"]; got != "session=abc123" {
 		t.Fatalf("expected raw Set-Cookie preserved, got %q", got)
 	}
 	if got := entry.ResponseHeaders["Set-Cookie"]; got == "" || got == "session=abc123" {
 		t.Fatalf("expected masked Set-Cookie in default view, got %q", got)
+	}
+}
+
+func TestRequestLogCleanupKeepsParentRowsWhileDebugHeadersRetained(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "request_logs_cleanup_keeps_debug_headers.db")
+	manager, err := NewManager(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create manager: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = manager.Close()
+	})
+
+	oldTime := time.Now().AddDate(0, 0, -31)
+	record := &RequestLog{
+		ID:           "req_old_with_debug_headers",
+		Status:       StatusCompleted,
+		InitialTime:  oldTime,
+		CompleteTime: oldTime.Add(time.Second),
+		Type:         "responses",
+		ProviderName: "responses-debug",
+		Model:        "gpt-5",
+		Endpoint:     "/v1/responses",
+		ChannelName:  "responses-debug",
+	}
+	if err := manager.Add(record); err != nil {
+		t.Fatalf("Add request log failed: %v", err)
+	}
+	if err := manager.AddDebugLog(&DebugLogEntry{
+		RequestID:     record.ID,
+		RequestMethod: "POST",
+		RequestPath:   "/v1/responses",
+		RequestHeaders: map[string]string{
+			"Content-Type": "application/json",
+		},
+		ResponseStatus: httpStatusOKForDebugTest,
+		ResponseHeaders: map[string]string{
+			"Content-Type": "application/json",
+		},
+	}); err != nil {
+		t.Fatalf("AddDebugLog failed: %v", err)
+	}
+
+	deleted, err := manager.Cleanup(30)
+	if err != nil {
+		t.Fatalf("Cleanup failed: %v", err)
+	}
+	if deleted != 0 {
+		t.Fatalf("expected cleanup to keep parent row while debug headers exist, deleted %d rows", deleted)
+	}
+
+	entry, err := manager.GetDebugLog(record.ID)
+	if err != nil {
+		t.Fatalf("GetDebugLog failed: %v", err)
+	}
+	if entry == nil {
+		t.Fatalf("expected debug headers to survive request-log cleanup")
 	}
 }
 

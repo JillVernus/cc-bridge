@@ -15,20 +15,21 @@ import (
 
 // DebugLogEntry represents full request/response data for debugging
 type DebugLogEntry struct {
-	RequestID             string            `json:"requestId"`
-	RequestMethod         string            `json:"requestMethod"`
-	RequestPath           string            `json:"requestPath"`
-	RequestHeaders        map[string]string `json:"requestHeaders"`
-	RequestHeadersRaw     map[string]string `json:"requestHeadersRaw,omitempty"`
-	RequestRemovedHeaders map[string]string `json:"requestRemovedHeaders,omitempty"`
-	RequestBody           string            `json:"requestBody"`
-	RequestBodySize       int               `json:"requestBodySize"`
-	ResponseStatus        int               `json:"responseStatus"`
-	ResponseHeaders       map[string]string `json:"responseHeaders"`
-	ResponseHeadersRaw    map[string]string `json:"responseHeadersRaw,omitempty"`
-	ResponseBody          string            `json:"responseBody"`
-	ResponseBodySize      int               `json:"responseBodySize"`
-	CreatedAt             time.Time         `json:"createdAt"`
+	RequestID              string            `json:"requestId"`
+	RequestMethod          string            `json:"requestMethod"`
+	RequestPath            string            `json:"requestPath"`
+	RequestHeaders         map[string]string `json:"requestHeaders"`
+	RequestHeadersRaw      map[string]string `json:"requestHeadersRaw,omitempty"`
+	RequestRemovedHeaders  map[string]string `json:"requestRemovedHeaders,omitempty"`
+	RequestModifiedHeaders map[string]string `json:"requestModifiedHeaders,omitempty"`
+	RequestBody            string            `json:"requestBody"`
+	RequestBodySize        int               `json:"requestBodySize"`
+	ResponseStatus         int               `json:"responseStatus"`
+	ResponseHeaders        map[string]string `json:"responseHeaders"`
+	ResponseHeadersRaw     map[string]string `json:"responseHeadersRaw,omitempty"`
+	ResponseBody           string            `json:"responseBody"`
+	ResponseBodySize       int               `json:"responseBodySize"`
+	CreatedAt              time.Time         `json:"createdAt"`
 }
 
 // sensitiveHeaders are headers that should be masked in debug logs
@@ -140,6 +141,10 @@ func (m *Manager) AddDebugLog(entry *DebugLogEntry) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal removed request headers: %w", err)
 	}
+	reqModifiedHeadersJSON, err := json.Marshal(entry.RequestModifiedHeaders)
+	if err != nil {
+		return fmt.Errorf("failed to marshal modified request headers: %w", err)
+	}
 
 	// Compress data
 	compReqHeaders, err := compressData(reqHeadersJSON)
@@ -158,6 +163,10 @@ func (m *Manager) AddDebugLog(entry *DebugLogEntry) error {
 	if err != nil {
 		return fmt.Errorf("failed to compress removed request headers: %w", err)
 	}
+	compReqModifiedHeaders, err := compressData(reqModifiedHeadersJSON)
+	if err != nil {
+		return fmt.Errorf("failed to compress modified request headers: %w", err)
+	}
 	compRespBody, err := compressData([]byte(entry.ResponseBody))
 	if err != nil {
 		return fmt.Errorf("failed to compress response body: %w", err)
@@ -167,9 +176,31 @@ func (m *Manager) AddDebugLog(entry *DebugLogEntry) error {
 	defer m.mu.Unlock()
 
 	var query string
+	var noModifiedQuery string
 	var legacyQuery string
 	if m.isPostgres() {
 		query = `
+		INSERT INTO request_debug_logs (
+			request_id, request_method, request_path,
+			request_headers, request_removed_headers, request_modified_headers, request_body, request_body_size,
+			response_status, response_headers, response_body, response_body_size,
+			created_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		ON CONFLICT (request_id) DO UPDATE SET
+			request_method = EXCLUDED.request_method,
+			request_path = EXCLUDED.request_path,
+			request_headers = EXCLUDED.request_headers,
+			request_removed_headers = EXCLUDED.request_removed_headers,
+			request_modified_headers = EXCLUDED.request_modified_headers,
+			request_body = EXCLUDED.request_body,
+			request_body_size = EXCLUDED.request_body_size,
+			response_status = EXCLUDED.response_status,
+			response_headers = EXCLUDED.response_headers,
+			response_body = EXCLUDED.response_body,
+			response_body_size = EXCLUDED.response_body_size,
+			created_at = EXCLUDED.created_at
+		`
+		noModifiedQuery = `
 		INSERT INTO request_debug_logs (
 			request_id, request_method, request_path,
 			request_headers, request_removed_headers, request_body, request_body_size,
@@ -212,6 +243,14 @@ func (m *Manager) AddDebugLog(entry *DebugLogEntry) error {
 		query = `
 		INSERT OR REPLACE INTO request_debug_logs (
 			request_id, request_method, request_path,
+			request_headers, request_removed_headers, request_modified_headers, request_body, request_body_size,
+			response_status, response_headers, response_body, response_body_size,
+			created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`
+		noModifiedQuery = `
+		INSERT OR REPLACE INTO request_debug_logs (
+			request_id, request_method, request_path,
 			request_headers, request_removed_headers, request_body, request_body_size,
 			response_status, response_headers, response_body, response_body_size,
 			created_at
@@ -233,6 +272,7 @@ func (m *Manager) AddDebugLog(entry *DebugLogEntry) error {
 		entry.RequestPath,
 		compReqHeaders,
 		compReqRemovedHeaders,
+		compReqModifiedHeaders,
 		compReqBody,
 		entry.RequestBodySize,
 		entry.ResponseStatus,
@@ -242,11 +282,12 @@ func (m *Manager) AddDebugLog(entry *DebugLogEntry) error {
 		time.Now(),
 	)
 	if err != nil && isAnyMissingColumnErr(err) {
-		_, err = m.db.Exec(legacyQuery,
+		_, err = m.db.Exec(noModifiedQuery,
 			entry.RequestID,
 			entry.RequestMethod,
 			entry.RequestPath,
 			compReqHeaders,
+			compReqRemovedHeaders,
 			compReqBody,
 			entry.RequestBodySize,
 			entry.ResponseStatus,
@@ -255,6 +296,21 @@ func (m *Manager) AddDebugLog(entry *DebugLogEntry) error {
 			entry.ResponseBodySize,
 			time.Now(),
 		)
+		if err != nil && isAnyMissingColumnErr(err) {
+			_, err = m.db.Exec(legacyQuery,
+				entry.RequestID,
+				entry.RequestMethod,
+				entry.RequestPath,
+				compReqHeaders,
+				compReqBody,
+				entry.RequestBodySize,
+				entry.ResponseStatus,
+				compRespHeaders,
+				compRespBody,
+				entry.ResponseBodySize,
+				time.Now(),
+			)
+		}
 	}
 	if err != nil {
 		return fmt.Errorf("failed to insert debug log: %w", err)
@@ -275,6 +331,14 @@ func (m *Manager) GetDebugLog(requestID string) (*DebugLogEntry, error) {
 
 	query := m.convertQuery(`
 	SELECT request_id, request_method, request_path,
+		   request_headers, request_removed_headers, request_modified_headers, request_body, request_body_size,
+		   response_status, response_headers, response_body, response_body_size,
+		   created_at
+	FROM request_debug_logs
+	WHERE request_id = ?
+	`)
+	noModifiedQuery := m.convertQuery(`
+	SELECT request_id, request_method, request_path,
 		   request_headers, request_removed_headers, request_body, request_body_size,
 		   response_status, response_headers, response_body, response_body_size,
 		   created_at
@@ -291,7 +355,7 @@ func (m *Manager) GetDebugLog(requestID string) (*DebugLogEntry, error) {
 	`)
 
 	var entry DebugLogEntry
-	var reqHeadersBlob, reqRemovedHeadersBlob, reqBodyBlob, respHeadersBlob, respBodyBlob []byte
+	var reqHeadersBlob, reqRemovedHeadersBlob, reqModifiedHeadersBlob, reqBodyBlob, respHeadersBlob, respBodyBlob []byte
 
 	err := m.db.QueryRow(query, requestID).Scan(
 		&entry.RequestID,
@@ -299,6 +363,7 @@ func (m *Manager) GetDebugLog(requestID string) (*DebugLogEntry, error) {
 		&entry.RequestPath,
 		&reqHeadersBlob,
 		&reqRemovedHeadersBlob,
+		&reqModifiedHeadersBlob,
 		&reqBodyBlob,
 		&entry.RequestBodySize,
 		&entry.ResponseStatus,
@@ -309,11 +374,13 @@ func (m *Manager) GetDebugLog(requestID string) (*DebugLogEntry, error) {
 	)
 	if err != nil && isAnyMissingColumnErr(err) {
 		reqRemovedHeadersBlob = nil
-		err = m.db.QueryRow(legacyQuery, requestID).Scan(
+		reqModifiedHeadersBlob = nil
+		err = m.db.QueryRow(noModifiedQuery, requestID).Scan(
 			&entry.RequestID,
 			&entry.RequestMethod,
 			&entry.RequestPath,
 			&reqHeadersBlob,
+			&reqRemovedHeadersBlob,
 			&reqBodyBlob,
 			&entry.RequestBodySize,
 			&entry.ResponseStatus,
@@ -322,6 +389,22 @@ func (m *Manager) GetDebugLog(requestID string) (*DebugLogEntry, error) {
 			&entry.ResponseBodySize,
 			&entry.CreatedAt,
 		)
+		if err != nil && isAnyMissingColumnErr(err) {
+			reqRemovedHeadersBlob = nil
+			err = m.db.QueryRow(legacyQuery, requestID).Scan(
+				&entry.RequestID,
+				&entry.RequestMethod,
+				&entry.RequestPath,
+				&reqHeadersBlob,
+				&reqBodyBlob,
+				&entry.RequestBodySize,
+				&entry.ResponseStatus,
+				&respHeadersBlob,
+				&respBodyBlob,
+				&entry.ResponseBodySize,
+				&entry.CreatedAt,
+			)
+		}
 	}
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -337,6 +420,9 @@ func (m *Manager) GetDebugLog(requestID string) (*DebugLogEntry, error) {
 	}
 	if reqRemovedHeadersData, err := decompressData(reqRemovedHeadersBlob); err == nil && len(reqRemovedHeadersData) > 0 {
 		json.Unmarshal(reqRemovedHeadersData, &entry.RequestRemovedHeaders)
+	}
+	if reqModifiedHeadersData, err := decompressData(reqModifiedHeadersBlob); err == nil && len(reqModifiedHeadersData) > 0 {
+		json.Unmarshal(reqModifiedHeadersData, &entry.RequestModifiedHeaders)
 	}
 	if respHeadersData, err := decompressData(respHeadersBlob); err == nil && len(respHeadersData) > 0 {
 		json.Unmarshal(respHeadersData, &entry.ResponseHeadersRaw)
@@ -437,11 +523,12 @@ func (m *Manager) PurgeAllDebugLogHeaders() (headersCleared, rowsDeleted int64, 
 	defer m.mu.Unlock()
 
 	updateQuery := `UPDATE request_debug_logs
-		SET request_headers = NULL, request_removed_headers = NULL, response_headers = NULL
-		WHERE request_headers IS NOT NULL OR request_removed_headers IS NOT NULL OR response_headers IS NOT NULL`
+		SET request_headers = NULL, request_removed_headers = NULL, request_modified_headers = NULL, response_headers = NULL
+		WHERE request_headers IS NOT NULL OR request_removed_headers IS NOT NULL OR request_modified_headers IS NOT NULL OR response_headers IS NOT NULL`
 	deleteQuery := `DELETE FROM request_debug_logs
 		WHERE request_headers IS NULL
 		  AND request_removed_headers IS NULL
+		  AND request_modified_headers IS NULL
 		  AND response_headers IS NULL
 		  AND (request_body IS NULL OR length(request_body) = 0)
 		  AND (response_body IS NULL OR length(response_body) = 0)`
@@ -449,14 +536,26 @@ func (m *Manager) PurgeAllDebugLogHeaders() (headersCleared, rowsDeleted int64, 
 	result, err := m.db.Exec(m.convertQuery(updateQuery))
 	if err != nil && isAnyMissingColumnErr(err) {
 		updateQuery = `UPDATE request_debug_logs
-			SET request_headers = NULL, response_headers = NULL
-			WHERE request_headers IS NOT NULL OR response_headers IS NOT NULL`
+			SET request_headers = NULL, request_removed_headers = NULL, response_headers = NULL
+			WHERE request_headers IS NOT NULL OR request_removed_headers IS NOT NULL OR response_headers IS NOT NULL`
 		deleteQuery = `DELETE FROM request_debug_logs
 			WHERE request_headers IS NULL
+			  AND request_removed_headers IS NULL
 			  AND response_headers IS NULL
 			  AND (request_body IS NULL OR length(request_body) = 0)
 			  AND (response_body IS NULL OR length(response_body) = 0)`
 		result, err = m.db.Exec(m.convertQuery(updateQuery))
+		if err != nil && isAnyMissingColumnErr(err) {
+			updateQuery = `UPDATE request_debug_logs
+				SET request_headers = NULL, response_headers = NULL
+				WHERE request_headers IS NOT NULL OR response_headers IS NOT NULL`
+			deleteQuery = `DELETE FROM request_debug_logs
+				WHERE request_headers IS NULL
+				  AND response_headers IS NULL
+				  AND (request_body IS NULL OR length(request_body) = 0)
+				  AND (response_body IS NULL OR length(response_body) = 0)`
+			result, err = m.db.Exec(m.convertQuery(updateQuery))
+		}
 	}
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to purge debug log headers: %w", err)

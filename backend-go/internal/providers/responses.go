@@ -58,6 +58,9 @@ func (p *ResponsesProvider) ConvertToProviderRequest(
 		if s, ok := reqMap["stream"].(bool); ok {
 			stream = s
 		}
+		if config.ShouldIncludeResponsesEncryptedReasoning("responses", upstream.ServiceType, upstream.ResponsesEncryptedReasoningMode) {
+			utils.EnsureResponsesEncryptedReasoningInclude(reqMap)
+		}
 
 		providerReq = reqMap
 	} else {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -845,6 +846,9 @@ func proxyResponsesWebSocketFrames(clientConn *websocket.Conn, upstreamConn *web
 			if msgType != websocket.TextMessage && msgType != websocket.BinaryMessage {
 				continue
 			}
+			if logTracker != nil && src == clientConn {
+				payload = sanitizeCodexOAuthWebSocketClientPayload(logTracker.upstream, payload)
+			}
 			if logTracker != nil {
 				if src == clientConn {
 					logTracker.observeClientMessage(payload)
@@ -862,4 +866,24 @@ func proxyResponsesWebSocketFrames(clientConn *websocket.Conn, upstreamConn *web
 	go copyFrames(upstreamConn, clientConn)
 	go copyFrames(clientConn, upstreamConn)
 	return <-errCh
+}
+
+func sanitizeCodexOAuthWebSocketClientPayload(upstream *config.UpstreamConfig, payload []byte) []byte {
+	if upstream == nil || !strings.EqualFold(strings.TrimSpace(upstream.ServiceType), "openai-oauth") {
+		return payload
+	}
+	if strings.TrimSpace(gjson.GetBytes(payload, "type").String()) != "response.create" {
+		return payload
+	}
+
+	var frame map[string]interface{}
+	if err := json.Unmarshal(payload, &frame); err != nil {
+		return payload
+	}
+	sanitizeCodexOAuthEncryptedReasoningState(frame)
+	sanitized, err := json.Marshal(frame)
+	if err != nil {
+		return payload
+	}
+	return sanitized
 }

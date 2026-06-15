@@ -86,6 +86,41 @@ func TestHandleSingleChannelProxy_NoUpstreamStillPersistsDebugLogWhenEnabled(t *
 	}
 }
 
+func TestApplyResponsesUserAgentPolicyRecordsDebugOverride(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cfgManager := newTestConfigManagerWithConfig(t, config.Config{
+		UserAgent: config.GetDefaultUserAgentConfig(),
+	})
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	c.Request = req
+	StoreDebugRequestData(c, nil)
+
+	outboundReq := httptest.NewRequest(http.MethodPost, "https://api.openai.com/v1/responses", nil)
+	upstream := &config.UpstreamConfig{ServiceType: "responses"}
+	applyResponsesUserAgentPolicy(c, cfgManager, upstream, outboundReq)
+
+	if got := outboundReq.Header.Get("User-Agent"); got != config.DefaultResponsesUserAgent {
+		t.Fatalf("outbound User-Agent = %q, want %q", got, config.DefaultResponsesUserAgent)
+	}
+
+	v, exists := c.Get(ContextKeyDebugModifiedReqHeaders)
+	if !exists {
+		t.Fatalf("expected debug modified header metadata")
+	}
+	modified, ok := v.(map[string]string)
+	if !ok {
+		t.Fatalf("expected map[string]string metadata, got %T", v)
+	}
+	if got := modified["User-Agent"]; got != config.DefaultResponsesUserAgent {
+		t.Fatalf("modified User-Agent = %q, want %q", got, config.DefaultResponsesUserAgent)
+	}
+}
+
 func TestSaveDebugLog_DebugDisabledPersistsHeadersOnly(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

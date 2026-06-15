@@ -570,6 +570,7 @@ func (m *Manager) initSchema() error {
 		request_path TEXT NOT NULL,
 		request_headers BLOB,
 		request_removed_headers BLOB,
+		request_modified_headers BLOB,
 		request_body BLOB,
 		request_body_size INTEGER DEFAULT 0,
 		response_status INTEGER DEFAULT 0,
@@ -593,6 +594,17 @@ func (m *Manager) initSchema() error {
 			log.Printf("⚠️ Failed to add request_removed_headers column: %v", err)
 		} else {
 			log.Printf("✅ Added request_removed_headers column to request_debug_logs table")
+		}
+	}
+	err = m.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('request_debug_logs') WHERE name='request_modified_headers'`).Scan(&count)
+	if err != nil {
+		log.Printf("⚠️ Failed to check request_modified_headers column: %v", err)
+	} else if count == 0 {
+		_, err = m.db.Exec(`ALTER TABLE request_debug_logs ADD COLUMN request_modified_headers BLOB`)
+		if err != nil {
+			log.Printf("⚠️ Failed to add request_modified_headers column: %v", err)
+		} else {
+			log.Printf("✅ Added request_modified_headers column to request_debug_logs table")
 		}
 	}
 
@@ -2141,7 +2153,14 @@ func (m *Manager) Cleanup(retentionDays int) (int64, error) {
 
 	cutoff := time.Now().AddDate(0, 0, -retentionDays)
 
-	result, err := m.db.Exec(m.convertQuery("DELETE FROM request_logs WHERE initial_time < ?"), cutoff)
+	result, err := m.db.Exec(m.convertQuery(`
+		DELETE FROM request_logs
+		WHERE initial_time < ?
+		  AND NOT EXISTS (
+			SELECT 1 FROM request_debug_logs
+			WHERE request_debug_logs.request_id = request_logs.id
+		  )
+	`), cutoff)
 	if err != nil {
 		return 0, fmt.Errorf("failed to cleanup old records: %w", err)
 	}

@@ -45,6 +45,10 @@ const (
 	CodexServiceTierOverrideOff           = "off"
 	CodexServiceTierOverrideForcePriority = "force_priority"
 	CodexServiceTierOverrideForceDefault  = "force_default"
+
+	ResponsesEncryptedReasoningModeAuto   = "auto"
+	ResponsesEncryptedReasoningModeAlways = "always"
+	ResponsesEncryptedReasoningModeOff    = "off"
 )
 
 // NormalizeCodexServiceTierOverride returns the canonical override mode for the
@@ -67,6 +71,10 @@ func NormalizeCodexServiceTierOverride(channelType string, serviceType string, r
 }
 
 func isEligibleCodexServiceTierOverrideChannel(channelType string, serviceType string) bool {
+	return isNativeResponsesPoolChannel(channelType, serviceType)
+}
+
+func isNativeResponsesPoolChannel(channelType string, serviceType string) bool {
 	if strings.ToLower(strings.TrimSpace(channelType)) != "responses" {
 		return false
 	}
@@ -79,6 +87,34 @@ func isEligibleCodexServiceTierOverrideChannel(channelType string, serviceType s
 	}
 }
 
+func isDirectResponsesChannel(channelType string, serviceType string) bool {
+	return isNativeResponsesPoolChannel(channelType, serviceType) && strings.ToLower(strings.TrimSpace(serviceType)) == "responses"
+}
+
+// NormalizeResponsesEncryptedReasoningMode returns the canonical encrypted
+// reasoning include mode for native Responses-pool channels.
+func NormalizeResponsesEncryptedReasoningMode(channelType string, serviceType string, raw string) string {
+	if !isDirectResponsesChannel(channelType, serviceType) {
+		return ResponsesEncryptedReasoningModeOff
+	}
+
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", ResponsesEncryptedReasoningModeAuto:
+		return ResponsesEncryptedReasoningModeAuto
+	case ResponsesEncryptedReasoningModeAlways, "on":
+		return ResponsesEncryptedReasoningModeAlways
+	case ResponsesEncryptedReasoningModeOff:
+		return ResponsesEncryptedReasoningModeOff
+	default:
+		return ResponsesEncryptedReasoningModeAuto
+	}
+}
+
+func ShouldIncludeResponsesEncryptedReasoning(channelType string, serviceType string, mode string) bool {
+	normalized := NormalizeResponsesEncryptedReasoningMode(channelType, serviceType, mode)
+	return normalized == ResponsesEncryptedReasoningModeAuto || normalized == ResponsesEncryptedReasoningModeAlways
+}
+
 func normalizeUpstreamCodexServiceTierOverride(channelType string, upstream *UpstreamConfig) {
 	if upstream == nil {
 		return
@@ -87,6 +123,17 @@ func normalizeUpstreamCodexServiceTierOverride(channelType string, upstream *Ups
 		channelType,
 		upstream.ServiceType,
 		upstream.CodexServiceTierOverride,
+	)
+}
+
+func normalizeUpstreamResponsesEncryptedReasoningMode(channelType string, upstream *UpstreamConfig) {
+	if upstream == nil {
+		return
+	}
+	upstream.ResponsesEncryptedReasoningMode = NormalizeResponsesEncryptedReasoningMode(
+		channelType,
+		upstream.ServiceType,
+		upstream.ResponsesEncryptedReasoningMode,
 	)
 }
 
@@ -107,18 +154,22 @@ func normalizeConfigCodexServiceTierOverrides(cfg *Config) {
 
 	for i := range cfg.Upstream {
 		normalizeUpstreamCodexServiceTierOverride("messages", &cfg.Upstream[i])
+		normalizeUpstreamResponsesEncryptedReasoningMode("messages", &cfg.Upstream[i])
 		normalizeUpstreamResponsesWebSocket("messages", &cfg.Upstream[i])
 	}
 	for i := range cfg.ResponsesUpstream {
 		normalizeUpstreamCodexServiceTierOverride("responses", &cfg.ResponsesUpstream[i])
+		normalizeUpstreamResponsesEncryptedReasoningMode("responses", &cfg.ResponsesUpstream[i])
 		normalizeUpstreamResponsesWebSocket("responses", &cfg.ResponsesUpstream[i])
 	}
 	for i := range cfg.GeminiUpstream {
 		normalizeUpstreamCodexServiceTierOverride("gemini", &cfg.GeminiUpstream[i])
+		normalizeUpstreamResponsesEncryptedReasoningMode("gemini", &cfg.GeminiUpstream[i])
 		normalizeUpstreamResponsesWebSocket("gemini", &cfg.GeminiUpstream[i])
 	}
 	for i := range cfg.ChatUpstream {
 		normalizeUpstreamCodexServiceTierOverride("chat", &cfg.ChatUpstream[i])
+		normalizeUpstreamResponsesEncryptedReasoningMode("chat", &cfg.ChatUpstream[i])
 		normalizeUpstreamResponsesWebSocket("chat", &cfg.ChatUpstream[i])
 	}
 }
@@ -248,6 +299,9 @@ type UpstreamConfig struct {
 	// Codex Responses service tier override for eligible channels.
 	// Canonical values: off | force_priority | force_default.
 	CodexServiceTierOverride string `json:"codexServiceTierOverride,omitempty"`
+	// Encrypted reasoning include mode for native Responses-pool channels.
+	// Canonical values: auto | always | off.
+	ResponsesEncryptedReasoningMode string `json:"responsesEncryptedReasoningMode,omitempty"`
 	// Responses WebSocket transport support for compatible Responses-pool channels.
 	ResponsesWebSocketEnabled bool `json:"responsesWebSocketEnabled,omitempty"`
 	// 配额设置（可选）
@@ -465,6 +519,9 @@ type UpstreamUpdate struct {
 	// Codex Responses service tier override for eligible channels.
 	// Canonical values: off | force_priority | force_default.
 	CodexServiceTierOverride *string `json:"codexServiceTierOverride"`
+	// Encrypted reasoning include mode for native Responses-pool channels.
+	// Canonical values: auto | always | off.
+	ResponsesEncryptedReasoningMode *string `json:"responsesEncryptedReasoningMode"`
 	// Responses WebSocket transport support for compatible Responses-pool channels.
 	ResponsesWebSocketEnabled *bool `json:"responsesWebSocketEnabled"`
 	// 配额设置
@@ -1949,6 +2006,9 @@ func (cm *ConfigManager) updateUpstream(index int, updates UpstreamUpdate, expec
 	if updates.CodexServiceTierOverride != nil {
 		upstream.CodexServiceTierOverride = strings.TrimSpace(*updates.CodexServiceTierOverride)
 	}
+	if updates.ResponsesEncryptedReasoningMode != nil {
+		upstream.ResponsesEncryptedReasoningMode = strings.TrimSpace(*updates.ResponsesEncryptedReasoningMode)
+	}
 	// 配额设置
 	if updates.QuotaType != nil {
 		upstream.QuotaType = *updates.QuotaType
@@ -2865,6 +2925,9 @@ func (cm *ConfigManager) updateResponsesUpstream(index int, updates UpstreamUpda
 	}
 	if updates.CodexServiceTierOverride != nil {
 		upstream.CodexServiceTierOverride = strings.TrimSpace(*updates.CodexServiceTierOverride)
+	}
+	if updates.ResponsesEncryptedReasoningMode != nil {
+		upstream.ResponsesEncryptedReasoningMode = strings.TrimSpace(*updates.ResponsesEncryptedReasoningMode)
 	}
 	if updates.ResponsesWebSocketEnabled != nil {
 		upstream.ResponsesWebSocketEnabled = *updates.ResponsesWebSocketEnabled
@@ -3890,6 +3953,9 @@ func (cm *ConfigManager) updateGeminiUpstream(index int, updates UpstreamUpdate,
 	if updates.CodexServiceTierOverride != nil {
 		upstream.CodexServiceTierOverride = strings.TrimSpace(*updates.CodexServiceTierOverride)
 	}
+	if updates.ResponsesEncryptedReasoningMode != nil {
+		upstream.ResponsesEncryptedReasoningMode = strings.TrimSpace(*updates.ResponsesEncryptedReasoningMode)
+	}
 	// 配额设置
 	if updates.QuotaType != nil {
 		upstream.QuotaType = *updates.QuotaType
@@ -4277,6 +4343,9 @@ func (cm *ConfigManager) updateChatUpstream(index int, updates UpstreamUpdate, e
 	}
 	if updates.CodexServiceTierOverride != nil {
 		upstream.CodexServiceTierOverride = strings.TrimSpace(*updates.CodexServiceTierOverride)
+	}
+	if updates.ResponsesEncryptedReasoningMode != nil {
+		upstream.ResponsesEncryptedReasoningMode = strings.TrimSpace(*updates.ResponsesEncryptedReasoningMode)
 	}
 	// 配额设置
 	if updates.QuotaType != nil {

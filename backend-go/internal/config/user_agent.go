@@ -18,7 +18,7 @@ const (
 
 var (
 	messagesUserAgentPattern  = regexp.MustCompile(`(?i)^claude-cli/([0-9]+(?:\.[0-9]+)*)`)
-	responsesUserAgentPattern = regexp.MustCompile(`(?i)^codex_cli_rs/([0-9]+(?:\.[0-9]+)*)`)
+	responsesUserAgentPattern = regexp.MustCompile(`(?i)^(?:codex_cli_rs|codex-tui)/([0-9]+(?:\.[0-9]+)*)`)
 )
 
 // UserAgentEndpointConfig stores the latest known UA and its capture timestamp.
