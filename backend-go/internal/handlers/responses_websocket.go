@@ -133,6 +133,13 @@ func ResponsesWebSocketHandler(
 		}
 		defer upstreamConn.Close()
 
+		channelIndex := -1
+		if selection != nil {
+			channelIndex = selection.ChannelIndex
+		}
+		unregisterWebSocket := activeResponsesWebSockets.Register(channelIndex, strings.TrimSpace(upstream.ID), clientConn, upstreamConn)
+		defer unregisterWebSocket()
+
 		logTracker := newResponsesWebSocketLogTracker(c, cfgManager, reqLogManager, upstream, selection, channelScheduler)
 		err = proxyResponsesWebSocketFrames(clientConn, upstreamConn, logTracker)
 		logTracker.finish(err)
@@ -157,7 +164,7 @@ func selectResponsesWebSocketUpstream(c *gin.Context, cfgManager *config.ConfigM
 
 	if channelScheduler != nil {
 		excludedChannels := responsesWebSocketExcludedChannels(cfgManager.GetConfig())
-		selection, err := channelScheduler.SelectChannel(c.Request.Context(), "codex-websocket", excludedChannels, true, allowedChannels, "")
+		selection, err := channelScheduler.SelectChannel(c.Request.Context(), "", excludedChannels, true, allowedChannels, "")
 		if err != nil {
 			return nil, nil, err
 		}

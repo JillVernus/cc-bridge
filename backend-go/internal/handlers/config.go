@@ -1262,6 +1262,15 @@ func UpdateResponsesUpstream(cfgManager *config.ConfigManager, sch *scheduler.Ch
 			return
 		}
 
+		beforeCfg := cfgManager.GetConfig()
+		previousStableID := ""
+		previousEligible := false
+		if id >= 0 && id < len(beforeCfg.ResponsesUpstream) {
+			previous := beforeCfg.ResponsesUpstream[id]
+			previousStableID = strings.TrimSpace(previous.ID)
+			previousEligible = isResponsesWebSocketEligible(&previous)
+		}
+
 		var shouldResetMetrics bool
 		var err error
 		if expectedRevision != nil {
@@ -1288,6 +1297,15 @@ func UpdateResponsesUpstream(cfgManager *config.ConfigManager, sch *scheduler.Ch
 		cfg, revision := cfgManager.GetConfigWithRevision()
 		writeConfigRevisionETag(c, revision)
 		identity := channelIdentity(cfg.ResponsesUpstream, id)
+
+		currentEligible := false
+		if id >= 0 && id < len(cfg.ResponsesUpstream) {
+			current := cfg.ResponsesUpstream[id]
+			currentEligible = isResponsesWebSocketEligible(&current)
+		}
+		if previousEligible && !currentEligible {
+			closeResponsesWebSocketsForChannel(id, previousStableID, "Responses WebSocket channel disabled")
+		}
 
 		c.JSON(200, gin.H{
 			"success": true,
@@ -1329,6 +1347,11 @@ func DeleteResponsesUpstream(cfgManager *config.ConfigManager, channelRateLimite
 		if channelRateLimiter != nil {
 			channelRateLimiter.ClearChannel(id)
 		}
+		removedStableID := ""
+		if removed != nil {
+			removedStableID = strings.TrimSpace(removed.ID)
+		}
+		closeResponsesWebSocketsForChannel(id, removedStableID, "Responses WebSocket channel disabled")
 
 		_, revision := cfgManager.GetConfigWithRevision()
 		writeConfigRevisionETag(c, revision)
@@ -1608,6 +1631,12 @@ func SetResponsesChannelStatus(cfgManager *config.ConfigManager, sch *scheduler.
 			return
 		}
 
+		cfg := cfgManager.GetConfig()
+		channelStableID := ""
+		if id >= 0 && id < len(cfg.ResponsesUpstream) {
+			channelStableID = strings.TrimSpace(cfg.ResponsesUpstream[id].ID)
+		}
+
 		if err := cfgManager.SetResponsesChannelStatus(id, req.Status); err != nil {
 			if strings.Contains(err.Error(), "invalid upstream index") {
 				c.JSON(404, gin.H{"error": "Channel not found"})
@@ -1619,6 +1648,7 @@ func SetResponsesChannelStatus(cfgManager *config.ConfigManager, sch *scheduler.
 			return
 		}
 		clearTraceAffinityForTakenDownChannel(sch, id, req.Status)
+		closeResponsesWebSocketsForTakenDownChannel(id, channelStableID, req.Status)
 
 		c.JSON(200, gin.H{
 			"success": true,
@@ -1636,6 +1666,17 @@ func clearTraceAffinityForTakenDownChannel(sch *scheduler.ChannelScheduler, chan
 	case "suspended", "disabled":
 		sch.GetTraceAffinityManager().RemoveByChannel(channelIndex)
 	}
+}
+
+func closeResponsesWebSocketsForTakenDownChannel(channelIndex int, channelStableID string, status string) {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "suspended", "disabled":
+		closeResponsesWebSocketsForChannel(channelIndex, channelStableID, "Responses WebSocket channel disabled")
+	}
+}
+
+func closeResponsesWebSocketsForChannel(channelIndex int, channelStableID string, reason string) {
+	activeResponsesWebSockets.CloseByChannel(channelIndex, channelStableID, reason)
 }
 
 // GetResponsesChannelOAuthStatus returns the OAuth status for a Responses channel

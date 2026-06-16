@@ -4,6 +4,22 @@
 
 ---
 
+## [v1.5.66] - 2026-06-16
+
+### 🐛 修复
+
+- **Responses WebSocket 渠道失效处理**:
+  - 禁用、暂停、删除 Responses 渠道或关闭渠道 WebSocket 支持时，会主动关闭该渠道已有的 WebSocket 连接。
+  - 修复 Codex OAuth WebSocket 会话在渠道管理页禁用后仍继续粘在原 OAuth 渠道的问题。
+  - WebSocket 渠道选择不再使用固定 `codex-websocket` 亲和标识，避免后续产生全局粘连风险。
+
+### ✅ 验证
+
+- `go test ./internal/handlers -count=1` 通过
+- `go test ./... -count=1` 通过
+
+---
+
 ## [v1.5.65] - 2026-06-15
 
 ### ✨ 功能

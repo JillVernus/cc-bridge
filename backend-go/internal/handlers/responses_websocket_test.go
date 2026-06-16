@@ -165,6 +165,212 @@ func TestResponsesWebSocketHandlerReturnsNotFoundWhenNoChannelEnabled(t *testing
 	}
 }
 
+func TestResponsesWebSocketHandlerClosesActiveConnectionWhenChannelDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	restoreResponsesWebSocketConnectionManager(t)
+
+	bridgeURL, received := startResponsesWebSocketInvalidationBridge(t, func(router *gin.Engine, cfgManager *config.ConfigManager, sch *scheduler.ChannelScheduler) {
+		router.PATCH("/api/responses/channels/:id/status", SetResponsesChannelStatus(cfgManager, sch))
+	})
+
+	conn := dialResponsesWebSocketBridge(t, bridgeURL)
+	defer conn.Close()
+
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"gpt-5","input":[]}`)); err != nil {
+		t.Fatalf("client first write failed: %v", err)
+	}
+	waitForResponsesWebSocketPayload(t, received)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/responses/channels/0/status", bytes.NewReader([]byte(`{"status":"disabled"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	bridgeURL.router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("disable status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	assertResponsesWebSocketClosed(t, conn)
+	assertResponsesWebSocketReceivesNoMorePayloads(t, conn, received)
+}
+
+func TestResponsesWebSocketHandlerClosesActiveConnectionWhenWebSocketFlagDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	restoreResponsesWebSocketConnectionManager(t)
+
+	bridgeURL, received := startResponsesWebSocketInvalidationBridge(t, func(router *gin.Engine, cfgManager *config.ConfigManager, sch *scheduler.ChannelScheduler) {
+		router.PUT("/api/responses/channels/:id", UpdateResponsesUpstream(cfgManager, sch))
+	})
+
+	conn := dialResponsesWebSocketBridge(t, bridgeURL)
+	defer conn.Close()
+
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"gpt-5","input":[]}`)); err != nil {
+		t.Fatalf("client first write failed: %v", err)
+	}
+	waitForResponsesWebSocketPayload(t, received)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/responses/channels/0", bytes.NewReader([]byte(`{"responsesWebSocketEnabled":false}`)))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	bridgeURL.router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	assertResponsesWebSocketClosed(t, conn)
+	assertResponsesWebSocketReceivesNoMorePayloads(t, conn, received)
+}
+
+func TestResponsesWebSocketHandlerClosesActiveConnectionWhenChannelDeleted(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	restoreResponsesWebSocketConnectionManager(t)
+
+	bridgeURL, received := startResponsesWebSocketInvalidationBridge(t, func(router *gin.Engine, cfgManager *config.ConfigManager, _ *scheduler.ChannelScheduler) {
+		router.DELETE("/api/responses/channels/:id", DeleteResponsesUpstream(cfgManager, nil))
+	})
+
+	conn := dialResponsesWebSocketBridge(t, bridgeURL)
+	defer conn.Close()
+
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"gpt-5","input":[]}`)); err != nil {
+		t.Fatalf("client first write failed: %v", err)
+	}
+	waitForResponsesWebSocketPayload(t, received)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/responses/channels/0", nil)
+	rec := httptest.NewRecorder()
+	bridgeURL.router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	assertResponsesWebSocketClosed(t, conn)
+	assertResponsesWebSocketReceivesNoMorePayloads(t, conn, received)
+}
+
+type responsesWebSocketInvalidationBridge struct {
+	url    string
+	router *gin.Engine
+}
+
+func restoreResponsesWebSocketConnectionManager(t *testing.T) {
+	t.Helper()
+	previous := activeResponsesWebSockets
+	activeResponsesWebSockets = newResponsesWebSocketConnectionManager()
+	t.Cleanup(func() {
+		activeResponsesWebSockets = previous
+	})
+}
+
+func startResponsesWebSocketInvalidationBridge(t *testing.T, addRoutes func(*gin.Engine, *config.ConfigManager, *scheduler.ChannelScheduler)) (*responsesWebSocketInvalidationBridge, <-chan []byte) {
+	t.Helper()
+
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	received := make(chan []byte, 4)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upstream upgrade failed: %v", err)
+			return
+		}
+		defer conn.Close()
+
+		for {
+			_, payload, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			received <- payload
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	cfgManager := newResponsesWebSocketTestConfigManager(t)
+	if err := cfgManager.AddResponsesUpstream(config.UpstreamConfig{
+		ID:                        "resp-ws",
+		Name:                      "responses-ws",
+		BaseURL:                   upstream.URL,
+		ServiceType:               "responses",
+		Status:                    "active",
+		APIKeys:                   []string{"api-key"},
+		ResponsesWebSocketEnabled: true,
+	}); err != nil {
+		t.Fatalf("AddResponsesUpstream() failed: %v", err)
+	}
+
+	sch := scheduler.NewChannelScheduler(
+		cfgManager,
+		metrics.NewMetricsManager(),
+		metrics.NewMetricsManager(),
+		session.NewTraceAffinityManager(),
+	)
+
+	router := gin.New()
+	router.GET("/v1/responses", ResponsesWebSocketHandler(nil, cfgManager, sch, nil, nil, nil, nil))
+	addRoutes(router, cfgManager, sch)
+
+	bridge := httptest.NewServer(router)
+	t.Cleanup(bridge.Close)
+
+	return &responsesWebSocketInvalidationBridge{url: bridge.URL, router: router}, received
+}
+
+func dialResponsesWebSocketBridge(t *testing.T, bridge *responsesWebSocketInvalidationBridge) *websocket.Conn {
+	t.Helper()
+
+	target := "ws" + strings.TrimPrefix(bridge.url, "http")
+	parsed, err := url.Parse(target)
+	if err != nil {
+		t.Fatalf("parse bridge URL: %v", err)
+	}
+	parsed.Path = "/v1/responses"
+
+	conn, resp, err := websocket.DefaultDialer.Dial(parsed.String(), http.Header{
+		"OpenAI-Beta": []string{"responses_websockets=2026-02-06"},
+	})
+	if err != nil {
+		if resp != nil {
+			t.Fatalf("dial failed status=%d err=%v", resp.StatusCode, err)
+		}
+		t.Fatalf("dial failed: %v", err)
+	}
+	return conn
+}
+
+func waitForResponsesWebSocketPayload(t *testing.T, received <-chan []byte) {
+	t.Helper()
+
+	select {
+	case <-received:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for upstream websocket payload")
+	}
+}
+
+func assertResponsesWebSocketClosed(t *testing.T, conn *websocket.Conn) {
+	t.Helper()
+
+	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline failed: %v", err)
+	}
+	_, _, err := conn.ReadMessage()
+	if err == nil {
+		t.Fatal("expected websocket read to fail after channel invalidation")
+	}
+}
+
+func assertResponsesWebSocketReceivesNoMorePayloads(t *testing.T, conn *websocket.Conn, received <-chan []byte) {
+	t.Helper()
+
+	_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"gpt-5","input":["after-disable"]}`))
+
+	select {
+	case payload := <-received:
+		t.Fatalf("upstream received payload after channel invalidation: %s", payload)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 func TestResponsesWebSocketHandlerProxiesOpenAIOAuthWebSocket(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
