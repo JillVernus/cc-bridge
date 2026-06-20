@@ -961,7 +961,7 @@
           v-for="item in logs"
           :key="item.id"
           role="article"
-          :aria-label="`Request log: ${item.status} status, ${item.model} model, ${item.channelName} channel`"
+          :aria-label="`Request log: ${item.status} status, ${getLogDisplayModel(item) || item.model} model, ${item.channelName} channel`"
           variant="outlined"
           class="mobile-log-card mb-3"
           :class="{
@@ -994,7 +994,7 @@
             <div class="d-flex align-center justify-space-between">
               <div class="text-body-2">
                 <v-icon size="16" class="mr-1">mdi-head-snowflake-outline</v-icon>
-                {{ item.model || t('requestLog.unknown') }}
+                {{ getLogDisplayModel(item) || t('requestLog.unknown') }}
               </div>
               <div class="text-caption text-grey">
                 <v-icon size="14" class="mr-1">mdi-cloud-outline</v-icon>
@@ -1290,8 +1290,8 @@
                     {{ t('forwardProxy.title') }}
                   </v-tooltip>
                 </v-chip>
-                <span v-if="item.model" class="stacked-secondary">
-                  {{ item.model }}
+                <span v-if="item.model || item.responseModel" class="stacked-secondary">
+                  {{ getLogDisplayModel(item) }}
                   <v-icon
                     v-if="item.reasoningEffort"
                     size="12"
@@ -1299,7 +1299,7 @@
                     :color="getReasoningEffortColor(item.reasoningEffort)"
                     >{{ getReasoningEffortIcon(item.reasoningEffort) }}</v-icon
                   >
-                  <v-icon v-else-if="item.responseModel && item.responseModel !== item.model" size="10" class="ml-1"
+                  <v-icon v-else-if="hasModelMapping(item)" size="10" class="ml-1"
                     >mdi-swap-horizontal</v-icon
                   >
                   <v-icon v-if="isPriorityServiceTier(item)" size="12" class="ml-1" color="warning">mdi-flash</v-icon>
@@ -1330,13 +1330,13 @@
                 <strong>{{ t('requestLog.transport') }}:</strong> {{ getTransportLabel(item) }}
               </div>
               <div>
-                <strong>{{ t('requestLog.model') }}:</strong> {{ item.model }}
+                <strong>{{ t('requestLog.model') }}:</strong> {{ getLogDisplayModel(item) }}
               </div>
               <div v-if="item.reasoningEffort">
                 <strong>{{ t('requestLog.reasoningEffort') }}</strong> {{ item.reasoningEffort }}
               </div>
-              <div v-if="item.responseModel && item.responseModel !== item.model">
-                <strong>Mapped:</strong> {{ item.model }} → {{ item.responseModel }}
+              <div v-if="hasModelMapping(item)">
+                <strong>{{ t('requestLog.requestedModel') }}:</strong> {{ item.model }} → {{ item.responseModel }}
               </div>
               <div v-if="isPriorityServiceTier(item)">
                 <strong>{{ t('requestLog.fastMode') }}:</strong> {{ t('common.yes') }}
@@ -1381,10 +1381,11 @@
           <v-tooltip v-if="item.reasoningEffort" location="top" max-width="300">
             <template v-slot:activator="{ props }">
               <span v-bind="props" class="text-caption font-weight-medium model-with-effort">
-                {{ item.model }}
+                {{ getLogDisplayModel(item) }}
                 <v-icon size="20" class="ml-1" :color="getReasoningEffortColor(item.reasoningEffort)">
                   {{ getReasoningEffortIcon(item.reasoningEffort) }}
                 </v-icon>
+                <v-icon v-if="hasModelMapping(item)" size="12" class="ml-1">mdi-swap-horizontal</v-icon>
                 <v-icon v-if="isPriorityServiceTier(item)" size="12" class="ml-1" color="warning">mdi-flash</v-icon>
                 <v-icon v-if="item.serviceTierOverridden" size="12" class="ml-1" color="info">mdi-auto-fix</v-icon>
                 <v-icon
@@ -1402,6 +1403,10 @@
               <span class="effort-value" :class="'effort-' + item.reasoningEffort.toLowerCase()">
                 {{ item.reasoningEffort }}
               </span>
+              <template v-if="hasModelMapping(item)">
+                <span class="ml-2 effort-label">{{ t('requestLog.requestedModel') }}</span>
+                <span>{{ item.model }} → {{ item.responseModel }}</span>
+              </template>
               <v-icon v-if="isPriorityServiceTier(item)" size="14" color="warning">mdi-flash</v-icon>
               <span v-if="isPriorityServiceTier(item)" class="effort-label">{{ t('requestLog.fastMode') }}</span>
               <v-icon v-if="item.serviceTierOverridden" size="14" class="ml-2" color="info">mdi-auto-fix</v-icon>
@@ -1411,10 +1416,10 @@
             </div>
           </v-tooltip>
           <!-- Model with response model mapping tooltip -->
-          <v-tooltip v-else-if="item.responseModel && item.responseModel !== item.model" location="top" max-width="400">
+          <v-tooltip v-else-if="hasModelMapping(item)" location="top" max-width="400">
             <template v-slot:activator="{ props }">
               <span v-bind="props" class="text-caption font-weight-medium model-with-mapping">
-                {{ item.model }}
+                {{ getLogDisplayModel(item) }}
                 <v-icon size="12" class="ml-1">mdi-swap-horizontal</v-icon>
                 <v-icon v-if="isPriorityServiceTier(item)" size="12" class="ml-1" color="warning">mdi-flash</v-icon>
                 <v-icon v-if="item.serviceTierOverridden" size="12" class="ml-1" color="info">mdi-auto-fix</v-icon>
@@ -1442,7 +1447,7 @@
           <v-tooltip v-else-if="hasServiceTierIndicator(item)" location="top">
             <template v-slot:activator="{ props }">
               <span v-bind="props" class="text-caption font-weight-medium">
-                {{ item.model }}
+                {{ getLogDisplayModel(item) }}
                 <v-icon v-if="isPriorityServiceTier(item)" size="12" class="ml-1" color="warning">mdi-flash</v-icon>
                 <v-icon v-if="item.serviceTierOverridden" size="12" class="ml-1" color="info">mdi-auto-fix</v-icon>
                 <v-icon
@@ -1464,7 +1469,7 @@
           <v-tooltip v-else-if="getXInitiatorIndicator(item)" location="top">
             <template v-slot:activator="{ props }">
               <span v-bind="props" class="text-caption font-weight-medium">
-                {{ item.model }}
+                {{ getLogDisplayModel(item) }}
                 <v-icon size="12" class="ml-1" :color="getXInitiatorIconColor(item)">
                   {{ getXInitiatorIcon(item) }}
                 </v-icon>
@@ -1472,7 +1477,7 @@
             </template>
             <span>{{ getXInitiatorTooltip(item) }}</span>
           </v-tooltip>
-          <span v-else class="text-caption font-weight-medium">{{ item.model }}</span>
+          <span v-else class="text-caption font-weight-medium">{{ getLogDisplayModel(item) }}</span>
         </template>
 
         <template v-slot:item.apiKeyId="{ item }">
@@ -2548,6 +2553,13 @@ const getReasoningEffortColor = (effort: string): string => {
       return 'grey'
   }
 }
+
+const hasModelMapping = (item: RequestLog): boolean =>
+  !!item.responseModel && item.responseModel !== item.model
+
+/** Model shown in table: upstream/response when mapped, else client request model */
+const getLogDisplayModel = (item: RequestLog): string =>
+  hasModelMapping(item) ? item.responseModel! : item.model || ''
 
 const isPriorityServiceTier = (item: RequestLog): boolean => item.serviceTier === 'priority'
 

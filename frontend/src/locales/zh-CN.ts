@@ -446,6 +446,7 @@ export default {
     unitWeek: '周',
     unitMonth: '月',
     model: '模型',
+    requestedModel: '请求模型',
     channel: '渠道',
     client: '客户端',
     session: '会话',

@@ -455,6 +455,7 @@ export default {
     unitWeek: 'Week',
     unitMonth: 'Month',
     model: 'Model',
+    requestedModel: 'Requested',
     channel: 'Channel',
     client: 'Client',
     session: 'Session',
