@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -81,6 +82,18 @@ func ChatCompletionsHandlerWithAPIKey(
 ) gin.HandlerFunc {
 	return gin.HandlerFunc(func(c *gin.Context) {
 		_ = failoverTracker
+		// region debug-ffb3c1
+		func() {
+			f, err := os.OpenFile("/workspaces/projects/workspace/cc-bridge/.cursor/debug-ffb3c1.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil { return }
+			defer f.Close()
+			isNil := failoverTracker == nil
+			fc := cfgManager.GetFailoverConfig()
+			fcJSON, _ := json.Marshal(fc)
+			line := fmt.Sprintf(`{"sessionId":"ffb3c1","location":"chat_completions.go:handler-entry","hypothesisId":"H1-H4","message":"chat handler entry - failoverTracker discarded","data":{"failoverTrackerNil":%v,"failoverConfigEnabled":%v,"failoverConfig":%s},"timestamp":%d}`, isNil, fc.Enabled, string(fcJSON), time.Now().UnixMilli())
+			fmt.Fprintln(f, line)
+		}()
+		// endregion debug-ffb3c1
 
 		if _, exists := c.Get(middleware.ContextKeyAPIKeyID); !exists {
 			middleware.ProxyAuthMiddlewareWithAPIKey(envCfg, apiKeyManager)(c)
@@ -392,6 +405,19 @@ func executeChatRequest(
 
 		statusCode, firstTokenTime, usage, execErr := handleChatUpstreamResponse(c, cfgManager, upstream, req, resp, requestLogID, reqLogManager)
 		if execErr != nil {
+			// region debug-ffb3c1
+			func() {
+				f, err := os.OpenFile("/workspaces/projects/workspace/cc-bridge/.cursor/debug-ffb3c1.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+				if err != nil { return }
+				defer f.Close()
+				fc := cfgManager.GetFailoverConfig()
+				ceStatus := 0
+				ceBody := ""
+				if ce, ok := execErr.(*chatExecuteError); ok && ce != nil { ceStatus = ce.StatusCode; ceBody = string(ce.Body) }
+				line := fmt.Sprintf(`{"sessionId":"ffb3c1","location":"chat_completions.go:executeChatRequest-error","hypothesisId":"H1-H2","message":"chat request error - no failover decision made","data":{"statusCode":%d,"errorBody":%q,"failoverEnabled":%v,"rulesCount":%d,"keyAttempt":%d,"maxKeyAttempts":%d},"timestamp":%d}`, ceStatus, ceBody, fc.Enabled, len(fc.Rules), keyAttempt, maxKeyAttempts, time.Now().UnixMilli())
+				fmt.Fprintln(f, line)
+			}()
+			// endregion debug-ffb3c1
 			var ce *chatExecuteError
 			if errors.As(execErr, &ce) {
 				if ce.FirstTokenTime == nil {
