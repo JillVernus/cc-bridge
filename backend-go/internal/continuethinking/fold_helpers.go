@@ -36,6 +36,38 @@ func isTerminal(t string) bool {
 // read loop on the same set the fold engine treats as terminal.
 func IsTerminalType(t string) bool { return isTerminal(t) }
 
+// isErrorEvent reports whether an event is a bare upstream `error` frame (e.g.
+// credit exhausted / rate limited mid-connection). Unlike response.failed, an
+// error frame carries no `response` object; it must still stop the fold and be
+// propagated downstream rather than block the read loop waiting for a terminal.
+func isErrorEvent(t string) bool { return t == "error" }
+
+// IsErrorType reports whether an event type is a bare upstream error frame.
+// Exported so the WebSocket driver can break its read loop on error frames
+// (which are not response.* terminals but still end the turn).
+func IsErrorType(t string) bool { return isErrorEvent(t) }
+
+// errorStatusFromEvent extracts an HTTP status code from a bare `error` frame,
+// checking top-level `status` then nested `error.status`/`error.code`. Falls
+// back to the round's transport status when >= 400, else 502.
+func errorStatusFromEvent(event map[string]any, fallback int) int {
+	if s := asInt(event["status"]); s >= 400 {
+		return s
+	}
+	if errObj, ok := event["error"].(map[string]any); ok {
+		if s := asInt(errObj["status"]); s >= 400 {
+			return s
+		}
+		if s := asInt(errObj["code"]); s >= 400 {
+			return s
+		}
+	}
+	if fallback >= 400 {
+		return fallback
+	}
+	return 502
+}
+
 func reasoningAsAny(items []map[string]any) []any {
 	out := make([]any, 0, len(items))
 	out = append(out, toAnySlice(items)...)

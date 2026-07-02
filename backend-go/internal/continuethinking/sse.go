@@ -7,6 +7,8 @@ import (
 	"io"
 	"strings"
 	"time"
+
+	"github.com/JillVernus/cc-bridge/internal/utils"
 )
 
 // Done is the sentinel yielded by IncrementalSSE for the `data: [DONE]` line.
@@ -34,8 +36,9 @@ func IncrementalSSE(r io.Reader) []Event {
 }
 
 // IncrementalSSEWithTiming is like IncrementalSSE but also returns the wall-clock
-// time the first `data:` payload line was read (the request's first-token proxy
-// signal). Zero if no payload was read.
+// time the first content-bearing `data:` line was read (the request's first-token
+// signal). Falls back to the first any `data:` line if no content event is seen.
+// Zero if no payload was read.
 func IncrementalSSEWithTiming(r io.Reader) ([]Event, time.Time) {
 	return incrementalSSE(r)
 }
@@ -43,6 +46,8 @@ func IncrementalSSEWithTiming(r io.Reader) ([]Event, time.Time) {
 func incrementalSSE(r io.Reader) ([]Event, time.Time) {
 	var events []Event
 	var firstPayloadAt time.Time
+	var firstAnyAt time.Time
+	detector := utils.NewFirstTokenDetector(utils.FirstTokenProtocolResponsesSSE)
 	reader := bufio.NewReader(r)
 	var dataLines []string
 	var sawAny bool
@@ -83,7 +88,10 @@ func incrementalSSE(r io.Reader) ([]Event, time.Time) {
 			val := strings.TrimPrefix(line, "data:")
 			val = strings.TrimPrefix(val, " ")
 			dataLines = append(dataLines, val)
-			if firstPayloadAt.IsZero() {
+			if firstAnyAt.IsZero() {
+				firstAnyAt = time.Now()
+			}
+			if firstPayloadAt.IsZero() && detector.ObserveLine(line) {
 				firstPayloadAt = time.Now()
 			}
 		default:
@@ -101,6 +109,9 @@ func incrementalSSE(r io.Reader) ([]Event, time.Time) {
 	// Flush a trailing event with no terminating blank line.
 	flush()
 
+	if firstPayloadAt.IsZero() {
+		firstPayloadAt = firstAnyAt
+	}
 	_ = sawAny
 	return events, firstPayloadAt
 }

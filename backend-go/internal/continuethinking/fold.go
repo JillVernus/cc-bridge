@@ -74,6 +74,8 @@ func (st *foldState) run() {
 		var roundReasoning []map[string]any
 		var terminal map[string]any
 		var roundUsage *RoundUsage
+		sawErrorEvent := false
+		errorStatus := 0
 
 		for _, ev := range events {
 			if ev.Done {
@@ -85,6 +87,33 @@ func (st *foldState) run() {
 				continue
 			}
 			t, _ := obj["type"].(string)
+
+			// Bare upstream `error` frame (credit exhausted / rate limited /
+			// auth failure mid-connection). Not a response.* terminal: forward
+			// it downstream verbatim so the client sees the real error, finalize
+			// the round log as an error, and stop the fold.
+			if isErrorEvent(t) {
+				sawErrorEvent = true
+				errorStatus = errorStatusFromEvent(obj, statusCode)
+				st.driver.Emit(obj)
+				u, model, _ := extractUsage(obj)
+				u.Round = round
+				u.Status = "error"
+				u.HTTPStatus = errorStatus
+				u.ResponseModel = model
+				u.FirstEventAt = firstPayloadAt
+				u.RequestSentAt = requestSentAt
+				u.RoundCompleteAt = roundCompleteAt
+				u.Trace = RoundTrace{
+					RequestBody:     input.RequestBody,
+					ResponseBody:    input.ResponseBody,
+					ResponseStatus:  errorStatus,
+					ResponseHeaders: input.ResponseHeaders,
+					ReasoningEffort: roundReasoningEffort(st.cfg.BaseBody),
+				}
+				roundUsage = &u
+				break
+			}
 
 			// Lifecycle: emit created+in_progress on round 1 only.
 			if t == "response.created" || t == "response.in_progress" {
@@ -180,6 +209,27 @@ func (st *foldState) run() {
 		}
 
 		// --- round decision ---
+		// A bare upstream error frame ends the turn immediately: the error was
+		// already forwarded downstream; report usage for the log row and stop.
+		// Never continue on an error (no reasoning to replay).
+		if sawErrorEvent {
+			if roundUsage != nil {
+				st.totalUsage.add(*roundUsage)
+				if round == 1 {
+					st.firstUsage = roundUsage
+				}
+				st.lastRoundUsage = roundUsage
+			}
+			st.logf("continue-thinking round %d: upstream error frame (status=%d) -> stop", round, errorStatus)
+			if st.cfg.OnRoundUsage != nil && roundUsage != nil {
+				st.cfg.OnRoundUsage(round, *roundUsage)
+			}
+			if st.sawDone {
+				st.driver.EmitDone()
+			}
+			return
+		}
+
 		sawTerminal := terminal != nil
 		var rt int
 		if roundUsage != nil {

@@ -215,6 +215,46 @@ func TestContinuationUpstreamError(t *testing.T) {
 	}
 }
 
+// TestBareErrorFrame_ForwardedAndStops: a bare upstream `error` frame (credit
+// exhausted / rate limited mid-connection) must be forwarded downstream, reported
+// as an error round, and stop the fold — never block waiting for a terminal.
+func TestBareErrorFrame_ForwardedAndStops(t *testing.T) {
+	errFrame := `{"type":"error","status":429,"error":{"message":"insufficient_quota","code":"insufficient_quota"}}`
+	var reports []RoundUsage
+	var openedRounds int
+	deps := Deps{
+		Round1Body:       sseStream(flatten(reasoningItemEvents(0), []string{errFrame})...),
+		Round1StatusCode: 200,
+		BaseBody:         map[string]any{"model": "gpt-5"},
+		OrigInput:        []any{"orig"},
+		OpenRound: func(ctx context.Context, payload map[string]any) (*http.Response, error) {
+			openedRounds++
+			return nil, nil
+		},
+		OnRoundUsage: func(round int, u RoundUsage) {
+			reports = append(reports, u)
+		},
+	}
+	out := FoldStream(context.Background(), deps)
+	s := string(out)
+
+	if openedRounds != 0 {
+		t.Errorf("no continuation should open on error frame; got %d", openedRounds)
+	}
+	if !strings.Contains(s, `"type":"error"`) || !strings.Contains(s, "insufficient_quota") {
+		t.Errorf("error frame not forwarded downstream: %s", s)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("expected 1 usage report for the errored round, got %d", len(reports))
+	}
+	if reports[0].Status != "error" {
+		t.Errorf("round status should be error, got %q", reports[0].Status)
+	}
+	if reports[0].HTTPStatus != 429 {
+		t.Errorf("error status should be 429, got %d", reports[0].HTTPStatus)
+	}
+}
+
 // TestOnRoundUsageCalledPerRound: logging callback fires once per round.
 func TestOnRoundUsageCalledPerRound(t *testing.T) {
 	round2 := sseStream(flatten(messageItemEvents(0, "final"), []string{usageEvent(200, 100, "gpt-5")})...)

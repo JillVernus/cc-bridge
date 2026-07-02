@@ -13,6 +13,7 @@ import (
 	"github.com/JillVernus/cc-bridge/internal/requestlog"
 	"github.com/JillVernus/cc-bridge/internal/scheduler"
 	"github.com/JillVernus/cc-bridge/internal/types"
+	"github.com/JillVernus/cc-bridge/internal/utils"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/tidwall/gjson"
@@ -52,9 +53,10 @@ type wsFoldDriver struct {
 // ReadRound reads upstream frames until a terminal event or transport error.
 func (d *wsFoldDriver) ReadRound(ctx context.Context) (continuethinking.RoundInput, bool) {
 	var events []continuethinking.Event
-	var firstPayloadAt, completeAt time.Time
+	var firstPayloadAt, firstContentAt, completeAt time.Time
 	var respBuf bytes.Buffer
 	sawTerminal := false
+	detector := utils.NewFirstTokenDetector(utils.FirstTokenProtocolResponsesSSE)
 
 	for {
 		msgType, payload, err := d.upstream.ReadMessage()
@@ -66,8 +68,12 @@ func (d *wsFoldDriver) ReadRound(ctx context.Context) (continuethinking.RoundInp
 		if msgType != websocket.TextMessage && msgType != websocket.BinaryMessage {
 			continue
 		}
+		ts := time.Now()
 		if firstPayloadAt.IsZero() {
-			firstPayloadAt = time.Now()
+			firstPayloadAt = ts
+		}
+		if firstContentAt.IsZero() && detector.ObserveLine("data: "+string(payload)) {
+			firstContentAt = ts
 		}
 		if respBuf.Len() > 0 {
 			respBuf.WriteByte('\n')
@@ -79,11 +85,23 @@ func (d *wsFoldDriver) ReadRound(ctx context.Context) (continuethinking.RoundInp
 			continue
 		}
 		events = append(events, continuethinking.Event{Data: obj})
-		if t, _ := obj["type"].(string); continuethinking.IsTerminalType(t) {
+		t, _ := obj["type"].(string)
+		// Stop on response.* terminals AND on bare `error` frames (credit
+		// exhausted / rate limited mid-connection). An error frame is not a
+		// response.* terminal, so without this the read loop would block on
+		// the next ReadMessage() forever, hanging the turn until timeout.
+		if continuethinking.IsTerminalType(t) || continuethinking.IsErrorType(t) {
 			sawTerminal = true
 			completeAt = time.Now()
 			break
 		}
+	}
+
+	// Prefer first-content timing (mirrors raw proxy's FirstTokenDetector); fall
+	// back to first-any-event when no content-bearing event appeared.
+	effectiveFirstAt := firstContentAt
+	if effectiveFirstAt.IsZero() {
+		effectiveFirstAt = firstPayloadAt
 	}
 
 	// A read error before any events were seen means the round could not be read
@@ -94,7 +112,7 @@ func (d *wsFoldDriver) ReadRound(ctx context.Context) (continuethinking.RoundInp
 
 	return continuethinking.RoundInput{
 		Events:         events,
-		FirstPayloadAt: firstPayloadAt,
+		FirstPayloadAt: effectiveFirstAt,
 		RequestSentAt:  d.reqSentAt,
 		CompleteAt:     completeAt,
 		StatusCode:     200,
@@ -235,6 +253,31 @@ func runResponsesWebSocketFoldTurn(
 
 	debugLogEnabled := fc.cfgManager != nil && fc.cfgManager.GetDebugLogConfig().Enabled
 
+	// Pre-create a pending log row so the main log shows the request as
+	// "pending" while the fold runs (mirrors the SSE pre-creation path).
+	// Round 1's OnRoundUsage will Update this row; continuation rounds
+	// append new rows via Add.
+	var requestLogID string
+	if fc.reqLog != nil {
+		pending := &requestlog.RequestLog{
+			Status:          requestlog.StatusPending,
+			InitialTime:     startTime,
+			Model:           model,
+			ReasoningEffort: strings.TrimSpace(gjson.GetBytes(createFrame, "reasoning.effort").String()),
+			Stream:          true,
+			Transport:       "ws",
+			Endpoint:        "/v1/responses",
+			ClientID:        client.clientID,
+			SessionID:       client.sessionID,
+			APIKeyID:        client.apiKeyID,
+		}
+		if err := fc.reqLog.Add(pending); err != nil {
+			log.Printf("⚠️ continue-thinking: failed to create pending log: %v", err)
+		} else {
+			requestLogID = pending.ID
+		}
+	}
+
 	driver := &wsFoldDriver{
 		client:    clientConn,
 		upstream:  upstreamConn,
@@ -256,11 +299,11 @@ func runResponsesWebSocketFoldTurn(
 				return
 			}
 			roundLogID := finalizeContinueThinkingRoundLog(
-				fc.reqLog, "", round, u, fc.upstream, originalReq,
+				fc.reqLog, requestLogID, round, u, fc.upstream, originalReq,
 				fc.channelID, fc.channelName, isFastMode, serviceTier, false, startTime, "ws", client,
 			)
 			if debugLogEnabled && roundLogID != "" {
-				saveContinueThinkingRoundDebug(fc.reqLog, fc.cfgManager, roundLogID, u.Trace)
+				saveContinueThinkingRoundDebug(fc.reqLog, fc.cfgManager, fc.c, roundLogID, u.Trace)
 			}
 			if fc.scheduler != nil {
 				if u.Status == requestlog.StatusCompleted {
@@ -279,6 +322,18 @@ func runResponsesWebSocketFoldTurn(
 
 	continuethinking.Fold(fc.c.Request.Context(), driver, cfg)
 
+	// If the fold failed before round 1 was finalized (e.g. upstream
+	// read error, connection lost), mark the pre-created pending row
+	// as errored so it doesn't sit in "pending" forever.
+	if requestLogID != "" && fc.reqLog != nil {
+		if existing, err := fc.reqLog.GetByID(requestLogID); err == nil && existing != nil && existing.Status == requestlog.StatusPending {
+			_ = fc.reqLog.Update(requestLogID, &requestlog.RequestLog{
+				Status:       requestlog.StatusError,
+				CompleteTime: time.Now(),
+			})
+		}
+	}
+
 	if driver.writeErr != nil {
 		return driver.writeErr
 	}
@@ -286,8 +341,7 @@ func runResponsesWebSocketFoldTurn(
 		return normalizeResponsesWebSocketCloseError(driver.readErr)
 	}
 	return nil
-}
-
+	}
 // normalizeResponsesWebSocketCloseError maps a normal WebSocket close to nil so
 // clean disconnects are not treated as failures.
 func normalizeResponsesWebSocketCloseError(err error) error {

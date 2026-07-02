@@ -41,7 +41,9 @@ type Driver interface {
 type RoundInput struct {
 	// Events are the round's parsed SSE/WS events in order.
 	Events []Event
-	// FirstPayloadAt is when the round's first payload was read (TTFT signal).
+	// FirstPayloadAt is the wall-clock time the round's first content-bearing
+	// `data:` payload was read (the request's first-token signal). Falls back
+	// to the first any payload when no content event is seen.
 	FirstPayloadAt time.Time
 	// RequestSentAt is when the round's upstream request was dispatched.
 	RequestSentAt time.Time

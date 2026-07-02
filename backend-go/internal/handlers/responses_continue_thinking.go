@@ -259,7 +259,7 @@ func runContinueThinkingFold(
 				channelIndex, channelName, isFastMode, effectiveServiceTier, serviceTierOverridden, startTime, "sse", client,
 			)
 			if debugLogEnabled && roundLogID != "" {
-				saveContinueThinkingRoundDebug(reqLogManager, cfgManager, roundLogID, u.Trace)
+				saveContinueThinkingRoundDebug(reqLogManager, cfgManager, c, roundLogID, u.Trace)
 			}
 			if u.Status == requestlog.StatusCompleted {
 				trackResponsesUsage(usageManager, upstream, modelOf(originalReq), 0)
@@ -447,9 +447,20 @@ func finalizeContinueThinkingRoundLog(
 	if round > 1 {
 		failoverInfo = "continue_thinking round " + itoaInt(round)
 	}
+	// Row start time: round 1 (e.g. a WebSocket turn with no pre-created row) begins
+	// at the client request start; continuation rounds begin when that round was
+	// dispatched upstream. Falling back to completeTime keeps the row well-formed if
+	// no dispatch stamp is available.
+	initialTime := u.RequestSentAt
+	if round == 1 {
+		initialTime = startTime
+	}
+	if initialTime.IsZero() {
+		initialTime = completeTime
+	}
 	pending := &requestlog.RequestLog{
 		Status:               record.Status,
-		InitialTime:          completeTime,
+		InitialTime:          initialTime,
 		CompleteTime:         completeTime,
 		DurationMs:           record.DurationMs,
 		FirstTokenTime:       record.FirstTokenTime,
@@ -493,10 +504,15 @@ func finalizeContinueThinkingRoundLog(
 // saveContinueThinkingRoundDebug persists a per-round debug log entry (request
 // body + raw response bytes) for a folded continue-thinking round. Mirrors
 // SaveDebugLog but sources the bodies from the fold's per-round trace rather
-// than the gin context (continuation rounds are built inside the fold).
+// than the gin context (continuation rounds are built inside the fold). Request
+// method/path/headers come from the client's gin context so every folded row
+// carries request headers (matching non-fold rows); response headers come from
+// the round trace, falling back to a WebSocket-appropriate default when the
+// transport has no per-round HTTP response headers.
 func saveContinueThinkingRoundDebug(
 	reqLogManager *requestlog.Manager,
 	cfgManager *config.ConfigManager,
+	c *gin.Context,
 	roundLogID string,
 	trace continuethinking.RoundTrace,
 ) {
@@ -508,11 +524,36 @@ func saveContinueThinkingRoundDebug(
 		debugCfg := cfgManager.GetDebugLogConfig()
 		maxBodySize = debugCfg.GetMaxBodySize()
 	}
+
+	// Request method/path/headers from the client request context so every folded
+	// row records request headers just like non-fold rows.
+	requestMethod := ""
+	requestPath := "/v1/responses"
+	requestHeaders := map[string]string{}
+	if c != nil && c.Request != nil {
+		requestMethod = c.Request.Method
+		if c.Request.URL != nil {
+			requestPath = c.Request.URL.Path
+		}
+		requestHeaders = requestlog.HttpHeadersToMap(c.Request.Header)
+	}
+
+	// Response headers: use the round's upstream response headers when present
+	// (SSE); WebSocket rounds have no per-round HTTP response, so fall back to the
+	// same synthetic header the raw WebSocket proxy records.
+	responseHeaders := requestlog.HttpHeadersToMap(trace.ResponseHeaders)
+	if len(responseHeaders) == 0 {
+		responseHeaders = map[string]string{"Content-Type": "application/jsonl"}
+	}
+
 	entry := &requestlog.DebugLogEntry{
-		RequestID:       roundLogID,
-		RequestBodySize: len(trace.RequestBody),
-		ResponseStatus:  trace.ResponseStatus,
-		ResponseHeaders: requestlog.HttpHeadersToMap(trace.ResponseHeaders),
+		RequestID:        roundLogID,
+		RequestMethod:    requestMethod,
+		RequestPath:      requestPath,
+		RequestHeaders:   requestHeaders,
+		RequestBodySize:  len(trace.RequestBody),
+		ResponseStatus:   trace.ResponseStatus,
+		ResponseHeaders:  responseHeaders,
 		ResponseBodySize: len(trace.ResponseBody),
 	}
 	if maxBodySize > 0 && len(trace.RequestBody) > maxBodySize {
