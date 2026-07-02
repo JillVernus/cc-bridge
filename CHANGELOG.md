@@ -4,6 +4,23 @@
 
 ---
 
+## [v1.5.69] - 2026-07-02
+
+### 🐛 修复
+
+- **Continue-Thinking 主日志客户端归属丢失**：折叠路径上通过 `Add` 新建的日志行（WebSocket 每轮、SSE 续接轮次）未写入 `ClientID`/`SessionID`/`APIKeyID`，导致主日志按客户端分组/筛选时原始请求"消失"，且其输出 token 指标看似未被记录。
+  - 新增 `clientAttribution`，贯穿 `finalizeContinueThinkingRoundLog` 并写入 `Add` 记录。
+  - SSE：`clientAttributionFromLog` 从预创建的第一轮日志行读取归属，续接轮次继承。
+  - WebSocket：`clientAttributionFromFrame` 从 `response.create` 帧 + gin 上下文解析归属（与原生 `observeClientMessage` 一致：`prompt_cache_key` → codex/sessionID；否则取 header 中的 conversation-id；apiKeyID 取自鉴权中间件）。
+  - 现在每个原始请求的指标（客户端归属 + 输出 token + 费用）都会记录，无论是否启用 continue-thinking。
+
+### ✅ 验证
+
+- `go build ./...` / `go vet` 通过
+- `go test ./...` 通过（新增回归测试 `continue_thinking_log_attribution_test.go`）
+
+---
+
 ## [v1.5.68] - 2026-07-02
 
 ### ✨ 功能

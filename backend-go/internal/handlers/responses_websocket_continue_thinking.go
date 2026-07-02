@@ -228,6 +228,11 @@ func runResponsesWebSocketFoldTurn(
 	isFastMode := strings.EqualFold(serviceTier, "priority")
 	originalReq := &types.ResponsesRequest{Model: model}
 
+	// Derive the original request's client identity from the create frame + gin
+	// context (the WS fold has no pre-created log row) so every folded row is
+	// attributed to the same client as the original request.
+	client := clientAttributionFromFrame(fc.c, createFrame)
+
 	debugLogEnabled := fc.cfgManager != nil && fc.cfgManager.GetDebugLogConfig().Enabled
 
 	driver := &wsFoldDriver{
@@ -252,7 +257,7 @@ func runResponsesWebSocketFoldTurn(
 			}
 			roundLogID := finalizeContinueThinkingRoundLog(
 				fc.reqLog, "", round, u, fc.upstream, originalReq,
-				fc.channelID, fc.channelName, isFastMode, serviceTier, false, startTime, "ws",
+				fc.channelID, fc.channelName, isFastMode, serviceTier, false, startTime, "ws", client,
 			)
 			if debugLogEnabled && roundLogID != "" {
 				saveContinueThinkingRoundDebug(fc.reqLog, fc.cfgManager, roundLogID, u.Trace)

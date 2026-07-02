@@ -11,6 +11,7 @@ import (
 
 	"github.com/JillVernus/cc-bridge/internal/config"
 	"github.com/JillVernus/cc-bridge/internal/continuethinking"
+	"github.com/JillVernus/cc-bridge/internal/middleware"
 	"github.com/JillVernus/cc-bridge/internal/pricing"
 	"github.com/JillVernus/cc-bridge/internal/providers"
 	"github.com/JillVernus/cc-bridge/internal/quota"
@@ -18,6 +19,7 @@ import (
 	"github.com/JillVernus/cc-bridge/internal/types"
 	"github.com/JillVernus/cc-bridge/internal/utils"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 // ctRequestContext is the request-scoped state a continue-thinking continuation
@@ -224,6 +226,11 @@ func runContinueThinkingFold(
 	}
 	debugLogEnabled := cfgManager.GetDebugLogConfig().Enabled
 
+	// Resolve the original request's client identity once from the pre-created
+	// round-1 log row so continuation rounds (Add path) are attributed to the
+	// same client as the original request.
+	client := clientAttributionFromLog(reqLogManager, requestLogID)
+
 	// Round-1 upstream request body for the per-round debug trace: prefer the
 	// body captured in the gin context (set by the debug middleware), else fall
 	// back to the original client request JSON.
@@ -249,7 +256,7 @@ func runContinueThinkingFold(
 			}
 			roundLogID := finalizeContinueThinkingRoundLog(
 				reqLogManager, requestLogID, round, u, upstream, originalReq,
-				channelIndex, channelName, isFastMode, effectiveServiceTier, serviceTierOverridden, startTime, "sse",
+				channelIndex, channelName, isFastMode, effectiveServiceTier, serviceTierOverridden, startTime, "sse", client,
 			)
 			if debugLogEnabled && roundLogID != "" {
 				saveContinueThinkingRoundDebug(reqLogManager, cfgManager, roundLogID, u.Trace)
@@ -277,6 +284,66 @@ func runContinueThinkingFold(
 	}
 }
 
+// clientAttribution carries the original request's client identity so every
+// continue-thinking log row (including Add-path rows: WebSocket turns and SSE
+// continuation rounds) records the same ClientID/SessionID/APIKeyID as the
+// original request. The main log is the source of truth for per-client request
+// counts and cost, so attribution must never be dropped on the fold path.
+type clientAttribution struct {
+	clientID  string
+	sessionID string
+	apiKeyID  *int64
+}
+
+// clientAttributionFromLog reads the client identity off an already-created
+// request-log row (the SSE path pre-creates the round-1 row with attribution via
+// responses.go). Used so SSE continuation rounds (Add path) inherit the same
+// client identity as the original request. Returns zero-value attribution when
+// the row cannot be read.
+func clientAttributionFromLog(reqLogManager *requestlog.Manager, requestLogID string) clientAttribution {
+	if reqLogManager == nil || requestLogID == "" {
+		return clientAttribution{}
+	}
+	row, err := reqLogManager.GetByID(requestLogID)
+	if err != nil || row == nil {
+		return clientAttribution{}
+	}
+	return clientAttribution{
+		clientID:  row.ClientID,
+		sessionID: row.SessionID,
+		apiKeyID:  row.APIKeyID,
+	}
+}
+
+// clientAttributionFromFrame parses the client identity from a `response.create`
+// frame plus the gin request context, mirroring observeClientMessage on the raw
+// WebSocket proxy path (prompt_cache_key -> codex/sessionID; else the
+// conversation id from headers; apiKeyID from the auth middleware context). The
+// WebSocket fold has no pre-created log row, so it derives attribution here to
+// keep every folded row attributed to the original client.
+func clientAttributionFromFrame(c *gin.Context, createFrame []byte) clientAttribution {
+	var attr clientAttribution
+	var header http.Header
+	if c != nil && c.Request != nil {
+		header = c.Request.Header
+		if id, exists := c.Get(middleware.ContextKeyAPIKeyID); exists {
+			if idVal, ok := id.(int64); ok {
+				attr.apiKeyID = &idVal
+			}
+		}
+	}
+
+	promptCacheKey := strings.TrimSpace(gjson.GetBytes(createFrame, "prompt_cache_key").String())
+	if promptCacheKey != "" {
+		attr.clientID = "codex"
+		attr.sessionID = promptCacheKey
+		return attr
+	}
+	compoundUserID := extractConversationIDFromHeaders(header, createFrame)
+	attr.clientID, attr.sessionID = parseClaudeCodeUserID(compoundUserID)
+	return attr
+}
+
 // finalizeContinueThinkingRoundLog writes/finalizes one request log entry for a
 // continue-thinking round. Round 1 updates the existing requestLogID with
 // round-1 usage; continuation rounds create a new pending log (mirroring the
@@ -296,6 +363,7 @@ func finalizeContinueThinkingRoundLog(
 	serviceTierOverridden bool,
 	startTime time.Time,
 	transport string,
+	client clientAttribution,
 ) string {
 	completeTime := time.Now()
 	actualInput := max0(u.InputTokens - u.CachedTokens)
@@ -405,6 +473,14 @@ func finalizeContinueThinkingRoundLog(
 		OutputCost:           record.OutputCost,
 		CacheReadCost:        record.CacheReadCost,
 		FailoverInfo:         failoverInfo,
+		// Carry the original request's client identity so Add-path rows (WS turns
+		// and SSE continuation rounds) are attributed to the same client as the
+		// original request. The main log aggregates request count and cost per
+		// client, so every original metric must be recorded regardless of whether
+		// continue-thinking is enabled.
+		ClientID:  client.clientID,
+		SessionID: client.sessionID,
+		APIKeyID:  client.apiKeyID,
 	}
 	applyResponsesServiceTierMetadata(pending, effectiveServiceTier, serviceTierOverridden)
 	if err := reqLogManager.Add(pending); err != nil {
