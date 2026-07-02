@@ -153,6 +153,36 @@ func TestSingleFold(t *testing.T) {
 	}
 }
 
+func TestDoesNotContinueToolOutputInput(t *testing.T) {
+	var openedRounds int
+	deps := Deps{
+		Round1Body:       sseStream(flatten(reasoningItemEvents(0), []string{usageEvent(516, 0, "gpt-5")})...),
+		Round1StatusCode: 200,
+		BaseBody:         map[string]any{"model": "gpt-5", "previous_response_id": "resp_prev"},
+		OrigInput: []any{
+			map[string]any{
+				"type":    "function_call_output",
+				"call_id": "call_1",
+				"output":  "ok",
+			},
+		},
+		OpenRound: func(ctx context.Context, payload map[string]any) (*http.Response, error) {
+			openedRounds++
+			return nil, nil
+		},
+	}
+
+	out := FoldStream(context.Background(), deps)
+	s := string(out)
+
+	if openedRounds != 0 {
+		t.Fatalf("tool output inputs depend on previous_response_id context; continuation rounds should not open, got %d", openedRounds)
+	}
+	if !strings.Contains(s, `"proxy_stopped_reason":"tool_output_input"`) {
+		t.Fatalf("missing tool_output_input stop reason: %s", s)
+	}
+}
+
 // TestMaxContinueCap: every round truncated -> stop at MaxContinue+1.
 func TestMaxContinueCap(t *testing.T) {
 	roundsServed := 0

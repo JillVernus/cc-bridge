@@ -248,8 +248,9 @@ func (st *foldState) run() {
 		})
 
 		hasEnc := len(roundReasoning) > 0 && reasoningHasEncryptedContent(roundReasoning[len(roundReasoning)-1])
+		hasToolOutputInput := HasToolOutputInput(st.cfg.OrigInput)
 		withinCaps := MaxTotalOutputTokens == 0 || st.totalUsage.OutputTokens < MaxTotalOutputTokens
-		doContinue := sawTerminal && ShouldContinue(rt) && hasEnc && round <= MaxContinue && withinCaps
+		doContinue := sawTerminal && ShouldContinue(rt) && hasEnc && !hasToolOutputInput && round <= MaxContinue && withinCaps
 
 		// stoppedReason when we stop while still on the 518n-2 pattern.
 		stoppedReason := ""
@@ -257,6 +258,8 @@ func (st *foldState) run() {
 			switch {
 			case !hasEnc:
 				stoppedReason = "no_encrypted_content"
+			case hasToolOutputInput:
+				stoppedReason = "tool_output_input"
 			case round > MaxContinue:
 				stoppedReason = "max_continue"
 			case !withinCaps:
@@ -279,6 +282,11 @@ func (st *foldState) run() {
 
 		// Report per-round usage for logging (round 1 = existing log).
 		if st.cfg.OnRoundUsage != nil && roundUsage != nil {
+			if doContinue {
+				roundUsage.ContinueThinkingRole = "hold"
+			} else if round > 1 {
+				roundUsage.ContinueThinkingRole = "folded_return"
+			}
 			st.cfg.OnRoundUsage(round, *roundUsage)
 		}
 

@@ -21,6 +21,7 @@ import (
 	"github.com/JillVernus/cc-bridge/internal/session"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/tidwall/gjson"
 )
 
 func newResponsesWebSocketTestConfigManager(t *testing.T) *config.ConfigManager {
@@ -672,6 +673,131 @@ func TestSanitizeCodexOAuthWebSocketClientPayload_StripsEncryptedReasoning(t *te
 	contentPart := content[0].(map[string]interface{})
 	if _, exists := contentPart["encrypted_content"]; exists {
 		t.Fatalf("nested encrypted_content was not stripped: %#v", contentPart)
+	}
+}
+
+func TestResponsesWebSocketContinueThinkingLogsHeldAndFoldedRows(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upstream upgrade failed: %v", err)
+			return
+		}
+		defer conn.Close()
+
+		if _, payload, err := conn.ReadMessage(); err != nil {
+			t.Errorf("upstream read round 1 failed: %v", err)
+			return
+		} else if !gjson.GetBytes(payload, `include.#(=="reasoning.encrypted_content")`).Exists() {
+			t.Errorf("round 1 missing encrypted reasoning include: %s", payload)
+			return
+		}
+		for _, frame := range []string{
+			`{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"rs_1","encrypted_content":"ENC1"}}`,
+			`{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"rs_1","encrypted_content":"ENC1"}}`,
+			`{"type":"response.completed","response":{"id":"resp_1","model":"gpt-5","output":[],"usage":{"input_tokens":10,"output_tokens":516,"total_tokens":526,"output_tokens_details":{"reasoning_tokens":516}}}}`,
+		} {
+			if err := conn.WriteMessage(websocket.TextMessage, []byte(frame)); err != nil {
+				t.Errorf("upstream write round 1 failed: %v", err)
+				return
+			}
+		}
+
+		if _, payload, err := conn.ReadMessage(); err != nil {
+			t.Errorf("upstream read round 2 failed: %v", err)
+			return
+		} else if gjson.GetBytes(payload, "type").String() != "response.create" {
+			t.Errorf("round 2 payload type = %s", payload)
+			return
+		}
+		for _, frame := range []string{
+			`{"type":"response.output_item.added","output_index":0,"item":{"type":"message","role":"assistant","content":[]}}`,
+			`{"type":"response.output_text.delta","output_index":0,"delta":"done"}`,
+			`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}}`,
+			`{"type":"response.completed","response":{"id":"resp_2","model":"gpt-5","output":[],"usage":{"input_tokens":12,"output_tokens":501,"total_tokens":513,"output_tokens_details":{"reasoning_tokens":500}}}}`,
+		} {
+			if err := conn.WriteMessage(websocket.TextMessage, []byte(frame)); err != nil {
+				t.Errorf("upstream write round 2 failed: %v", err)
+				return
+			}
+		}
+	}))
+	defer upstream.Close()
+
+	cfgManager := newResponsesWebSocketTestConfigManager(t)
+	if err := cfgManager.AddResponsesUpstream(config.UpstreamConfig{
+		Name:                      "responses-ws-ct",
+		BaseURL:                   upstream.URL,
+		ServiceType:               "responses",
+		Status:                    "active",
+		APIKeys:                   []string{"upstream-api-key"},
+		ResponsesWebSocketEnabled: true,
+		ContinueThinkingEnabled:   true,
+	}); err != nil {
+		t.Fatalf("AddResponsesUpstream() failed: %v", err)
+	}
+
+	reqLogManager := newTestRequestLogManager(t)
+	router := gin.New()
+	router.GET("/v1/responses", ResponsesWebSocketHandler(nil, cfgManager, nil, reqLogManager, nil, nil, nil))
+	bridge := httptest.NewServer(router)
+	defer bridge.Close()
+
+	parsed, err := url.Parse("ws" + strings.TrimPrefix(bridge.URL, "http"))
+	if err != nil {
+		t.Fatalf("parse bridge ws url: %v", err)
+	}
+	parsed.Path = "/v1/responses"
+
+	conn, resp, err := websocket.DefaultDialer.Dial(parsed.String(), http.Header{
+		"OpenAI-Beta": []string{"responses_websockets=2026-02-06"},
+	})
+	if err != nil {
+		if resp != nil {
+			t.Fatalf("dial failed status=%d err=%v", resp.StatusCode, err)
+		}
+		t.Fatalf("dial failed: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"gpt-5","input":[]}`)); err != nil {
+		t.Fatalf("client write failed: %v", err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+	for {
+		_, payload, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("client read failed: %v", err)
+		}
+		if gjson.GetBytes(payload, "type").String() == "response.completed" {
+			break
+		}
+	}
+	_ = conn.Close()
+
+	recent, err := reqLogManager.GetRecent(&requestlog.RequestLogFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("GetRecent failed: %v", err)
+	}
+	if len(recent.Requests) != 2 {
+		t.Fatalf("request log count = %d, want 2", len(recent.Requests))
+	}
+
+	byInfo := map[string]requestlog.RequestLog{}
+	for _, record := range recent.Requests {
+		if record.Status == requestlog.StatusPending || record.Status == requestlog.StatusTimeout {
+			t.Fatalf("continue-thinking row left unfinished: id=%s status=%s", record.ID, record.Status)
+		}
+		byInfo[record.FailoverInfo] = record
+	}
+	if _, ok := byInfo["continue_thinking hold round 1"]; !ok {
+		t.Fatalf("missing held round log marker, got %#v", byInfo)
+	}
+	if _, ok := byInfo["continue_thinking folded_return round 2"]; !ok {
+		t.Fatalf("missing folded return log marker, got %#v", byInfo)
 	}
 }
 

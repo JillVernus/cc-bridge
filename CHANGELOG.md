@@ -4,6 +4,28 @@
 
 ---
 
+## [v1.5.70] - 2026-07-02
+
+### ✨ 功能
+
+- **Continue-Thinking 主日志可观测性**：主日志客户端列在 WS/SSE 图标旁新增 continue-thinking 状态图标。
+  - 保持中的轮次显示暂停图标，最终折叠返回客户端的轮次显示合并图标。
+  - Continue-thinking 状态说明合并进客户端列原有 tooltip，避免与行级 tooltip 重叠。
+
+### 🐛 修复
+
+- **Continue-Thinking WebSocket 日志状态**：修复 WS continue-thinking 预创建日志行可能停留在 `pending` 直到超时的问题。
+- **Continue-Thinking 工具输出续接保护**：当原始输入包含 `function_call_output` 等工具输出时，不再开启隐藏续接轮次，避免因丢失 `previous_response_id` 上下文导致 `No tool call found for function call output` 或后续 `previous_response_not_found` 错误。
+
+### ✅ 验证
+
+- `go test ./...` 通过
+- `bun test src/components/RequestLogTable.test.ts` 通过
+- `bun run type-check` 通过
+- `git diff --check` 通过
+
+---
+
 ## [v1.5.69] - 2026-07-02
 
 ### 🐛 修复

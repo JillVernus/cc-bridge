@@ -44,6 +44,20 @@ func BuildRoundPayload(baseBody map[string]any, inputItems []any, forceEncrypted
 	return body
 }
 
+func HasToolOutputInput(inputItems []any) bool {
+	for _, item := range inputItems {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		switch m["type"] {
+		case "function_call_output", "custom_tool_call_output", "tool_result":
+			return true
+		}
+	}
+	return false
+}
+
 // mergeInclude returns the include array with encrypted reasoning appended when
 // forceEncrypted is true and it is not already present.
 func mergeInclude(include any, forceEncrypted bool) []any {

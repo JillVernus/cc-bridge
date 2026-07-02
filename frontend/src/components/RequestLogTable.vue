@@ -146,7 +146,10 @@
                   <span>{{ t('requestLog.output') }}: {{ formatNumber(currentTotals.outputTokens) }}</span>
                 </div>
                 <div class="d-flex justify-space-between mb-1">
-                  <span>{{ t('requestLog.cacheCreation') }}: {{ formatNumber(currentTotals.cacheCreationInputTokens) }}</span>
+                  <span
+                    >{{ t('requestLog.cacheCreation') }}:
+                    {{ formatNumber(currentTotals.cacheCreationInputTokens) }}</span
+                  >
                   <span>{{ t('requestLog.cacheHit') }}: {{ formatNumber(currentTotals.cacheReadInputTokens) }}</span>
                 </div>
                 <div class="d-flex justify-space-between">
@@ -164,281 +167,282 @@
 
           <!-- Desktop Summary Table -->
           <div v-else>
-          <!-- Header table -->
-          <div class="summary-table-header-wrapper">
-            <table class="summary-table-custom resizable-summary-table" :style="{ width: summaryTableWidth + 'px' }">
-              <thead>
-                <tr>
-                  <th
-                    class="resizable-summary-header sortable-header"
-                    :style="{ width: summaryColumnWidths.name + 'px' }"
-                    @click="toggleSummarySort('name')"
-                  >
-                    <span class="header-content">
-                      {{ summaryNameHeaderTitle }}
-                      <v-icon v-if="summarySortColumn === 'name'" size="14" class="sort-icon">{{
-                        summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
-                      }}</v-icon>
-                    </span>
-                    <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'name')"></div>
-                  </th>
-                  <th
-                    class="text-end resizable-summary-header sortable-header"
-                    :style="{ width: summaryColumnWidths.requests + 'px' }"
-                    @click="toggleSummarySort('requests')"
-                  >
-                    <span class="header-content">
-                      {{ t('requestLog.requests') }}
-                      <v-icon v-if="summarySortColumn === 'requests'" size="14" class="sort-icon">{{
-                        summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
-                      }}</v-icon>
-                    </span>
-                    <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'requests')"></div>
-                  </th>
-                  <th
-                    class="text-end resizable-summary-header sortable-header"
-                    :style="{ width: summaryColumnWidths.input + 'px' }"
-                    @click="toggleSummarySort('input')"
-                  >
-                    <span class="header-content">
-                      {{ t('requestLog.input') }}
-                      <v-icon v-if="summarySortColumn === 'input'" size="14" class="sort-icon">{{
-                        summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
-                      }}</v-icon>
-                    </span>
-                    <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'input')"></div>
-                  </th>
-                  <th
-                    class="text-end resizable-summary-header sortable-header"
-                    :style="{ width: summaryColumnWidths.output + 'px' }"
-                    @click="toggleSummarySort('output')"
-                  >
-                    <span class="header-content">
-                      {{ t('requestLog.output') }}
-                      <v-icon v-if="summarySortColumn === 'output'" size="14" class="sort-icon">{{
-                        summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
-                      }}</v-icon>
-                    </span>
-                    <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'output')"></div>
-                  </th>
-                  <th
-                    class="text-end resizable-summary-header sortable-header"
-                    :style="{ width: summaryColumnWidths.cacheCreation + 'px' }"
-                    @click="toggleSummarySort('cacheCreation')"
-                  >
-                    <span class="header-content">
-                      {{ t('requestLog.cacheCreation') }}
-                      <v-icon v-if="summarySortColumn === 'cacheCreation'" size="14" class="sort-icon">{{
-                        summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
-                      }}</v-icon>
-                    </span>
-                    <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'cacheCreation')"></div>
-                  </th>
-                  <th
-                    class="text-end resizable-summary-header sortable-header"
-                    :style="{ width: summaryColumnWidths.cacheHit + 'px' }"
-                    @click="toggleSummarySort('cacheHit')"
-                  >
-                    <span class="header-content">
-                      {{ t('requestLog.cacheHit') }}
-                      <v-icon v-if="summarySortColumn === 'cacheHit'" size="14" class="sort-icon">{{
-                        summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
-                      }}</v-icon>
-                    </span>
-                    <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'cacheHit')"></div>
-                  </th>
-                  <th
-                    class="text-end resizable-summary-header sortable-header"
-                    :style="{ width: summaryColumnWidths.cacheHitRate + 'px' }"
-                    @click="toggleSummarySort('cacheHitRate')"
-                  >
-                    <span class="header-content">
-                      {{ t('requestLog.cacheHitRate') }}
-                      <v-icon v-if="summarySortColumn === 'cacheHitRate'" size="14" class="sort-icon">{{
-                        summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
-                      }}</v-icon>
-                    </span>
-                    <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'cacheHitRate')"></div>
-                  </th>
-                  <th
-                    class="text-end resizable-summary-header sortable-header"
-                    :style="{ width: summaryColumnWidths.avgTps + 'px' }"
-                    @click="toggleSummarySort('avgTps')"
-                  >
-                    <span class="header-content">
-                      {{ summaryColumnLabels.avgTps }}
-                      <v-icon v-if="summarySortColumn === 'avgTps'" size="14" class="sort-icon">{{
-                        summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
-                      }}</v-icon>
-                    </span>
-                    <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'avgTps')"></div>
-                  </th>
-                  <th
-                    class="text-end resizable-summary-header sortable-header"
-                    :style="{ width: summaryColumnWidths.cost + 'px' }"
-                    @click="toggleSummarySort('cost')"
-                  >
-                    <span class="header-content">
-                      {{ t('requestLog.cost') }}
-                      <v-icon v-if="summarySortColumn === 'cost'" size="14" class="sort-icon">{{
-                        summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
-                      }}</v-icon>
-                    </span>
-                    <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'cost')"></div>
-                  </th>
-                </tr>
-              </thead>
-            </table>
-          </div>
-          <!-- Body table (scrollable) -->
-          <div class="summary-table-body-wrapper">
-            <table class="summary-table-custom" :style="{ width: summaryTableWidth + 'px' }">
-              <tbody>
-                <tr
-                  v-for="[key, data] in currentSortedData"
-                  :key="key"
-                  :class="{ 'summary-row-flash': currentUpdatedSet.has(String(key)) }"
-                >
-                  <td
-                    class="text-caption font-weight-bold summary-name-cell"
-                    :style="{ width: summaryColumnWidths.name + 'px', maxWidth: summaryColumnWidths.name + 'px' }"
-                  >
-                    <v-tooltip
-                      v-if="
-                        (summaryGroupBy === 'client' || summaryGroupBy === 'session') &&
-                        String(key) &&
-                        String(key) !== '<unknown>'
-                      "
-                      location="top"
-                      max-width="600"
+            <!-- Header table -->
+            <div class="summary-table-header-wrapper">
+              <table class="summary-table-custom resizable-summary-table" :style="{ width: summaryTableWidth + 'px' }">
+                <thead>
+                  <tr>
+                    <th
+                      class="resizable-summary-header sortable-header"
+                      :style="{ width: summaryColumnWidths.name + 'px' }"
+                      @click="toggleSummarySort('name')"
                     >
-                      <template v-slot:activator="{ props }">
-                        <span
-                          v-bind="props"
-                          :class="{ 'clickable-id': summaryGroupBy === 'client' }"
-                          @click.stop="summaryGroupBy === 'client' && openAliasDialog(String(key))"
-                        >
-                          {{ formatSummaryKey(String(key)) }}
-                        </span>
-                      </template>
-                      <div v-if="summaryGroupBy === 'client'" class="id-tooltip">
-                        <div v-if="getUserAlias(String(key))" class="alias-tooltip-row">
-                          <span class="alias-label">{{ t('requestLog.alias') }}:</span> {{ getUserAlias(String(key)) }}
+                      <span class="header-content">
+                        {{ summaryNameHeaderTitle }}
+                        <v-icon v-if="summarySortColumn === 'name'" size="14" class="sort-icon">{{
+                          summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
+                        }}</v-icon>
+                      </span>
+                      <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'name')"></div>
+                    </th>
+                    <th
+                      class="text-end resizable-summary-header sortable-header"
+                      :style="{ width: summaryColumnWidths.requests + 'px' }"
+                      @click="toggleSummarySort('requests')"
+                    >
+                      <span class="header-content">
+                        {{ t('requestLog.requests') }}
+                        <v-icon v-if="summarySortColumn === 'requests'" size="14" class="sort-icon">{{
+                          summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
+                        }}</v-icon>
+                      </span>
+                      <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'requests')"></div>
+                    </th>
+                    <th
+                      class="text-end resizable-summary-header sortable-header"
+                      :style="{ width: summaryColumnWidths.input + 'px' }"
+                      @click="toggleSummarySort('input')"
+                    >
+                      <span class="header-content">
+                        {{ t('requestLog.input') }}
+                        <v-icon v-if="summarySortColumn === 'input'" size="14" class="sort-icon">{{
+                          summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
+                        }}</v-icon>
+                      </span>
+                      <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'input')"></div>
+                    </th>
+                    <th
+                      class="text-end resizable-summary-header sortable-header"
+                      :style="{ width: summaryColumnWidths.output + 'px' }"
+                      @click="toggleSummarySort('output')"
+                    >
+                      <span class="header-content">
+                        {{ t('requestLog.output') }}
+                        <v-icon v-if="summarySortColumn === 'output'" size="14" class="sort-icon">{{
+                          summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
+                        }}</v-icon>
+                      </span>
+                      <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'output')"></div>
+                    </th>
+                    <th
+                      class="text-end resizable-summary-header sortable-header"
+                      :style="{ width: summaryColumnWidths.cacheCreation + 'px' }"
+                      @click="toggleSummarySort('cacheCreation')"
+                    >
+                      <span class="header-content">
+                        {{ t('requestLog.cacheCreation') }}
+                        <v-icon v-if="summarySortColumn === 'cacheCreation'" size="14" class="sort-icon">{{
+                          summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
+                        }}</v-icon>
+                      </span>
+                      <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'cacheCreation')"></div>
+                    </th>
+                    <th
+                      class="text-end resizable-summary-header sortable-header"
+                      :style="{ width: summaryColumnWidths.cacheHit + 'px' }"
+                      @click="toggleSummarySort('cacheHit')"
+                    >
+                      <span class="header-content">
+                        {{ t('requestLog.cacheHit') }}
+                        <v-icon v-if="summarySortColumn === 'cacheHit'" size="14" class="sort-icon">{{
+                          summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
+                        }}</v-icon>
+                      </span>
+                      <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'cacheHit')"></div>
+                    </th>
+                    <th
+                      class="text-end resizable-summary-header sortable-header"
+                      :style="{ width: summaryColumnWidths.cacheHitRate + 'px' }"
+                      @click="toggleSummarySort('cacheHitRate')"
+                    >
+                      <span class="header-content">
+                        {{ t('requestLog.cacheHitRate') }}
+                        <v-icon v-if="summarySortColumn === 'cacheHitRate'" size="14" class="sort-icon">{{
+                          summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
+                        }}</v-icon>
+                      </span>
+                      <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'cacheHitRate')"></div>
+                    </th>
+                    <th
+                      class="text-end resizable-summary-header sortable-header"
+                      :style="{ width: summaryColumnWidths.avgTps + 'px' }"
+                      @click="toggleSummarySort('avgTps')"
+                    >
+                      <span class="header-content">
+                        {{ summaryColumnLabels.avgTps }}
+                        <v-icon v-if="summarySortColumn === 'avgTps'" size="14" class="sort-icon">{{
+                          summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
+                        }}</v-icon>
+                      </span>
+                      <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'avgTps')"></div>
+                    </th>
+                    <th
+                      class="text-end resizable-summary-header sortable-header"
+                      :style="{ width: summaryColumnWidths.cost + 'px' }"
+                      @click="toggleSummarySort('cost')"
+                    >
+                      <span class="header-content">
+                        {{ t('requestLog.cost') }}
+                        <v-icon v-if="summarySortColumn === 'cost'" size="14" class="sort-icon">{{
+                          summarySortDirection === 'asc' ? 'mdi-arrow-up' : 'mdi-arrow-down'
+                        }}</v-icon>
+                      </span>
+                      <div class="resize-handle" @pointerdown.stop="startSummaryResize($event, 'cost')"></div>
+                    </th>
+                  </tr>
+                </thead>
+              </table>
+            </div>
+            <!-- Body table (scrollable) -->
+            <div class="summary-table-body-wrapper">
+              <table class="summary-table-custom" :style="{ width: summaryTableWidth + 'px' }">
+                <tbody>
+                  <tr
+                    v-for="[key, data] in currentSortedData"
+                    :key="key"
+                    :class="{ 'summary-row-flash': currentUpdatedSet.has(String(key)) }"
+                  >
+                    <td
+                      class="text-caption font-weight-bold summary-name-cell"
+                      :style="{ width: summaryColumnWidths.name + 'px', maxWidth: summaryColumnWidths.name + 'px' }"
+                    >
+                      <v-tooltip
+                        v-if="
+                          (summaryGroupBy === 'client' || summaryGroupBy === 'session') &&
+                          String(key) &&
+                          String(key) !== '<unknown>'
+                        "
+                        location="top"
+                        max-width="600"
+                      >
+                        <template v-slot:activator="{ props }">
+                          <span
+                            v-bind="props"
+                            :class="{ 'clickable-id': summaryGroupBy === 'client' }"
+                            @click.stop="summaryGroupBy === 'client' && openAliasDialog(String(key))"
+                          >
+                            {{ formatSummaryKey(String(key)) }}
+                          </span>
+                        </template>
+                        <div v-if="summaryGroupBy === 'client'" class="id-tooltip">
+                          <div v-if="getUserAlias(String(key))" class="alias-tooltip-row">
+                            <span class="alias-label">{{ t('requestLog.alias') }}:</span>
+                            {{ getUserAlias(String(key)) }}
+                          </div>
+                          <div>
+                            <span class="id-label">{{ t('requestLog.clientId') }}:</span>
+                            {{ normalizeUserId(String(key)) }}
+                          </div>
                         </div>
-                        <div>
-                          <span class="id-label">{{ t('requestLog.clientId') }}:</span>
-                          {{ normalizeUserId(String(key)) }}
-                        </div>
-                      </div>
-                      <span v-else class="id-tooltip">{{ String(key) }}</span>
-                    </v-tooltip>
-                    <span v-else>{{ formatSummaryKey(String(key)) }}</span>
-                  </td>
-                  <td class="text-end text-caption" :style="{ width: summaryColumnWidths.requests + 'px' }">
-                    {{ data.count }}
-                  </td>
-                  <td class="text-end text-caption" :style="{ width: summaryColumnWidths.input + 'px' }">
-                    {{ formatNumber(data.inputTokens) }}
-                  </td>
-                  <td class="text-end text-caption" :style="{ width: summaryColumnWidths.output + 'px' }">
-                    {{ formatNumber(data.outputTokens) }}
-                  </td>
-                  <td
-                    class="text-end text-caption text-success"
-                    :style="{ width: summaryColumnWidths.cacheCreation + 'px' }"
-                  >
-                    {{ formatNumber(data.cacheCreationInputTokens) }}
-                  </td>
-                  <td
-                    class="text-end text-caption text-warning"
-                    :style="{ width: summaryColumnWidths.cacheHit + 'px' }"
-                  >
-                    {{ formatNumber(data.cacheReadInputTokens) }}
-                  </td>
-                  <td class="text-end text-caption" :style="{ width: summaryColumnWidths.cacheHitRate + 'px' }">
-                    <v-tooltip :text="t('requestLog.cacheHitRateTooltip')" location="top">
-                      <template #activator="{ props }">
-                        <span v-bind="props" class="hit-rate-value">{{ calcHitRate(data) }}%</span>
-                      </template>
-                    </v-tooltip>
-                  </td>
-                  <td class="text-end text-caption" :style="{ width: summaryColumnWidths.avgTps + 'px' }">
-                    {{ formatSummaryTps(data.avgTps) }}
-                  </td>
-                  <td class="text-end text-caption cost-cell" :style="{ width: summaryColumnWidths.cost + 'px' }">
-                    {{ formatPriceSummary(data.cost) }}
-                  </td>
-                </tr>
-                <tr v-if="currentSortedData.length === 0">
-                  <td colspan="9" class="text-center text-caption text-grey">{{ t('common.noData') }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <!-- Footer table -->
-          <div class="summary-table-footer-fixed">
-            <table class="summary-table-custom" :style="{ width: summaryTableWidth + 'px' }">
-              <tbody>
-                <tr class="total-row">
-                  <td class="text-caption font-weight-bold" :style="{ width: summaryColumnWidths.name + 'px' }">
-                    Total
-                  </td>
-                  <td
-                    class="text-end text-caption font-weight-bold"
-                    :style="{ width: summaryColumnWidths.requests + 'px' }"
-                  >
-                    {{ currentTotals.count }}
-                  </td>
-                  <td
-                    class="text-end text-caption font-weight-bold"
-                    :style="{ width: summaryColumnWidths.input + 'px' }"
-                  >
-                    {{ formatNumber(currentTotals.inputTokens) }}
-                  </td>
-                  <td
-                    class="text-end text-caption font-weight-bold"
-                    :style="{ width: summaryColumnWidths.output + 'px' }"
-                  >
-                    {{ formatNumber(currentTotals.outputTokens) }}
-                  </td>
-                  <td
-                    class="text-end text-caption font-weight-bold text-success"
-                    :style="{ width: summaryColumnWidths.cacheCreation + 'px' }"
-                  >
-                    {{ formatNumber(currentTotals.cacheCreationInputTokens) }}
-                  </td>
-                  <td
-                    class="text-end text-caption font-weight-bold text-warning"
-                    :style="{ width: summaryColumnWidths.cacheHit + 'px' }"
-                  >
-                    {{ formatNumber(currentTotals.cacheReadInputTokens) }}
-                  </td>
-                  <td
-                    class="text-end text-caption font-weight-bold"
-                    :style="{ width: summaryColumnWidths.cacheHitRate + 'px' }"
-                  >
-                    <v-tooltip :text="t('requestLog.cacheHitRateTooltip')" location="top">
-                      <template #activator="{ props }">
-                        <span v-bind="props" class="hit-rate-value">{{ calcHitRate(currentTotals) }}%</span>
-                      </template>
-                    </v-tooltip>
-                  </td>
-                  <td
-                    class="text-end text-caption font-weight-bold"
-                    :style="{ width: summaryColumnWidths.avgTps + 'px' }"
-                  >
-                    {{ formatSummaryTps(currentTotals.avgTps) }}
-                  </td>
-                  <td
-                    class="text-end text-caption font-weight-bold cost-cell"
-                    :style="{ width: summaryColumnWidths.cost + 'px' }"
-                  >
-                    {{ formatPriceSummary(currentTotals.cost) }}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+                        <span v-else class="id-tooltip">{{ String(key) }}</span>
+                      </v-tooltip>
+                      <span v-else>{{ formatSummaryKey(String(key)) }}</span>
+                    </td>
+                    <td class="text-end text-caption" :style="{ width: summaryColumnWidths.requests + 'px' }">
+                      {{ data.count }}
+                    </td>
+                    <td class="text-end text-caption" :style="{ width: summaryColumnWidths.input + 'px' }">
+                      {{ formatNumber(data.inputTokens) }}
+                    </td>
+                    <td class="text-end text-caption" :style="{ width: summaryColumnWidths.output + 'px' }">
+                      {{ formatNumber(data.outputTokens) }}
+                    </td>
+                    <td
+                      class="text-end text-caption text-success"
+                      :style="{ width: summaryColumnWidths.cacheCreation + 'px' }"
+                    >
+                      {{ formatNumber(data.cacheCreationInputTokens) }}
+                    </td>
+                    <td
+                      class="text-end text-caption text-warning"
+                      :style="{ width: summaryColumnWidths.cacheHit + 'px' }"
+                    >
+                      {{ formatNumber(data.cacheReadInputTokens) }}
+                    </td>
+                    <td class="text-end text-caption" :style="{ width: summaryColumnWidths.cacheHitRate + 'px' }">
+                      <v-tooltip :text="t('requestLog.cacheHitRateTooltip')" location="top">
+                        <template #activator="{ props }">
+                          <span v-bind="props" class="hit-rate-value">{{ calcHitRate(data) }}%</span>
+                        </template>
+                      </v-tooltip>
+                    </td>
+                    <td class="text-end text-caption" :style="{ width: summaryColumnWidths.avgTps + 'px' }">
+                      {{ formatSummaryTps(data.avgTps) }}
+                    </td>
+                    <td class="text-end text-caption cost-cell" :style="{ width: summaryColumnWidths.cost + 'px' }">
+                      {{ formatPriceSummary(data.cost) }}
+                    </td>
+                  </tr>
+                  <tr v-if="currentSortedData.length === 0">
+                    <td colspan="9" class="text-center text-caption text-grey">{{ t('common.noData') }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <!-- Footer table -->
+            <div class="summary-table-footer-fixed">
+              <table class="summary-table-custom" :style="{ width: summaryTableWidth + 'px' }">
+                <tbody>
+                  <tr class="total-row">
+                    <td class="text-caption font-weight-bold" :style="{ width: summaryColumnWidths.name + 'px' }">
+                      Total
+                    </td>
+                    <td
+                      class="text-end text-caption font-weight-bold"
+                      :style="{ width: summaryColumnWidths.requests + 'px' }"
+                    >
+                      {{ currentTotals.count }}
+                    </td>
+                    <td
+                      class="text-end text-caption font-weight-bold"
+                      :style="{ width: summaryColumnWidths.input + 'px' }"
+                    >
+                      {{ formatNumber(currentTotals.inputTokens) }}
+                    </td>
+                    <td
+                      class="text-end text-caption font-weight-bold"
+                      :style="{ width: summaryColumnWidths.output + 'px' }"
+                    >
+                      {{ formatNumber(currentTotals.outputTokens) }}
+                    </td>
+                    <td
+                      class="text-end text-caption font-weight-bold text-success"
+                      :style="{ width: summaryColumnWidths.cacheCreation + 'px' }"
+                    >
+                      {{ formatNumber(currentTotals.cacheCreationInputTokens) }}
+                    </td>
+                    <td
+                      class="text-end text-caption font-weight-bold text-warning"
+                      :style="{ width: summaryColumnWidths.cacheHit + 'px' }"
+                    >
+                      {{ formatNumber(currentTotals.cacheReadInputTokens) }}
+                    </td>
+                    <td
+                      class="text-end text-caption font-weight-bold"
+                      :style="{ width: summaryColumnWidths.cacheHitRate + 'px' }"
+                    >
+                      <v-tooltip :text="t('requestLog.cacheHitRateTooltip')" location="top">
+                        <template #activator="{ props }">
+                          <span v-bind="props" class="hit-rate-value">{{ calcHitRate(currentTotals) }}%</span>
+                        </template>
+                      </v-tooltip>
+                    </td>
+                    <td
+                      class="text-end text-caption font-weight-bold"
+                      :style="{ width: summaryColumnWidths.avgTps + 'px' }"
+                    >
+                      {{ formatSummaryTps(currentTotals.avgTps) }}
+                    </td>
+                    <td
+                      class="text-end text-caption font-weight-bold cost-cell"
+                      :style="{ width: summaryColumnWidths.cost + 'px' }"
+                    >
+                      {{ formatPriceSummary(currentTotals.cost) }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
           <!-- End Desktop Summary Table -->
         </v-card>
@@ -1040,9 +1044,8 @@
             <div class="d-flex justify-space-between text-caption mb-1">
               <span>
                 <v-icon size="14" class="mr-1">mdi-clock-outline</v-icon>
-                F: {{ formatTimingMetric(item, 'firstToken') }} |
-                D: {{ formatTimingMetric(item, 'duration') }} |
-                S: {{ formatTimingMetric(item, 'streamingDuration') }}
+                F: {{ formatTimingMetric(item, 'firstToken') }} | D: {{ formatTimingMetric(item, 'duration') }} | S:
+                {{ formatTimingMetric(item, 'streamingDuration') }}
               </span>
             </div>
             <div class="d-flex justify-space-between text-caption">
@@ -1104,11 +1107,7 @@
                   <v-tooltip :text="t('requestLog.filterByChannel')" location="top">
                     <template v-slot:activator="{ props: tooltipProps }">
                       <span v-bind="tooltipProps" class="channel-filter-tooltip-wrapper" @click.stop>
-                        <v-menu
-                          v-model="channelFilterMenuOpen"
-                          :close-on-content-click="false"
-                          location="bottom start"
-                        >
+                        <v-menu v-model="channelFilterMenuOpen" :close-on-content-click="false" location="bottom start">
                           <template v-slot:activator="{ props: menuProps }">
                             <v-btn
                               v-bind="menuProps"
@@ -1211,17 +1210,28 @@
             <template v-slot:activator="{ props }">
               <div v-bind="props" class="timing-stacked">
                 <span class="timing-cell">
-                  <span class="timing-num" :class="hasFirstTokenMetric(item) ? 'duration-' + getDurationColor(item.firstTokenDurationMs ?? 0) : 'timing-muted'">
+                  <span
+                    class="timing-num"
+                    :class="
+                      hasFirstTokenMetric(item)
+                        ? 'duration-' + getDurationColor(item.firstTokenDurationMs ?? 0)
+                        : 'timing-muted'
+                    "
+                  >
                     {{ formatTimingMetric(item, 'firstToken') }}
                   </span>
                   <span class="timing-sym">F</span>
                 </span>
                 <span class="timing-cell">
-                  <span class="timing-num" :class="'duration-' + getDurationColor(item.durationMs)">{{ formatTimingMetric(item, 'duration') }}</span>
+                  <span class="timing-num" :class="'duration-' + getDurationColor(item.durationMs)">{{
+                    formatTimingMetric(item, 'duration')
+                  }}</span>
                   <span class="timing-sym">D</span>
                 </span>
                 <span class="timing-cell">
-                  <span class="timing-num" :class="getStreamingDurationClass(item)">{{ formatTimingMetric(item, 'streamingDuration') }}</span>
+                  <span class="timing-num" :class="getStreamingDurationClass(item)">{{
+                    formatTimingMetric(item, 'streamingDuration')
+                  }}</span>
                   <span class="timing-sym">S</span>
                 </span>
                 <span class="timing-cell">
@@ -1299,9 +1309,7 @@
                     :color="getReasoningEffortColor(item.reasoningEffort)"
                     >{{ getReasoningEffortIcon(item.reasoningEffort) }}</v-icon
                   >
-                  <v-icon v-else-if="hasModelMapping(item)" size="10" class="ml-1"
-                    >mdi-swap-horizontal</v-icon
-                  >
+                  <v-icon v-else-if="hasModelMapping(item)" size="10" class="ml-1">mdi-swap-horizontal</v-icon>
                   <v-icon v-if="isPriorityServiceTier(item)" size="12" class="ml-1" color="warning">mdi-flash</v-icon>
                   <v-icon v-if="item.serviceTierOverridden" size="12" class="ml-1" color="info">mdi-auto-fix</v-icon>
                   <v-icon
@@ -1508,11 +1516,11 @@
           <v-tooltip v-if="isStacked('clientId')" location="top" max-width="600">
             <template v-slot:activator="{ props }">
               <div v-bind="props" class="stacked-cell">
-                <span
-                  v-if="item.clientId"
-                  class="client-id-with-transport"
-                >
-                  <span class="text-caption mono-text id-cell clickable-id" @click.stop="openAliasDialog(item.clientId)">
+                <span v-if="item.clientId" class="client-id-with-transport">
+                  <span
+                    class="text-caption mono-text id-cell clickable-id"
+                    @click.stop="openAliasDialog(item.clientId)"
+                  >
                     {{ getDisplayUserId(item.clientId) }}
                   </span>
                   <v-tooltip v-if="getTransportIcon(item)" location="top">
@@ -1529,6 +1537,15 @@
                     </template>
                     <span>{{ getTransportLabel(item) }}</span>
                   </v-tooltip>
+                  <v-icon
+                    v-if="getContinueThinkingIcon(item)"
+                    class="transport-icon"
+                    :color="getContinueThinkingColor(item)"
+                    size="13"
+                    @click.stop
+                  >
+                    {{ getContinueThinkingIcon(item) }}
+                  </v-icon>
                 </span>
                 <span v-else class="text-caption mono-text id-cell">—</span>
                 <span v-if="item.sessionId" class="stacked-secondary mono-text">
@@ -1547,6 +1564,10 @@
                 <div v-if="getTransportIcon(item)">
                   <span class="id-label">{{ t('requestLog.transport') }}:</span> {{ getTransportLabel(item) }}
                 </div>
+                <div v-if="getContinueThinkingIcon(item)">
+                  <span class="id-label">{{ t('requestLog.continueThinking') }}:</span>
+                  {{ getContinueThinkingLabel(item) }}
+                </div>
               </div>
               <div v-else>
                 <span class="id-label">{{ t('requestLog.clientId') }}:</span> —
@@ -1559,10 +1580,7 @@
           <!-- Expanded: Client only -->
           <v-tooltip v-else-if="item.clientId" location="top" max-width="600">
             <template v-slot:activator="{ props }">
-              <span
-                v-bind="props"
-                class="client-id-with-transport"
-              >
+              <span v-bind="props" class="client-id-with-transport">
                 <span class="text-caption mono-text id-cell clickable-id" @click.stop="openAliasDialog(item.clientId)">
                   {{ getDisplayUserId(item.clientId) }}
                 </span>
@@ -1580,6 +1598,15 @@
                   </template>
                   <span>{{ getTransportLabel(item) }}</span>
                 </v-tooltip>
+                <v-icon
+                  v-if="getContinueThinkingIcon(item)"
+                  class="transport-icon"
+                  :color="getContinueThinkingColor(item)"
+                  size="13"
+                  @click.stop
+                >
+                  {{ getContinueThinkingIcon(item) }}
+                </v-icon>
               </span>
             </template>
             <div class="id-tooltip">
@@ -1591,6 +1618,10 @@
               </div>
               <div v-if="getTransportIcon(item)">
                 <span class="id-label">{{ t('requestLog.transport') }}:</span> {{ getTransportLabel(item) }}
+              </div>
+              <div v-if="getContinueThinkingIcon(item)">
+                <span class="id-label">{{ t('requestLog.continueThinking') }}:</span>
+                {{ getContinueThinkingLabel(item) }}
               </div>
             </div>
           </v-tooltip>
@@ -1667,12 +1698,18 @@
                 :class="{ 'price-zero': !item.price }"
               >
                 {{ formatPriceDetailed(item.price) }}
-                <span v-if="item.pricedByTargetModel" class="priced-by-target-badge" title="Priced by target model">T</span>
+                <span v-if="item.pricedByTargetModel" class="priced-by-target-badge" title="Priced by target model"
+                  >T</span
+                >
               </span>
             </template>
             <div class="cost-breakdown-tooltip">
               <div class="cost-breakdown-title">Cost Breakdown</div>
-              <div v-if="item.pricedByTargetModel" class="cost-breakdown-row" style="color: #7c4dff; font-style: italic;">
+              <div
+                v-if="item.pricedByTargetModel"
+                class="cost-breakdown-row"
+                style="color: #7c4dff; font-style: italic"
+              >
                 <span class="cost-label">Priced by target model</span>
               </div>
               <div class="cost-breakdown-row" v-if="item.inputCost">
@@ -1862,10 +1899,7 @@ const channelFilterOptions = computed(() => {
 
   const sorted = Array.from(channels).sort((a, b) => a.localeCompare(b))
 
-  return [
-    { label: t('requestLog.allChannels'), value: null },
-    ...sorted.map(ch => ({ label: ch, value: ch }))
-  ]
+  return [{ label: t('requestLog.allChannels'), value: null }, ...sorted.map(ch => ({ label: ch, value: ch }))]
 })
 
 // Summary table group by state
@@ -1901,15 +1935,7 @@ const summaryNameHeaderTitle = computed(() => {
 
 // Summary table sorting state
 type SummarySortColumn =
-  | 'name'
-  | 'requests'
-  | 'input'
-  | 'output'
-  | 'avgTps'
-  | 'cacheCreation'
-  | 'cacheHit'
-  | 'cacheHitRate'
-  | 'cost'
+  'name' | 'requests' | 'input' | 'output' | 'avgTps' | 'cacheCreation' | 'cacheHit' | 'cacheHitRate' | 'cost'
 type SortDirection = 'asc' | 'desc'
 const summarySortColumn = ref<SummarySortColumn>('cost')
 const summarySortDirection = ref<SortDirection>('desc')
@@ -2554,8 +2580,7 @@ const getReasoningEffortColor = (effort: string): string => {
   }
 }
 
-const hasModelMapping = (item: RequestLog): boolean =>
-  !!item.responseModel && item.responseModel !== item.model
+const hasModelMapping = (item: RequestLog): boolean => !!item.responseModel && item.responseModel !== item.model
 
 /** Model shown in table: upstream/response when mapped, else client request model */
 const getLogDisplayModel = (item: RequestLog): string =>
@@ -3142,8 +3167,7 @@ const handleLogUpdated = (payload: LogUpdatedPayload) => {
         if (payload.outputTokens > 0 && payload.durationMs > 0) {
           const requestTps = payload.outputTokens / (payload.durationMs / 1000)
           const previousSampleCount = group[key].avgTpsSampleCount ?? 0
-          group[key].avgTps =
-            (group[key].avgTps * previousSampleCount + requestTps) / (previousSampleCount + 1)
+          group[key].avgTps = (group[key].avgTps * previousSampleCount + requestTps) / (previousSampleCount + 1)
           group[key].avgTpsSampleCount = previousSampleCount + 1
         }
       }
@@ -3543,7 +3567,12 @@ const loadColumnWidths = () => {
         delete parsed.cacheHit
       }
       if ('durationMs' in parsed || 'tps' in parsed) {
-        parsed.firstTokenDurationMs = Math.max(parsed.firstTokenDurationMs || 0, parsed.durationMs || 0, parsed.tps || 0, 156)
+        parsed.firstTokenDurationMs = Math.max(
+          parsed.firstTokenDurationMs || 0,
+          parsed.durationMs || 0,
+          parsed.tps || 0,
+          156
+        )
         delete parsed.durationMs
         delete parsed.tps
       }
@@ -3902,10 +3931,53 @@ const getTransportLabel = (item: RequestLog) => {
   }
 }
 
-const formatTimingMetric = (
-  item: RequestLog,
-  metric: 'firstToken' | 'duration' | 'streamingDuration' | 'tps'
-) => {
+const getContinueThinkingRole = (item: RequestLog) => {
+  const info = item.failoverInfo?.trim() ?? ''
+  if (info.startsWith('continue_thinking hold round ')) return 'hold'
+  if (info.startsWith('continue_thinking folded_return round ')) return 'folded_return'
+  return ''
+}
+
+const getContinueThinkingRound = (item: RequestLog) => {
+  const match = item.failoverInfo?.match(/continue_thinking (?:hold|folded_return) round (\d+)/)
+  return match?.[1] ?? ''
+}
+
+const getContinueThinkingIcon = (item: RequestLog) => {
+  switch (getContinueThinkingRole(item)) {
+    case 'hold':
+      return 'mdi-pause-circle-outline'
+    case 'folded_return':
+      return 'mdi-call-merge'
+    default:
+      return ''
+  }
+}
+
+const getContinueThinkingColor = (item: RequestLog) => {
+  switch (getContinueThinkingRole(item)) {
+    case 'hold':
+      return 'warning'
+    case 'folded_return':
+      return 'success'
+    default:
+      return 'grey'
+  }
+}
+
+const getContinueThinkingLabel = (item: RequestLog) => {
+  const round = getContinueThinkingRound(item)
+  switch (getContinueThinkingRole(item)) {
+    case 'hold':
+      return t('requestLog.continueThinkingHeld', { round })
+    case 'folded_return':
+      return t('requestLog.continueThinkingFoldedReturn', { round })
+    default:
+      return ''
+  }
+}
+
+const formatTimingMetric = (item: RequestLog, metric: 'firstToken' | 'duration' | 'streamingDuration' | 'tps') => {
   switch (metric) {
     case 'firstToken':
       if (!hasFirstTokenMetric(item)) return '-'
@@ -4165,11 +4237,7 @@ const playRowShift = (oldTops: Map<string, number>) => {
 }
 
 const getRowProps = ({ item }: { item: RequestLog }) => {
-  const animationClass = newIds.value.has(item.id)
-    ? 'row-enter'
-    : updatedIds.value.has(item.id)
-      ? 'row-flash'
-      : ''
+  const animationClass = newIds.value.has(item.id) ? 'row-enter' : updatedIds.value.has(item.id) ? 'row-flash' : ''
   return {
     class: animationClass ? `${animationClass} clickable-row` : 'clickable-row',
     onClick: () => openDebugModal(item)
@@ -6103,7 +6171,10 @@ const silentRefresh = async () => {
   border: 2px solid rgb(var(--v-theme-on-surface));
   box-shadow: 3px 3px 0 0 rgb(var(--v-theme-on-surface));
   border-radius: 0 !important;
-  transition: transform 0.5s ease-out, margin 0.5s ease-out, opacity 0.3s ease-out;
+  transition:
+    transform 0.5s ease-out,
+    margin 0.5s ease-out,
+    opacity 0.3s ease-out;
 }
 
 .v-theme--dark .mobile-log-card {
@@ -6269,5 +6340,4 @@ const silentRefresh = async () => {
 .channel-filter-select {
   width: 100%;
 }
-
 </style>

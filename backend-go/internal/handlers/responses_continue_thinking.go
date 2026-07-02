@@ -401,6 +401,11 @@ func finalizeContinueThinkingRoundLog(
 		durationMs = 0
 	}
 
+	failoverInfo := continueThinkingLogMarker(round, u.ContinueThinkingRole)
+	if failoverInfo == "" && round > 1 {
+		failoverInfo = "continue_thinking round " + itoaInt(round)
+	}
+
 	record := &requestlog.RequestLog{
 		Status:               orLogStatus(u.Status, requestlog.StatusCompleted),
 		CompleteTime:         completeTime,
@@ -421,6 +426,7 @@ func finalizeContinueThinkingRoundLog(
 		InputTokens:          actualInput,
 		OutputTokens:         u.OutputTokens,
 		CacheReadInputTokens: u.CachedTokens,
+		FailoverInfo:         failoverInfo,
 	}
 	if costBreakdown != nil {
 		record.Price = costBreakdown.TotalCost
@@ -443,10 +449,6 @@ func finalizeContinueThinkingRoundLog(
 
 	// New log entry. Continuation rounds (round > 1) are marked via FailoverInfo
 	// so folded rounds are distinguishable in the main log.
-	failoverInfo := ""
-	if round > 1 {
-		failoverInfo = "continue_thinking round " + itoaInt(round)
-	}
 	// Row start time: round 1 (e.g. a WebSocket turn with no pre-created row) begins
 	// at the client request start; continuation rounds begin when that round was
 	// dispatched upstream. Falling back to completeTime keeps the row well-formed if
@@ -499,6 +501,17 @@ func finalizeContinueThinkingRoundLog(
 		return ""
 	}
 	return pending.ID
+}
+
+func continueThinkingLogMarker(round int, role string) string {
+	switch role {
+	case "hold":
+		return "continue_thinking hold round " + itoaInt(round)
+	case "folded_return":
+		return "continue_thinking folded_return round " + itoaInt(round)
+	default:
+		return ""
+	}
 }
 
 // saveContinueThinkingRoundDebug persists a per-round debug log entry (request

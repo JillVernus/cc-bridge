@@ -82,21 +82,30 @@ describe('RequestLogTable summary Avg TPS', () => {
       '{{ formatPriceSummary(data.cost) }}'
     ])
 
-    const mobileTotal = source.slice(source.indexOf('<!-- Mobile Total Card -->'), source.indexOf('<!-- Desktop Summary Table -->'))
+    const mobileTotal = source.slice(
+      source.indexOf('<!-- Mobile Total Card -->'),
+      source.indexOf('<!-- Desktop Summary Table -->')
+    )
     expectSourceOrder(mobileTotal, [
       "{{ t('requestLog.cacheHitRate') }}: {{ calcHitRate(currentTotals) }}%",
       "{{ t('requestLog.tps') }}: {{ formatSummaryTps(currentTotals.avgTps) }}",
       '{{ formatPriceSummary(currentTotals.cost) }}'
     ])
 
-    const desktopHeader = source.slice(source.indexOf('<!-- Header table -->'), source.indexOf('<!-- Body table (scrollable) -->'))
+    const desktopHeader = source.slice(
+      source.indexOf('<!-- Header table -->'),
+      source.indexOf('<!-- Body table (scrollable) -->')
+    )
     expectSourceOrder(desktopHeader, [
       "toggleSummarySort('cacheHitRate')",
       "toggleSummarySort('avgTps')",
       "toggleSummarySort('cost')"
     ])
 
-    const desktopBody = source.slice(source.indexOf('<!-- Body table (scrollable) -->'), source.indexOf('<!-- Footer table -->'))
+    const desktopBody = source.slice(
+      source.indexOf('<!-- Body table (scrollable) -->'),
+      source.indexOf('<!-- Footer table -->')
+    )
     expectSourceOrder(desktopBody, [
       '{{ calcHitRate(data) }}%',
       '{{ formatSummaryTps(data.avgTps) }}',
@@ -110,5 +119,26 @@ describe('RequestLogTable summary Avg TPS', () => {
       '{{ formatSummaryTps(currentTotals.avgTps) }}',
       '{{ formatPriceSummary(currentTotals.cost) }}'
     ])
+  })
+})
+
+describe('RequestLogTable continue-thinking indicators', () => {
+  test('renders distinct icons next to transport and moves continue-thinking text into the client tooltip', async () => {
+    const source = await readRequestLogTableSource()
+
+    expect(source).toContain('getContinueThinkingRole')
+    expect(source).toContain('continue_thinking hold round ')
+    expect(source).toContain('continue_thinking folded_return round ')
+    expect(source).toContain('mdi-pause-circle-outline')
+    expect(source).toContain('mdi-call-merge')
+    expect(source).toContain("t('requestLog.continueThinkingHeld'")
+    expect(source).toContain("t('requestLog.continueThinkingFoldedReturn'")
+    expect(source).not.toContain('<v-tooltip v-if="getContinueThinkingIcon(item)"')
+
+    const clientSlot = source.slice(
+      source.indexOf('<template v-slot:item.clientId="{ item }">'),
+      source.indexOf('<template v-slot:item.sessionId="{ item }">')
+    )
+    expectSourceOrder(clientSlot, ['{{ getContinueThinkingIcon(item) }}', '{{ getContinueThinkingLabel(item) }}'])
   })
 })

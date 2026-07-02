@@ -12,20 +12,21 @@ const ReasoningTokensInclude = "reasoning.encrypted_content"
 
 // RoundUsage is the per-round upstream usage reported to the logging callback.
 type RoundUsage struct {
-	Round           int
-	InputTokens     int
-	OutputTokens    int
-	CachedTokens    int
-	TotalTokens     int
-	ReasoningTokens int // 0 if absent
-	ResponseModel   string
-	HTTPStatus      int
-	Status          string // "completed" | "error" | "incomplete"
-	Truncated       bool   // true iff this round hit the 518n-2 fingerprint
-	N               int    // truncation tier (0 if not truncated)
-	FirstEventAt    time.Time // wall-clock time the round's first `data:` payload was read (first-token proxy signal); zero if none
-	RequestSentAt   time.Time // wall-clock time the round's upstream request was dispatched (TTFT base); zero if unknown
-	RoundCompleteAt time.Time // wall-clock time the round's upstream stream finished
+	Round                int
+	InputTokens          int
+	OutputTokens         int
+	CachedTokens         int
+	TotalTokens          int
+	ReasoningTokens      int // 0 if absent
+	ResponseModel        string
+	HTTPStatus           int
+	Status               string    // "completed" | "error" | "incomplete"
+	Truncated            bool      // true iff this round hit the 518n-2 fingerprint
+	N                    int       // truncation tier (0 if not truncated)
+	ContinueThinkingRole string    // "hold" for continued rounds, "folded_return" for the final folded round
+	FirstEventAt         time.Time // wall-clock time the round's first `data:` payload was read (first-token proxy signal); zero if none
+	RequestSentAt        time.Time // wall-clock time the round's upstream request was dispatched (TTFT base); zero if unknown
+	RoundCompleteAt      time.Time // wall-clock time the round's upstream stream finished
 
 	// Trace carries the per-round request/response artifacts for debug logging.
 	// RequestBody is the serialized upstream request body for the round;
