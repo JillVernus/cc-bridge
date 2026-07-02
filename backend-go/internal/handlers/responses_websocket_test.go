@@ -434,11 +434,14 @@ func TestResponsesWebSocketHandlerProxiesOpenAIOAuthWebSocket(t *testing.T) {
 	}))
 	defer usageServer.Close()
 	oldUsageEndpoints := codexOAuthUsageEndpoints
+	oldResetStatusEndpoints := codexOAuthResetCreditStatusEndpoints
 	oldUsageHTTPClient := codexOAuthUsageHTTPClient
 	codexOAuthUsageEndpoints = []string{usageServer.URL + "/backend-api/codex/usage"}
+	codexOAuthResetCreditStatusEndpoints = nil
 	codexOAuthUsageHTTPClient = usageServer.Client()
 	t.Cleanup(func() {
 		codexOAuthUsageEndpoints = oldUsageEndpoints
+		codexOAuthResetCreditStatusEndpoints = oldResetStatusEndpoints
 		codexOAuthUsageHTTPClient = oldUsageHTTPClient
 	})
 

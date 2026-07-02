@@ -678,8 +678,10 @@ func main() {
 		apiGroup.GET("/responses/channels/metrics", handlers.GetResponsesChannelMetrics(responsesMetricsManager, cfgManager))
 		apiGroup.GET("/responses/channels/by-id/:channelID/oauth/status", handlers.GetResponsesChannelOAuthStatusByChannelID(cfgManager))
 		apiGroup.POST("/responses/channels/by-id/:channelID/oauth/quota/refresh", handlers.RefreshResponsesChannelOAuthQuotaByChannelID(cfgManager))
+		apiGroup.POST("/responses/channels/by-id/:channelID/oauth/quota/reset-credit", handlers.ResetResponsesChannelOAuthQuotaByChannelID(cfgManager))
 		apiGroup.GET("/responses/channels/:id/oauth/status", handlers.GetResponsesChannelOAuthStatus(cfgManager))
 		apiGroup.POST("/responses/channels/:id/oauth/quota/refresh", handlers.RefreshResponsesChannelOAuthQuota(cfgManager))
+		apiGroup.POST("/responses/channels/:id/oauth/quota/reset-credit", handlers.ResetResponsesChannelOAuthQuota(cfgManager))
 		apiGroup.GET("/responses/channels/:id/models", handlers.FetchResponsesUpstreamModels(cfgManager))
 
 		// Gemini 渠道管理

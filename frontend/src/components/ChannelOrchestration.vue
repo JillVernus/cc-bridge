@@ -366,6 +366,33 @@
                               </div>
                             </div>
                           </template>
+                          <template v-if="getOAuthResetCredits(element)">
+                            <v-divider class="my-1" />
+                            <div class="quota-tooltip-row">
+                              <span>{{ t('oauth.resetCredits') }}:</span>
+                              <span>{{ formatOAuthResetCreditCount(element) }}</span>
+                            </div>
+                            <template v-if="getOAuthResetCreditItems(element).length > 0">
+                              <div
+                                v-for="(credit, creditIndex) in getOAuthResetCreditItems(element)"
+                                :key="credit.id || `${creditIndex}-${credit.expires_at || credit.granted_at || ''}`"
+                                class="quota-tooltip-row"
+                              >
+                                <span>#{{ creditIndex + 1 }} {{ t('oauth.expiresAt') }}:</span>
+                                <span>{{ formatDateTime(credit.expires_at) }}</span>
+                              </div>
+                            </template>
+                            <template v-else>
+                              <div v-if="getOAuthResetCreditCreatedAt(element)" class="quota-tooltip-row">
+                                <span>{{ t('oauth.createdAt') }}:</span>
+                                <span>{{ formatDateTime(getOAuthResetCreditCreatedAt(element)) }}</span>
+                              </div>
+                              <div v-if="getOAuthResetCreditExpiresAt(element)" class="quota-tooltip-row">
+                                <span>{{ t('oauth.expiresAt') }}:</span>
+                                <span>{{ formatDateTime(getOAuthResetCreditExpiresAt(element)) }}</span>
+                              </div>
+                            </template>
+                          </template>
                           <div class="text-caption text-medium-emphasis mt-1">
                             {{ t('orchestration.clickForDetails') }}
                           </div>
@@ -392,6 +419,24 @@
                         </v-btn>
                       </template>
                       <span>{{ t('oauth.refreshQuota') }}</span>
+                    </v-tooltip>
+                    <v-tooltip location="top" :open-delay="200">
+                      <template #activator="{ props: resetTooltipProps }">
+                        <v-btn
+                          v-bind="resetTooltipProps"
+                          icon
+                          size="x-small"
+                          variant="text"
+                          color="warning"
+                          class="oauth-quota-refresh-btn"
+                          :loading="isOAuthQuotaResetting(element)"
+                          :disabled="!canResetOAuthQuotaCredit(element) || isOAuthQuotaResetting(element)"
+                          @click.stop="openResetCreditConfirm(element)"
+                        >
+                          <v-icon size="14">mdi-backup-restore</v-icon>
+                        </v-btn>
+                      </template>
+                      <span>{{ t('oauth.resetNow') }}</span>
                     </v-tooltip>
                   </div>
                 </template>
@@ -719,6 +764,38 @@
       :channel-id="oauthStatusChannelId"
       :channel-index="oauthStatusChannelIndex"
     />
+
+    <v-dialog v-model="showResetCreditConfirmDialog" max-width="420">
+      <v-card class="modal-card">
+        <v-card-title class="d-flex align-center modal-header pa-4">
+          {{ t('oauth.confirmResetCredit') }}
+          <v-spacer />
+          <v-btn icon variant="text" size="small" class="modal-action-btn" @click="closeResetCreditConfirm">
+            <v-icon>mdi-close</v-icon>
+          </v-btn>
+          <v-btn
+            icon
+            variant="flat"
+            size="small"
+            color="warning"
+            class="modal-action-btn"
+            :loading="pendingResetCreditChannel ? isOAuthQuotaResetting(pendingResetCreditChannel) : false"
+            :disabled="!pendingResetCreditChannel || !canResetOAuthQuotaCredit(pendingResetCreditChannel)"
+            @click="confirmResetOAuthQuotaCredit"
+          >
+            <v-icon>mdi-check</v-icon>
+          </v-btn>
+        </v-card-title>
+        <v-card-text class="modal-content">
+          <v-alert type="warning" variant="tonal" density="compact" class="mb-3">
+            {{ t('oauth.resetCreditConfirmWarning') }}
+          </v-alert>
+          <p class="mb-0">
+            {{ t('oauth.resetCreditConfirmDesc', { count: pendingResetCreditCount }) }}
+          </p>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
   </v-card>
 </template>
 
@@ -782,6 +859,9 @@ const oauthStatusChannelIndex = ref<number | null>(null)
 // Quota data for OAuth channels (keyed by stable channel id when available)
 const channelQuotas = ref<Record<string, QuotaInfo>>({})
 const refreshingOAuthQuotaKeys = ref<Record<string, boolean>>({})
+const resettingOAuthQuotaKeys = ref<Record<string, boolean>>({})
+const showResetCreditConfirmDialog = ref(false)
+const pendingResetCreditChannel = ref<Channel | null>(null)
 const oauthQuotaClock = ref(Date.now())
 let oauthQuotaResetTimer: ReturnType<typeof setTimeout> | null = null
 let oauthQuotaRequestSequence = 0
@@ -828,6 +908,13 @@ const formatPercent = (percent: number): string => {
   return `${clamped.toFixed(2)}%`
 }
 
+const formatDateTime = (value?: string): string => {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
+}
+
 const getEffectiveUsedPercent = (usedPercent: number, resetAt?: string): number => {
   const resetTimestamp = parseResetTimestamp(resetAt)
   if (resetTimestamp !== null && oauthQuotaClock.value >= resetTimestamp) {
@@ -852,6 +939,29 @@ const getOAuthWindowRemainingPercent = (channel: Channel, window: 'primary' | 's
 
 const getDetailedOAuthLimits = (channel: Channel): CodexQuotaLimitInfo[] => {
   return getChannelQuota(channel)?.codex_quota?.detailed_limits ?? []
+}
+
+const getOAuthResetCredits = (channel: Channel) => {
+  return getChannelQuota(channel)?.codex_quota?.rate_limit_reset_credits
+}
+
+const getOAuthResetCreditItems = (channel: Channel) => {
+  return getOAuthResetCredits(channel)?.credits ?? []
+}
+
+const getOAuthResetCreditCreatedAt = (channel: Channel): string | undefined => {
+  const credits = getOAuthResetCredits(channel)
+  return (
+    credits?.granted_at ||
+    credits?.created_at ||
+    credits?.credits?.find(credit => credit.granted_at || credit.created_at)?.granted_at ||
+    credits?.credits?.find(credit => credit.granted_at || credit.created_at)?.created_at
+  )
+}
+
+const getOAuthResetCreditExpiresAt = (channel: Channel): string | undefined => {
+  const credits = getOAuthResetCredits(channel)
+  return credits?.expires_at || credits?.credits?.find(credit => credit.expires_at)?.expires_at
 }
 
 const getOAuthLimitDisplayName = (limit: CodexQuotaLimitInfo): string => {
@@ -929,6 +1039,10 @@ const isOAuthQuotaRefreshing = (channel: Channel): boolean => {
   return refreshingOAuthQuotaKeys.value[getQuotaKey(channel)] === true
 }
 
+const isOAuthQuotaResetting = (channel: Channel): boolean => {
+  return resettingOAuthQuotaKeys.value[getQuotaKey(channel)] === true
+}
+
 const setOAuthQuotaRefreshing = (channel: Channel, refreshing: boolean) => {
   const key = getQuotaKey(channel)
   if (refreshing) {
@@ -938,6 +1052,56 @@ const setOAuthQuotaRefreshing = (channel: Channel, refreshing: boolean) => {
   const next = { ...refreshingOAuthQuotaKeys.value }
   delete next[key]
   refreshingOAuthQuotaKeys.value = next
+}
+
+const setOAuthQuotaResetting = (channel: Channel, resetting: boolean) => {
+  const key = getQuotaKey(channel)
+  if (resetting) {
+    resettingOAuthQuotaKeys.value = { ...resettingOAuthQuotaKeys.value, [key]: true }
+    return
+  }
+  const next = { ...resettingOAuthQuotaKeys.value }
+  delete next[key]
+  resettingOAuthQuotaKeys.value = next
+}
+
+const getOAuthResetCreditCount = (channel: Channel): number => {
+  return getChannelQuota(channel)?.codex_quota?.rate_limit_reset_credits?.available_count ?? 0
+}
+
+const formatOAuthResetCreditCount = (channel: Channel): string => {
+  const credits = getOAuthResetCredits(channel)
+  if (!credits) return '0'
+  const total = credits.total_earned_count ?? credits.credits?.length ?? 0
+  if (total > 0) {
+    return `${credits.available_count} / ${total}`
+  }
+  return String(credits.available_count)
+}
+
+const canResetOAuthQuotaCredit = (channel: Channel): boolean => {
+  return getOAuthResetCreditCount(channel) > 0
+}
+
+const pendingResetCreditCount = computed(() => {
+  if (!pendingResetCreditChannel.value) return 0
+  return getOAuthResetCreditCount(pendingResetCreditChannel.value)
+})
+
+const openResetCreditConfirm = (channel: Channel) => {
+  if (!canResetOAuthQuotaCredit(channel) || isOAuthQuotaResetting(channel)) return
+  pendingResetCreditChannel.value = channel
+  showResetCreditConfirmDialog.value = true
+}
+
+const closeResetCreditConfirm = () => {
+  showResetCreditConfirmDialog.value = false
+  pendingResetCreditChannel.value = null
+}
+
+const confirmResetOAuthQuotaCredit = () => {
+  if (!pendingResetCreditChannel.value) return
+  resetOAuthQuotaCredit(pendingResetCreditChannel.value)
 }
 
 const refreshOAuthQuota = async (channel: Channel) => {
@@ -964,6 +1128,34 @@ const refreshOAuthQuota = async (channel: Channel) => {
     emit('error', t('oauth.quotaRefreshFailed', { error: errorMessage }))
   } finally {
     setOAuthQuotaRefreshing(channel, false)
+  }
+}
+
+const resetOAuthQuotaCredit = async (channel: Channel) => {
+  if (!canResetOAuthQuotaCredit(channel) || isOAuthQuotaResetting(channel)) return
+
+  setOAuthQuotaResetting(channel, true)
+  try {
+    const status = channel.id
+      ? await api.resetResponsesChannelOAuthQuotaCreditByStableId(channel.id)
+      : await api.resetResponsesChannelOAuthQuotaCredit(channel.index)
+
+    if (status.quota) {
+      channelQuotas.value = {
+        ...channelQuotas.value,
+        [getQuotaKey(channel)]: status.quota
+      }
+      oauthQuotaClock.value = Date.now()
+      scheduleOAuthQuotaAutoReset()
+    }
+    emit('success', t('oauth.resetCreditSuccess'))
+    closeResetCreditConfirm()
+  } catch (error) {
+    console.error('Failed to reset OAuth quota:', error)
+    const errorMessage = error instanceof Error ? error.message : t('common.unknown')
+    emit('error', t('oauth.resetCreditFailedWithError', { error: errorMessage }))
+  } finally {
+    setOAuthQuotaResetting(channel, false)
   }
 }
 
@@ -1534,7 +1726,7 @@ defineExpose({
 
 /* Responses tab has an extra quota column */
 .channel-row.has-quota-column {
-  grid-template-columns: 36px 36px 110px 1fr 230px 132px 90px 140px;
+  grid-template-columns: 36px 36px 110px 1fr 230px 160px 90px 140px;
 }
 
 .channel-row:hover {
@@ -1690,7 +1882,7 @@ defineExpose({
 .channel-quota {
   display: flex;
   align-items: center;
-  min-width: 128px;
+  min-width: 0;
 }
 
 .quota-bar-container {
@@ -1712,7 +1904,7 @@ defineExpose({
   display: flex;
   align-items: center;
   gap: 4px;
-  width: 128px;
+  width: 156px;
 }
 
 .oauth-quota-dual-bar {
@@ -1983,7 +2175,7 @@ defineExpose({
   }
 
   .channel-row.has-quota-column {
-    grid-template-columns: 36px 36px 110px minmax(160px, 1fr) 128px 132px 90px 140px;
+    grid-template-columns: 36px 36px 110px minmax(160px, 1fr) 128px 160px 90px 140px;
   }
 
   .recent-calls-display {

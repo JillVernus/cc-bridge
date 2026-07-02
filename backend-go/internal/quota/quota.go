@@ -72,8 +72,29 @@ type CodexQuotaInfo struct {
 
 	DetailedLimits []CodexQuotaLimitInfo `json:"detailed_limits,omitempty"`
 
+	RateLimitResetCredits *CodexRateLimitResetCreditsInfo `json:"rate_limit_reset_credits,omitempty"`
+
 	// Last updated timestamp
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// CodexRateLimitResetCreditsInfo contains earned user-driven reset credits from
+// the ChatGPT Codex usage endpoint.
+type CodexRateLimitResetCreditsInfo struct {
+	AvailableCount   int                         `json:"available_count"`
+	TotalEarnedCount int                         `json:"total_earned_count,omitempty"`
+	CreatedAt        *time.Time                  `json:"created_at,omitempty"`
+	ExpiresAt        *time.Time                  `json:"expires_at,omitempty"`
+	Credits          []CodexRateLimitResetCredit `json:"credits,omitempty"`
+}
+
+// CodexRateLimitResetCredit contains metadata for one earned reset credit when
+// the upstream usage endpoint exposes per-credit records.
+type CodexRateLimitResetCredit struct {
+	ID        string     `json:"id,omitempty"`
+	Title     string     `json:"title,omitempty"`
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
 // CodexQuotaLimitInfo contains one named Codex metered limit family, such as
@@ -441,6 +462,9 @@ func mergeCodexQuotaRefresh(status *QuotaStatus, refreshed *CodexQuotaInfo) {
 	}
 	if len(refreshed.DetailedLimits) == 0 && len(existing.DetailedLimits) > 0 {
 		refreshed.DetailedLimits = existing.DetailedLimits
+	}
+	if refreshed.RateLimitResetCredits == nil && existing.RateLimitResetCredits != nil {
+		refreshed.RateLimitResetCredits = existing.RateLimitResetCredits
 	}
 }
 
@@ -969,8 +993,83 @@ func ParseCodexUsagePayload(payload []byte) (*CodexQuotaInfo, error) {
 	applyCodexUsageWindow(secondary, &info.SecondaryUsedPercent, &info.SecondaryUsedPercentExact, &info.SecondaryWindowMinutes, &info.SecondaryResetAt)
 	applyCodexUsageCredits(firstCodexUsageValue(root, "credits"), info)
 	info.DetailedLimits = parseCodexUsageAdditionalLimits(firstCodexUsageValue(root, "additional_rate_limits", "additionalRateLimits"))
+	info.RateLimitResetCredits = parseCodexRateLimitResetCredits(firstCodexUsageValue(root, "rate_limit_reset_credits", "rateLimitResetCredits"))
 
 	return info, nil
+}
+
+func ParseCodexRateLimitResetCreditsPayload(payload []byte) (*CodexRateLimitResetCreditsInfo, error) {
+	var root map[string]any
+	if err := json.Unmarshal(payload, &root); err != nil {
+		return nil, fmt.Errorf("parse codex reset credits payload: %w", err)
+	}
+	return parseCodexRateLimitResetCredits(root), nil
+}
+
+func parseCodexRateLimitResetCredits(value any) *CodexRateLimitResetCreditsInfo {
+	values, _ := value.(map[string]any)
+	if values == nil {
+		return nil
+	}
+
+	info := &CodexRateLimitResetCreditsInfo{}
+	hasData := false
+	hasAvailableCount := false
+	if count, ok := numericCodexUsageValue(firstCodexUsageValue(values, "available_count", "availableCount")); ok {
+		info.AvailableCount = int(math.Round(count))
+		hasData = true
+		hasAvailableCount = true
+	}
+	if count, ok := numericCodexUsageValue(firstCodexUsageValue(values, "total_earned_count", "totalEarnedCount")); ok {
+		info.TotalEarnedCount = int(math.Round(count))
+		hasData = true
+	}
+	if createdAt := timeFromCodexUsageValue(firstCodexUsageValue(values, "created_at", "createdAt", "granted_at", "grantedAt")); createdAt != nil {
+		info.CreatedAt = createdAt
+		hasData = true
+	}
+	if expiresAt := timeFromCodexUsageValue(firstCodexUsageValue(values, "expires_at", "expiresAt", "expiry", "expires")); expiresAt != nil {
+		info.ExpiresAt = expiresAt
+		hasData = true
+	}
+
+	for _, key := range []string{"credits", "items", "available_credits", "availableCredits"} {
+		entries, _ := values[key].([]any)
+		if len(entries) == 0 {
+			continue
+		}
+		for _, entry := range entries {
+			creditValues, _ := entry.(map[string]any)
+			if creditValues == nil {
+				continue
+			}
+			credit := CodexRateLimitResetCredit{
+				ID:        strings.TrimSpace(stringFromAny(firstCodexUsageValue(creditValues, "id", "credit_id", "creditId"))),
+				Title:     strings.TrimSpace(stringFromAny(firstCodexUsageValue(creditValues, "title", "name"))),
+				CreatedAt: timeFromCodexUsageValue(firstCodexUsageValue(creditValues, "created_at", "createdAt", "granted_at", "grantedAt")),
+				ExpiresAt: timeFromCodexUsageValue(firstCodexUsageValue(creditValues, "expires_at", "expiresAt", "expiry", "expires")),
+			}
+			if credit.ID == "" && credit.Title == "" && credit.CreatedAt == nil && credit.ExpiresAt == nil {
+				continue
+			}
+			info.Credits = append(info.Credits, credit)
+			hasData = true
+		}
+		break
+	}
+	if len(info.Credits) > 0 {
+		if info.TotalEarnedCount == 0 {
+			info.TotalEarnedCount = len(info.Credits)
+		}
+		if !hasAvailableCount {
+			info.AvailableCount = len(info.Credits)
+		}
+	}
+
+	if !hasData {
+		return nil
+	}
+	return info
 }
 
 // parseCodexUsageAdditionalLimits converts the `additional_rate_limits` array
@@ -1185,6 +1284,27 @@ func stringFromAny(value any) string {
 		return v
 	}
 	return ""
+}
+
+func timeFromCodexUsageValue(value any) *time.Time {
+	if value == nil {
+		return nil
+	}
+	if seconds, ok := numericCodexUsageValue(value); ok && seconds > 0 {
+		t := time.Unix(int64(seconds), 0).UTC()
+		return &t
+	}
+	raw := strings.TrimSpace(stringFromAny(value))
+	if raw == "" {
+		return nil
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
+		if parsed, err := time.Parse(layout, raw); err == nil {
+			t := parsed.UTC()
+			return &t
+		}
+	}
+	return nil
 }
 
 func clampCodexUsagePercent(value float64) float64 {

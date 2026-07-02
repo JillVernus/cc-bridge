@@ -123,6 +123,23 @@ export interface CodexQuotaLimitInfo {
   primary_over_secondary_limit_percent?: number
 }
 
+export interface CodexRateLimitResetCredit {
+  id?: string
+  title?: string
+  granted_at?: string
+  created_at?: string
+  expires_at?: string
+}
+
+export interface CodexRateLimitResetCreditsInfo {
+  available_count: number
+  total_earned_count?: number
+  granted_at?: string
+  created_at?: string
+  expires_at?: string
+  credits?: CodexRateLimitResetCredit[]
+}
+
 // Codex-specific quota information from response headers
 export interface CodexQuotaInfo {
   plan_type?: string
@@ -142,6 +159,7 @@ export interface CodexQuotaInfo {
   credits_unlimited?: boolean
   credits_balance?: string
   detailed_limits?: CodexQuotaLimitInfo[]
+  rate_limit_reset_credits?: CodexRateLimitResetCreditsInfo
   updated_at?: string
 }
 
@@ -176,6 +194,14 @@ export interface OAuthStatusResponse {
   tokenStatus?: 'valid' | 'expiring_soon' | 'expired'
   tokenExpiresIn?: number
   quota?: QuotaInfo
+}
+
+export interface OAuthResetCreditResponse extends OAuthStatusResponse {
+  reset?: {
+    outcome: 'reset' | 'already_redeemed' | 'nothing_to_reset' | 'no_credit' | string
+    windows_reset?: number
+    idempotency_key?: string
+  }
 }
 
 // Composite channel model mapping
@@ -827,6 +853,18 @@ class ApiService {
 
   async refreshResponsesChannelOAuthQuotaByStableId(channelId: string): Promise<OAuthStatusResponse> {
     return this.request(`/responses/channels/by-id/${encodeURIComponent(channelId)}/oauth/quota/refresh`, {
+      method: 'POST'
+    })
+  }
+
+  async resetResponsesChannelOAuthQuotaCredit(channelId: number): Promise<OAuthResetCreditResponse> {
+    return this.request(`/responses/channels/${channelId}/oauth/quota/reset-credit`, {
+      method: 'POST'
+    })
+  }
+
+  async resetResponsesChannelOAuthQuotaCreditByStableId(channelId: string): Promise<OAuthResetCreditResponse> {
+    return this.request(`/responses/channels/by-id/${encodeURIComponent(channelId)}/oauth/quota/reset-credit`, {
       method: 'POST'
     })
   }

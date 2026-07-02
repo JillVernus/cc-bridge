@@ -1716,30 +1716,32 @@ func GetResponsesChannelOAuthStatusByChannelID(cfgManager *config.ConfigManager)
 }
 
 func writeResponsesChannelOAuthStatus(c *gin.Context, channelIndex int, upstream *config.UpstreamConfig) {
+	response, statusCode := buildResponsesChannelOAuthStatusPayload(channelIndex, upstream)
+	c.JSON(statusCode, response)
+}
+
+func buildResponsesChannelOAuthStatusPayload(channelIndex int, upstream *config.UpstreamConfig) (gin.H, int) {
 	if upstream == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Channel not found"})
-		return
+		return gin.H{"error": "Channel not found"}, http.StatusNotFound
 	}
 
 	// Only openai-oauth channels have OAuth tokens
 	if upstream.ServiceType != "openai-oauth" {
-		c.JSON(http.StatusBadRequest, gin.H{
+		return gin.H{
 			"error":       "Channel is not an OAuth channel",
 			"serviceType": upstream.ServiceType,
-		})
-		return
+		}, http.StatusBadRequest
 	}
 
 	// Check if OAuth tokens are configured
 	if upstream.OAuthTokens == nil {
-		c.JSON(http.StatusOK, gin.H{
+		return gin.H{
 			"channelId":   channelIndex,
 			"channelName": upstream.Name,
 			"serviceType": upstream.ServiceType,
 			"configured":  false,
 			"message":     "OAuth tokens not configured",
-		})
-		return
+		}, http.StatusOK
 	}
 
 	// Parse OAuth status from tokens
@@ -1749,10 +1751,9 @@ func writeResponsesChannelOAuthStatus(c *gin.Context, channelIndex int, upstream
 		upstream.OAuthTokens.LastRefresh,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
+		return gin.H{
 			"error": "Failed to parse OAuth status",
-		})
-		return
+		}, http.StatusInternalServerError
 	}
 
 	// Build response with channel info and OAuth status
@@ -1850,6 +1851,43 @@ func writeResponsesChannelOAuthStatus(c *gin.Context, channelIndex int, upstream
 				}
 				codexQuotaInfo["detailed_limits"] = detailedLimits
 			}
+			if cq.RateLimitResetCredits != nil {
+				resetCredits := gin.H{
+					"available_count": cq.RateLimitResetCredits.AvailableCount,
+				}
+				if cq.RateLimitResetCredits.TotalEarnedCount > 0 {
+					resetCredits["total_earned_count"] = cq.RateLimitResetCredits.TotalEarnedCount
+				}
+				if cq.RateLimitResetCredits.CreatedAt != nil {
+					resetCredits["created_at"] = cq.RateLimitResetCredits.CreatedAt.Format(time.RFC3339)
+					resetCredits["granted_at"] = cq.RateLimitResetCredits.CreatedAt.Format(time.RFC3339)
+				}
+				if cq.RateLimitResetCredits.ExpiresAt != nil {
+					resetCredits["expires_at"] = cq.RateLimitResetCredits.ExpiresAt.Format(time.RFC3339)
+				}
+				if len(cq.RateLimitResetCredits.Credits) > 0 {
+					credits := make([]gin.H, 0, len(cq.RateLimitResetCredits.Credits))
+					for _, credit := range cq.RateLimitResetCredits.Credits {
+						creditInfo := gin.H{}
+						if credit.ID != "" {
+							creditInfo["id"] = credit.ID
+						}
+						if credit.Title != "" {
+							creditInfo["title"] = credit.Title
+						}
+						if credit.CreatedAt != nil {
+							creditInfo["created_at"] = credit.CreatedAt.Format(time.RFC3339)
+							creditInfo["granted_at"] = credit.CreatedAt.Format(time.RFC3339)
+						}
+						if credit.ExpiresAt != nil {
+							creditInfo["expires_at"] = credit.ExpiresAt.Format(time.RFC3339)
+						}
+						credits = append(credits, creditInfo)
+					}
+					resetCredits["credits"] = credits
+				}
+				codexQuotaInfo["rate_limit_reset_credits"] = resetCredits
+			}
 			quotaInfo["codex_quota"] = codexQuotaInfo
 		}
 
@@ -1890,7 +1928,7 @@ func writeResponsesChannelOAuthStatus(c *gin.Context, channelIndex int, upstream
 		}
 	}
 
-	c.JSON(http.StatusOK, response)
+	return response, http.StatusOK
 }
 
 // GetDebugLogConfig 获取调试日志配置

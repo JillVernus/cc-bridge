@@ -192,6 +192,52 @@
               </div>
             </div>
 
+            <!-- User-driven reset credits -->
+            <v-alert v-if="resetCredits" type="info" variant="tonal" class="mb-3" density="compact">
+              <div class="d-flex align-center justify-space-between reset-credit-row">
+                <div>
+                  <div class="text-caption font-weight-medium">{{ t('oauth.resetCredits') }}</div>
+                  <div class="text-caption">
+                    {{ resetCreditsRemainingText }}
+                  </div>
+                  <div v-if="resetCreditItems.length === 0 && resetCreditCreatedAt" class="text-caption text-medium-emphasis">
+                    {{ t('oauth.resetCreditCreatedAt', { time: formatDate(resetCreditCreatedAt) }) }}
+                  </div>
+                  <div v-if="resetCreditItems.length === 0 && resetCreditExpiresAt" class="text-caption text-medium-emphasis">
+                    {{ t('oauth.resetCreditExpiresAt', { time: formatDate(resetCreditExpiresAt) }) }}
+                  </div>
+                  <div v-if="resetCreditItems.length > 0" class="reset-credit-list mt-2">
+                    <div
+                      v-for="(credit, creditIndex) in resetCreditItems"
+                      :key="credit.id || `${creditIndex}-${credit.expires_at || credit.granted_at || ''}`"
+                      class="reset-credit-item"
+                    >
+                      <div class="text-caption font-weight-medium">
+                        {{ credit.title || t('oauth.resetCreditItem', { index: creditIndex + 1 }) }}
+                      </div>
+                      <div v-if="credit.expires_at" class="text-caption text-medium-emphasis">
+                        {{ t('oauth.resetCreditExpiresAt', { time: formatDate(credit.expires_at) }) }}
+                      </div>
+                      <div v-if="credit.granted_at || credit.created_at" class="text-caption text-medium-emphasis">
+                        {{ t('oauth.resetCreditCreatedAt', { time: formatDate(credit.granted_at || credit.created_at) }) }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <v-btn
+                  size="small"
+                  color="primary"
+                  variant="flat"
+                  prepend-icon="mdi-backup-restore"
+                  :loading="resettingResetCredit"
+                  :disabled="!canConsumeResetCredit || resettingResetCredit"
+                  @click="openResetCreditConfirm"
+                >
+                  {{ t('oauth.resetNow') }}
+                </v-btn>
+              </div>
+            </v-alert>
+
             <!-- Credits info -->
             <div
               v-if="
@@ -366,6 +412,38 @@
         </div>
       </v-card-text>
     </v-card>
+
+    <v-dialog v-model="showResetCreditConfirmDialog" max-width="420">
+      <v-card class="modal-card">
+        <v-card-title class="d-flex align-center modal-header pa-4">
+          {{ t('oauth.confirmResetCredit') }}
+          <v-spacer />
+          <v-btn icon variant="text" size="small" class="modal-action-btn" @click="showResetCreditConfirmDialog = false">
+            <v-icon>mdi-close</v-icon>
+          </v-btn>
+          <v-btn
+            icon
+            variant="flat"
+            size="small"
+            color="warning"
+            class="modal-action-btn"
+            :loading="resettingResetCredit"
+            :disabled="!canConsumeResetCredit"
+            @click="consumeResetCredit"
+          >
+            <v-icon>mdi-check</v-icon>
+          </v-btn>
+        </v-card-title>
+        <v-card-text class="modal-content">
+          <v-alert type="warning" variant="tonal" density="compact" class="mb-3">
+            {{ t('oauth.resetCreditConfirmWarning') }}
+          </v-alert>
+          <p class="mb-0">
+            {{ t('oauth.resetCreditConfirmDesc', { count: resetCreditCount }) }}
+          </p>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
   </v-dialog>
 </template>
 
@@ -392,6 +470,8 @@ const dialogVisible = computed({
 })
 
 const loading = ref(false)
+const resettingResetCredit = ref(false)
+const showResetCreditConfirmDialog = ref(false)
 const error = ref<string | null>(null)
 const oauthStatus = ref<OAuthStatusResponse | null>(null)
 const quotaClock = ref(Date.now())
@@ -435,6 +515,41 @@ const getEffectiveUsedPercent = (usedPercent: number, resetAt?: string): number 
 const codexQuota = computed(() => oauthStatus.value?.quota?.codex_quota)
 
 const detailedQuotaLimits = computed(() => codexQuota.value?.detailed_limits ?? [])
+
+const resetCredits = computed(() => codexQuota.value?.rate_limit_reset_credits)
+
+const resetCreditItems = computed(() => resetCredits.value?.credits ?? [])
+
+const resetCreditCreatedAt = computed(() => {
+  const credits = resetCredits.value
+  return (
+    credits?.granted_at ||
+    credits?.created_at ||
+    credits?.credits?.find(credit => credit.granted_at || credit.created_at)?.granted_at ||
+    credits?.credits?.find(credit => credit.granted_at || credit.created_at)?.created_at
+  )
+})
+
+const resetCreditExpiresAt = computed(() => {
+  const credits = resetCredits.value
+  return credits?.expires_at || credits?.credits?.find(credit => credit.expires_at)?.expires_at
+})
+
+const canConsumeResetCredit = computed(() => (resetCredits.value?.available_count ?? 0) > 0)
+
+const resetCreditCount = computed(() => resetCredits.value?.available_count ?? 0)
+
+const resetCreditTotalCount = computed(() => resetCredits.value?.total_earned_count ?? resetCredits.value?.credits?.length ?? 0)
+
+const resetCreditsRemainingText = computed(() => {
+  if (resetCreditTotalCount.value > 0) {
+    return t('oauth.resetCreditsRemainingTotal', {
+      count: resetCreditCount.value,
+      total: resetCreditTotalCount.value
+    })
+  }
+  return t('oauth.resetCreditsRemaining', { count: resetCreditCount.value })
+})
 
 const primaryUsedPercent = computed(() => {
   const quota = codexQuota.value
@@ -629,6 +744,32 @@ const refresh = () => {
   loadStatus()
 }
 
+const openResetCreditConfirm = () => {
+  if (!canConsumeResetCredit.value || resettingResetCredit.value) return
+  showResetCreditConfirmDialog.value = true
+}
+
+const consumeResetCredit = async () => {
+  if ((props.channelId === null && props.channelIndex === null) || !canConsumeResetCredit.value) return
+
+  resettingResetCredit.value = true
+  error.value = null
+  try {
+    const status = props.channelId
+      ? await api.resetResponsesChannelOAuthQuotaCreditByStableId(props.channelId)
+      : await api.resetResponsesChannelOAuthQuotaCredit(props.channelIndex as number)
+
+    oauthStatus.value = status
+    quotaClock.value = Date.now()
+    scheduleQuotaAutoReset()
+    showResetCreditConfirmDialog.value = false
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : t('oauth.resetCreditFailed')
+  } finally {
+    resettingResetCredit.value = false
+  }
+}
+
 const close = () => {
   dialogVisible.value = false
 }
@@ -671,5 +812,20 @@ onUnmounted(() => {
 
 .text-mono {
   font-family: monospace;
+}
+
+.reset-credit-row {
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.reset-credit-list {
+  display: grid;
+  gap: 6px;
+}
+
+.reset-credit-item {
+  border-left: 2px solid rgba(var(--v-theme-info), 0.4);
+  padding-left: 8px;
 }
 </style>

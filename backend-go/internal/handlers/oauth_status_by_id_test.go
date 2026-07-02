@@ -187,11 +187,14 @@ func TestRefreshResponsesChannelOAuthQuotaByChannelID_QueriesUsageAndUpdatesStor
 	defer usageServer.Close()
 
 	oldEndpoints := codexOAuthUsageEndpoints
+	oldResetStatusEndpoints := codexOAuthResetCreditStatusEndpoints
 	oldHTTPClient := codexOAuthUsageHTTPClient
 	codexOAuthUsageEndpoints = []string{usageServer.URL + "/backend-api/codex/usage"}
+	codexOAuthResetCreditStatusEndpoints = nil
 	codexOAuthUsageHTTPClient = usageServer.Client()
 	t.Cleanup(func() {
 		codexOAuthUsageEndpoints = oldEndpoints
+		codexOAuthResetCreditStatusEndpoints = oldResetStatusEndpoints
 		codexOAuthUsageHTTPClient = oldHTTPClient
 	})
 
@@ -257,6 +260,168 @@ func TestRefreshResponsesChannelOAuthQuotaByChannelID_QueriesUsageAndUpdatesStor
 	}
 	if stored.CodexQuota.PlanType != "pro" || stored.CodexQuota.PrimaryUsedPercentValue() != 0.64 {
 		t.Fatalf("unexpected stored quota: %+v", stored.CodexQuota)
+	}
+}
+
+func TestResetResponsesChannelOAuthQuotaByChannelID_ConsumesResetCreditAndRefreshesQuota(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var observedResetPath string
+	var observedResetAuth string
+	var observedResetAccount string
+	var observedRedeemRequestID string
+	var observedDetailsPath string
+	usageServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/backend-api/wham/rate-limit-reset-credits/consume":
+			observedResetPath = r.URL.Path
+			observedResetAuth = r.Header.Get("Authorization")
+			observedResetAccount = r.Header.Get("Chatgpt-Account-Id")
+			var body map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode reset body: %v", err)
+			}
+			observedRedeemRequestID = body["redeem_request_id"]
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"code":"reset","windows_reset":2}`)
+		case "/backend-api/wham/usage":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{
+				"plan_type": "pro",
+				"rate_limit": {
+					"primary_window": {"used_percent": 0, "limit_window_seconds": 18000, "reset_at": 1893456000},
+					"secondary_window": {"used_percent": 40, "limit_window_seconds": 604800, "reset_at": 1894060800}
+				},
+				"rate_limit_reset_credits": {
+					"available_count": 1,
+					"created_at": "2026-07-01T12:00:00Z",
+					"expires_at": "2026-07-08T12:00:00Z"
+				}
+			}`)
+		case "/backend-api/wham/rate-limit-reset-credits":
+			observedDetailsPath = r.URL.Path
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{
+				"available_count": 1,
+				"total_earned_count": 2,
+				"credits": [
+					{
+						"id": "credit-a",
+						"title": "Full reset (Weekly + 5 hours)",
+						"granted_at": "2026-07-02T08:30:00Z",
+						"expires_at": "2026-07-09T08:30:00Z"
+					}
+				]
+			}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer usageServer.Close()
+
+	oldUsageEndpoints := codexOAuthUsageEndpoints
+	oldResetStatusEndpoints := codexOAuthResetCreditStatusEndpoints
+	oldResetEndpoints := codexOAuthResetCreditEndpoints
+	oldHTTPClient := codexOAuthUsageHTTPClient
+	codexOAuthUsageEndpoints = []string{usageServer.URL + "/backend-api/wham/usage"}
+	codexOAuthResetCreditStatusEndpoints = []string{usageServer.URL + "/backend-api/wham/rate-limit-reset-credits"}
+	codexOAuthResetCreditEndpoints = []string{usageServer.URL + "/backend-api/wham/rate-limit-reset-credits/consume"}
+	codexOAuthUsageHTTPClient = usageServer.Client()
+	t.Cleanup(func() {
+		codexOAuthUsageEndpoints = oldUsageEndpoints
+		codexOAuthResetCreditStatusEndpoints = oldResetStatusEndpoints
+		codexOAuthResetCreditEndpoints = oldResetEndpoints
+		codexOAuthUsageHTTPClient = oldHTTPClient
+	})
+
+	cfgManager := createTestConfigManager(t, config.Config{
+		ResponsesUpstream: []config.UpstreamConfig{
+			{
+				ID:          "oauth-reset-stable-a",
+				Name:        "OAuth Reset A",
+				ServiceType: "openai-oauth",
+				BaseURL:     "https://chatgpt.com/backend-api/codex/responses",
+				OAuthTokens: &config.OAuthTokens{
+					AccessToken:  makeFutureJWT(t),
+					RefreshToken: "refresh-token",
+					AccountID:    "acct-reset-123",
+				},
+			},
+		},
+		ResponsesLoadBalance: "failover",
+	})
+
+	router := gin.New()
+	router.POST("/api/responses/channels/by-id/:channelID/oauth/quota/reset-credit", ResetResponsesChannelOAuthQuotaByChannelID(cfgManager))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/responses/channels/by-id/oauth-reset-stable-a/oauth/quota/reset-credit", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if observedResetPath != "/backend-api/wham/rate-limit-reset-credits/consume" {
+		t.Fatalf("reset path = %q, want /backend-api/wham/rate-limit-reset-credits/consume", observedResetPath)
+	}
+	if observedResetAuth == "" || observedResetAuth == "Bearer " {
+		t.Fatalf("expected Authorization bearer token, got %q", observedResetAuth)
+	}
+	if observedResetAccount != "acct-reset-123" {
+		t.Fatalf("Chatgpt-Account-Id = %q, want acct-reset-123", observedResetAccount)
+	}
+	if observedRedeemRequestID == "" {
+		t.Fatalf("redeem_request_id should be generated")
+	}
+	if observedDetailsPath != "/backend-api/wham/rate-limit-reset-credits" {
+		t.Fatalf("details path = %q, want /backend-api/wham/rate-limit-reset-credits", observedDetailsPath)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	resetPayload, ok := payload["reset"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected reset payload, got %#v", payload["reset"])
+	}
+	if got := resetPayload["outcome"]; got != "reset" {
+		t.Fatalf("reset outcome = %#v, want reset", got)
+	}
+	quotaPayload, ok := payload["quota"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected quota payload, got %#v", payload["quota"])
+	}
+	codexQuota, ok := quotaPayload["codex_quota"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected codex_quota payload, got %#v", quotaPayload["codex_quota"])
+	}
+	resetCredits, ok := codexQuota["rate_limit_reset_credits"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected rate_limit_reset_credits payload, got %#v", codexQuota["rate_limit_reset_credits"])
+	}
+	if got := resetCredits["available_count"]; got != float64(1) {
+		t.Fatalf("available_count = %#v, want 1", got)
+	}
+	if got := resetCredits["total_earned_count"]; got != float64(2) {
+		t.Fatalf("total_earned_count = %#v, want 2", got)
+	}
+	credits, ok := resetCredits["credits"].([]any)
+	if !ok || len(credits) != 1 {
+		t.Fatalf("credits = %#v, want one credit", resetCredits["credits"])
+	}
+	credit, ok := credits[0].(map[string]any)
+	if !ok {
+		t.Fatalf("credit = %#v, want object", credits[0])
+	}
+	if got := credit["title"]; got != "Full reset (Weekly + 5 hours)" {
+		t.Fatalf("title = %#v, want title", got)
+	}
+	if got := credit["granted_at"]; got != "2026-07-02T08:30:00Z" {
+		t.Fatalf("granted_at = %#v, want timestamp", got)
+	}
+	if got := credit["expires_at"]; got != "2026-07-09T08:30:00Z" {
+		t.Fatalf("expires_at = %#v, want timestamp", got)
 	}
 }
 

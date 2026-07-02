@@ -616,6 +616,116 @@ func TestParseCodexUsagePayload_IdentifiesWindowsByDuration(t *testing.T) {
 	}
 }
 
+func TestParseCodexUsagePayload_ExtractsRateLimitResetCredits(t *testing.T) {
+	payload := []byte(`{
+		"plan_type": "plus",
+		"rate_limit": {
+			"primary_window": {"used_percent": 99, "limit_window_seconds": 18000}
+		},
+		"rate_limit_reset_credits": {
+			"available_count": 2,
+			"credits": [
+				{
+					"id": "credit-a",
+					"created_at": "2026-07-01T12:00:00Z",
+					"expires_at": "2026-07-08T12:00:00Z"
+				}
+			]
+		}
+	}`)
+
+	got, err := ParseCodexUsagePayload(payload)
+	if err != nil {
+		t.Fatalf("ParseCodexUsagePayload returned error: %v", err)
+	}
+	if got.RateLimitResetCredits == nil {
+		t.Fatalf("RateLimitResetCredits = nil, want summary")
+	}
+	if got.RateLimitResetCredits.AvailableCount != 2 {
+		t.Fatalf("AvailableCount = %d, want 2", got.RateLimitResetCredits.AvailableCount)
+	}
+	if len(got.RateLimitResetCredits.Credits) != 1 {
+		t.Fatalf("Credits length = %d, want 1", len(got.RateLimitResetCredits.Credits))
+	}
+	credit := got.RateLimitResetCredits.Credits[0]
+	if credit.ID != "credit-a" {
+		t.Fatalf("credit ID = %q, want credit-a", credit.ID)
+	}
+	if credit.CreatedAt == nil || credit.CreatedAt.Format(time.RFC3339) != "2026-07-01T12:00:00Z" {
+		t.Fatalf("CreatedAt = %v, want 2026-07-01T12:00:00Z", credit.CreatedAt)
+	}
+	if credit.ExpiresAt == nil || credit.ExpiresAt.Format(time.RFC3339) != "2026-07-08T12:00:00Z" {
+		t.Fatalf("ExpiresAt = %v, want 2026-07-08T12:00:00Z", credit.ExpiresAt)
+	}
+}
+
+func TestParseCodexRateLimitResetCreditsPayload_ExtractsDetailedCreditMetadata(t *testing.T) {
+	payload := []byte(`{
+		"available_count": 1,
+		"total_earned_count": 2,
+		"credits": [
+			{
+				"id": "credit-a",
+				"title": "Full reset (Weekly + 5 hours)",
+				"granted_at": "2026-07-01T12:00:00Z",
+				"expires_at": "2026-07-08T12:00:00Z"
+			}
+		]
+	}`)
+
+	got, err := ParseCodexRateLimitResetCreditsPayload(payload)
+	if err != nil {
+		t.Fatalf("ParseCodexRateLimitResetCreditsPayload returned error: %v", err)
+	}
+	if got == nil {
+		t.Fatalf("reset credits = nil, want summary")
+	}
+	if got.AvailableCount != 1 {
+		t.Fatalf("AvailableCount = %d, want 1", got.AvailableCount)
+	}
+	if got.TotalEarnedCount != 2 {
+		t.Fatalf("TotalEarnedCount = %d, want 2", got.TotalEarnedCount)
+	}
+	if len(got.Credits) != 1 {
+		t.Fatalf("Credits length = %d, want 1", len(got.Credits))
+	}
+	credit := got.Credits[0]
+	if credit.Title != "Full reset (Weekly + 5 hours)" {
+		t.Fatalf("Title = %q, want Full reset (Weekly + 5 hours)", credit.Title)
+	}
+	if credit.CreatedAt == nil || credit.CreatedAt.Format(time.RFC3339) != "2026-07-01T12:00:00Z" {
+		t.Fatalf("CreatedAt = %v, want granted timestamp", credit.CreatedAt)
+	}
+	if credit.ExpiresAt == nil || credit.ExpiresAt.Format(time.RFC3339) != "2026-07-08T12:00:00Z" {
+		t.Fatalf("ExpiresAt = %v, want expiry timestamp", credit.ExpiresAt)
+	}
+}
+
+func TestParseCodexRateLimitResetCreditsPayload_DerivesTotalFromCreditsWhenMissing(t *testing.T) {
+	payload := []byte(`{
+		"available_count": 1,
+		"credits": [
+			{"id": "credit-a", "granted_at": "2026-07-01T12:00:00Z", "expires_at": "2026-07-08T12:00:00Z"},
+			{"id": "credit-b", "granted_at": "2026-07-02T12:00:00Z", "expires_at": "2026-07-09T12:00:00Z"},
+			{"id": "credit-c", "granted_at": "2026-07-03T12:00:00Z", "expires_at": "2026-07-10T12:00:00Z"}
+		]
+	}`)
+
+	got, err := ParseCodexRateLimitResetCreditsPayload(payload)
+	if err != nil {
+		t.Fatalf("ParseCodexRateLimitResetCreditsPayload returned error: %v", err)
+	}
+	if got.AvailableCount != 1 {
+		t.Fatalf("AvailableCount = %d, want explicit available count 1", got.AvailableCount)
+	}
+	if got.TotalEarnedCount != 3 {
+		t.Fatalf("TotalEarnedCount = %d, want derived total 3", got.TotalEarnedCount)
+	}
+	if len(got.Credits) != 3 {
+		t.Fatalf("Credits length = %d, want 3", len(got.Credits))
+	}
+}
+
 func TestParseCodexUsagePayload_ExtractsAdditionalRateLimits(t *testing.T) {
 	payload := []byte(`{
 		"plan_type": "pro",
@@ -666,6 +776,58 @@ func TestParseCodexUsagePayload_ExtractsAdditionalRateLimits(t *testing.T) {
 	}
 	if limit.SecondaryUsedPercent != 11 || limit.SecondaryWindowMinutes != 10080 || limit.SecondaryResetAt.Unix() != 1779688895 || limit.SecondaryResetAfterSeconds != 493753 {
 		t.Fatalf("unexpected secondary detailed limit: %+v", limit)
+	}
+}
+
+func TestRequestLogAdapter_PersistsCodexResetCreditsAcrossReload(t *testing.T) {
+	requestLogManager, err := requestlog.NewManager(filepath.Join(t.TempDir(), "request_logs.db"))
+	if err != nil {
+		t.Fatalf("NewManager failed: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := requestLogManager.Close(); err != nil {
+			t.Fatalf("Close failed: %v", err)
+		}
+	})
+
+	createdAt := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	expiresAt := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
+	writer := &Manager{quotas: make(map[int]*QuotaStatus)}
+	writer.SetPersister(NewRequestLogAdapter(requestLogManager))
+	if err := writer.UpdateCodexQuotaForChannel(5, "oauth-stable-a", "oauth-a", &CodexQuotaInfo{
+		PlanType:           "pro",
+		PrimaryUsedPercent: 12,
+		RateLimitResetCredits: &CodexRateLimitResetCreditsInfo{
+			AvailableCount: 2,
+			CreatedAt:      &createdAt,
+			ExpiresAt:      &expiresAt,
+			Credits: []CodexRateLimitResetCredit{
+				{ID: "credit-a", CreatedAt: &createdAt, ExpiresAt: &expiresAt},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("UpdateCodexQuotaForChannel failed: %v", err)
+	}
+
+	reader := &Manager{quotas: make(map[int]*QuotaStatus)}
+	reader.SetPersister(NewRequestLogAdapter(requestLogManager))
+
+	got := reader.GetStatusForChannel(5, "oauth-stable-a", "oauth-a")
+	if got == nil || got.CodexQuota == nil || got.CodexQuota.RateLimitResetCredits == nil {
+		t.Fatalf("expected persisted reset credits after reload, got %+v", got)
+	}
+	resetCredits := got.CodexQuota.RateLimitResetCredits
+	if resetCredits.AvailableCount != 2 {
+		t.Fatalf("AvailableCount = %d, want 2", resetCredits.AvailableCount)
+	}
+	if resetCredits.CreatedAt == nil || !resetCredits.CreatedAt.Equal(createdAt) {
+		t.Fatalf("CreatedAt = %v, want %v", resetCredits.CreatedAt, createdAt)
+	}
+	if resetCredits.ExpiresAt == nil || !resetCredits.ExpiresAt.Equal(expiresAt) {
+		t.Fatalf("ExpiresAt = %v, want %v", resetCredits.ExpiresAt, expiresAt)
+	}
+	if len(resetCredits.Credits) != 1 || resetCredits.Credits[0].ID != "credit-a" {
+		t.Fatalf("Credits = %+v, want credit-a", resetCredits.Credits)
 	}
 }
 
