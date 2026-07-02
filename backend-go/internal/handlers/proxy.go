@@ -1535,7 +1535,7 @@ func tryMessagesChannelWithOAuth(
 	// Keep stream intent aligned with the original Claude request.
 	responsesReq.Stream = claudeReq.Stream
 
-	providerReq, _, err := buildCodexOAuthRequest(c, cfgManager, upstream, responsesBody, responsesReq, accessToken, accountID, false)
+	providerReq, _, err := buildCodexOAuthRequest(c, cfgManager, upstream, responsesBody, responsesReq, accessToken, accountID, false, false)
 	if err != nil {
 		return false, makeError(500, fmt.Sprintf("Failed to build OAuth request: %s", err.Error()))
 	}

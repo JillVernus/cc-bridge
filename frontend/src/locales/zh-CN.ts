@@ -268,6 +268,8 @@ export default {
       '为原生 Responses 渠道添加加密推理内容。除非上游拒绝该字段，否则建议保持自动。',
     responsesWebSocket: 'Responses WebSocket',
     responsesWebSocketHint: '仅对上游支持 WebSocket 的 Codex/Responses 兼容渠道启用。',
+    continueThinking: '继续思考',
+    continueThinkingHint: '折叠多次上游轮次以绕过 Codex 推理 token 截断。每轮续接会产生额外费用。',
     description: '描述 (可选)',
     descriptionHint: '可选的渠道描述...',
     modelRedirect: '模型重定向 (可选)',

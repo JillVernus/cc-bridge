@@ -341,6 +341,27 @@
                   </div>
                 </v-col>
 
+                <v-col cols="12" md="6" v-if="showContinueThinkingToggle">
+                  <div class="channel-toggle-row">
+                    <div class="channel-toggle-copy">
+                      <v-icon color="primary">mdi-thought-bubble</v-icon>
+                      <div class="channel-toggle-text">
+                        <div class="text-body-1 font-weight-medium">{{ t('addChannel.continueThinking') }}</div>
+                        <div class="text-caption text-medium-emphasis">
+                          {{ t('addChannel.continueThinkingHint') }}
+                        </div>
+                      </div>
+                    </div>
+                    <v-switch
+                      class="channel-toggle-switch"
+                      inset
+                      color="primary"
+                      hide-details
+                      v-model="form.continueThinkingEnabled"
+                    />
+                  </div>
+                </v-col>
+
                 <!-- API密钥负载均衡策略（非 Composite 类型） -->
                 <v-col cols="12" md="6" v-if="!isCompositeChannel">
                   <v-select
@@ -1817,6 +1838,7 @@ const form = reactive({
   codexServiceTierOverride: 'off' as 'off' | 'force_priority' | 'force_default',
   responsesEncryptedReasoningMode: 'auto' as 'auto' | 'always' | 'off',
   responsesWebSocketEnabled: false,
+  continueThinkingEnabled: false,
   // Composite channel mappings
   compositeMappings: [] as CompositeMapping[],
   // Quota settings
@@ -1994,6 +2016,11 @@ const showResponsesEncryptedReasoningMode = computed(() => {
 
 const showResponsesWebSocketToggle = computed(() => {
   return props.channelType === 'responses' && !!form.serviceType && !isCompositeChannel.value
+})
+
+// Continue-thinking fold: eligible on native Responses-pool channels (responses + openai-oauth)
+const showContinueThinkingToggle = computed(() => {
+  return props.channelType === 'responses' && (form.serviceType === 'responses' || form.serviceType === 'openai-oauth')
 })
 
 // Key for CompositeChannelEditor to force re-creation on channel change
@@ -2488,6 +2515,7 @@ const resetForm = () => {
   form.codexServiceTierOverride = 'off'
   form.responsesEncryptedReasoningMode = 'auto'
   form.responsesWebSocketEnabled = false
+  form.continueThinkingEnabled = false
   form.compositeMappings = []
   // Reset quota settings
   form.quotaType = ''
@@ -2592,6 +2620,7 @@ const loadChannelData = (channel: Channel) => {
   form.codexServiceTierOverride = channel.codexServiceTierOverride || 'off'
   form.responsesEncryptedReasoningMode = channel.responsesEncryptedReasoningMode || 'auto'
   form.responsesWebSocketEnabled = !!channel.responsesWebSocketEnabled
+  form.continueThinkingEnabled = !!channel.continueThinkingEnabled
 
   // Load composite mappings
   form.compositeMappings = normalizeCompositeMappings(channel.compositeMappings || [])
@@ -3002,6 +3031,7 @@ const handleSubmit = async () => {
       ? form.responsesEncryptedReasoningMode
       : undefined,
     responsesWebSocketEnabled: showResponsesWebSocketToggle.value ? form.responsesWebSocketEnabled : undefined,
+    continueThinkingEnabled: showContinueThinkingToggle.value ? form.continueThinkingEnabled : undefined,
     // Quota settings - always send quotaType (empty string clears quota)
     // Note: Use validNumber helper to convert NaN to undefined (v-model.number returns NaN for empty inputs)
     quotaType: form.quotaType,

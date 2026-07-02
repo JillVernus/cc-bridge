@@ -239,6 +239,8 @@ export interface Channel {
   responsesEncryptedReasoningMode?: 'auto' | 'always' | 'off'
   // Responses WebSocket transport support for compatible Responses-pool channels
   responsesWebSocketEnabled?: boolean
+  // Continue-thinking fold for Codex reasoning-truncation on native Responses-pool channels
+  continueThinkingEnabled?: boolean
   // 配额设置
   quotaType?: 'requests' | 'credit' | '' // 配额类型：请求数 | 额度 | 无
   quotaLimit?: number // 最大配额值

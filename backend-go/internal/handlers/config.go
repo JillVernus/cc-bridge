@@ -1171,6 +1171,7 @@ func GetResponsesUpstreams(cfgManager *config.ConfigManager) gin.HandlerFunc {
 				"codexServiceTierOverride":        config.NormalizeCodexServiceTierOverride("responses", up.ServiceType, up.CodexServiceTierOverride),
 				"responsesEncryptedReasoningMode": config.NormalizeResponsesEncryptedReasoningMode("responses", up.ServiceType, up.ResponsesEncryptedReasoningMode),
 				"responsesWebSocketEnabled":       up.ResponsesWebSocketEnabled,
+				"continueThinkingEnabled":         up.ContinueThinkingEnabled,
 				"latency":                         nil,
 				"status":                          status,
 				"priority":                        priority,

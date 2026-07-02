@@ -369,9 +369,9 @@ func (s *DBConfigStorage) insertChannelTx(tx *database.Tx, channelType string, i
 				response_header_timeout, quota_type, quota_limit, quota_reset_at,
 				quota_reset_interval, quota_reset_unit, quota_reset_mode,
 				rate_limit_rpm, queue_enabled, queue_timeout, key_load_balance,
-				api_keys, model_mapping, price_multipliers, oauth_tokens, codex_service_tier_override, responses_websocket_enabled, responses_encrypted_reasoning_mode,
+				api_keys, model_mapping, price_multipliers, oauth_tokens, codex_service_tier_override, responses_websocket_enabled, responses_encrypted_reasoning_mode, continue_thinking_enabled,
 				quota_models, composite_mappings, content_filter
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33)
 		`
 	} else {
 		query = `
@@ -381,9 +381,9 @@ func (s *DBConfigStorage) insertChannelTx(tx *database.Tx, channelType string, i
 				response_header_timeout, quota_type, quota_limit, quota_reset_at,
 				quota_reset_interval, quota_reset_unit, quota_reset_mode,
 				rate_limit_rpm, queue_enabled, queue_timeout, key_load_balance,
-				api_keys, model_mapping, price_multipliers, oauth_tokens, codex_service_tier_override, responses_websocket_enabled, responses_encrypted_reasoning_mode,
+				api_keys, model_mapping, price_multipliers, oauth_tokens, codex_service_tier_override, responses_websocket_enabled, responses_encrypted_reasoning_mode, continue_thinking_enabled,
 				quota_models, composite_mappings, content_filter
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`
 	}
 
@@ -395,7 +395,7 @@ func (s *DBConfigStorage) insertChannelTx(tx *database.Tx, channelType string, i
 		upstream.QuotaResetInterval, upstream.QuotaResetUnit, upstream.QuotaResetMode,
 		upstream.RateLimitRpm, upstream.QueueEnabled, upstream.QueueTimeout,
 		upstream.KeyLoadBalance, string(apiKeys), string(modelMapping),
-		string(priceMultipliers), string(oauthTokens), codexServiceTierOverride, upstream.ResponsesWebSocketEnabled, responsesEncryptedReasoningMode, string(quotaModels),
+		string(priceMultipliers), string(oauthTokens), codexServiceTierOverride, upstream.ResponsesWebSocketEnabled, responsesEncryptedReasoningMode, upstream.ContinueThinkingEnabled, string(quotaModels),
 		string(compositeMappings), string(contentFilter),
 	)
 	return err
@@ -516,7 +516,7 @@ func (s *DBConfigStorage) loadChannelsFrom(q channelQuerier, channelType string)
 			response_header_timeout, quota_type, quota_limit, quota_reset_at,
 			quota_reset_interval, quota_reset_unit, quota_reset_mode,
 			rate_limit_rpm, queue_enabled, queue_timeout, key_load_balance,
-			api_keys, model_mapping, price_multipliers, oauth_tokens, codex_service_tier_override, responses_websocket_enabled, responses_encrypted_reasoning_mode,
+			api_keys, model_mapping, price_multipliers, oauth_tokens, codex_service_tier_override, responses_websocket_enabled, responses_encrypted_reasoning_mode, continue_thinking_enabled,
 			quota_models, composite_mappings, content_filter
 		FROM channels
 		WHERE channel_type = ?
@@ -529,7 +529,7 @@ func (s *DBConfigStorage) loadChannelsFrom(q channelQuerier, channelType string)
 				response_header_timeout, quota_type, quota_limit, quota_reset_at,
 				quota_reset_interval, quota_reset_unit, quota_reset_mode,
 				rate_limit_rpm, queue_enabled, queue_timeout, key_load_balance,
-				api_keys, model_mapping, price_multipliers, oauth_tokens, codex_service_tier_override, responses_websocket_enabled, responses_encrypted_reasoning_mode,
+				api_keys, model_mapping, price_multipliers, oauth_tokens, codex_service_tier_override, responses_websocket_enabled, responses_encrypted_reasoning_mode, continue_thinking_enabled,
 				quota_models, composite_mappings, content_filter
 			FROM channels
 			WHERE channel_type = $1
@@ -571,6 +571,7 @@ func (s *DBConfigStorage) loadChannelsFrom(q channelQuerier, channelType string)
 			codexServiceTierOverride sql.NullString
 			responsesWebSocket       bool
 			encryptedReasoningMode   sql.NullString
+			continueThinking         bool
 			quotaModelsJSON          sql.NullString
 			compositeMappingsJSON    sql.NullString
 			contentFilterJSON        sql.NullString
@@ -583,7 +584,7 @@ func (s *DBConfigStorage) loadChannelsFrom(q channelQuerier, channelType string)
 			&quotaResetInterval, &quotaResetUnit, &quotaResetMode,
 			&rateLimitRpm, &queueEnabled, &queueTimeout, &keyLoadBalance,
 			&apiKeysJSON, &modelMappingJSON, &priceMultipliersJSON, &oauthTokensJSON, &codexServiceTierOverride,
-			&responsesWebSocket, &encryptedReasoningMode, &quotaModelsJSON, &compositeMappingsJSON, &contentFilterJSON,
+			&responsesWebSocket, &encryptedReasoningMode, &continueThinking, &quotaModelsJSON, &compositeMappingsJSON, &contentFilterJSON,
 		)
 		if err != nil {
 			log.Printf("⚠️ Failed to scan channel: %v", err)
@@ -612,6 +613,7 @@ func (s *DBConfigStorage) loadChannelsFrom(q channelQuerier, channelType string)
 			QueueTimeout:              queueTimeout,
 			KeyLoadBalance:            keyLoadBalance.String,
 			ResponsesWebSocketEnabled: responsesWebSocket,
+			ContinueThinkingEnabled:   continueThinking,
 		}
 
 		// Parse promotion until
@@ -903,9 +905,9 @@ func (s *DBConfigStorage) updateChannelTx(tx *database.Tx, channelType string, c
 				queue_enabled = $18, queue_timeout = $19, key_load_balance = $20,
 				api_keys = $21, model_mapping = $22, price_multipliers = $23,
 				oauth_tokens = $24, codex_service_tier_override = $25, responses_websocket_enabled = $26,
-				responses_encrypted_reasoning_mode = $27, quota_models = $28, composite_mappings = $29, content_filter = $30,
+				responses_encrypted_reasoning_mode = $27, continue_thinking_enabled = $28, quota_models = $29, composite_mappings = $30, content_filter = $31,
 				updated_at = CURRENT_TIMESTAMP
-			WHERE channel_id = $31 AND channel_type = $32
+			WHERE channel_id = $32 AND channel_type = $33
 		`
 	} else {
 		query = `
@@ -918,7 +920,7 @@ func (s *DBConfigStorage) updateChannelTx(tx *database.Tx, channelType string, c
 				queue_enabled = ?, queue_timeout = ?, key_load_balance = ?,
 				api_keys = ?, model_mapping = ?, price_multipliers = ?,
 				oauth_tokens = ?, codex_service_tier_override = ?, responses_websocket_enabled = ?,
-				responses_encrypted_reasoning_mode = ?, quota_models = ?, composite_mappings = ?, content_filter = ?,
+				responses_encrypted_reasoning_mode = ?, continue_thinking_enabled = ?, quota_models = ?, composite_mappings = ?, content_filter = ?,
 				updated_at = CURRENT_TIMESTAMP
 			WHERE channel_id = ? AND channel_type = ?
 		`
@@ -932,7 +934,7 @@ func (s *DBConfigStorage) updateChannelTx(tx *database.Tx, channelType string, c
 		upstream.QuotaResetUnit, upstream.QuotaResetMode, upstream.RateLimitRpm,
 		upstream.QueueEnabled, upstream.QueueTimeout, upstream.KeyLoadBalance,
 		string(apiKeys), string(modelMapping), string(priceMultipliers),
-		string(oauthTokens), codexServiceTierOverride, upstream.ResponsesWebSocketEnabled, responsesEncryptedReasoningMode,
+		string(oauthTokens), codexServiceTierOverride, upstream.ResponsesWebSocketEnabled, responsesEncryptedReasoningMode, upstream.ContinueThinkingEnabled,
 		string(quotaModels), string(compositeMappings), string(contentFilter),
 		channelID, channelType,
 	)

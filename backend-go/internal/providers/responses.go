@@ -127,6 +127,13 @@ func (p *ResponsesProvider) ConvertToProviderRequest(
 	return req, bodyBytes, nil
 }
 
+// BuildTargetURL is the exported accessor for buildTargetURL, used by the
+// continue-thinking continuation-round opener to rebuild a Responses request
+// with the exact same URL logic as round 1.
+func (p *ResponsesProvider) BuildTargetURL(upstream *config.UpstreamConfig, model string, stream bool) string {
+	return p.buildTargetURL(upstream, model, stream)
+}
+
 // buildTargetURL 根据上游类型构建目标 URL
 // 智能拼接逻辑：
 // 1. 如果 baseURL 已包含版本号后缀（如 /v1, /v2, /v8, /v1beta），直接拼接端点路径

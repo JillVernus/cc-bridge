@@ -15,6 +15,7 @@ import (
 	"github.com/JillVernus/cc-bridge/internal/apikey"
 	"github.com/JillVernus/cc-bridge/internal/auth/codex"
 	"github.com/JillVernus/cc-bridge/internal/config"
+	"github.com/JillVernus/cc-bridge/internal/continuethinking"
 	"github.com/JillVernus/cc-bridge/internal/converters"
 	"github.com/JillVernus/cc-bridge/internal/httpclient"
 	"github.com/JillVernus/cc-bridge/internal/middleware"
@@ -830,6 +831,14 @@ func tryResponsesChannelWithAllKeys(
 			log.Printf("⚠️ [Responses] failed to resolve effective service tier: %v", err)
 		}
 
+		// Continue-thinking fold requires round 1 to carry encrypted reasoning
+		// so the truncation round is replayable. Force the include here (mirrors
+		// CodexCont's build_round_payload on round 1), independent of the channel's
+		// responsesEncryptedReasoningMode.
+		if upstream.ContinueThinkingEnabled && continueThinkingApplies(upstream) {
+			effectiveBodyBytes = ensureContinueThinkingInclude(effectiveBodyBytes)
+		}
+
 		c.Request.Body = io.NopCloser(bytes.NewReader(effectiveBodyBytes))
 
 		var apiKey string
@@ -913,7 +922,7 @@ func tryResponsesChannelWithAllKeys(
 							if failoverTracker != nil {
 								failoverTracker.ResetOnSuccess(upstream.Index, apiKey)
 							}
-							handleResponsesSuccess(c, compatResp, provider, upstream, envCfg, cfgManager, sessionManager, currentStartTime, &responsesReq, sanitizedBodyBytes, reqLogManager, currentRequestLogID, usageManager, logChannelIndex, logChannelName, effectiveIsFastMode, serviceTierOverridden)
+							handleResponsesSuccess(c, compatResp, provider, upstream, envCfg, cfgManager, sessionManager, currentStartTime, &responsesReq, sanitizedBodyBytes, reqLogManager, currentRequestLogID, usageManager, logChannelIndex, logChannelName, effectiveIsFastMode, serviceTierOverridden, maybeContinueThinkingOpener(upstream, &ctRequestContext{c: c, cfgManager: cfgManager, upstream: upstream, envCfg: envCfg, responsesReq: responsesReq}))
 							return true, nil, currentRequestLogID
 						} else {
 							respBodyBytes, _ = io.ReadAll(compatResp.Body)
@@ -1342,7 +1351,7 @@ func tryResponsesChannelWithAllKeys(
 			failoverTracker.ResetOnSuccess(upstream.Index, apiKey)
 		}
 
-		handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, currentStartTime, &responsesReq, effectiveBodyBytes, reqLogManager, currentRequestLogID, usageManager, logChannelIndex, logChannelName, effectiveIsFastMode, serviceTierOverridden)
+		handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, currentStartTime, &responsesReq, effectiveBodyBytes, reqLogManager, currentRequestLogID, usageManager, logChannelIndex, logChannelName, effectiveIsFastMode, serviceTierOverridden, nil)
 		return true, nil, currentRequestLogID
 	}
 
@@ -1465,7 +1474,7 @@ func tryResponsesChannelWithOAuth(
 	}
 
 	// 构建 OAuth 请求
-	providerReq, requestServiceTierOverridden, err := buildCodexOAuthRequest(c, cfgManager, upstream, effectiveBodyBytes, responsesReq, accessToken, accountID, true)
+	providerReq, requestServiceTierOverridden, err := buildCodexOAuthRequest(c, cfgManager, upstream, effectiveBodyBytes, responsesReq, accessToken, accountID, true, false)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to build OAuth request: %s", err.Error())
 		log.Printf("⚠️ [OAuth] 构建请求失败: %v", err)
@@ -1544,7 +1553,10 @@ func tryResponsesChannelWithOAuth(
 	quota.GetManager().UpdateFromHeadersForChannel(quotaChannelIndex, quotaStableID, quotaChannelName, resp.Header)
 
 	provider := &providers.ResponsesProvider{SessionManager: sessionManager}
-	handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, startTime, &responsesReq, effectiveBodyBytes, reqLogManager, requestLogID, usageManager, logChannelIndex, logChannelName, effectiveIsFastMode, serviceTierOverridden)
+	ctOpener := maybeContinueThinkingOpener(upstream, &ctRequestContext{
+		c: c, cfgManager: cfgManager, upstream: upstream, envCfg: envCfg, responsesReq: responsesReq,
+	})
+	handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, startTime, &responsesReq, effectiveBodyBytes, reqLogManager, requestLogID, usageManager, logChannelIndex, logChannelName, effectiveIsFastMode, serviceTierOverridden, ctOpener)
 	return true, nil
 }
 
@@ -1558,6 +1570,7 @@ func buildCodexOAuthRequest(
 	accessToken string,
 	accountID string,
 	applyModelRedirect bool,
+	preserveEncryptedReasoning bool, // true for continue-thinking continuation rounds: keep replayed encrypted reasoning (skip the OAuth sanitizer)
 ) (*http.Request, bool, error) {
 	// 解析请求体为 map 以保留所有字段
 	var reqMap map[string]interface{}
@@ -1578,14 +1591,16 @@ func buildCodexOAuthRequest(
 	// both names here for this OAuth-specific endpoint.
 	delete(reqMap, "max_output_tokens")
 	delete(reqMap, "max_tokens")
-	sanitizeCodexOAuthEncryptedReasoningState(reqMap)
+	if !preserveEncryptedReasoning {
+		sanitizeCodexOAuthEncryptedReasoningState(reqMap)
+	}
 
 	// ChatGPT Codex OAuth endpoint requires explicit opt-out of server-side
 	// storage. Preserve all other fields, but force `store: false` for both
 	// direct `/v1/responses` OAuth requests and `/v1/messages` bridge requests.
 	reqMap["store"] = false
 
-	if config.ShouldIncludeResponsesEncryptedReasoning("responses", upstream.ServiceType, upstream.ResponsesEncryptedReasoningMode) {
+	if config.ShouldIncludeResponsesEncryptedReasoning("responses", upstream.ServiceType, upstream.ResponsesEncryptedReasoningMode) || upstream.ContinueThinkingEnabled {
 		utils.EnsureResponsesEncryptedReasoningInclude(reqMap)
 	}
 
@@ -1985,6 +2000,14 @@ func handleSingleChannelResponses(
 			log.Printf("⚠️ [Responses] failed to resolve effective service tier: %v", err)
 		}
 
+		// Continue-thinking fold requires round 1 to carry encrypted reasoning
+		// so the truncation round is replayable. Force the include here (mirrors
+		// CodexCont's build_round_payload on round 1), independent of the channel's
+		// responsesEncryptedReasoningMode.
+		if upstream.ContinueThinkingEnabled && continueThinkingApplies(upstream) {
+			effectiveBodyBytes = ensureContinueThinkingInclude(effectiveBodyBytes)
+		}
+
 		c.Request.Body = io.NopCloser(bytes.NewReader(effectiveBodyBytes))
 
 		var apiKey string
@@ -2095,7 +2118,7 @@ func handleSingleChannelResponses(
 								failoverTracker.ResetOnSuccess(upstream.Index, apiKey)
 							}
 							recordSingleSuccess(compatResp.StatusCode)
-							handleResponsesSuccess(c, compatResp, provider, upstream, envCfg, cfgManager, sessionManager, currentStartTime, &responsesReq, sanitizedBodyBytes, reqLogManager, currentRequestLogID, usageManager, logChannelIndex, logChannelName, effectiveIsFastMode, serviceTierOverridden)
+							handleResponsesSuccess(c, compatResp, provider, upstream, envCfg, cfgManager, sessionManager, currentStartTime, &responsesReq, sanitizedBodyBytes, reqLogManager, currentRequestLogID, usageManager, logChannelIndex, logChannelName, effectiveIsFastMode, serviceTierOverridden, maybeContinueThinkingOpener(upstream, &ctRequestContext{c: c, cfgManager: cfgManager, upstream: upstream, envCfg: envCfg, responsesReq: responsesReq}))
 							return
 						} else {
 							respBodyBytes, _ = io.ReadAll(compatResp.Body)
@@ -2561,7 +2584,7 @@ func handleSingleChannelResponses(
 		}
 
 		recordSingleSuccess(resp.StatusCode)
-		handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, currentStartTime, &responsesReq, effectiveBodyBytes, reqLogManager, currentRequestLogID, usageManager, logChannelIndex, logChannelName, effectiveIsFastMode, serviceTierOverridden)
+		handleResponsesSuccess(c, resp, provider, upstream, envCfg, cfgManager, sessionManager, currentStartTime, &responsesReq, effectiveBodyBytes, reqLogManager, currentRequestLogID, usageManager, logChannelIndex, logChannelName, effectiveIsFastMode, serviceTierOverridden, maybeContinueThinkingOpener(upstream, &ctRequestContext{c: c, cfgManager: cfgManager, upstream: upstream, envCfg: envCfg, responsesReq: responsesReq, provider: provider, apiKey: apiKey}))
 		return
 	}
 
@@ -2700,6 +2723,7 @@ func handleResponsesSuccess(
 	logChannelName string,
 	isFastMode bool,
 	serviceTierOverridden bool,
+	ctOpener continuethinking.RoundOpener, // nil = continue-thinking disabled / ineligible
 ) {
 	if strings.TrimSpace(logChannelName) == "" {
 		logChannelName = strings.TrimSpace(upstream.Name)
@@ -2734,6 +2758,14 @@ func handleResponsesSuccess(
 		c.Header("Cache-Control", "no-cache")
 		c.Header("Connection", "keep-alive")
 		c.Header("X-Accel-Buffering", "no")
+
+		// Continue-thinking fold: when enabled for this channel, fold multiple
+		// upstream rounds into one downstream SSE response. The fold consumes
+		// resp.Body and finalizes per-round request logs itself.
+		if ctOpener != nil && continueThinkingApplies(upstream) {
+			runContinueThinkingFold(c, resp, envCfg, cfgManager, originalReq, originalRequestJSON, reqLogManager, requestLogID, usageManager, upstream, logChannelIndex, logChannelName, isFastMode, effectiveServiceTier, serviceTierOverridden, startTime, ctOpener)
+			return
+		}
 
 		// 创建流式内容合成器（仅在开发模式并开启响应日志时）
 		var synthesizer *utils.StreamSynthesizer

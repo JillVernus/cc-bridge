@@ -4,6 +4,27 @@
 
 ---
 
+## [v1.5.68] - 2026-07-02
+
+### ✨ 功能
+
+- **Continue-Thinking（Codex 推理截断折叠）**:
+  - 新增独立包 `internal/continuethinking/`，检测 Codex 推理 token 截断指纹（`518n-2`：516/1034/1552…），静默请求模型继续思考，将多轮上游流式响应折叠为一条下游 SSE。
+  - 渠道级开关 `continueThinkingEnabled`，仅对原生 Responses 池渠道（`responses` / `openai-oauth`）条件显示。默认关闭（每轮续接产生额外费用）。
+  - **传输层无关折叠引擎**：将折叠状态机重构为 `Driver` 接口（`ReadRound`/`OpenContinuation`/`Emit`/`EmitDone`），SSE（HTTP）与 WebSocket 两种传输复用同一引擎。
+  - **WebSocket 传输支持**：`/v1/responses` WebSocket 通道启用后同样折叠续接轮次——拦截上游帧，在同一连接上注入隐藏 `response.create` 续接帧，将 N 轮折叠为一条下游响应，客户端不再收到截断的推理内容。
+  - 主请求日志仍为每个上游轮次保留独立条目（N 轮折叠 → N 行日志），续接轮次通过 `FailoverInfo` 标记 `continue_thinking round N` 以便区分。
+  - 续接轮次通过 `commentary` 隐藏消息触发，保留重放的加密推理内容（绕过 OAuth sanitizer）。
+  - 设计与实现隔离，便于后续快速移除：删除 `internal/continuethinking/` + 取消 `responses.go` 中两处接线即可。
+
+### ✅ 验证
+
+- `go build ./...` / `go vet` 通过
+- `go test ./internal/...` 通过
+- `bun run type-check` 通过
+
+---
+
 ## [v1.5.67] - 2026-06-20
 
 ### ✨ 功能

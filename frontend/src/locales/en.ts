@@ -269,6 +269,8 @@ export default {
       'Adds encrypted reasoning content for native Responses channels. Leave on Auto unless this upstream rejects the field.',
     responsesWebSocket: 'Responses WebSocket',
     responsesWebSocketHint: 'Enable for Codex/Responses-compatible channels whose upstream supports WebSocket.',
+    continueThinking: 'Continue Thinking',
+    continueThinkingHint: 'Fold multiple upstream rounds to bypass Codex reasoning-token truncation. Incurrs extra cost per continuation round.',
     description: 'Description (optional)',
     descriptionHint: 'Optional channel description...',
     modelRedirect: 'Model Redirect (optional)',

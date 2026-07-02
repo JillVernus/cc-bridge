@@ -250,6 +250,7 @@ func TestHandleResponsesSuccess_StreamRecordsFirstToken(t *testing.T) {
 				"responses-2",
 				false,
 				false,
+				nil,
 			)
 
 			got, err := reqLogManager.GetByID(requestLogID)
@@ -334,6 +335,7 @@ func TestHandleResponsesSuccess_UsesFirstStreamPayloadWhenResponsesDeltaArrivesL
 		"responses-2",
 		false,
 		false,
+	nil,
 	)
 
 	got := mustGetRecentLogByID(t, reqLogManager, requestLogID)
@@ -427,6 +429,7 @@ func TestHandleResponsesSuccess_FinalizationOnlyStreamDoesNotRecordFirstToken(t 
 				"responses-2",
 				false,
 				false,
+				nil,
 			)
 
 			got := mustGetRecentLogByID(t, reqLogManager, requestLogID)
@@ -495,6 +498,7 @@ func TestHandleResponsesSuccess_TerminalCompletedOutputDoesNotRecordFirstToken(t
 		"responses-2",
 		false,
 		false,
+	nil,
 	)
 
 	got := mustGetRecentLogByID(t, reqLogManager, requestLogID)
@@ -572,6 +576,7 @@ func TestHandleResponsesSuccess_CompletesAfterResponsesTerminalEventWithoutEOF(t
 			"responses-2",
 			false,
 			false,
+			nil,
 		)
 		close(done)
 	}()
@@ -656,6 +661,7 @@ func TestHandleResponsesSuccess_StoresPriorityServiceTierForFastMode(t *testing.
 		"responses-2",
 		true,
 		false,
+		nil,
 	)
 
 	got, err := reqLogManager.GetByID(requestLogID)
@@ -722,6 +728,7 @@ func TestHandleResponsesSuccess_PreservesDowngradedDefaultServiceTier(t *testing
 		"responses-2",
 		false,
 		true,
+		nil,
 	)
 
 	got, err := reqLogManager.GetByID(requestLogID)

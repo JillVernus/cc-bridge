@@ -71,6 +71,7 @@ func TestBuildCodexOAuthRequest_ForcesStoreFalse(t *testing.T) {
 				"access-token",
 				"account-1",
 				false,
+				false,
 			)
 			if err != nil {
 				t.Fatalf("buildCodexOAuthRequest returned error: %v", err)
@@ -135,6 +136,7 @@ func TestBuildCodexOAuthRequest_StripsEncryptedReasoningState(t *testing.T) {
 		types.ResponsesRequest{Model: "gpt-5.4", Stream: true},
 		"access-token",
 		"account-1",
+		false,
 		false,
 	)
 	if err != nil {
@@ -289,6 +291,7 @@ func TestBuildCodexOAuthRequest_AppliesCodexPriorityOverride(t *testing.T) {
 				responsesReq,
 				"access-token",
 				"account-1",
+				false,
 				false,
 			)
 			if err != nil {

@@ -147,6 +147,18 @@ func normalizeUpstreamResponsesWebSocket(channelType string, upstream *UpstreamC
 	}
 }
 
+// normalizeUpstreamContinueThinking zeroes the continue-thinking toggle for any
+// channel that is not a native Responses-pool channel (responses / openai-oauth),
+// matching the eligibility gate used by the fold at request time.
+func normalizeUpstreamContinueThinking(channelType string, upstream *UpstreamConfig) {
+	if upstream == nil {
+		return
+	}
+	if !isNativeResponsesPoolChannel(channelType, upstream.ServiceType) {
+		upstream.ContinueThinkingEnabled = false
+	}
+}
+
 func normalizeConfigCodexServiceTierOverrides(cfg *Config) {
 	if cfg == nil {
 		return
@@ -156,21 +168,25 @@ func normalizeConfigCodexServiceTierOverrides(cfg *Config) {
 		normalizeUpstreamCodexServiceTierOverride("messages", &cfg.Upstream[i])
 		normalizeUpstreamResponsesEncryptedReasoningMode("messages", &cfg.Upstream[i])
 		normalizeUpstreamResponsesWebSocket("messages", &cfg.Upstream[i])
+		normalizeUpstreamContinueThinking("messages", &cfg.Upstream[i])
 	}
 	for i := range cfg.ResponsesUpstream {
 		normalizeUpstreamCodexServiceTierOverride("responses", &cfg.ResponsesUpstream[i])
 		normalizeUpstreamResponsesEncryptedReasoningMode("responses", &cfg.ResponsesUpstream[i])
 		normalizeUpstreamResponsesWebSocket("responses", &cfg.ResponsesUpstream[i])
+		normalizeUpstreamContinueThinking("responses", &cfg.ResponsesUpstream[i])
 	}
 	for i := range cfg.GeminiUpstream {
 		normalizeUpstreamCodexServiceTierOverride("gemini", &cfg.GeminiUpstream[i])
 		normalizeUpstreamResponsesEncryptedReasoningMode("gemini", &cfg.GeminiUpstream[i])
 		normalizeUpstreamResponsesWebSocket("gemini", &cfg.GeminiUpstream[i])
+		normalizeUpstreamContinueThinking("gemini", &cfg.GeminiUpstream[i])
 	}
 	for i := range cfg.ChatUpstream {
 		normalizeUpstreamCodexServiceTierOverride("chat", &cfg.ChatUpstream[i])
 		normalizeUpstreamResponsesEncryptedReasoningMode("chat", &cfg.ChatUpstream[i])
 		normalizeUpstreamResponsesWebSocket("chat", &cfg.ChatUpstream[i])
+		normalizeUpstreamContinueThinking("chat", &cfg.ChatUpstream[i])
 	}
 }
 
@@ -304,6 +320,11 @@ type UpstreamConfig struct {
 	ResponsesEncryptedReasoningMode string `json:"responsesEncryptedReasoningMode,omitempty"`
 	// Responses WebSocket transport support for compatible Responses-pool channels.
 	ResponsesWebSocketEnabled bool `json:"responsesWebSocketEnabled,omitempty"`
+	// Continue-thinking (Codex reasoning-truncation fold) for native Responses-pool
+	// channels. When enabled, the proxy detects the 518n-2 truncation fingerprint
+	// and silently asks the model to continue thinking, folding multiple upstream
+	// rounds into one downstream SSE response. Isolated in internal/continuethinking.
+	ContinueThinkingEnabled bool `json:"continueThinkingEnabled,omitempty"`
 	// 配额设置（可选）
 	QuotaType          string     `json:"quotaType,omitempty"`          // "requests" | "credit" | "" (无配额)
 	QuotaLimit         float64    `json:"quotaLimit,omitempty"`         // 最大配额值（请求数或金额）
@@ -524,6 +545,8 @@ type UpstreamUpdate struct {
 	ResponsesEncryptedReasoningMode *string `json:"responsesEncryptedReasoningMode"`
 	// Responses WebSocket transport support for compatible Responses-pool channels.
 	ResponsesWebSocketEnabled *bool `json:"responsesWebSocketEnabled"`
+	// Continue-thinking (Codex reasoning-truncation fold) toggle.
+	ContinueThinkingEnabled *bool `json:"continueThinkingEnabled"`
 	// 配额设置
 	QuotaType          *string    `json:"quotaType"`
 	QuotaLimit         *float64   `json:"quotaLimit"`
@@ -2931,6 +2954,9 @@ func (cm *ConfigManager) updateResponsesUpstream(index int, updates UpstreamUpda
 	}
 	if updates.ResponsesWebSocketEnabled != nil {
 		upstream.ResponsesWebSocketEnabled = *updates.ResponsesWebSocketEnabled
+	}
+	if updates.ContinueThinkingEnabled != nil {
+		upstream.ContinueThinkingEnabled = *updates.ContinueThinkingEnabled
 	}
 	// 配额设置
 	if updates.QuotaType != nil {

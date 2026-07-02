@@ -140,6 +140,31 @@ func ResponsesWebSocketHandler(
 		unregisterWebSocket := activeResponsesWebSockets.Register(channelIndex, strings.TrimSpace(upstream.ID), clientConn, upstreamConn)
 		defer unregisterWebSocket()
 
+		// Continue-thinking fold: when enabled for a native Responses channel,
+		// intercept upstream frames, silently fire continuation rounds on 518n-2
+		// reasoning truncation, and fold N rounds into ONE downstream response so
+		// the client never sees truncated reasoning. Otherwise raw bidirectional
+		// relay.
+		if upstream.ContinueThinkingEnabled && continueThinkingApplies(upstream) {
+			fc := &wsFoldContext{
+				c:           c,
+				envCfg:      envCfg,
+				cfgManager:  cfgManager,
+				reqLog:      reqLogManager,
+				scheduler:   channelScheduler,
+				upstream:    upstream,
+				channelID:   channelIndex,
+				channelName: strings.TrimSpace(upstream.Name),
+			}
+			err = foldResponsesWebSocketFrames(fc, clientConn, upstreamConn)
+			// The fold performs its own per-round logging; skip the raw tracker's
+			// finalize to avoid a spurious error row.
+			if err != nil && channelScheduler != nil && selection != nil {
+				channelScheduler.RecordFailure(selection.ChannelIndex, true)
+			}
+			return
+		}
+
 		logTracker := newResponsesWebSocketLogTracker(c, cfgManager, reqLogManager, upstream, selection, channelScheduler)
 		err = proxyResponsesWebSocketFrames(clientConn, upstreamConn, logTracker)
 		logTracker.finish(err)
